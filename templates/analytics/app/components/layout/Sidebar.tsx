@@ -26,6 +26,7 @@ import {
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconArrowUpRight,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -94,8 +95,10 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -184,6 +187,7 @@ const bottomItems = [
     icon: IconHierarchy2,
     labelKey: "settings.agentTitle",
     href: "/agent",
+    showExternalLinkIcon: true,
   },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -1263,7 +1267,13 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
+function AnalyticsChatsSection({
+  isAskRoute,
+  open,
+}: {
+  isAskRoute: boolean;
+  open: boolean;
+}) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1365,57 +1375,63 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   }
 
   return (
-    <div className="ms-4 min-w-0 space-y-0.5">
-      {chatsLoading &&
-        visibleThreads.length === 0 &&
-        Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={`chat-skeleton-${i}`}
-            className="flex items-center gap-2 px-3 py-1"
-          >
-            <Skeleton
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 rounded-sm",
-                SIDEBAR_SKELETON_CLASS,
-              )}
-            />
-            <Skeleton
-              className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
-              style={{ width: `${60 + ((i * 17) % 30)}%` }}
-            />
-          </div>
-        ))}
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("sidebar.showMore", {
-            count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
-          }),
-          showLess: t("sidebar.showLess"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) =>
-            t("chat.renameThread", { title: item.titleText ?? "" }),
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4 min-w-0 space-y-0.5">
+        {chatsLoading &&
+          visibleThreads.length === 0 &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={`chat-skeleton-${i}`}
+              className="flex items-center gap-2 px-3 py-1"
+            >
+              <Skeleton
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                  SIDEBAR_SKELETON_CLASS,
+                )}
+              />
+              <Skeleton
+                className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
+                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+              />
+            </div>
+          ))}
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("sidebar.showMore", {
+              count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
+            }),
+            showLess: t("sidebar.showLess"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -2096,6 +2112,63 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     },
   ];
 
+  const footerSearch = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {t("sidebar.searchShortcut", {
+          shortcut: `${shortcutModifierLabel()}+K`,
+        })}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const footerTranslate = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const footerCollapse = !mobile ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setSidebarCollapsed(!effectiveCollapsed)}
+          aria-label={
+            effectiveCollapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          {effectiveCollapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {effectiveCollapsed
+          ? t("sidebar.expandSidebar")
+          : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const footerFeedback = (
+    <FeedbackButton
+      variant={effectiveCollapsed ? "icon" : "sidebar"}
+      side="right"
+      className={effectiveCollapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
@@ -2111,24 +2184,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <div className="flex h-12 shrink-0 items-center justify-center border-b border-border px-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSidebarCollapsed(false)}
-                  aria-label={t("sidebar.expandSidebar")}
-                  className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-                >
-                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.expandSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-
           <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
@@ -2154,6 +2209,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               );
             })}
           </nav>
+          <SidebarFooterActions
+            collapsed
+            feedback={footerFeedback}
+            translate={footerTranslate}
+            search={footerSearch}
+            collapse={footerCollapse}
+          />
         </>
       ) : (
         <>
@@ -2178,23 +2240,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 {t("navigation.brand")}
               </span>
             </Link>
-            {!mobile && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarCollapsed(true)}
-                    aria-label={t("sidebar.collapseSidebar")}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-                  >
-                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t("sidebar.collapseSidebar")}
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
@@ -2248,7 +2293,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
+                {askOpen && isAskRoute ? (
+                  <AnalyticsChatsSection isAskRoute open />
+                ) : null}
               </div>
 
               {/* Sessions link */}
@@ -2525,7 +2572,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       )}
                     >
                       <Icon className="h-4 w-4" />
-                      {t(item.labelKey)}
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="truncate">{t(item.labelKey)}</span>
+                        {item.showExternalLinkIcon && (
+                          <IconArrowUpRight
+                            aria-hidden="true"
+                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                          />
+                        )}
+                      </span>
                     </Link>
                   );
                 })}
@@ -2533,42 +2588,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
               <div className="space-y-2 pt-2">
                 <OrgSwitcher />
+                <DevDatabaseLink />
                 <TooltipProvider delayDuration={200}>
-                  <div className="flex items-center justify-end gap-1">
-                    <DevDatabaseLink />
-                    <FeedbackButton className="min-w-0 flex-1" />
-                    <div className="flex shrink-0 items-center gap-0.5">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() =>
-                              window.dispatchEvent(
-                                new CustomEvent(
-                                  "analytics:open-command-palette",
-                                ),
-                              )
-                            }
-                            aria-label={t("sidebar.search")}
-                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
-                          >
-                            <IconSearch className="h-4 w-4" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>
-                            {t("sidebar.searchShortcut", {
-                              shortcut: `${shortcutModifierLabel()}+K`,
-                            })}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                      <LanguagePicker
-                        variant="icon"
-                        label={t("settings.languageLabel")}
-                        className="[&_[data-language-picker-trigger]]:rounded-lg [&_[data-language-picker-trigger]]:border-0 [&_[data-language-picker-trigger]]:bg-transparent [&_[data-language-picker-trigger]]:text-muted-foreground [&_[data-language-picker-trigger]]:hover:bg-sidebar-accent/50 [&_[data-language-picker-trigger]]:hover:text-primary"
-                      />
-                    </div>
-                  </div>
+                  <SidebarFooterActions
+                    feedback={footerFeedback}
+                    translate={footerTranslate}
+                    search={footerSearch}
+                    collapse={footerCollapse}
+                    className="px-0 py-0"
+                  />
                 </TooltipProvider>
               </div>
             </div>

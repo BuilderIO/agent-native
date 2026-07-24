@@ -371,7 +371,7 @@ export function SqlChartCard({
         data-dashboard-report-panel-id={panel.id}
         data-dashboard-report-panel-title={panel.title}
         className={cn(
-          "dashboard-extension-card group relative h-full rounded-lg border border-transparent transition-colors",
+          "dashboard-extension-card group relative h-full rounded-lg transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
         )}
       >

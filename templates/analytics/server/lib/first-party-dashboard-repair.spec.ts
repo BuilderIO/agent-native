@@ -55,6 +55,8 @@ import {
   FIRST_PARTY_DASHBOARD_ID,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+  LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+  LEGACY_SIGNUPS_OVER_TIME_SQL,
   buildPanel,
 } from "./first-party-metric-catalog";
 
@@ -291,6 +293,28 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("repairs the exact legacy seeded signups date-fill query", async () => {
+    const signups = requiredFirstPartyPanel("signups-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [{ ...signups, sql: LEGACY_SEED_SIGNUPS_OVER_TIME_SQL }],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      signups.sql,
+    );
+  });
+
   it("repairs only the exact live custom new-vs-recurring panel", async () => {
     const row = legacyRow({
       config: JSON.stringify({
@@ -373,6 +397,17 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
           {
             id: "new-vs-recurring-users",
             sql: `${LEGACY_NEW_VS_RECURRING_USERS_SQL} `,
+          },
+        ],
+      }),
+    ],
+    [
+      "a changed custom signups date-fill query",
+      JSON.stringify({
+        panels: [
+          {
+            id: "signups-over-time",
+            sql: `${LEGACY_SIGNUPS_OVER_TIME_SQL} `,
           },
         ],
       }),

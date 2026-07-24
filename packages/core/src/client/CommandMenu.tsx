@@ -576,6 +576,14 @@ CommandMenu.Separator = CommandSeparator;
 
 // ─── Keyboard Hook ──────────────────────────────────────────────────────────
 
+export const COMMAND_MENU_OPEN_EVENT = "agent-native:open-command-menu";
+
+export function openCommandMenu() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(COMMAND_MENU_OPEN_EVENT));
+  }
+}
+
 /**
  * Hook to handle Cmd+K (or Ctrl+K) to open the command menu
  */
@@ -601,10 +609,14 @@ export function useCommandMenuShortcut(
         onOpen();
       }
     };
+    const handleOpenRequest = () => onOpen();
     const useCapture = Boolean(options.allowContentEditable);
     document.addEventListener("keydown", handleKeyDown, useCapture);
-    return () =>
+    window.addEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
+    return () => {
       document.removeEventListener("keydown", handleKeyDown, useCapture);
+      window.removeEventListener(COMMAND_MENU_OPEN_EVENT, handleOpenRequest);
+    };
   }, [onOpen, options.allowContentEditable]);
 }
 

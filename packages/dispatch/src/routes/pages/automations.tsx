@@ -206,7 +206,7 @@ export default function AutomationsRoute() {
           <CreateAutomationButton />
         </div>
 
-        <div className="divide-y rounded-lg border bg-card">
+        <div className="divide-y rounded-lg bg-card">
           {automationsQuery.isLoading && ordered.length === 0 ? (
             Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="px-4 py-3">

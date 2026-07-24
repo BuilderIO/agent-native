@@ -1,8 +1,10 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconHierarchy2,
   IconCalendar,
@@ -22,6 +24,7 @@ import {
   IconEyeOff,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -703,6 +706,61 @@ export function Sidebar({
     onClose();
   }
 
+  const collapseButton = onCollapsedChange ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground"
+          onClick={() => onCollapsedChange(!collapsed)}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <>
       {/* Mobile overlay */}
@@ -728,25 +786,7 @@ export function Sidebar({
             collapsed ? "px-1" : "px-4",
           )}
         >
-          {collapsed && onCollapsedChange ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 shrink-0 text-muted-foreground"
-                  onClick={() => onCollapsedChange(false)}
-                  aria-label={t("sidebar.expandSidebar")}
-                >
-                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.expandSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
+          {!collapsed && (
             <>
               <Link
                 to="/"
@@ -769,35 +809,6 @@ export function Sidebar({
                   {t("navigation.brand")}
                 </span>
               </Link>
-              {onCollapsedChange ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-muted-foreground"
-                      onClick={() => onCollapsedChange(!collapsed)}
-                      aria-label={
-                        collapsed
-                          ? t("sidebar.expandSidebar")
-                          : t("sidebar.collapseSidebar")
-                      }
-                    >
-                      {collapsed ? (
-                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                      ) : (
-                        <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {collapsed
-                      ? t("sidebar.expandSidebar")
-                      : t("sidebar.collapseSidebar")}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
             </>
           )}
         </div>
@@ -1173,9 +1184,6 @@ export function Sidebar({
 
             <div className="flex items-center gap-1 px-1.5 py-1.5">
               <DevDatabaseLink />
-              <div className="min-w-0 flex-1">
-                <FeedbackButton className="px-3 py-2" />
-              </div>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1202,6 +1210,13 @@ export function Sidebar({
             </div>
           </div>
         ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </aside>
     </>
   );

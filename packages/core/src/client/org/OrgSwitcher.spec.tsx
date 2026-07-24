@@ -4,10 +4,13 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
+
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
+  appLinks: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -45,13 +48,7 @@ vi.mock("./workspace-app-links.js", async (importOriginal) => {
     await importOriginal<typeof import("./workspace-app-links.js")>();
   return {
     ...actual,
-    useOrgSwitcherAppLinks: () => ({
-      apps: [],
-      dispatchAllAppsHref: "/dispatch/apps",
-      dispatchHref: "/dispatch",
-      isLoading: false,
-      isWorkspace: false,
-    }),
+    useOrgSwitcherAppLinks: () => mocks.appLinks(),
   };
 });
 
@@ -66,7 +63,15 @@ describe("OrgSwitcher", () => {
     mocks.useOrg.mockReset();
     mocks.useSession.mockReset();
     mocks.navigate.mockReset();
+    mocks.appLinks.mockReset();
     mocks.useSession.mockReturnValue({ session: null, isLoading: false });
+    mocks.appLinks.mockReturnValue({
+      apps: [],
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch",
+      isLoading: false,
+      isWorkspace: false,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -178,5 +183,85 @@ describe("OrgSwitcher", () => {
     });
 
     expect(mocks.navigate).toHaveBeenCalledWith("/settings#account");
+  });
+
+  it("keeps Dispatch flat and shows descriptions in the apps submenu", () => {
+    const apps: OrgSwitcherAppLink[] = [
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        href: "/dispatch/overview",
+        description: "Routes work across the workspace",
+        isDispatch: true,
+        status: "ready",
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        href: "/analytics",
+        description: "Connect data sources and prompt for charts",
+        isDispatch: false,
+        status: "ready",
+      },
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `app-${index}`,
+        name: `App ${index}`,
+        href: `/app-${index}`,
+        isDispatch: false,
+        status: "ready" as const,
+      })),
+    ];
+    mocks.appLinks.mockReturnValue({
+      apps,
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(document.body.textContent).not.toContain("Default apps");
+    expect(document.body.textContent).not.toContain(
+      "Dispatch is the home base.",
+    );
+    expect(document.body.textContent).toContain(
+      "Routes work across the workspace",
+    );
+    expect(document.body.textContent).toContain(
+      "Connect data sources and prompt for charts",
+    );
+
+    const dispatchLink = Array.from(
+      document.body.querySelectorAll<HTMLAnchorElement>("a"),
+    ).find((link) => link.textContent?.includes("Dispatch"));
+    expect(dispatchLink?.className).not.toContain("border");
+    expect(dispatchLink?.querySelector("span")?.className).not.toContain(
+      "bg-primary",
+    );
+    expect(document.body.textContent).toContain("View 1 more in Dispatch");
   });
 });

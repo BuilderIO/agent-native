@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import * as Sentry from "@sentry/node";
 
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import { createCliTelemetry } from "./telemetry.js";
 
 // Resolve version once at module scope — used by both --version and --help
 let _version = "unknown";
@@ -170,6 +171,12 @@ const BUGS_URL = "https://github.com/BuilderIO/agent-native/issues";
 const command = process.argv[2];
 // Filter out bare "--" separators that pnpm inserts between its args and script args
 const args = process.argv.slice(3).filter((a) => a !== "--");
+const cliTelemetry = createCliTelemetry({
+  cli: "core",
+  cliVersion: _version,
+  command: command ?? "none",
+  interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+});
 
 function parseScaffoldArgs(argv: string[]): {
   name?: string;
@@ -203,13 +210,23 @@ function parseScaffoldArgs(argv: string[]): {
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    void import("../tracking/registry.js")
-      .then((m) => m.track(event, { command, ...props }))
-      .catch(() => undefined);
-    void import("../tracking/providers.js")
-      .then((m) => m.registerBuiltinProviders())
-      .catch(() => undefined);
+    cliTelemetry.track(event, { command, ...props });
   } catch {}
+}
+
+function captureCliException(
+  error: unknown,
+  context?: Parameters<typeof cliTelemetry.captureException>[1],
+): void {
+  try {
+    cliTelemetry.captureException(error, context);
+  } catch {}
+}
+
+function flushTelemetryAndExit(code: number): void {
+  void Promise.allSettled([cliTelemetry.flush(), Sentry.flush(2000)]).finally(
+    () => process.exit(code),
+  );
 }
 
 // Global error handler — show feedback link on unhandled crashes
@@ -218,10 +235,9 @@ process.on("uncaughtException", (err) => {
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
+  captureCliException(err, { handled: false, tags: { source: "process" } });
   Sentry.captureException(err);
-  void Sentry.flush(2000)
-    .catch(() => undefined)
-    .finally(() => process.exit(1));
+  flushTelemetryAndExit(1);
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -229,16 +245,18 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Report this bug: ${BUGS_URL}`);
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
+  captureCliException(reason, {
+    handled: false,
+    tags: { source: "unhandled-rejection" },
+  });
   Sentry.captureException(reason);
-  void Sentry.flush(2000)
-    .catch(() => undefined)
-    .finally(() => process.exit(1));
+  flushTelemetryAndExit(1);
 });
 
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
 // leaves a half-extracted package in the npx cache and a follow-up run fails
 // to load one of our own sub-modules.
-function handleScaffoldImportError(err: any): never {
+function handleScaffoldImportError(err: any): void {
   const msg = err?.message ?? String(err);
   const looksLikeCorruptCache =
     err?.code === "ERR_MODULE_NOT_FOUND" ||
@@ -255,9 +273,12 @@ function handleScaffoldImportError(err: any): never {
     console.error(`\n  Failed to load the scaffolder: ${msg}\n`);
   }
   trackCli("cli.scaffold.import_error", { error: msg });
+  captureCliException(err, {
+    handled: false,
+    tags: { source: "scaffold-import" },
+  });
   Sentry.captureException(err);
-  Sentry.flush(2000).finally(() => process.exit(1));
-  throw err;
+  flushTelemetryAndExit(1);
 }
 
 function findBinUpwards(binName: string): string | undefined {
@@ -525,7 +546,17 @@ function runBuildStep(
           stage: "spawn",
         },
       });
-      Sentry.flush(2000).finally(() => process.exit(1));
+      captureCliException(err, {
+        handled: false,
+        tags: {
+          source: "build-step",
+          buildStep: opts.label,
+          ...(template ? { template } : {}),
+          ...(app ? { app } : {}),
+        },
+        extra: { stage: "spawn" },
+      });
+      flushTelemetryAndExit(1);
     });
 
     child.on("exit", (code, signal) => {
@@ -557,8 +588,18 @@ function runBuildStep(
           stdoutTail: stdoutBuf,
         },
       });
+      captureCliException(err, {
+        handled: false,
+        tags: {
+          source: "build-step",
+          buildStep: opts.label,
+          ...(template ? { template } : {}),
+          ...(app ? { app } : {}),
+        },
+        extra: { exitCode, signal: signal ?? null },
+      });
       // Don't throw — see comment on runBuildStep above.
-      Sentry.flush(2000).finally(() => process.exit(exitCode));
+      flushTelemetryAndExit(exitCode);
     });
   });
 }
@@ -690,8 +731,12 @@ switch (command) {
       // implies a programming error in the orchestration above. Capture
       // and exit so the global unhandledRejection handler doesn't double-
       // report with a generic title.
+      captureCliException(err, {
+        handled: false,
+        tags: { source: "orchestration" },
+      });
       Sentry.captureException(err);
-      Sentry.flush(2000).finally(() => process.exit(1));
+      flushTelemetryAndExit(1);
     });
     break;
   }

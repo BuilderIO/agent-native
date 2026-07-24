@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   claimDueDashboardReportSubscriptions: vi.fn(),
   dashboardReportRetryAt: vi.fn(),
   markDashboardReportResult: vi.fn(),
+  recordDashboardReportCaptureOutcome: vi.fn(),
   runWithRequestContext: vi.fn(),
   sendDashboardReportSubscription: vi.fn(),
 }));
@@ -21,6 +22,8 @@ vi.mock("../lib/dashboard-report-subscriptions", () => ({
     mocks.claimDueDashboardReportSubscriptions,
   dashboardReportRetryAt: mocks.dashboardReportRetryAt,
   markDashboardReportResult: mocks.markDashboardReportResult,
+  recordDashboardReportCaptureOutcome:
+    mocks.recordDashboardReportCaptureOutcome,
 }));
 
 import type { DashboardReportSubscription } from "../lib/dashboard-report-subscriptions";
@@ -41,6 +44,9 @@ function subscription(): DashboardReportSubscription {
     lastRunAt: null,
     lastStatus: null,
     lastError: null,
+    lastCaptureAt: null,
+    lastCaptureMode: null,
+    lastCaptureError: null,
     createdAt: "2026-06-29T00:00:00.000Z",
     updatedAt: "2026-06-29T00:00:00.000Z",
     ownerEmail: "steve@builder.io",
@@ -56,6 +62,8 @@ describe("dashboard report sweep", () => {
     mocks.dashboardReportRetryAt.mockReset();
     mocks.dashboardReportRetryAt.mockReturnValue(null);
     mocks.markDashboardReportResult.mockReset();
+    mocks.recordDashboardReportCaptureOutcome.mockReset();
+    mocks.recordDashboardReportCaptureOutcome.mockResolvedValue(true);
     mocks.runWithRequestContext.mockImplementation(
       async (_ctx, run: () => Promise<unknown>) => run(),
     );
@@ -87,10 +95,51 @@ describe("dashboard report sweep", () => {
 
     await runDashboardReportsOnce();
 
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: false,
-      deadlineAt: startedAt.getTime() + 220_000,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: false,
+        deadlineAt: startedAt.getTime() + 220_000,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
+  });
+
+  it("persists the capture checkpoint before email delivery continues", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockImplementation(
+      async (
+        _sub: unknown,
+        options: {
+          onCaptureOutcome?: (outcome: {
+            mode: "full" | "partial" | "none";
+            error?: string;
+          }) => Promise<void>;
+        },
+      ) => {
+        await options.onCaptureOutcome?.({
+          mode: "none",
+          error: "report chunk timed out",
+        });
+        return {
+          dashboardUrl:
+            "https://analytics.example.test/dashboards/agent-native",
+          recipientCount: 1,
+          screenshotAttached: false,
+          screenshotMode: "none" as const,
+          screenshotError: "report chunk timed out",
+          emailsSent: true,
+        };
+      },
+    );
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.recordDashboardReportCaptureOutcome).toHaveBeenCalledWith(
+      sub,
+      { mode: "none", error: "report chunk timed out" },
+    );
   });
 
   it("keeps Netlify sweeps to one report even when an override requests more", async () => {
@@ -142,9 +191,13 @@ describe("dashboard report sweep", () => {
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: false,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: false,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 sent without a screenshot:",
       "Dashboard screenshot unavailable: dashboard render timed out",
@@ -166,9 +219,13 @@ describe("dashboard report sweep", () => {
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: false,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: false,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "error",
@@ -193,9 +250,13 @@ describe("dashboard report sweep", () => {
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: true,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: true,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 skipped sending without a screenshot, will retry:",
       "Dashboard screenshot unavailable: dashboard render timed out",
@@ -224,9 +285,13 @@ describe("dashboard report sweep", () => {
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: false,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: false,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 sent without a screenshot:",
       "Dashboard screenshot unavailable: dashboard render timed out",
@@ -254,9 +319,13 @@ describe("dashboard report sweep", () => {
 
     await runDashboardReportsOnce();
 
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      skipEmailWithoutScreenshot: true,
-    });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        skipEmailWithoutScreenshot: true,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
   });
 
   it("reschedules a partial capture while the complete-report retry window is active", async () => {

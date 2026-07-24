@@ -43,6 +43,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => <div>Language</div>,
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -60,6 +61,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     };
     return messages[key] ?? String(values?.defaultValue ?? key);
   },
+}));
+
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/ui", () => ({

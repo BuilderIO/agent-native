@@ -217,7 +217,7 @@ export function DataTable({
   if (!title) return content;
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="bg-card">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>

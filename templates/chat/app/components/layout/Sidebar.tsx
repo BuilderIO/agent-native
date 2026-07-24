@@ -4,9 +4,11 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -16,6 +18,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
+  IconSearch,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
@@ -126,7 +129,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function ChatThreadsSection() {
+function ChatThreadsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -230,36 +233,42 @@ function ChatThreadsSection() {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("chat.chats"),
-          showLess: t("chat.chats"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) =>
-            t("chat.renameThread", { title: item.titleText ?? "" }),
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -281,14 +290,14 @@ export function Sidebar({
     cn(
       "flex items-center text-sm transition-colors",
       collapsed
-        ? "relative h-10 w-full justify-center rounded-none border-s-2 px-0"
+        ? "relative h-10 w-full justify-center rounded-none px-0"
         : "h-9 rounded-md gap-3 px-3",
       isActive
         ? collapsed
-          ? "border-s-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "bg-sidebar-accent text-sidebar-accent-foreground"
         : collapsed
-          ? "border-s-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          ? "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
@@ -317,6 +326,31 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -411,8 +445,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "chat" && isChatRoute ? (
-                  <ChatThreadsSection />
+                {!collapsed && item.view === "chat" ? (
+                  <ChatThreadsSection open={isChatRoute} />
                 ) : null}
               </div>
             );
@@ -465,14 +499,13 @@ export function Sidebar({
           />
         </div>
 
-        {!collapsed ? (
-          <div className="flex items-center justify-end gap-1 px-3 py-2">
-            <FeedbackButton className="min-w-0 flex-1" side="right" />
-            {collapseButton}
-          </div>
-        ) : collapseButton ? (
-          <div className="flex justify-center px-1 py-1">{collapseButton}</div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

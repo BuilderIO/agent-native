@@ -11,7 +11,7 @@ export function DashboardPanelSkeleton({
     <Skeleton
       {...props}
       className={cn(
-        "dashboard-panel-skeleton bg-muted-foreground/25",
+        "dashboard-panel-skeleton bg-muted-foreground/18",
         className,
       )}
     />

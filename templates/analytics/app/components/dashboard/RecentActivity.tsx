@@ -51,7 +51,7 @@ export function RecentActivity() {
   const t = useT();
 
   return (
-    <Card className="col-span-full lg:col-span-3 bg-card border-border/50">
+    <Card className="col-span-full lg:col-span-3 bg-card">
       <CardHeader>
         <CardTitle>{t("dashboard.recentSales")}</CardTitle>
         <CardDescription>

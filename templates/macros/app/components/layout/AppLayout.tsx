@@ -1,10 +1,14 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
-import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import {
+  HeaderActionsProvider,
+  SidebarFooterActions,
+} from "@agent-native/toolkit/app-shell";
 import {
   IconFlame,
   IconLoader2,
@@ -13,6 +17,7 @@ import {
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   useIsFetching,
@@ -197,6 +202,48 @@ function SidebarContent({
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
     : IconLayoutSidebarLeftCollapse;
+  const collapseButton = onToggleCollapsed ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          onClick={onToggleCollapsed}
+        >
+          <ToggleIcon className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("root.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -224,32 +271,6 @@ function SidebarContent({
               {t("navigation.brand")}
             </span>
           </div>
-        )}
-        {onToggleCollapsed && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={
-                  collapsed
-                    ? t("sidebar.expandLeftSidebar")
-                    : t("sidebar.collapseLeftSidebar")
-                }
-                className={cn(
-                  "hidden h-8 w-8 text-muted-foreground hover:text-foreground md:inline-flex",
-                  collapsed && "mx-auto",
-                )}
-                onClick={onToggleCollapsed}
-              >
-                <ToggleIcon className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
-            </TooltipContent>
-          </Tooltip>
         )}
       </div>
 
@@ -326,11 +347,17 @@ function SidebarContent({
         <>
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
-            <FeedbackButton />
             <OrgSwitcher />
           </div>
         </>
       )}
+      <SidebarFooterActions
+        collapsed={collapsed}
+        feedback={feedbackButton}
+        translate={translateButton}
+        search={searchButton}
+        collapse={collapseButton}
+      />
     </div>
   );
 }

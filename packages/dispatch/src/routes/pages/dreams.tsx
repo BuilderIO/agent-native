@@ -558,7 +558,7 @@ function StatTile({
   icon: typeof IconBrain;
 }) {
   return (
-    <div className="rounded-lg border bg-card px-3 py-2.5">
+    <div className="rounded-lg bg-card px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -867,7 +867,7 @@ function ProposalCard({
   const preview = previewQuery.data;
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg bg-card">
       <div className="flex flex-col gap-3 border-b px-4 py-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -1520,7 +1520,7 @@ export default function DreamsRoute() {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
-          <section className="rounded-lg border bg-card">
+          <section className="rounded-lg bg-card">
             <div className="border-b px-4 py-3">
               <div className="text-sm font-semibold text-foreground">
                 Recent passes
@@ -1596,7 +1596,7 @@ export default function DreamsRoute() {
             </div>
           </section>
 
-          <section className="min-w-0 rounded-lg border bg-card">
+          <section className="min-w-0 rounded-lg bg-card">
             <div className="border-b px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -1771,7 +1771,7 @@ export default function DreamsRoute() {
             </div>
           </section>
 
-          <section className="rounded-lg border bg-card">
+          <section className="rounded-lg bg-card">
             <div className="border-b px-4 py-3">
               <div>
                 <div className="text-sm font-semibold text-foreground">
