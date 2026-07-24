@@ -4,7 +4,6 @@ import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
-  IconExternalLink,
   IconMaximize,
   IconPencil,
   IconRefresh,
@@ -14,9 +13,8 @@ import {
   IconMessageCircle,
   IconBrandGoogle,
 } from "@tabler/icons-react";
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -44,7 +42,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -67,6 +64,7 @@ interface SqlChartCardProps {
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
+  reportScreenshot?: boolean;
   isDragSource?: boolean;
   selectedForChat?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
@@ -125,6 +123,7 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
   eagerLoad = false,
+  reportScreenshot = false,
   isDragSource = false,
   selectedForChat = false,
   onSelectForChat,
@@ -141,7 +140,6 @@ export function SqlChartCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
-  const navigate = useNavigate();
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     eagerLoad ||
@@ -159,17 +157,6 @@ export function SqlChartCard({
       ] as const,
     [panel.id, panel.source, panel.sql, resolvedSql],
   );
-  const chartFetchCount = useIsFetching({ queryKey: chartQueryKey });
-  const chartHasCachedData =
-    queryClient.getQueryData(chartQueryKey) !== undefined;
-  const isChartRefreshing = chartHasCachedData && chartFetchCount > 0;
-  const extensionId =
-    panel.chartType === "extension"
-      ? ((panel.config as Record<string, unknown> | undefined)?.extensionId as
-          | string
-          | undefined)
-      : undefined;
-
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -371,7 +358,7 @@ export function SqlChartCard({
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
   // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen, refresh, open embedded extension); editable
+  // actions (full screen and refresh); editable
   // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
@@ -394,6 +381,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            reportScreenshot={reportScreenshot}
             extensionContext={extensionContext}
           />
         )}
@@ -426,22 +414,6 @@ export function SqlChartCard({
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
               </DropdownMenuItem>
-              {extensionId ? (
-                <DropdownMenuItem
-                  onSelect={() =>
-                    navigate(
-                      `/extensions/${extensionId}/${encodeURIComponent(
-                        (panel.title ?? "extension")
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-"),
-                      )}`,
-                    )
-                  }
-                >
-                  <IconExternalLink className="h-4 w-4 mr-2" />
-                  Open embedded extension {/* i18n-ignore */}
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
                 <IconRefresh className="h-4 w-4 mr-2" />
@@ -490,6 +462,7 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  reportScreenshot={reportScreenshot}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -552,26 +525,7 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div
-            className={`flex items-center gap-1 transition-opacity ${
-              isChartRefreshing
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-            }`}
-          >
-            {isChartRefreshing ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex size-6 items-center justify-center rounded text-muted-foreground">
-                    <Spinner
-                      className="size-3.5"
-                      aria-label={t("sqlDashboard.refreshing")}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{t("sqlDashboard.refreshing")}</TooltipContent>
-              </Tooltip>
-            ) : null}
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {editable && onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
@@ -684,6 +638,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
             extensionContext={extensionContext}
           />
@@ -701,6 +656,7 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                reportScreenshot={reportScreenshot}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

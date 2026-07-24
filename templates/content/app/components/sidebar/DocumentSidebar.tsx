@@ -1,10 +1,7 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import {
-  ExtensionSlot,
-  ExtensionsSidebarSection,
-} from "@agent-native/core/client/extensions";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import {
   setClientAppState,
   useActionMutation,
@@ -121,6 +118,10 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import {
+  markDocumentCreationPending,
+  shouldCreateDocumentOptimistically,
+} from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -747,7 +748,12 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
-      if (localFileMode) {
+      if (
+        !shouldCreateDocumentOptimistically({
+          localFileMode,
+          filesDatabaseId: rootFilesDatabaseId,
+        })
+      ) {
         try {
           const created = await createDocument.mutateAsync({
             title: "",
@@ -774,7 +780,7 @@ export function DocumentSidebar({
 
       const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc: Document = {
+      const tempDoc = markDocumentCreationPending({
         id,
         parentId: parentId ?? null,
         title: "",
@@ -789,7 +795,7 @@ export function DocumentSidebar({
         canManage: true,
         createdAt: now,
         updatedAt: now,
-      };
+      });
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -824,14 +830,14 @@ export function DocumentSidebar({
           spaceId: parentId ? undefined : rootSpaceId,
         });
         const nextId = created?.id || id;
+        queryClient.setQueryData(
+          ["action", "get-document", { id: nextId }],
+          created,
+        );
         if (nextId !== id) {
           queryClient.removeQueries({
             queryKey: ["action", "get-document", { id }],
           });
-          queryClient.setQueryData(
-            ["action", "get-document", { id: nextId }],
-            created,
-          );
           navigateToDocument(nextId);
         }
         // Replace optimistic doc with real server doc + clear any 404 error
@@ -1284,7 +1290,7 @@ export function DocumentSidebar({
     >
       <IconHierarchy2 size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
-        {t("navigation.agent")}
+        {t("settings.agentTitle")}
       </span>
     </Link>
   );
@@ -1852,7 +1858,7 @@ export function DocumentSidebar({
               <IconHierarchy2 size={16} />
             </Link>
           </TooltipTrigger>
-          <TooltipContent>{t("navigation.agent")}</TooltipContent>
+          <TooltipContent>{t("settings.agentTitle")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -2083,7 +2089,6 @@ export function DocumentSidebar({
           className="px-2 py-2"
           toolClassName="overflow-hidden rounded-md"
         />
-        <ExtensionsSidebarSection />
       </div>
 
       <div className="shrink-0 px-3 py-2">

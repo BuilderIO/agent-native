@@ -32,6 +32,8 @@ export interface FigFileImportResult {
     imageCount: number;
     uploadedImageCount: number;
     omittedImageCount: number;
+    approximatedNodeCount: number;
+    unresolvedImageRefCount: number;
   };
 }
 
@@ -45,16 +47,20 @@ function mimeTypeForImage(image: DecodedFigImage): string {
   return "application/octet-stream";
 }
 
-function nodeChangesFromDocument(document: unknown): unknown[] {
+function nodeChangesFromDocument(
+  document: unknown,
+  decodeError?: string,
+): unknown[] {
   if (!document || typeof document !== "object") {
+    const detail = decodeError ? ` Decode detail: ${decodeError}.` : "";
     throw new Error(
-      "This .fig variant could not be decoded. Try a Figma link/API import or export the frame as HTML/SVG instead.",
+      `This .fig file could not be decoded.${detail} The schema format may have changed since this file was saved, or the file may be a newer Figma version. Try: (1) copy the frame in Figma and paste directly onto the Design canvas — no API quota needed, or (2) use a Figma frame link to import via the API.`,
     );
   }
   const nodeChanges = (document as { nodeChanges?: unknown }).nodeChanges;
   if (!Array.isArray(nodeChanges)) {
     throw new Error(
-      "This .fig variant does not expose editable node data. Try a Figma link/API import instead.",
+      "This .fig file decoded but does not contain editable node data. Copy the frame in Figma and paste onto the canvas, or use a Figma frame link to import via the API.",
     );
   }
   if (nodeChanges.length > MAX_FIG_NODES) {
@@ -156,8 +162,12 @@ export async function convertDecodedFigToEditableHtml(
   },
 ): Promise<FigFileImportResult> {
   assertSafeDecodedFigDocument(decoded.document);
-  const nodeChanges = nodeChangesFromDocument(decoded.document);
+  const nodeChanges = nodeChangesFromDocument(
+    decoded.document,
+    decoded.decodeError,
+  );
   assertEmbeddedImageBudget(decoded.images);
+
   // Render and validate before uploading any extracted images so an invalid or
   // excessively complex document cannot leave orphaned storage objects behind.
   // The upload primitive has no cross-provider delete contract, so validate
@@ -171,6 +181,7 @@ export async function convertDecodedFigToEditableHtml(
   const preliminary = renderHtmlTemplates(decoded.document, {
     imageMap: worstCaseImageMap,
     missingImageUrl: "about:blank",
+    trackUnresolvedImageRefs: true,
   });
   validateRenderedFrames(preliminary);
   const images = await uploadEmbeddedImages(
@@ -186,6 +197,7 @@ export async function convertDecodedFigToEditableHtml(
           // Never persist a data URL or a broken relative link when an image
           // blob could not be uploaded. The warning makes the omission clear.
           missingImageUrl: "about:blank",
+          trackUnresolvedImageRefs: true,
         });
   validateRenderedFrames(rendered);
 
@@ -244,6 +256,8 @@ export async function convertDecodedFigToEditableHtml(
       imageCount: decoded.images.length,
       uploadedImageCount: images.uploaded,
       omittedImageCount: images.omitted,
+      approximatedNodeCount: rendered.approximatedNodes.length,
+      unresolvedImageRefCount: rendered.unresolvedImageRefs?.size ?? 0,
     },
   };
 }
@@ -253,7 +267,7 @@ function validateRenderedFrames(
 ): void {
   if (rendered.frames.length === 0) {
     throw new Error(
-      "No editable top-level frames were found in this .fig file. Try importing a Figma frame link instead.",
+      "No editable top-level frames were found in this .fig file.",
     );
   }
   if (rendered.frames.length > MAX_FIG_FRAMES) {

@@ -89,7 +89,7 @@ async function readParsedAppState<T>(
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns navigation state, UI bulk selection on /tasks or /inbox when active, visible list snapshot, and selected item. Always call this first before ambiguous task or inbox edits.",
+    "Inspect the current Tasks screen. Returns navigation, visible items, the selected item, and active bulk selection.",
   schema: z.object({}),
   http: false,
   readOnly: true,

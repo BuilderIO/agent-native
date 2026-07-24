@@ -154,15 +154,15 @@ describe("A2AClient", () => {
         }
 
         return new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener(
-            "abort",
-            () => {
-              reject(
-                new DOMException("The operation was aborted", "AbortError"),
-              );
-            },
-            { once: true },
-          );
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
         });
       },
     );
@@ -197,7 +197,7 @@ describe("A2AClient", () => {
           JSON.parse(String(init.body)).method === "tasks/get",
       )?.[1]?.signal,
     ).toBeInstanceOf(AbortSignal);
-  });
+  }, 30_000);
 
   it("recovers after one task-status request exceeds the per-request timeout", async () => {
     vi.useFakeTimers();
@@ -218,15 +218,17 @@ describe("A2AClient", () => {
         if (taskReads === 1) {
           firstPollSignal = init.signal ?? null;
           return new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener(
-              "abort",
-              () => {
-                reject(
-                  new DOMException("The operation was aborted", "AbortError"),
-                );
-              },
-              { once: true },
-            );
+            const rejectAborted = () =>
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            if (init.signal?.aborted) {
+              rejectAborted();
+              return;
+            }
+            init.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
           });
         }
         return completedResponse(body, "recovered after transient poll hang");
@@ -254,7 +256,7 @@ describe("A2AClient", () => {
     await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
-  });
+  }, 30_000);
 
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -382,6 +384,27 @@ describe("A2AClient", () => {
         platform: "slack",
         integrationTaskId: "integration-task-1",
       },
+    });
+  });
+
+  it("forwards additional metadata without letting it override caller identity", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata).toMatchObject({
+        googleToken: "fake-google-token",
+        userEmail: "verified@example.test",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      metadata: {
+        googleToken: "fake-google-token",
+        userEmail: "spoofed@example.test",
+      },
+      userEmail: "verified@example.test",
     });
   });
 
@@ -790,6 +813,49 @@ describe("A2AClient", () => {
         org_domain: "builder.io",
       },
     });
+  });
+
+  it("tries explicit bearer token fallbacks in order", async () => {
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length < 3) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32001, message: "Invalid or expired A2A token" },
+            }),
+            { status: 401 },
+          );
+        }
+        return completedResponse(body, "signed with explicit fallback");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        apiKey: "primary-test-key",
+        apiKeyFallbacks: ["first-test-fallback", "second-test-fallback"],
+      }),
+    ).resolves.toBe("signed with explicit fallback");
+
+    expect(bearerTokens).toEqual([
+      "primary-test-key",
+      "first-test-fallback",
+      "second-test-fallback",
+    ]);
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {

@@ -805,11 +805,43 @@ body[data-clips-route="recording-pill"] #root {
   fill: none;
   /* Matches the recording pill's mic waveform accent. */
   stroke: rgba(74, 222, 128, 0.95);
-  stroke-width: 1.75;
+  stroke-width: 1.25;
   stroke-linecap: round;
   stroke-linejoin: round;
   /* Keep the line crisp regardless of the non-uniform x-stretch. */
   vector-effect: non-scaling-stroke;
+}
+
+.live-audio-bars {
+  display: inline-flex;
+  width: 48px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.live-audio-bars-compact {
+  width: 22px;
+  height: 22px;
+  gap: 3px;
+}
+
+.live-audio-bar {
+  display: block;
+  width: 2px;
+  min-height: 3px;
+  border-radius: 999px;
+  background: rgba(132, 204, 22, 0.98);
+  box-shadow: 0 0 5px rgba(132, 204, 22, 0.35);
+  transition: height 70ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-audio-bar {
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -5534,7 +5566,7 @@ body[data-clips-route="recording-pill"] #root {
   display: none;
 }
 
-.pill-vertical .pill-wave-canvas {
+.pill-vertical .pill-wave-meter {
   height: 22px;
   width: 22px;
 }
@@ -5569,7 +5601,7 @@ body[data-clips-route="recording-pill"] #root {
   font-variant-numeric: tabular-nums;
 }
 
-.pill-wave-canvas {
+.pill-wave-meter {
   height: 26px;
   width: 48px;
   flex-shrink: 0;

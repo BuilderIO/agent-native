@@ -14,6 +14,11 @@ import {
 } from "h3";
 
 import {
+  applyA2AAgentActivityEvent,
+  buildA2AAgentActivityPart,
+  createA2AAgentActivityState,
+} from "../a2a/activity.js";
+import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
@@ -399,6 +404,8 @@ export function createSerializedA2ATaskStatusWriter(
     },
   };
 }
+
+const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
 
 export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
@@ -1172,8 +1179,10 @@ export function createAgentChatPlugin(
       // that never emit the corpus prompt (no provider/run-code tools
       // registered), so this never silently expands the initial set for
       // apps that don't teach these tools by name.
-      const corpusToolNames =
-        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
+      const corpusToolNames = loadCorpusToolsInitially
+        ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
+        : [];
       const effectiveInitialToolNames =
         corpusToolNames.length > 0
           ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
@@ -1656,10 +1665,36 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          let activityState = createA2AAgentActivityState();
+          let lastActivityCheckpointAt = 0;
           const recoverableArtifactSecret =
             await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
+          const activityStatusMessage = (): A2AMessage => ({
+            role: "agent",
+            ...(lastRecoverableArtifactText
+              ? { metadata: { agentNativeRecoverableArtifacts: true } }
+              : {}),
+            parts: [
+              buildA2AAgentActivityPart(activityState),
+              ...(lastRecoverableArtifactText
+                ? [{ type: "text" as const, text: lastRecoverableArtifactText }]
+                : []),
+            ],
+          });
+          const checkpointActivity = (force = false) => {
+            const now = Date.now();
+            if (
+              !force &&
+              now - lastActivityCheckpointAt <
+                A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastActivityCheckpointAt = now;
+            recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
+          };
           const controller = new AbortController();
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
@@ -1697,6 +1732,12 @@ export function createAgentChatPlugin(
               turnId: context.taskId,
               send: (event) => {
                 a2aEvents.push(event);
+                const nextActivityState = applyA2AAgentActivityEvent(
+                  activityState,
+                  event,
+                );
+                const activityChanged = nextActivityState !== activityState;
+                activityState = nextActivityState;
                 if (event.type === "tool_start") {
                   console.log(`[A2A] Tool call: ${event.tool}`);
                 } else if (event.type === "tool_done") {
@@ -1727,21 +1768,19 @@ export function createAgentChatPlugin(
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    recoverableArtifactStatusWriter.enqueue({
-                      role: "agent",
-                      metadata: { agentNativeRecoverableArtifacts: true },
-                      parts: [
-                        {
-                          type: "text",
-                          text: recoverableArtifactText,
-                        },
-                      ],
-                    });
                   }
                 } else if (event.type === "error") {
                   console.error(`[A2A] Error: ${event.error}`);
                 } else if (event.type === "done") {
                   console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
+                }
+                if (activityChanged) {
+                  checkpointActivity(
+                    event.type === "tool_start" ||
+                      event.type === "tool_done" ||
+                      event.type === "error" ||
+                      event.type === "done",
+                  );
                 }
               },
               signal: controller.signal,
@@ -1779,6 +1818,7 @@ export function createAgentChatPlugin(
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
+          checkpointActivity(true);
           await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
@@ -1817,6 +1857,7 @@ export function createAgentChatPlugin(
                 },
               },
               parts: [
+                buildA2AAgentActivityPart(activityState),
                 {
                   type: "text" as const,
                   text:
@@ -1851,6 +1892,7 @@ export function createAgentChatPlugin(
           yield {
             role: "agent" as const,
             parts: [
+              buildA2AAgentActivityPart(activityState),
               {
                 type: "text" as const,
                 text: finalText || "(no response)",
@@ -1867,7 +1909,9 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt(corpusPromptRegistry);
+      const corpusToolsPrompt = loadCorpusToolsInitially
+        ? generateCorpusToolsPrompt(corpusPromptRegistry)
+        : "";
       const prodActionsPrompt =
         generateActionsPrompt(
           templateScripts,
@@ -2209,6 +2253,11 @@ export function createAgentChatPlugin(
                 turnId:
                   typeof run.turnId === "string" && run.turnId
                     ? run.turnId
+                    : undefined,
+                runDurationMs:
+                  typeof run.startedAt === "number" &&
+                  Number.isFinite(run.startedAt)
+                    ? Math.max(0, Date.now() - run.startedAt)
                     : undefined,
               },
             );

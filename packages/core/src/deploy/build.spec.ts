@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import {
@@ -21,6 +21,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
+  emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
@@ -29,6 +30,7 @@ import {
   generateWorkerEntry,
   getNodeBuiltinNames,
   isDurableBackgroundDeployEnabled,
+  isIntegrationDurableDispatchDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
   resolveNitroBundledYjsEntry,
@@ -1506,6 +1508,62 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "server-agent-background",
     );
   }
+
+  it("keeps integration recovery default-off and recognizes explicit opt-in", () => {
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    expect(isIntegrationDurableDispatchDeployEnabled()).toBe(false);
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    expect(isIntegrationDurableDispatchDeployEnabled()).toBe(true);
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  });
+
+  it("emits a bounded one-minute integration recovery function", async () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyIntegrationRecoveryFunction(cwd);
+
+    const dest = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-integration-recovery",
+    );
+    expect(fs.existsSync(path.join(dest, "main.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(dest, "server.mjs"))).toBe(false);
+    const entry = fs.readFileSync(
+      path.join(dest, "server-integration-recovery.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain(
+      'const SWEEP_PATH = "/_agent-native/integrations/retry-stuck-tasks"',
+    );
+    expect(entry).toContain('createHmac("sha256", secret)');
+    expect(entry).toContain(
+      "if (!enabled()) return new Response(null, { status: 204 })",
+    );
+    expect(entry).not.toMatch(/^\s*path:/m);
+    const generated = await import(
+      `${pathToFileURL(path.join(dest, "server-integration-recovery.mjs")).href}?t=${Date.now()}`
+    );
+    expect(generated.config.schedule).toBe("* * * * *");
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    delete process.env.A2A_SECRET;
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await generated.default(
+        new Request("https://app.test/.netlify/functions/recovery"),
+        {},
+      );
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "[integration-recovery] A2A_SECRET is required; sweep skipped",
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    }
+  });
 
   function keepWarmDir(cwd: string): string {
     return path.join(
