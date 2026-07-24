@@ -127,6 +127,9 @@ const RICH_BLOCK_TAGS = new Set(["P", "DIV", "BLOCKQUOTE", "LI", "UL", "OL"]);
 function isTextLeaf(el: HTMLElement): boolean {
   if (!el || el.tagName === "IMG") return false;
   if (el.classList.contains("fmd-img-placeholder")) return false;
+  // A user-placed text box stays editable even after its content is fully
+  // deleted, so an emptied box does not degrade into an unrecognized shape.
+  if (el.classList.contains("fmd-text-box")) return true;
   // Must contain some text
   if (!el.textContent?.trim()) return false;
   for (const child of Array.from(el.children)) {
@@ -330,7 +333,9 @@ function buildStyleSnapshot(
     label: element.getAttribute("aria-label") || element.tagName.toLowerCase(),
     tagName: element.tagName.toLowerCase(),
     textPreview,
-    isText: element.tagName !== "IMG" && !!textPreview,
+    isText:
+      element.tagName !== "IMG" &&
+      (!!textPreview || element.classList.contains("fmd-text-box")),
     isImage: element.tagName === "IMG",
     color: normalizedColor(computed.color),
     backgroundColor: normalizedColor(computed.backgroundColor),
@@ -1653,6 +1658,7 @@ export default function SlideEditor({
       }
 
       const box = document.createElement("div");
+      box.className = "fmd-text-box";
       box.style.position = "absolute";
       box.style.left = String(x) + "px";
       box.style.top = String(y) + "px";
