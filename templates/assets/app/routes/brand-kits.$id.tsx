@@ -4183,7 +4183,17 @@ export function LiveCandidatesStage({
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {activeItem?.headerActions}
-            {activeItem?.href ? (
+            {activeItem?.onOpen ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+                onClick={activeItem.onOpen}
+              >
+                <IconArrowUpRight className="h-3.5 w-3.5" />
+                {t("library.openDetails")}
+              </Button>
+            ) : activeItem?.href ? (
               <Button
                 asChild
                 variant="ghost"
