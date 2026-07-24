@@ -192,6 +192,7 @@ const messages = {
     slideSettings: "スライド設定",
     layout: "レイアウト",
     background: "背景",
+    customColor: "カスタムカラー",
     media: "メディア",
     generateImage: "画像を生成",
     assetLibrary: "アセットライブラリ",

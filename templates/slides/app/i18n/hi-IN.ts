@@ -191,6 +191,7 @@ const messages = {
     slideSettings: "स्लाइड सेटिंग्स",
     layout: "लेआउट",
     background: "बैकग्राउंड",
+    customColor: "कस्टम रंग",
     media: "मीडिया",
     generateImage: "इमेज बनाएं",
     assetLibrary: "एसेट लाइब्रेरी",

@@ -196,6 +196,7 @@ const messages = {
     slideSettings: "Folieneinstellungen",
     layout: "Layout",
     background: "Hintergrund",
+    customColor: "Benutzerdefinierte Farbe",
     media: "Medien",
     generateImage: "Bild generieren",
     assetLibrary: "Asset-Bibliothek",

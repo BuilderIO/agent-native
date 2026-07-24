@@ -192,6 +192,7 @@ const messages = {
     slideSettings: "슬라이드 설정",
     layout: "레이아웃",
     background: "배경",
+    customColor: "사용자 지정 색상",
     media: "미디어",
     generateImage: "이미지 생성",
     assetLibrary: "에셋 라이브러리",

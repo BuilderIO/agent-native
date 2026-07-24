@@ -192,6 +192,7 @@ const messages = {
     slideSettings: "Slide settings",
     layout: "Layout",
     background: "Background",
+    customColor: "Custom color",
     media: "Media",
     generateImage: "Generate Image",
     assetLibrary: "Asset Library",

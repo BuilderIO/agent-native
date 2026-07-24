@@ -198,6 +198,7 @@ const messages = {
     slideSettings: "Ajustes de diapositiva",
     layout: "Diseño",
     background: "Fondo",
+    customColor: "Color personalizado",
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",

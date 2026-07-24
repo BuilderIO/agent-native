@@ -193,6 +193,7 @@ const messages = {
     slideSettings: "Configurações do slide",
     layout: "Layout",
     background: "Plano de fundo",
+    customColor: "Cor personalizada",
     media: "Mídia",
     generateImage: "Gerar imagem",
     assetLibrary: "Biblioteca de assets",

@@ -183,6 +183,7 @@ const messages = {
     slideSettings: "幻燈片設定",
     layout: "布局",
     background: "背景",
+    customColor: "自訂顏色",
     media: "媒體",
     generateImage: "產生圖片",
     assetLibrary: "素材庫",

@@ -195,6 +195,7 @@ const messages = {
     slideSettings: "إعدادات الشريحة",
     layout: "التخطيط",
     background: "الخلفية",
+    customColor: "لون مخصص",
     media: "الوسائط",
     generateImage: "إنشاء صورة",
     assetLibrary: "مكتبة الأصول",
