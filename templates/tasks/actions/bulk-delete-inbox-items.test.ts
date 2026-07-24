@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import bulkDeleteInboxItemsAction from "./bulk-delete-inbox-items.js";
+import bulkDeleteInboxItemsAction, {
+  bulkDeleteInboxItemsSchema,
+} from "./bulk-delete-inbox-items.js";
 
 describe("bulk-delete-inbox-items", () => {
   beforeEach(() => {
@@ -22,14 +24,14 @@ describe("bulk-delete-inbox-items", () => {
   describe("schema", () => {
     it("requires at least one inbox item id", () => {
       expect(
-        bulkDeleteInboxItemsAction.schema.parse({
+        bulkDeleteInboxItemsSchema.parse({
           inboxItemIds: ["in-1", "in-2"],
         }),
       ).toEqual({
         inboxItemIds: ["in-1", "in-2"],
       });
       expect(() =>
-        bulkDeleteInboxItemsAction.schema.parse({ inboxItemIds: [] }),
+        bulkDeleteInboxItemsSchema.parse({ inboxItemIds: [] }),
       ).toThrow();
     });
   });

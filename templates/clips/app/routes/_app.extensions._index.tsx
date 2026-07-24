@@ -1,19 +1,5 @@
-import { ExtensionsListPage } from "@agent-native/core/client/extensions";
-import { useT } from "@agent-native/core/client/i18n";
-
-import { PageHeader } from "@/components/library/page-header";
+import { Navigate } from "react-router";
 
 export default function ExtensionsRoute() {
-  const t = useT();
-
-  return (
-    <>
-      <PageHeader>
-        <h1 className="text-base font-semibold tracking-tight truncate">
-          {t("navigation.extensions")}
-        </h1>
-      </PageHeader>
-      <ExtensionsListPage />
-    </>
-  );
+  return <Navigate to="/settings#extensions" replace />;
 }

@@ -3,12 +3,18 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
+import { IconChevronRight } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Button } from "../../components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "../../components/ui/collapsible";
 import { Input } from "../../components/ui/input";
 import { Switch } from "../../components/ui/switch";
 
@@ -53,67 +59,79 @@ export default function ApprovalsRoute() {
       description="Review durable dispatch changes before they apply."
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <section className="rounded-2xl border bg-card p-5">
-          <h2 className="text-lg font-semibold text-foreground">
-            Approval policy
-          </h2>
-          {settingsQuery.isError ? (
-            <ActionQueryError
-              className="mt-4"
-              error={settingsQuery.error}
-              onRetry={() => void settingsQuery.refetch()}
-            />
-          ) : (
-            <div className="mt-4 space-y-4">
-              <label className="flex items-center justify-between rounded-xl border px-4 py-3">
-                <div>
+        <Collapsible className="rounded-2xl border bg-card">
+          <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 p-5 text-left hover:bg-muted/20">
+            <span>
+              <span className="block text-lg font-semibold text-foreground">
+                Approval policy
+              </span>
+              <span className="mt-1 block text-sm text-muted-foreground">
+                {settings?.enabled
+                  ? "Durable changes require approval."
+                  : "Durable changes do not require approval."}
+              </span>
+            </span>
+            <IconChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="border-t px-5 pb-5 pt-4">
+            {settingsQuery.isError ? (
+              <ActionQueryError
+                error={settingsQuery.error}
+                onRetry={() => void settingsQuery.refetch()}
+              />
+            ) : (
+              <div className="space-y-4">
+                <label className="flex items-center justify-between rounded-xl border px-4 py-3">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      Require approval for durable changes
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {hasOrg
+                        ? "Applies to saved destinations, shared dream proposals, All-app agent resources, and dispatch settings."
+                        : "Requires a team workspace. Set one up on the Team page."}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={settings?.enabled || false}
+                    disabled={!hasOrg || savePolicy.isPending}
+                    onCheckedChange={(checked) =>
+                      savePolicy.mutate({
+                        enabled: checked,
+                        approverEmails:
+                          settings?.approverEmails || approverList,
+                      })
+                    }
+                  />
+                </label>
+                <div className="space-y-2">
                   <div className="text-sm font-medium text-foreground">
-                    Require approval for durable changes
+                    Approver emails
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {hasOrg
-                      ? "Applies to saved destinations, shared dream proposals, All-app agent resources, and dispatch settings."
-                      : "Requires a team workspace. Set one up on the Team page."}
-                  </div>
+                  <Input
+                    value={emails}
+                    onChange={(event) => setEmails(event.target.value)}
+                    placeholder={(settings?.approverEmails || []).join(", ")}
+                    disabled={!hasOrg}
+                  />
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    disabled={!hasOrg || savePolicy.isPending}
+                    onClick={() =>
+                      savePolicy.mutate({
+                        enabled: settings?.enabled || false,
+                        approverEmails: approverList,
+                      })
+                    }
+                  >
+                    Save approvers
+                  </Button>
                 </div>
-                <Switch
-                  checked={settings?.enabled || false}
-                  disabled={!hasOrg || savePolicy.isPending}
-                  onCheckedChange={(checked) =>
-                    savePolicy.mutate({
-                      enabled: checked,
-                      approverEmails: settings?.approverEmails || approverList,
-                    })
-                  }
-                />
-              </label>
-              <div className="space-y-2">
-                <div className="text-sm font-medium text-foreground">
-                  Approver emails
-                </div>
-                <Input
-                  value={emails}
-                  onChange={(event) => setEmails(event.target.value)}
-                  placeholder={(settings?.approverEmails || []).join(", ")}
-                  disabled={!hasOrg}
-                />
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  disabled={!hasOrg || savePolicy.isPending}
-                  onClick={() =>
-                    savePolicy.mutate({
-                      enabled: settings?.enabled || false,
-                      approverEmails: approverList,
-                    })
-                  }
-                >
-                  Save approvers
-                </Button>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
 
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">

@@ -35,6 +35,34 @@ Then implement working code that is cohesive, accessible, responsive, and polish
 
 Default to Apple/Linear-level restraint: make the primary workflow obvious, then remove everything that does not help that workflow right now. A polished UI often has fewer visible controls, fewer borders, fewer labels, and fewer explanatory surfaces than the first reasonable implementation.
 
+### Progressive Disclosure Is A Design Requirement
+
+Treat an all-at-once interface as a defect to fix during design, not as a
+styling preference. Before coding, inventory every piece of content and action
+on the surface, then assign each one to the smallest useful visibility level:
+
+1. **Immediate** — the page title, current state, one primary action, and the
+   compact context needed to choose what to do next.
+2. **Expanded** — the details needed for the selected item or active workflow.
+3. **On demand** — advanced settings, diagnostics, credentials, metadata,
+   destructive actions, documentation, and rarely used tools.
+
+Use single-select accordions or simple disclosure rows for sibling panels when
+the user is choosing one item at a time. Inside an expanded panel, keep another
+layer for independent concerns instead of dumping every form, explanation, and
+secondary action into the first reveal. Prefer one flat panel with alignment,
+dividers, and whitespace over nested cards; provider or product icons should
+not receive decorative borders or containers unless the container communicates
+state or interaction. A collapsed row should still show the item name, status,
+and a concise summary so the user can scan the whole surface without opening
+everything.
+
+Before shipping, ask: “What can disappear until the user asks for it?” Then
+verify collapsed, expanded, loading, empty, error, and narrow-width states.
+If the first viewport contains multiple forms, repeated explanatory copy,
+documentation links, and controls for unrelated tasks, the surface has not
+passed this requirement yet.
+
 - **Start by subtracting**: Before adding a visible control, banner, toolbar row, card, or explanatory block, ask what can be removed, merged, renamed, or moved into an existing affordance.
 - **One primary action**: Each surface should have one dominant next action. Secondary actions belong in menus, popovers, command palettes, disclosure rows, or contextual hover/focus states unless they are used constantly.
 - **Progressively disclose rare work**: Advanced options, diagnostics, metadata, settings, import/export, destructive actions, and inspection tools should stay tucked away until requested. Prefer small icon triggers with tooltips, popovers, drawers, or detail panels over permanent chrome.

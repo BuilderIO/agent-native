@@ -269,6 +269,7 @@ describe("callConnectedAgentReference", () => {
     });
     const resolveCallerAuth = vi.fn(async () => ({
       apiKey: "test-key",
+      apiKeyFallbacks: ["test-fallback-key"],
       userEmail: "user@example.test",
       orgId: "org-1",
       orgDomain: "example.test",
@@ -299,6 +300,7 @@ describe("callConnectedAgentReference", () => {
       expect.objectContaining({
         async: true,
         apiKey: "test-key",
+        apiKeyFallbacks: ["test-fallback-key"],
         metadata: { googleToken: "test-google-token" },
         onUpdate: expect.any(Function),
       }),

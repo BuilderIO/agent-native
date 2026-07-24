@@ -42,7 +42,6 @@ export const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
 ]);
 
 export const ALL_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
   "llm",
   "app-models",
   "limits",
@@ -81,7 +80,6 @@ export const CONNECTION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
 ];
 
 export const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
   "demo-mode",
   "hosting",
   "database",

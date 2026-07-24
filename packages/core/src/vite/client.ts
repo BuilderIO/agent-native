@@ -253,6 +253,9 @@ function nitroVitePlugin(
  * rate-limits an unrelated client-reload nudge); keep the two independent.
  */
 const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+const OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS = 2_000;
+const OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS = 30_000;
+const OPTIMIZE_DEP_MAX_FULL_RELOADS = 3;
 
 /**
  * Wraps a single Nitro-provided Vite plugin so that, if it defines a
@@ -628,6 +631,10 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
 }
 
 function hasOptimizeDep(pkg: string, cwd: string): boolean {
+  // The nested dependency entry below is rooted at @agent-native/core, so
+  // monorepo consumers need to retain it even though the source package does
+  // not list itself as a dependency.
+  if (pkg === "@agent-native/core" && findCorePackageRoot(cwd)) return true;
   return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
 }
 
@@ -711,6 +718,47 @@ function getClientDedupe(cwd: string): string[] {
  * of dist/ at startup and never picks up new exports).
  */
 function findCorePackageRoot(cwd: string): string | null {
+  const localSourceRoot = findLocalCoreSourceRoot(cwd);
+  if (localSourceRoot) return localSourceRoot;
+
+  // Published Core packages are installed as transitive dependency roots in
+  // pnpm. The consuming app cannot resolve Core's client-only dependencies
+  // from its own node_modules unless we first locate that installed package
+  // and read its manifest. This is also what lets optimizeDeps use Vite's
+  // nested-dependency syntax for standalone CLI-generated apps.
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const resolved = appRequire.resolve("@agent-native/core");
+    let dir = path.dirname(resolved);
+    for (let i = 0; i < 20; i++) {
+      const packageJsonPath = path.join(dir, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, "utf-8"),
+        ) as { name?: string };
+        if (packageJson.name === "@agent-native/core") {
+          return fs.realpathSync(dir);
+        }
+      }
+
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // The app may not have installed Core yet; fall through to null.
+  }
+
+  return null;
+}
+
+/**
+ * Locate a local framework checkout whose source should be aliased for HMR.
+ * This intentionally does not use Node package resolution: published Core
+ * tarballs include `src/` for source maps/docs, but must still be consumed
+ * through their built `dist/` exports.
+ */
+function findLocalCoreSourceRoot(cwd: string): string | null {
   try {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
@@ -746,7 +794,7 @@ function findCorePackageRoot(cwd: string): string | null {
 }
 
 function findCoreSrcDir(cwd: string): string | null {
-  const root = findCorePackageRoot(cwd);
+  const root = findLocalCoreSourceRoot(cwd);
   return root ? path.join(root, "src") : null;
 }
 
@@ -858,6 +906,18 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@assistant-ui/react-markdown" },
+    { specifier: "@assistant-ui/store" },
+    { specifier: "@assistant-ui/tap" },
+    {
+      specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
+      packageName: "@agent-native/core",
+    },
+    {
+      specifier:
+        "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
+      packageName: "@agent-native/core",
+    },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
@@ -1034,11 +1094,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       // then rebundles and reloads the editor. Its documented nested-dependency
       // syntax resolves the right-hand package from core's package directory,
       // while app-owned dependencies should remain direct entries.
-      if (
-        inMonorepo &&
-        !hasDep(dependencyName, cwd) &&
-        hasCoreDep(dependencyName, cwd)
-      ) {
+      if (!hasDep(dependencyName, cwd) && hasCoreDep(dependencyName, cwd)) {
         return `@agent-native/core > ${specifier}`;
       }
       return specifier;
@@ -1487,7 +1543,8 @@ function fullReloadOnOptimizeDep504(): Plugin {
     name: "agent-native-full-reload-optimize-dep-504",
     apply: "serve",
     configureServer(server) {
-      let lastReloadAt = 0;
+      let lastReloadAt: number | null = null;
+      let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
         const originalEnd = res.end;
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
@@ -1499,8 +1556,17 @@ function fullReloadOnOptimizeDep504(): Plugin {
             statusMessage === "Outdated Optimize Dep"
           ) {
             const now = Date.now();
-            if (now - lastReloadAt > 500) {
+            reloadHistory = reloadHistory.filter(
+              (timestamp) =>
+                now - timestamp < OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS,
+            );
+            if (
+              (lastReloadAt === null ||
+                now - lastReloadAt >= OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS) &&
+              reloadHistory.length < OPTIMIZE_DEP_MAX_FULL_RELOADS
+            ) {
               lastReloadAt = now;
+              reloadHistory.push(now);
               server.ws.send({ type: "full-reload" });
               server.config.logger.info(
                 `[agent-native] Vite optimized deps changed while loading ${
@@ -2093,6 +2159,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "ThreadPrimitive",
     "WebLinksAddon",
     "captureException",
+    "codeToHtml",
     "common",
     "createLowlight",
     "createNodeFromContent",
@@ -2112,6 +2179,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "encodeStateAsUpdate",
     "mergeUpdates",
     "useAui",
+    "useAuiState",
     "useComposer",
     "useComposerRuntime",
     "useCurrentEditor",
@@ -2997,6 +3065,12 @@ function createAgentNativeConfig(
       ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+      __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
+        process.env.GTM_CONTAINER_ID?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID": JSON.stringify(
+        process.env.GTM_CONTAINER_ID?.trim() || "",
       ),
       // Framework route warmup controls how SSR `.data` routes are fetched:
       // ordinary fetches keep them CDN-cacheable, while native prefetch headers

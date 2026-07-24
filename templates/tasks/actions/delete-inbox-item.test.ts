@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import deleteInboxItemAction from "./delete-inbox-item.js";
+import deleteInboxItemAction, {
+  deleteInboxItemSchema,
+} from "./delete-inbox-item.js";
 
 describe("delete-inbox-item", () => {
   beforeEach(() => {
@@ -21,9 +23,7 @@ describe("delete-inbox-item", () => {
 
   describe("schema", () => {
     it("requires an inbox item id", () => {
-      expect(
-        deleteInboxItemAction.schema.parse({ inboxItemId: "in-1" }),
-      ).toEqual({
+      expect(deleteInboxItemSchema.parse({ inboxItemId: "in-1" })).toEqual({
         inboxItemId: "in-1",
       });
     });

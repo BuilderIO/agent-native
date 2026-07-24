@@ -26,6 +26,7 @@ vi.mock("../../agent/engine/index.js", () => {
     isStoredEngineUsableForRequest: (...args: unknown[]) =>
       isStoredEngineUsableForRequest(...args),
     normalizeModelForEngine: (_entry: unknown, model: string) => model,
+    resolveEnginePreservesCustomModels: () => false,
     registerBuiltinEngines: vi.fn(),
   };
 });

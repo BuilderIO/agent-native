@@ -647,6 +647,8 @@ export async function callAgent(
   text: string,
   opts?: {
     apiKey?: string;
+    /** Additional bearer tokens to try in order after apiKey during rotation. */
+    apiKeyFallbacks?: string[];
     /** Additional transport metadata. Receivers must not use it as identity. */
     metadata?: Record<string, unknown>;
     contextId?: string;
@@ -831,6 +833,7 @@ export async function callAction(
 async function buildA2AApiKeyAttempts(
   opts?: {
     apiKey?: string;
+    apiKeyFallbacks?: string[];
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
@@ -844,6 +847,7 @@ async function buildA2AApiKeyAttempts(
   };
 
   add(opts?.apiKey);
+  for (const fallback of opts?.apiKeyFallbacks ?? []) add(fallback);
 
   if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
     if (process.env.A2A_SECRET?.trim()) {

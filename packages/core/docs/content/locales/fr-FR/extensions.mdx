@@ -213,7 +213,7 @@ Modèle pour tous ces éléments : les extensions concernent **le moment** dans
 
 Le chemin simple :
 
-1. **Cliquez sur "Nouvelle extension"** dans la barre latérale (ou demandez simplement dans le chat).
+1. Ouvrez **Settings → Extensions** (ou demandez simplement dans le chat), puis cliquez sur **"Nouvelle extension"**.
 2. **Décrivez ce que vous voulez en une phrase.** "Un bloc-notes autocollant pour le contact auquel j'envoie un e-mail." "Une box KPI pour les essais a débuté cette semaine."
 3. **L'agent l'écrit et il apparaît dans votre liste d'extensions, prêt à être utilisé.**
 
@@ -425,9 +425,13 @@ Les extensions sont privées par défaut pour l'utilisateur qui les a créées. 
 
 Les extensions partagées ont leurs propres URL et se connectent à la même boîte de dialogue de partage que les documents, les présentations et les tableaux de bord. Les installations d'emplacements sont toujours personnelles : le partage d'une extension signifie que d'autres _peuvent_ l'installer ; il ne l'épingle pas automatiquement sur leur UI.
 
-## Extensions ou modification du code de l'application {#vs-app-code}
+## Dois-je utiliser une extension ou modifier le code de l’application ? {#vs-app-code}
 
-Le framework permet à l'agent de modifier directement le code source de l'application : composants, itinéraires, styles. Alors, quand devriez-vous plutôt demander une extension ?
+Le framework permet à l’agent de modifier directement le code source de l’application : composants, itinéraires, styles et logique métier. Utilisez cette question lorsque l’un ou l’autre choix pourrait répondre à la demande :
+
+- **Commencez par une extension** pour un widget autonome et relativement ponctuel : une visualisation ou interaction personnalisée, une tuile de tableau de bord, un utilitaire autonome ou un ajout dans un slot existant. Elle est rapide, ne nécessite ni modification du code source, ni build, ni déploiement, et peut rester privée ou être partagée.
+- **Utilisez le code de l’application** pour une fonctionnalité centrale du modèle, une modification de l’interface native, de la mise en page, des itinéraires ou de la logique métier, ou tout ce qui doit être largement réutilisé entre tableaux de bord ou utilisateurs. Si l’hôte n’a pas de slot adapté ou si la demande nécessite un nouveau slot, utilisez le code.
+- **Faites évoluer les extensions répétées.** Si la même extension est recréée régulièrement, ou si la maintenance de plusieurs copies devient moins pertinente qu’une implémentation partagée, déplacez-la dans le code de l’application comme fonctionnalité native réutilisable.
 
 |                              | Extension                                                     | Modification du code de l'application                    |
 | ---------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
@@ -438,7 +442,7 @@ Le framework permet à l'agent de modifier directement le code source de l'appli
 | **Portée**                   | Un utilisateur (ou partagé avec l'organisation)               | Le produit dans son intégralité, chaque utilisateur      |
 | **Idéal pour**               | Widgets personnels, KPI personnalisés, utilitaires par équipe | Fonctionnalités de base fournies à tous les utilisateurs |
 
-Règle générale : **si c'est pour un utilisateur ou une équipe, c'est une extension.** Si chaque utilisateur du modèle doit l'obtenir, expédiez-le comme une véritable fonctionnalité.
+Règle générale : **si une extension peut résoudre le problème, commencez généralement par là.** Utilisez le code lorsque la limite des extensions ne convient pas ou lorsque la réutilisation à grande échelle et la disponibilité dans tout le produit justifient une implémentation native. Par exemple, une visualisation personnalisée ponctuelle sur un tableau de bord convient à une extension ; un nouveau type de graphique circulaire, à barres multiples ou linéaire qui doit être disponible sur tous les tableaux de bord relève du code du modèle.
 
 Pour une récupération de données personnalisée destinée à alimenter des graphiques et tableaux natifs plutôt qu'une UI de widget sur mesure, voir [Programmes de données](/docs/data-programs) — un script `run-code` stocké et actualisable auquel les panneaux de dashboard se lient directement, sans aucun iframe d'extension.
 

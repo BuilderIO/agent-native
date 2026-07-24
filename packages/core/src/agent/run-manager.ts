@@ -41,7 +41,26 @@ export interface ActiveRun {
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
   abortReason?: string;
+  /**
+   * Terminal event to emit when a server-driven continuation has been handed
+   * off successfully. The continuation runs outside this process, so the
+   * normal loop-level auto_continue event is not sent through this run's
+   * `send` callback.
+   */
+  continuationTerminalEvent?: Extract<
+    AgentChatEvent,
+    { type: "auto_continue" }
+  >;
   startedAt: number;
+}
+
+export interface StartedRun extends ActiveRun {
+  /**
+   * Resolves after the terminal event and final SQL status have been persisted.
+   * Serverless workers must await this before returning or the runtime can
+   * freeze the isolate between onComplete and terminalization.
+   */
+  finalized: Promise<void>;
 }
 
 const activeRuns = new Map<string, ActiveRun>();
@@ -447,7 +466,7 @@ export function startRun(
   ) => Promise<void>,
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
-): ActiveRun {
+): StartedRun {
   // If there's already a run for this thread, abort it
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
@@ -456,7 +475,17 @@ export function startRun(
 
   const abort = new AbortController();
   let softTimedOut = false;
-  const run: ActiveRun = {
+  let resolveFinalized: () => void = () => {};
+  let rejectFinalized: (reason?: unknown) => void = () => {};
+  const finalized = new Promise<void>((resolve, reject) => {
+    resolveFinalized = resolve;
+    rejectFinalized = reject;
+  });
+  // Foreground callers do not await this promise, but terminal persistence
+  // failures must still be observable to background workers without creating
+  // an unhandled rejection in the foreground path.
+  void finalized.catch(() => {});
+  const run: StartedRun = {
     runId,
     threadId,
     turnId: options?.turnId ?? runId,
@@ -465,6 +494,7 @@ export function startRun(
     subscribers: new Set(),
     abort,
     startedAt: Date.now(),
+    finalized,
   };
 
   activeRuns.set(runId, run);
@@ -934,7 +964,17 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
-      const terminalEvent = pendingTerminalEvent?.event ?? null;
+      const resolveTerminalEventForCompletion = () => {
+        const continuationTerminalEvent = run.continuationTerminalEvent
+          ? {
+              seq: run.events.length,
+              event: run.continuationTerminalEvent,
+            }
+          : null;
+        return continuationTerminalEvent ?? pendingTerminalEvent;
+      };
+      let terminalEventForCompletion = resolveTerminalEventForCompletion();
+      let terminalEvent = terminalEventForCompletion?.event ?? null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
@@ -946,12 +986,12 @@ export function startRun(
               ? "errored"
               : run.status;
           const completionRun: ActiveRun =
-            pendingTerminalEvent || completionStatus !== run.status
+            terminalEventForCompletion || completionStatus !== run.status
               ? {
                   ...run,
                   status: completionStatus,
-                  events: pendingTerminalEvent
-                    ? [...run.events, pendingTerminalEvent]
+                  events: terminalEventForCompletion
+                    ? [...run.events, terminalEventForCompletion]
                     : run.events,
                 }
               : run;
@@ -965,6 +1005,12 @@ export function startRun(
           );
         }
       }
+
+      // Server-driven continuation is installed by onComplete after the
+      // successor has been dispatched. Resolve the terminal event again so
+      // this chunk emits auto_continue instead of a misleading done event.
+      terminalEventForCompletion = resolveTerminalEventForCompletion();
+      terminalEvent = terminalEventForCompletion?.event ?? null;
 
       // 2. Compute final status. If the completion callback threw, we'd
       //    rather mark the run errored than claim success with incomplete
@@ -1002,18 +1048,18 @@ export function startRun(
         // re-stamp the seq at emit time (max-seq+1) just below.
         const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
-            ? (pendingTerminalEvent?.event ?? { type: "done" })
-            : pendingTerminalEvent?.event.type === "error" ||
-                pendingTerminalEvent?.event.type === "missing_api_key"
-              ? pendingTerminalEvent.event
-              : pendingTerminalEvent?.event.type === "auto_continue"
+            ? (terminalEventForCompletion?.event ?? { type: "done" })
+            : terminalEventForCompletion?.event.type === "error" ||
+                terminalEventForCompletion?.event.type === "missing_api_key"
+              ? terminalEventForCompletion.event
+              : terminalEventForCompletion?.event.type === "auto_continue"
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
                   // is recoverable: the partial turn is in agent_run_events and
                   // the continuation run will re-attempt the thread_data save.
                   // Even though the completion save failed (finalStatus stays
                   // "errored" for SQL/diagnostics), re-emit the auto_continue so
                   // the client resumes instead of seeing a dead chat.
-                  pendingTerminalEvent.event
+                  terminalEventForCompletion.event
                 : {
                     type: "error",
                     error: completionError
@@ -1039,6 +1085,21 @@ export function startRun(
               "[run-manager] terminal event persistence error:",
               err instanceof Error ? err.message : err,
             );
+            try {
+              await insertRunEvent(
+                runId,
+                terminal.seq,
+                JSON.stringify(terminal.event),
+              );
+              terminalPersistenceError = null;
+            } catch (retryError) {
+              terminalPersistenceError = retryError;
+              captureRunError(retryError, "completion");
+              console.error(
+                "[run-manager] terminal event retry persistence error:",
+                retryError instanceof Error ? retryError.message : retryError,
+              );
+            }
           }
         }
       }
@@ -1112,6 +1173,13 @@ export function startRun(
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
+      if (terminalPersistenceError) {
+        const reconciled = await reconcileTerminalRunFromEvents(runId).catch(
+          () => false,
+        );
+        if (!reconciled) throw terminalPersistenceError;
+      }
+
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
@@ -1124,6 +1192,7 @@ export function startRun(
         resolveErroredRunRetentionMs(),
       ).catch(() => {});
     });
+  runPromise.then(resolveFinalized, rejectFinalized);
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {
