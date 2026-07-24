@@ -3,6 +3,7 @@ import {
   generateAppId,
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
+  normalizeProtectedPreviewOrigin,
 } from "@shared/app-registry";
 import {
   formatDesktopShortcutAccelerator,
@@ -13,7 +14,10 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
-import type { UpdateStatus } from "@shared/ipc-channels";
+import type {
+  ProtectedPreviewAccessStatus,
+  UpdateStatus,
+} from "@shared/ipc-channels";
 import {
   IconX,
   IconPlus,
@@ -1764,27 +1768,98 @@ export function AppEditForm({
   const [devUrl, setDevUrl] = useState(app?.devUrl ?? "");
   const [devCommand, setDevCommand] = useState(app?.devCommand ?? "");
   const [description, setDescription] = useState(app?.description ?? "");
+  const [previewSecret, setPreviewSecret] = useState("");
+  const [previewStatus, setPreviewStatus] =
+    useState<ProtectedPreviewAccessStatus | null>(null);
+  const [previewError, setPreviewError] = useState("");
+  const [previewSaving, setPreviewSaving] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  useEffect(() => {
+    if (!app?.id || !window.electronAPI?.protectedPreview) return;
+    window.electronAPI.protectedPreview
+      .get(app.id)
+      .then(setPreviewStatus)
+      .catch((err) =>
+        setPreviewError(err instanceof Error ? err.message : String(err)),
+      );
+  }, [app?.id]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const trimmedUrl = url.trim();
     const trimmedDevUrl = devUrl.trim();
     if (!name.trim() || (!trimmedUrl && !trimmedDevUrl)) return;
 
-    onSave({
-      id: app?.id ?? generateAppId(),
-      name: name.trim(),
-      icon: app?.icon ?? "Globe",
-      description: description.trim() || name.trim(),
-      url: trimmedUrl,
-      devPort: app?.devPort || inferPortFromUrl(trimmedDevUrl),
-      devUrl: trimmedDevUrl || undefined,
-      devCommand: devCommand.trim() || undefined,
-      localPath: app?.localPath,
-      isBuiltIn: app?.isBuiltIn ?? false,
-      enabled: app?.enabled ?? true,
-      mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
-    });
+    const id = app?.id ?? generateAppId();
+    const previewOrigin = normalizeProtectedPreviewOrigin(
+      trimmedDevUrl || trimmedUrl,
+    );
+    setPreviewError("");
+    setPreviewSaving(true);
+    try {
+      if (previewSecret.trim()) {
+        if (!previewOrigin) {
+          setPreviewError(
+            "Protected preview access requires an exact HTTPS app URL.",
+          );
+          return;
+        }
+        const status = await window.electronAPI?.protectedPreview?.save(
+          id,
+          previewOrigin,
+          previewSecret,
+        );
+        if (!status?.configured) {
+          setPreviewStatus(status ?? null);
+          setPreviewError(
+            status?.error ?? "The protected preview credential was not saved.",
+          );
+          return;
+        }
+        setPreviewStatus(status);
+      } else if (
+        previewStatus?.configured &&
+        previewStatus.origin !== previewOrigin
+      ) {
+        setPreviewError(
+          "This preview URL differs from the credential's exact origin. Re-enter the credential to bind the new candidate.",
+        );
+        return;
+      }
+
+      onSave({
+        id,
+        name: name.trim(),
+        icon: app?.icon ?? "Globe",
+        description: description.trim() || name.trim(),
+        url: trimmedUrl,
+        devPort: app?.devPort || inferPortFromUrl(trimmedDevUrl),
+        devUrl: trimmedDevUrl || undefined,
+        devCommand: devCommand.trim() || undefined,
+        localPath: app?.localPath,
+        isBuiltIn: app?.isBuiltIn ?? false,
+        enabled: app?.enabled ?? true,
+        mode: app?.mode ?? (trimmedUrl ? "prod" : "dev"),
+      });
+    } finally {
+      setPreviewSaving(false);
+    }
+  }
+
+  async function clearPreviewAccess() {
+    if (!app?.id || !window.electronAPI?.protectedPreview) return;
+    setPreviewSaving(true);
+    setPreviewError("");
+    try {
+      const status = await window.electronAPI.protectedPreview.clear(app.id);
+      setPreviewStatus(status);
+      setPreviewSecret("");
+      if (status.restoreApp) onSave(status.restoreApp);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPreviewSaving(false);
+    }
   }
 
   return (
@@ -1838,6 +1913,45 @@ export function AppEditForm({
         </label>
 
         <label>
+          Protected Preview Access
+          <input
+            type="password"
+            value={previewSecret}
+            onChange={(e) => setPreviewSecret(e.target.value)}
+            placeholder={
+              previewStatus?.configured
+                ? "Configured for this exact origin"
+                : "Deployment-specific Vercel Shareable Link"
+            }
+            autoComplete="off"
+            disabled={!previewStatus?.available && previewStatus !== null}
+          />
+          <span className="settings-field-hint">
+            Stored with operating-system encryption and bound to the exact HTTPS
+            preview origin. Shareable Links bootstrap a deployment-only cookie;
+            credentials never become part of the durable review URL.
+          </span>
+        </label>
+
+        {previewStatus?.configured && (
+          <button
+            type="button"
+            className="settings-btn settings-btn--ghost"
+            onClick={() => void clearPreviewAccess()}
+            disabled={previewSaving}
+          >
+            <IconTrash size={14} /> Clear Preview Access
+          </button>
+        )}
+
+        {(previewError || previewStatus?.error) && (
+          <p className="settings-folder-message settings-folder-message--error">
+            <IconAlertCircle size={13} strokeWidth={1.8} />
+            {previewError || previewStatus?.error}
+          </p>
+        )}
+
+        <label>
           Description
           <input
             type="text"
@@ -1855,7 +1969,11 @@ export function AppEditForm({
           >
             Cancel
           </button>
-          <button type="submit" className="settings-btn settings-btn--primary">
+          <button
+            type="submit"
+            className="settings-btn settings-btn--primary"
+            disabled={previewSaving}
+          >
             <IconCheck size={14} /> Save
           </button>
         </div>
