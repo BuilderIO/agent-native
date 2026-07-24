@@ -729,9 +729,7 @@ export function Sidebar({
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">
-        {collapsed
-          ? t("sidebar.expandSidebar")
-          : t("sidebar.collapseSidebar")}
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
       </TooltipContent>
     </Tooltip>
   ) : null;

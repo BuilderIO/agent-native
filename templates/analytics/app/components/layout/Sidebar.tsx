@@ -98,11 +98,11 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 
 import {
   AlertDialog,
@@ -2132,10 +2132,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     </Tooltip>
   );
   const footerTranslate = (
-    <LanguagePicker
-      variant="ghost-icon"
-      label={t("settings.languageLabel")}
-    />
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const footerCollapse = !mobile ? (
     <Tooltip>

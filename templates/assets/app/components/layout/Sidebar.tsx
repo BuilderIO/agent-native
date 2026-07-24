@@ -11,11 +11,11 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
-import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconHierarchy2,
   IconClipboardList,
