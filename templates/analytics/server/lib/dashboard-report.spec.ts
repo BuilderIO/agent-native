@@ -80,6 +80,9 @@ function subscription(): DashboardReportSubscription {
     lastRunAt: null,
     lastStatus: null,
     lastError: null,
+    lastCaptureAt: null,
+    lastCaptureMode: null,
+    lastCaptureError: null,
     createdAt: "2026-06-27T00:00:00.000Z",
     updatedAt: "2026-06-27T00:00:00.000Z",
     ownerEmail: "steve@builder.io",
@@ -124,6 +127,12 @@ function createPage(
     captureBox?: { width: number; height: number };
     renderedPanelIds?: string[];
     loadingPanels?: Array<{ id: string; title: string }>;
+    panelStates?: Array<{
+      id: string;
+      title?: string;
+      state: "ready" | "loading" | "errored" | "missing";
+      error?: string;
+    }>;
     consoleErrors?: string[];
     requestFailures?: string[];
     responseFailures?: Array<{ url: string; status: number }>;
@@ -201,11 +210,16 @@ function createPage(
           return JSON.stringify(options.renderedPanelIds ?? ["panel-0"]);
         }
         if (script.includes("data-dashboard-report-ready")) {
+          const panelStates =
+            options.panelStates ??
+            (options.loadingPanels ?? []).map(({ id, title }) => ({
+              id,
+              title,
+              state: "loading" as const,
+            }));
           return {
             ready: "true",
-            loadingCount: 1,
-            loadingPanels: options.loadingPanels ?? [],
-            text: "Dashboard still loading",
+            panelStates,
             url:
               options.pageUrl ??
               "https://analytics.example.test/dashboards/example",
@@ -734,12 +748,19 @@ describe("dashboard report email", () => {
     expect(page.locator.screenshot).not.toHaveBeenCalled();
   });
 
-  it("identifies the exact report panels still loading when a chunk times out", async () => {
+  it("records ready, loading, and errored panel states when a chunk times out", async () => {
+    mocks.getReportDashboard.mockResolvedValue(dashboard(3));
     const page = createPage({
       readyWaitFails: true,
-      loadingPanels: [
-        { id: "retention-by-cohort", title: "Retention by cohort" },
-        { id: "top-countries", title: "Top countries" },
+      panelStates: [
+        { id: "panel-0", title: "Panel 0", state: "ready" },
+        { id: "panel-1", title: "Panel 1", state: "loading" },
+        {
+          id: "panel-2",
+          title: "Panel 2",
+          state: "errored",
+          error: "DB query timed out after 30000ms",
+        },
       ],
     });
     const { browser } = createBrowser([page]);
@@ -749,9 +770,15 @@ describe("dashboard report email", () => {
       skipEmailWithoutScreenshot: true,
     });
 
-    expect(result.screenshotError).toContain('"id":"retention-by-cohort"');
-    expect(result.screenshotError).toContain('"title":"Retention by cohort"');
-    expect(result.screenshotError).toContain('"id":"top-countries"');
+    expect(result.screenshotError).toContain('"id":"panel-0"');
+    expect(result.screenshotError).toContain('"state":"ready"');
+    expect(result.screenshotError).toContain('"id":"panel-1"');
+    expect(result.screenshotError).toContain('"state":"loading"');
+    expect(result.screenshotError).toContain('"id":"panel-2"');
+    expect(result.screenshotError).toContain('"state":"errored"');
+    expect(result.screenshotError).toContain(
+      "DB query timed out after 30000ms",
+    );
     expect(page.page.evaluate).toHaveBeenCalledWith(
       expect.stringContaining("data-dashboard-report-panel-title"),
     );

@@ -1156,7 +1156,9 @@ export async function sendDashboardReportSubscription(
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
     deadlineAt?: number;
-    onCaptureOutcome?: (outcome: DashboardReportCaptureOutcome) => Promise<void>;
+    onCaptureOutcome?: (
+      outcome: DashboardReportCaptureOutcome,
+    ) => Promise<void>;
   } = {},
 ): Promise<{
   dashboardUrl: string;
