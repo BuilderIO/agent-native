@@ -63,13 +63,68 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+  # Decide which packages a PR actually needs to test, and pack them into
+  # balanced parallel shards. Most PRs touch one template/leaf package, so only
+  # that package (plus any dependents) runs — a fraction of the full suite.
+  # Fail-safe: any change the sharder can't attribute to a single package
+  # (root config, scripts/, lockfile, unknown path) forces a FULL sharded run.
+  # See scripts/ci-test-shards.ts. The entire suite also runs nightly
+  # (nightly-full-tests.yml) as a safety net for undeclared cross-package
+  # coupling the dependency graph can't see.
+  discover-tests:
+    name: Discover affected tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+      mode: ${{ steps.plan.outputs.mode }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Compute changed files vs PR base
+        id: diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          force_full=0
+          if ! git diff --name-only "$BASE_SHA" "$HEAD_SHA" > changed.txt 2>/dev/null; then
+            echo "diff failed; forcing full run"
+            force_full=1
+          fi
+          echo "changed files:"
+          cat changed.txt 2>/dev/null || true
+          echo "force_full=$force_full" >> "$GITHUB_OUTPUT"
+
+      - name: Plan shards
+        id: plan
+        run: |
+          if [ "${{ steps.diff.outputs.force_full }}" = "1" ]; then
+            node --experimental-strip-types scripts/ci-test-shards.ts --full
+          else
+            node --experimental-strip-types scripts/ci-test-shards.ts --changed-file changed.txt
+          fi
+
   test:
-    name: Fast tests
+    name: Fast tests ${{ matrix.shard }}
+    needs: discover-tests
+    if: needs.discover-tests.outputs.run == 'true'
     runs-on: ubuntu-latest
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
     # below so they can run in parallel instead of serially behind fast tests.
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      # Report every shard's result; don't cancel siblings on the first failure.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover-tests.outputs.matrix) }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -95,8 +150,49 @@ jobs:
       - name: Install Playwright Chromium for browser-backed unit tests
         run: pnpm exec playwright install --only-shell chromium
 
-      - name: Run fast tests
-        run: pnpm test:fast
+      - name: Run fast tests for shard
+        # --workspace-concurrency=1: one package at a time so each gets the whole
+        # runner (vitest's default worker count ~= all cores). Packages run their
+        # own test script/config unchanged — no aggregation. Exclusions mirror the
+        # `test:fast` root script; keep the two lists in sync.
+        run: >-
+          pnpm -r --no-bail --workspace-concurrency=1 ${{ matrix.filters }} run test
+          --exclude "**/*.db.test.ts"
+          --exclude "**/*.integration.spec.ts"
+          --exclude "**/*.integration.test.ts"
+          --exclude "**/*.e2e.spec.ts"
+          --exclude "**/*.e2e.test.ts"
+          --exclude "**/e2e/**"
+          --exclude "**/*.live.spec.ts"
+          --exclude "**/*.live.test.ts"
+          --exclude "**/*.perf.spec.ts"
+          --exclude "**/*.perf.test.ts"
+
+  # Stable required status check. Point branch protection at "Fast tests" (this
+  # gate), not the per-shard jobs whose names vary with the matrix. Passes when
+  # nothing was affected, or when every shard passed.
+  fast-tests:
+    name: Fast tests
+    needs: [discover-tests, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate on shard results
+        run: |
+          if [ "${{ needs.discover-tests.result }}" != "success" ]; then
+            echo "::error::discover-tests did not succeed (${{ needs.discover-tests.result }})"
+            exit 1
+          fi
+          if [ "${{ needs.discover-tests.outputs.run }}" != "true" ]; then
+            echo "No affected test packages for this change — nothing to run."
+            exit 0
+          fi
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::One or more fast-test shards failed (${{ needs.test.result }})"
+            exit 1
+          fi
+          echo "All fast-test shards passed (${{ needs.discover-tests.outputs.mode }} run)."
 
   content-parity:
     name: Content parity

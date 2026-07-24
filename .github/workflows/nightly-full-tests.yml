@@ -1,0 +1,53 @@
+name: Nightly full fast-test suite
+
+# Safety net for the affected-only selection used on PRs (ci.yml). Runs the
+# ENTIRE fast-test suite so a regression a PR's affected-set happened to miss
+# (e.g. an undeclared cross-package import the dependency graph didn't capture)
+# is caught within a day.
+#
+# Deliberately unsharded: nobody is waiting on a nightly run, so one runner is
+# the least wasteful way to cover everything. PRs get the fast sharded path.
+on:
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-full-tests
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full-tests:
+    name: Full fast-test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium for browser-backed unit tests
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run full fast-test suite
+        run: pnpm test:fast
