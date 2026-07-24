@@ -112,9 +112,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                     <Icon className="h-4 w-4 shrink-0" />
                   </Link>
                 </TooltipTrigger>
-                <TooltipContent side="right">
-                  {t(item.labelKey)}
-                </TooltipContent>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
               </Tooltip>
             );
           })}

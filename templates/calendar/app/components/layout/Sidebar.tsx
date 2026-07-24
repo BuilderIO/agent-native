@@ -1157,9 +1157,7 @@ export function Sidebar({
             return collapsed ? (
               <Tooltip key={item.path}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">
-                  {t(item.labelKey)}
-                </TooltipContent>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
               </Tooltip>
             ) : (
               <div key={item.path}>{link}</div>

@@ -667,9 +667,7 @@ export function Sidebar({
           return collapsed ? (
             <Tooltip key={item.href}>
               <TooltipTrigger asChild>{link}</TooltipTrigger>
-              <TooltipContent side="right">
-                {t(item.labelKey)}
-              </TooltipContent>
+              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
             </Tooltip>
           ) : (
             <div key={item.href}>{link}</div>

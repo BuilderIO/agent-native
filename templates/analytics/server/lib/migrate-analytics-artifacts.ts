@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { recordChange } from "@agent-native/core/server";
 import {
   createSharesTable,
   ownableColumns,
   table,
   text,
 } from "@agent-native/core/db/schema";
+import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
 import { eq, inArray } from "drizzle-orm";
 
@@ -337,15 +337,17 @@ async function readMigrationState(
       name: typeof row.data.name === "string" ? row.data.name : "Untitled",
       description:
         typeof row.data.description === "string" ? row.data.description : "",
-      question:
-        typeof row.data.question === "string" ? row.data.question : "",
+      question: typeof row.data.question === "string" ? row.data.question : "",
       instructions:
         typeof row.data.instructions === "string" ? row.data.instructions : "",
       dataSources: parseArray<string>(row.data.dataSources),
       resultMarkdown:
-        typeof row.data.resultMarkdown === "string" ? row.data.resultMarkdown : "",
+        typeof row.data.resultMarkdown === "string"
+          ? row.data.resultMarkdown
+          : "",
       resultData: row.data.resultData ? parseJson(row.data.resultData) : null,
-      author: typeof row.data.author === "string" ? row.data.author : ctx.userEmail,
+      author:
+        typeof row.data.author === "string" ? row.data.author : ctx.userEmail,
       ownerEmail: ctx.userEmail,
       orgId: ctx.orgId,
       visibility: "org",
@@ -381,7 +383,9 @@ async function readMigrationState(
   };
 }
 
-function duplicateDashboardGroups(rows: DashboardSource[]): DashboardSource[][] {
+function duplicateDashboardGroups(
+  rows: DashboardSource[],
+): DashboardSource[][] {
   const groups = new Map<string, DashboardSource[]>();
   for (const row of rows) {
     if (row.archivedAt) continue;
@@ -416,7 +420,9 @@ function duplicateAnalysisGroups(rows: AnalysisSource[]): AnalysisSource[][] {
   return Array.from(groups.values()).filter((group) => group.length > 1);
 }
 
-function duplicateExtensionGroups(rows: ExtensionSource[]): ExtensionSource[][] {
+function duplicateExtensionGroups(
+  rows: ExtensionSource[],
+): ExtensionSource[][] {
   const groups = new Map<string, ExtensionSource[]>();
   for (const row of rows) {
     if (row.archivedAt) continue;
@@ -441,12 +447,20 @@ function oldest<T extends { createdAt: string; id: string }>(rows: T[]): T {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
 }
 
 function analysisExtensionContent(analysis: AnalysisSource): string {
@@ -517,7 +531,9 @@ function remapExtensionIds(
   if (!value || typeof value !== "object") return { value, changed: false };
   let changed = false;
   const next: Record<string, unknown> = {};
-  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, nested] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
     if (key === "extensionId" && typeof nested === "string") {
       const replacement = replacements.get(nested);
       if (replacement) {
@@ -619,13 +635,15 @@ export async function migrateAnalyticsArtifacts(
   for (const group of dashboardDuplicates) {
     const canonical = oldest(group);
     for (const row of group) {
-      if (row.id !== canonical.id) duplicateDashboardMap.set(row.id, canonical.id);
+      if (row.id !== canonical.id)
+        duplicateDashboardMap.set(row.id, canonical.id);
     }
   }
   for (const group of analysisDuplicates) {
     const canonical = oldest(group);
     for (const row of group) {
-      if (row.id !== canonical.id) duplicateAnalysisMap.set(row.id, canonical.id);
+      if (row.id !== canonical.id)
+        duplicateAnalysisMap.set(row.id, canonical.id);
     }
   }
   for (const group of extensionDuplicates) {
@@ -679,7 +697,7 @@ export async function migrateAnalyticsArtifacts(
           archivedAt: row.archivedAt,
           hiddenAt: row.hiddenAt,
           hiddenBy: null,
-      })
+        })
         .onConflictDoNothing();
     }
     for (const row of state.analyses) {
@@ -702,7 +720,7 @@ export async function migrateAnalyticsArtifacts(
           updatedAt: row.updatedAt,
           hiddenAt: row.hiddenAt,
           hiddenBy: null,
-      })
+        })
         .onConflictDoNothing();
     }
 
@@ -758,7 +776,10 @@ export async function migrateAnalyticsArtifacts(
         runId,
       );
       for (const dashboard of state.dashboards) {
-        const remapped = remapExtensionIds(dashboard.config, new Map([[duplicateId, canonicalId]]));
+        const remapped = remapExtensionIds(
+          dashboard.config,
+          new Map([[duplicateId, canonicalId]]),
+        );
         if (!remapped.changed) continue;
         await tx
           .update(schema.dashboards)
@@ -783,7 +804,10 @@ export async function migrateAnalyticsArtifacts(
     );
     const referencedExtensionIds = new Set<string>();
     for (const dashboard of currentDashboards) {
-      const remapped = remapExtensionIds(dashboard.config, extensionReplacements);
+      const remapped = remapExtensionIds(
+        dashboard.config,
+        extensionReplacements,
+      );
       const config = parseJson(remapped.value);
       const json = JSON.stringify(config);
       const matches = json.matchAll(/"extensionId"\s*:\s*"([^"]+)"/g);
@@ -799,21 +823,26 @@ export async function migrateAnalyticsArtifacts(
         .from(schema.dashboards)
         .where(eq(schema.dashboards.id, dashboardId));
       if (dashboardExists.length === 0) {
-        await tx.insert(migrationExtensions).values({
-          id: extensionId,
-          name: `Dashboard content: ${analysis.name}`,
-          description: "Hidden implementation block for a migrated dashboard.",
-          content: analysisExtensionContent(analysis),
-          icon: null,
-          createdAt: analysis.createdAt,
-          updatedAt: analysis.updatedAt,
-          archivedAt: null,
-          hiddenAt: now,
-          hiddenBy: ctx.userEmail,
-          ownerEmail: analysis.ownerEmail,
-          orgId: analysis.orgId,
-          visibility: analysis.visibility === "public" ? "org" : analysis.visibility,
-        }).onConflictDoNothing();
+        await tx
+          .insert(migrationExtensions)
+          .values({
+            id: extensionId,
+            name: `Dashboard content: ${analysis.name}`,
+            description:
+              "Hidden implementation block for a migrated dashboard.",
+            content: analysisExtensionContent(analysis),
+            icon: null,
+            createdAt: analysis.createdAt,
+            updatedAt: analysis.updatedAt,
+            archivedAt: null,
+            hiddenAt: now,
+            hiddenBy: ctx.userEmail,
+            ownerEmail: analysis.ownerEmail,
+            orgId: analysis.orgId,
+            visibility:
+              analysis.visibility === "public" ? "org" : analysis.visibility,
+          })
+          .onConflictDoNothing();
         await copyShares(
           tx,
           schema.analysisShares,
@@ -857,17 +886,26 @@ export async function migrateAnalyticsArtifacts(
       }
       await tx
         .update(schema.analyses)
-        .set({ hiddenAt: analysis.hiddenAt ?? now, hiddenBy: ctx.userEmail, updatedAt: now })
+        .set({
+          hiddenAt: analysis.hiddenAt ?? now,
+          hiddenBy: ctx.userEmail,
+          updatedAt: now,
+        })
         .where(eq(schema.analyses.id, analysis.id));
       if (!analysis.hiddenAt) summary.analysesHidden += 1;
     }
 
     for (const extension of state.extensions) {
-      if (extension.archivedAt || duplicateExtensionMap.has(extension.id)) continue;
+      if (extension.archivedAt || duplicateExtensionMap.has(extension.id))
+        continue;
       if (referencedExtensionIds.has(extension.id)) {
         await tx
           .update(migrationExtensions)
-          .set({ hiddenAt: extension.hiddenAt ?? now, hiddenBy: ctx.userEmail, updatedAt: now })
+          .set({
+            hiddenAt: extension.hiddenAt ?? now,
+            hiddenBy: ctx.userEmail,
+            updatedAt: now,
+          })
           .where(eq(migrationExtensions.id, extension.id));
         if (!extension.hiddenAt) summary.extensionsHidden += 1;
         continue;
@@ -913,7 +951,11 @@ export async function migrateAnalyticsArtifacts(
       }
       await tx
         .update(migrationExtensions)
-        .set({ hiddenAt: extension.hiddenAt ?? now, hiddenBy: ctx.userEmail, updatedAt: now })
+        .set({
+          hiddenAt: extension.hiddenAt ?? now,
+          hiddenBy: ctx.userEmail,
+          updatedAt: now,
+        })
         .where(eq(migrationExtensions.id, extension.id));
       if (!extension.hiddenAt) summary.extensionsHidden += 1;
     }
@@ -925,14 +967,31 @@ export async function migrateAnalyticsArtifacts(
     for (let offset = 0; offset < legacyKeys.length; offset += 500) {
       const chunk = legacyKeys.slice(offset, offset + 500);
       if (chunk.length === 0) continue;
-      await tx.delete(migrationSettings).where(inArray(migrationSettings.key, chunk));
+      await tx
+        .delete(migrationSettings)
+        .where(inArray(migrationSettings.key, chunk));
       summary.legacySettingsDeleted += chunk.length;
     }
   });
 
-  recordChange({ source: "dashboards", type: "change", key: ctx.orgId, orgId: ctx.orgId });
-  recordChange({ source: "analyses", type: "change", key: ctx.orgId, orgId: ctx.orgId });
-  recordChange({ source: "extensions", type: "change", key: ctx.orgId, orgId: ctx.orgId });
+  recordChange({
+    source: "dashboards",
+    type: "change",
+    key: ctx.orgId,
+    orgId: ctx.orgId,
+  });
+  recordChange({
+    source: "analyses",
+    type: "change",
+    key: ctx.orgId,
+    orgId: ctx.orgId,
+  });
+  recordChange({
+    source: "extensions",
+    type: "change",
+    key: ctx.orgId,
+    orgId: ctx.orgId,
+  });
   return summary;
 }
 

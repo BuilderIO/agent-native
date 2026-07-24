@@ -5,11 +5,11 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections";
 import {
   migrateAnalyticsArtifacts,
   type AnalyticsArtifactMigrationContext,
 } from "../server/lib/migrate-analytics-artifacts.js";
-import { requireAnalyticsAdminContext } from "../server/lib/db-admin-connections";
 
 const confirmation = "MIGRATE_ANALYTICS_ARTIFACTS" as const;
 
