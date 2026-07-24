@@ -18,6 +18,7 @@ import {
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 import {
   IconAlertTriangle,
+  IconArrowsMove,
   IconMaximize,
   IconZoomIn,
   IconZoomOut,
@@ -605,9 +606,11 @@ function ImageSelectionOutline({
 function ElementSelectionOutline({
   rect,
   viewportRect,
+  onDragStart,
 }: {
   rect: DOMRect;
   viewportRect: DOMRect | null;
+  onDragStart?: (e: React.PointerEvent) => void;
 }) {
   const pad = 2;
   const handle = 7;
@@ -644,6 +647,23 @@ function ElementSelectionOutline({
           className={handleClass}
           style={{ right: -handle / 2, bottom: -handle / 2 }}
         />
+        {onDragStart && (
+          <span
+            onPointerDown={onDragStart}
+            title="Drag to move"
+            className="absolute flex items-center justify-center rounded-full border border-background bg-[#609FF8] shadow-sm cursor-move"
+            style={{
+              left: "50%",
+              top: -22,
+              width: 16,
+              height: 16,
+              transform: "translateX(-50%)",
+              pointerEvents: "auto",
+            }}
+          >
+            <IconArrowsMove className="size-2.5 text-background" />
+          </span>
+        )}
       </div>
     </SelectionOverlayPortal>
   );
@@ -2101,6 +2121,58 @@ export default function SlideEditor({
     ],
   );
 
+  /**
+   * Drag-to-reposition for the selected element. Only elements that are (or
+   * can safely become) absolutely positioned support this — repositioning an
+   * in-flow element would shift the rest of the slide's layout. Percentages
+   * (not px) are used for left/top so the drag stays accurate under canvas
+   * zoom and the autofit scale transform, matching placeTextBoxAt.
+   */
+  const startElementDrag = useCallback(
+    (e: React.PointerEvent) => {
+      const element = resolveSelectedElement();
+      if (!element) return;
+      const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
+      if (!fmdSlide) return;
+      if (getComputedStyle(element).position === "static") return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const slideRect = fmdSlide.getBoundingClientRect();
+      const elRect = element.getBoundingClientRect();
+      const startXPct =
+        ((elRect.left - slideRect.left) / slideRect.width) * 100;
+      const startYPct = ((elRect.top - slideRect.top) / slideRect.height) * 100;
+      const startClientX = e.clientX;
+      const startClientY = e.clientY;
+      let moved = false;
+
+      const onMove = (moveEvent: PointerEvent) => {
+        moved = true;
+        const dxPct =
+          ((moveEvent.clientX - startClientX) / slideRect.width) * 100;
+        const dyPct =
+          ((moveEvent.clientY - startClientY) / slideRect.height) * 100;
+        element.style.left = `${startXPct + dxPct}%`;
+        element.style.top = `${startYPct + dyPct}%`;
+        setSelectedElementRect(element.getBoundingClientRect());
+      };
+
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        if (!moved) return;
+        const html = readCurrentSlideContentHtml();
+        if (html !== null) onUpdateSlideRef.current({ content: html });
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [resolveSelectedElement, readCurrentSlideContentHtml],
+  );
+
   // --- Pending visual updates ---
   const [pendingUpdateCount, setPendingUpdateCount] = useState(0);
 
@@ -2154,6 +2226,16 @@ export default function SlideEditor({
 
   const slideElementSelected =
     !!selectedImg || !!editingEl || !!selectedStyleSnapshot;
+
+  // Dragging is only offered for elements that are already taken out of
+  // normal document flow (position: absolute/fixed) — our own placed text
+  // boxes, and any similarly-positioned shape. Repositioning an in-flow
+  // element (most AI-generated slide content) would reflow its siblings.
+  const selectedForDrag =
+    selectedElementRect && !editingEl ? resolveSelectedElement() : null;
+  const isSelectedElementDraggable = selectedForDrag
+    ? getComputedStyle(selectedForDrag).position !== "static"
+    : false;
 
   return (
     <div
@@ -2362,6 +2444,9 @@ export default function SlideEditor({
         <ElementSelectionOutline
           rect={selectedElementRect}
           viewportRect={selectionViewportRect}
+          onDragStart={
+            isSelectedElementDraggable ? startElementDrag : undefined
+          }
         />
       )}
 
