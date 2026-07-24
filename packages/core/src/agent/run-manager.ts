@@ -964,15 +964,17 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
-      const continuationTerminalEvent = run.continuationTerminalEvent
-        ? {
-            seq: run.events.length,
-            event: run.continuationTerminalEvent,
-          }
-        : null;
-      const terminalEventForCompletion =
-        continuationTerminalEvent ?? pendingTerminalEvent;
-      const terminalEvent = terminalEventForCompletion?.event ?? null;
+      const resolveTerminalEventForCompletion = () => {
+        const continuationTerminalEvent = run.continuationTerminalEvent
+          ? {
+              seq: run.events.length,
+              event: run.continuationTerminalEvent,
+            }
+          : null;
+        return continuationTerminalEvent ?? pendingTerminalEvent;
+      };
+      let terminalEventForCompletion = resolveTerminalEventForCompletion();
+      let terminalEvent = terminalEventForCompletion?.event ?? null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
@@ -1003,6 +1005,12 @@ export function startRun(
           );
         }
       }
+
+      // Server-driven continuation is installed by onComplete after the
+      // successor has been dispatched. Resolve the terminal event again so
+      // this chunk emits auto_continue instead of a misleading done event.
+      terminalEventForCompletion = resolveTerminalEventForCompletion();
+      terminalEvent = terminalEventForCompletion?.event ?? null;
 
       // 2. Compute final status. If the completion callback threw, we'd
       //    rather mark the run errored than claim success with incomplete
