@@ -219,7 +219,16 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
 }
 
 export function parseSlashCommandQuery(textBeforeCursor: string) {
-  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+  const match = textBeforeCursor.match(
+    /^\s*\/([a-zA-Z0-9][a-zA-Z0-9 _-]*|)\s*$/,
+  );
+  if (!match) return null;
+  const rawQuery = match[1] ?? "";
+  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
+  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
+  // searchable instead of turning into literal editor text at the first space.
+  if (/^generate\s+/i.test(rawQuery)) return null;
+  return rawQuery.trim();
 }
 
 export function inlineDatabaseBlockContent(

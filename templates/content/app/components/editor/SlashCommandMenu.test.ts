@@ -67,7 +67,13 @@ describe("slash command menu trigger", () => {
   it("opens for slash commands at the start of a block", () => {
     expect(parseSlashCommandQuery("/")).toBe("");
     expect(parseSlashCommandQuery("/heading")).toBe("heading");
+    expect(parseSlashCommandQuery("/heading 2")).toBe("heading 2");
+    expect(parseSlashCommandQuery("/numbered list")).toBe("numbered list");
     expect(parseSlashCommandQuery("  /table")).toBe("table");
+  });
+
+  it("still yields multi-word generate prompts to inline submission", () => {
+    expect(parseSlashCommandQuery("/generate outline this PRD")).toBeNull();
   });
 
   it("does not open for slashes embedded in normal prose", () => {
