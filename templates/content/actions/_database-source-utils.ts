@@ -4785,77 +4785,88 @@ export async function seedMockSourceRows(args: {
 }) {
   if (args.items.length === 0) return;
   const db = getDb();
+  const rows = args.items.map((item, index) => {
+    const builderEntry = args.builderEntriesByDocumentId?.get(item.document.id);
+    const existingBuilderRow = args.existingBuilderRows?.get(item.document.id);
+    const builderIdentity =
+      args.sourceType === "builder-cms"
+        ? builderCmsSourceRowIdentity({
+            item,
+            sourceTable: args.sourceTable,
+            now: args.now,
+            existing: existingBuilderRow,
+            entry: builderEntry,
+          })
+        : null;
+    const sourceQualifiedId = builderIdentity
+      ? builderIdentity.sourceQualifiedId
+      : `${args.sourceType}://${args.sourceTable}/${item.document.id}`;
+    return {
+      id: builderIdentity
+        ? stableBuilderImportId("builder-row", [
+            args.sourceId,
+            sourceQualifiedId,
+            item.document.id,
+          ])
+        : crypto.randomUUID(),
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      databaseItemId: item.id,
+      documentId: item.document.id,
+      sourceRowId: builderIdentity
+        ? builderIdentity.sourceRowId
+        : `${args.sourceType}-${item.document.id}`,
+      sourceQualifiedId,
+      sourceDisplayKey:
+        builderIdentity?.sourceDisplayKey ??
+        item.document.title?.trim() ??
+        `${args.sourceType}-${index + 1}`,
+      sourceValuesJson: JSON.stringify(
+        sourceValuesForSeededSourceRow({
+          sourceType: args.sourceType,
+          item,
+          sourceTable: args.sourceTable,
+          now: args.now,
+          builderEntry,
+          existingSourceValuesJson: existingBuilderRow?.sourceValuesJson,
+          existingLastSourceUpdatedAt: existingBuilderRow?.lastSourceUpdatedAt,
+        }),
+      ),
+      provenance:
+        args.sourceType === "builder-cms"
+          ? builderEntry
+            ? "Builder CMS read adapter"
+            : (existingBuilderRow?.provenance ??
+              BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
+          : "mock source row",
+      syncState: "linked",
+      freshness: "fresh",
+      lastSyncedAt: args.now,
+      lastSourceUpdatedAt: builderIdentity?.lastSourceUpdatedAt ?? args.now,
+      createdAt: args.now,
+      updatedAt: args.now,
+    };
+  });
   await db
     .insert(schema.contentDatabaseSourceRows)
-    .values(
-      args.items.map((item, index) => {
-        const builderEntry = args.builderEntriesByDocumentId?.get(
-          item.document.id,
-        );
-        const existingBuilderRow = args.existingBuilderRows?.get(
-          item.document.id,
-        );
-        const builderIdentity =
-          args.sourceType === "builder-cms"
-            ? builderCmsSourceRowIdentity({
-                item,
-                sourceTable: args.sourceTable,
-                now: args.now,
-                existing: existingBuilderRow,
-                entry: builderEntry,
-              })
-            : null;
-        const sourceQualifiedId = builderIdentity
-          ? builderIdentity.sourceQualifiedId
-          : `${args.sourceType}://${args.sourceTable}/${item.document.id}`;
-        return {
-          id: builderIdentity
-            ? stableBuilderImportId("builder-row", [
-                args.sourceId,
-                sourceQualifiedId,
-                item.document.id,
-              ])
-            : crypto.randomUUID(),
-          ownerEmail: args.ownerEmail,
-          sourceId: args.sourceId,
-          databaseItemId: item.id,
-          documentId: item.document.id,
-          sourceRowId: builderIdentity
-            ? builderIdentity.sourceRowId
-            : `${args.sourceType}-${item.document.id}`,
-          sourceQualifiedId,
-          sourceDisplayKey:
-            builderIdentity?.sourceDisplayKey ??
-            item.document.title?.trim() ??
-            `${args.sourceType}-${index + 1}`,
-          sourceValuesJson: JSON.stringify(
-            sourceValuesForSeededSourceRow({
-              sourceType: args.sourceType,
-              item,
-              sourceTable: args.sourceTable,
-              now: args.now,
-              builderEntry,
-              existingSourceValuesJson: existingBuilderRow?.sourceValuesJson,
-              existingLastSourceUpdatedAt:
-                existingBuilderRow?.lastSourceUpdatedAt,
-            }),
-          ),
-          provenance:
-            args.sourceType === "builder-cms"
-              ? args.builderEntriesByDocumentId?.has(item.document.id)
-                ? "Builder CMS read adapter"
-                : BUILDER_CMS_FIXTURE_ROW_PROVENANCE
-              : "mock source row",
-          syncState: "linked",
-          freshness: "fresh",
-          lastSyncedAt: args.now,
-          lastSourceUpdatedAt: builderIdentity?.lastSourceUpdatedAt ?? args.now,
-          createdAt: args.now,
-          updatedAt: args.now,
-        };
-      }),
-    )
+    .values(rows)
     .onConflictDoNothing();
+
+  const fixtureItemIds = rows
+    .filter((row) => row.provenance === BUILDER_CMS_FIXTURE_ROW_PROVENANCE)
+    .map((row) => row.databaseItemId);
+  for (const idChunk of chunks(fixtureItemIds, idChunkSize())) {
+    await db
+      .update(schema.contentDatabaseItems)
+      .set({
+        bodyHydrationStatus: "unavailable",
+        bodyHydrationAttemptedAt: args.now,
+        bodyHydrationError: null,
+        bodyHydrationVersion: null,
+        updatedAt: args.now,
+      })
+      .where(inArray(schema.contentDatabaseItems.id, idChunk));
+  }
 }
 
 export function sourceValuesForSeededSourceRow(args: {
@@ -5915,6 +5926,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         sourceRowId: row.sourceRowId,
         sourceQualifiedId: row.sourceQualifiedId,
         sourceDisplayKey: row.sourceDisplayKey,
+        provenance: row.provenance,
         lastSourceUpdatedAt: row.lastSourceUpdatedAt,
         sourceValuesJson: row.sourceValuesJson,
       },

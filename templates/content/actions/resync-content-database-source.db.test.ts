@@ -2341,6 +2341,154 @@ it("full Builder refresh reads every page in one resync call", async () => {
   ).toEqual([{ model: "collection-a", maxPages: undefined, offset: 0 }]);
 });
 
+it("unlocks synthetic Builder fixture bodies without weakening remote hydration", async () => {
+  const db = getDb();
+  const now = "2026-07-24T12:00:00.000Z";
+  const databaseId = "db-builder-fixture-hydration";
+  const databaseDocumentId = "doc-builder-fixture-hydration";
+  const sourceId = "source-builder-fixture-hydration";
+  const localDocumentId = "doc-builder-fixture-local";
+  const remoteDocumentId = "doc-builder-fixture-remote";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocumentId,
+      ownerEmail: OWNER,
+      title: "Builder fixture hydration database",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: localDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Local fixture",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: remoteDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Preserved remote row",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocumentId,
+    title: "Builder fixture hydration database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values([
+    {
+      id: "item-builder-fixture-local",
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: localDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "item-builder-fixture-remote",
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: remoteDocumentId,
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  const items = [
+    {
+      id: "item-builder-fixture-local",
+      databaseId,
+      document: {
+        id: localDocumentId,
+        title: "Local fixture",
+        content: "",
+      },
+      position: 0,
+      properties: [],
+    },
+    {
+      id: "item-builder-fixture-remote",
+      databaseId,
+      document: {
+        id: remoteDocumentId,
+        title: "Preserved remote row",
+        content: "",
+      },
+      position: 1,
+      properties: [],
+    },
+  ];
+  await seedSourceRows({
+    sourceId,
+    ownerEmail: OWNER,
+    sourceType: "builder-cms",
+    sourceTable: "safe-model",
+    items,
+    now,
+    existingBuilderRows: new Map([
+      [
+        remoteDocumentId,
+        {
+          documentId: remoteDocumentId,
+          sourceRowId: "remote-entry-1",
+          sourceQualifiedId: "builder-cms://safe-model/remote-entry-1",
+          sourceDisplayKey: "Preserved remote row",
+          provenance: "Builder CMS read adapter",
+          lastSourceUpdatedAt: now,
+          sourceValuesJson: JSON.stringify({
+            "data.title": "Preserved remote row",
+          }),
+        },
+      ],
+    ]),
+  });
+
+  const hydrationRows = await db
+    .select({
+      documentId: schema.contentDatabaseItems.documentId,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(
+    new Map(hydrationRows.map((row: any) => [row.documentId, row.status])),
+  ).toEqual(
+    new Map([
+      [localDocumentId, "unavailable"],
+      [remoteDocumentId, "hydrated"],
+    ]),
+  );
+
+  const sourceRows = await db
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      provenance: schema.contentDatabaseSourceRows.provenance,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+  expect(
+    new Map(sourceRows.map((row: any) => [row.documentId, row.provenance])),
+  ).toEqual(
+    new Map([
+      [localDocumentId, "Builder CMS fixture adapter"],
+      [remoteDocumentId, "Builder CMS read adapter"],
+    ]),
+  );
+});
+
 it("keeps a materialized required Builder reference dispatchable after full refresh", async () => {
   const db = getDb();
   const now = "2026-07-14T05:00:00.000Z";
