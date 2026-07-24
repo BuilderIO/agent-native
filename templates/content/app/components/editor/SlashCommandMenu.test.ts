@@ -76,6 +76,14 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("persists structural slash-command results immediately", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain("const beforeDoc = editor.state.doc");
+    expect(source).toContain("!editor.state.doc.eq(beforeDoc)");
+    expect(source).toContain("await onDraftCommitted?.()");
+  });
+
   it("opens for slash commands at the start of a block", () => {
     expect(parseSlashCommandQuery("/")).toBe("");
     expect(parseSlashCommandQuery("/heading")).toBe("heading");

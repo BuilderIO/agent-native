@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { docToNfm } from "@shared/nfm";
+import { docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   VISUAL_INDENT,
   parseNfmForEditor,
@@ -296,6 +296,35 @@ describe("VisualEditor markdown round-tripping", () => {
     try {
       expect(editor.view.dom.querySelectorAll("th")).toHaveLength(0);
       expect(editor.view.dom.querySelectorAll("td")).toHaveLength(4);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("round-trips a newly inserted empty table through canonical NFM", () => {
+    const editor = createFullEditor();
+
+    try {
+      expect(
+        editor.commands.insertTable({
+          rows: 3,
+          cols: 3,
+          withHeaderRow: false,
+        }),
+      ).toBe(true);
+      const markdown = docToNfm(editor.getJSON() as any);
+
+      expect(markdown).toContain("<table>");
+      expect(markdown.match(/<tr>/g)).toHaveLength(3);
+      expect(markdown.match(/<td><\/td>/g)).toHaveLength(9);
+
+      const restored = nfmToDoc(markdown);
+      const table = restored.content.find((node) => node.type === "table");
+      expect(table).toBeDefined();
+      expect(table?.content).toHaveLength(3);
+      expect(table?.content?.flatMap((row) => row.content ?? [])).toHaveLength(
+        9,
+      );
     } finally {
       editor.destroy();
     }

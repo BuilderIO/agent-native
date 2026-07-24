@@ -950,6 +950,7 @@ export function SlashCommandMenu({
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       if (editor.isDestroyed) return;
+      const beforeDoc = editor.state.doc;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
         (slashPosRef.current !== null
@@ -963,8 +964,16 @@ export function SlashCommandMenu({
       setQuery("");
       slashPosRef.current = null;
       await cmd.action(editor, { slashRange });
+      // Structural slash commands (especially an empty table) can be followed
+      // immediately by another modal command or navigation before the normal
+      // debounced onUpdate save settles. Persist the completed command now so
+      // the durable snapshot cannot omit the block. Media placeholders are
+      // still held by VisualEditor's pending-media guard until they have a src.
+      if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
+        await onDraftCommitted?.();
+      }
     },
-    [editor],
+    [editor, onDraftCommitted],
   );
 
   useEffect(() => {
