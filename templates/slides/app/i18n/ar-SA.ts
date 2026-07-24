@@ -120,6 +120,7 @@ const messages = {
     uploadAttachedFailed: "Não foi possível enviar o arquivo anexado.",
     uploadFailed: "Falha no envio",
     doubleClickEdit: "Clique duas vezes em qualquer texto para editar",
+    dragToMove: "اسحب للتحريك",
     aiEditing: "IA editando",
     startTypingCommands: "Comece a digitar… ou pressione / para comandos",
     pinDropHint: "Clique em qualquer lugar para soltar um pin de comentário",
@@ -213,6 +214,7 @@ const messages = {
     elementAnimations: "حركات العناصر",
     tweaks: "تعديلات",
     drawOnSlide: "الرسم على الشريحة",
+    addTextBox: "إضافة مربع نص",
     pinComments: "تثبيت التعليقات",
     pinCommentsDescription:
       "انقر على مواضع في الشريحة لإضافة عدة تعديلات إلى الطابور، ثم أرسلها دفعة واحدة.",

@@ -29,6 +29,7 @@ import {
   IconAdjustments,
   IconPencilPlus,
   IconPin,
+  IconLetterT,
   IconWand,
   IconUpload,
   IconSun,
@@ -123,6 +124,10 @@ interface EditorToolbarProps {
   pinMode?: boolean;
   /** Toggle comment-pin drop mode */
   onTogglePinMode?: () => void;
+  /** Whether the add-text-box tool is active */
+  textBoxMode?: boolean;
+  /** Toggle the add-text-box tool */
+  onToggleTextBoxMode?: () => void;
   /** Duplicate the current deck */
   onDuplicateDeck?: () => void;
   /** Export the deck as PDF */
@@ -247,6 +252,8 @@ export default function EditorToolbar({
   onToggleDrawMode,
   pinMode,
   onTogglePinMode,
+  textBoxMode,
+  onToggleTextBoxMode,
   onDuplicateDeck,
   onExportPdf,
   onExportPptx,
@@ -305,10 +312,10 @@ export default function EditorToolbar({
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const isDark = themeMounted ? resolvedTheme === "dark" : false;
-  // The four secondary tools share an "active when something is on" indicator
-  // so the dot on the consolidated button reflects any of them.
+  // The secondary tools share an "active when something is on" indicator so
+  // the dot on the consolidated button reflects any of them.
   const anyToolActive = Boolean(
-    animationsOpen || tweaksOpen || drawMode || pinMode,
+    animationsOpen || tweaksOpen || drawMode || pinMode || textBoxMode,
   );
 
   const closeAll = () => {
@@ -731,7 +738,8 @@ graph TD
         (onToggleAnimations ||
           onToggleTweaks ||
           onToggleDrawMode ||
-          onTogglePinMode) && (
+          onTogglePinMode ||
+          onToggleTextBoxMode) && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -832,6 +840,23 @@ graph TD
                         {t("editorToolbar.pinCommentsDescription")}
                       </span>
                     </span>
+                  </button>
+                )}
+                {onToggleTextBoxMode && (
+                  <button
+                    onClick={() => {
+                      onToggleTextBoxMode();
+                      setToolsOpen(false);
+                    }}
+                    data-toolbar-textbox-button
+                    className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs transition-colors ${
+                      textBoxMode
+                        ? "text-foreground bg-accent/50"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
+                  >
+                    <IconLetterT className="w-3.5 h-3.5" />
+                    {t("editorToolbar.addTextBox")}
                   </button>
                 )}
               </div>
