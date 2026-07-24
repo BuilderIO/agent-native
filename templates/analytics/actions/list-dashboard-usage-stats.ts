@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq, like, or, sql } from "drizzle-orm";
+import { and, eq, inArray, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -191,11 +191,7 @@ export default defineAction({
             >`max(${schema.dashboardViews.createdAt})`,
           })
           .from(schema.dashboardViews)
-          .innerJoin(
-            schema.dashboards,
-            eq(schema.dashboardViews.dashboardId, schema.dashboards.id),
-          )
-          .where(eq(schema.dashboards.orgId, admin.orgId))
+          .where(inArray(schema.dashboardViews.dashboardId, [...dashboardIds]))
           .groupBy(schema.dashboardViews.dashboardId),
         db
           .select({
