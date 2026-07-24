@@ -49,7 +49,11 @@ import {
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
-import type { LinksFunction, LoaderFunctionArgs } from "react-router";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  ShouldRevalidateFunctionArgs,
+} from "react-router";
 
 // Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -103,6 +107,13 @@ export async function loader({
     dir: resolved.dir,
     messages,
   };
+}
+
+export function shouldRevalidate({
+  defaultShouldRevalidate,
+  formMethod,
+}: ShouldRevalidateFunctionArgs) {
+  return formMethod ? defaultShouldRevalidate : false;
 }
 
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
