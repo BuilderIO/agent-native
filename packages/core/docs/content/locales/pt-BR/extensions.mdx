@@ -212,7 +212,7 @@ Padrão em tudo isso: as extensões são sobre **o momento** em que o usuário e
 
 O caminho simples:
 
-1. **Clique em "Nova extensão"** na barra lateral (ou simplesmente pergunte no chat).
+1. Abra **Settings → Extensions** (ou simplesmente pergunte no chat) e clique em **"Nova extensão"**.
 2. **Descreva o que você deseja em uma frase.** "Um bloco de notas para o contato que estou enviando por e-mail." "Uma caixa KPI para testes começou esta semana."
 3. **O agente escreve e ele aparece na sua lista de extensões, pronto para uso.**
 
@@ -424,9 +424,13 @@ As extensões são privadas para o usuário que as criou por padrão. Para compa
 
 As extensões compartilhadas têm seus próprios URLs e se conectam à mesma caixa de diálogo de compartilhamento que documentos, apresentações e painéis. As instalações de slots são sempre pessoais – compartilhar uma extensão significa que outras pessoas _podem_ instalá-la; ele não o fixa automaticamente no UI.
 
-## Extensões versus edição do código do aplicativo {#vs-app-code}
+## Devo usar uma extensão ou editar o código do aplicativo? {#vs-app-code}
 
-A estrutura permite que o agente edite o código-fonte do aplicativo diretamente – componentes, rotas, estilos. Então, quando você deve solicitar uma extensão?
+A estrutura permite que o agente edite diretamente o código-fonte do aplicativo — componentes, rotas, estilos e lógica de negócio. Use esta pergunta quando qualquer um dos dois caminhos puder resolver a solicitação:
+
+- **Comece com uma extensão** para um widget autocontido e relativamente pontual: uma visualização ou interação personalizada, um bloco de dashboard, um utilitário independente ou um complemento em um slot existente. Ela é rápida, não exige alteração no código-fonte, build ou deploy e pode ser privada ou compartilhada.
+- **Use o código do aplicativo** para um recurso central do template, mudanças na UI nativa, layout, rotas ou lógica de negócio, ou qualquer coisa que deva ser amplamente reutilizada entre dashboards ou usuários. Se o host não tiver um slot adequado ou a solicitação precisar de um novo slot, use código.
+- **Promova extensões repetidas.** Se a mesma extensão for recriada continuamente, ou se manter várias cópias for pior do que uma implementação compartilhada, mova-a para o código do aplicativo como um recurso nativo reutilizável.
 
 |                            | Extensão                                                      | Edição do código do aplicativo                         |
 | -------------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
@@ -437,7 +441,7 @@ A estrutura permite que o agente edite o código-fonte do aplicativo diretamente
 | **Escopo**                 | Um usuário (ou compartilhado com a organização)               | O produto inteiro, cada usuário                        |
 | **Melhor para**            | Widgets pessoais, KPIs personalizados, utilitários por equipe | Recursos principais disponíveis para todos os usuários |
 
-Regra geral: **se for para um usuário ou uma equipe, é uma extensão.** Se todos os usuários do modelo quiserem obtê-lo, envie-o como um recurso real.
+Regra geral: **se uma extensão puder resolver o problema, normalmente comece por ela.** Use código quando o limite da extensão não for suficiente ou quando a reutilização ampla e a disponibilidade em todo o produto justificarem uma implementação nativa. Por exemplo, uma visualização personalizada pontual em um dashboard é uma boa extensão; um novo tipo de gráfico de pizza, barras múltiplas ou linhas que deva estar disponível em todos os dashboards pertence ao código do template.
 
 Para busca de dados personalizada que deva alimentar gráficos e tabelas nativos em vez de uma UI de widget sob medida, veja [Programas de dados](/docs/data-programs) — um script `run-code` armazenado e atualizável ao qual os painéis de dashboard se vinculam diretamente, sem nenhum iframe de extensão envolvido.
 

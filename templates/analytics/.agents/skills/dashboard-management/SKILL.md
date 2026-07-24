@@ -7,7 +7,7 @@ description: >-
 
 # Dashboard Management
 
-Dashboards are SQL-backed resources. New dashboards and analyses live in the template tables, not in settings KV rows.
+Dashboards are the canonical SQL-backed Analytics resources. New dashboards, saved analyses, reports, and bespoke extensions are represented as dashboard artifacts—not as separate user-facing Analytics objects. Legacy analysis tables and actions remain available only for compatibility.
 
 ## Storage
 
@@ -24,6 +24,15 @@ Current storage:
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
+
+For organization-wide consolidation, use `migrate-analytics-artifacts` first
+with `dryRun: true`. The write requires an organization owner/admin and the
+exact confirmation token `MIGRATE_ANALYTICS_ARTIFACTS`. It materializes
+organization-scoped legacy settings, creates dashboard blocks for saved
+analyses and standalone extensions, archives exact duplicates, copies shares,
+and removes legacy settings keys only after SQL rows are materialized. Source
+rows remain recoverable. Private member-only rows are intentionally outside
+this organization-scoped operation.
 
 Use `mutate-dashboard` for existing dashboard edits. It resolves the current
 user/org context, validates the resulting config, writes the SQL-backed record,
@@ -104,13 +113,15 @@ standard panels, supported chart types, filters, variables, sections, and grid
 layout.
 
 If the user asks for a dashboard or analytical surface that needs bespoke UI or
-code beyond the dashboard JSON/component model, create an extension instead.
-Examples include custom interaction flows, non-standard visualizations, complex
-multi-step workflows, highly custom layouts, custom client-side state, or a
-dashboard-like app that needs behavior the built-in renderer cannot express. In
-production mode, call `create-extension` automatically and then tell the user
-that the request needed a bespoke surface, so you built it as an extension
-rather than forcing it into a native dashboard config.
+code beyond the dashboard JSON/component model, create an extension and embed it
+in the dashboard. Examples include custom interaction flows, non-standard
+visualizations, complex multi-step workflows, highly custom layouts, custom
+client-side state, or a dashboard-like app that needs behavior the built-in
+renderer cannot express. In production mode, call `create-extension`
+automatically, then call `update-dashboard` with one or more
+`chartType: "extension"` panels using `config.extensionId`. Never leave the
+extension as a standalone Analytics result or direct the user to the Extensions
+page.
 
 ## Embedding An Extension As A Panel
 

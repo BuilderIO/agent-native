@@ -15,7 +15,6 @@ export const INITIAL_TOOL_NAMES = [
   "list-session-recordings",
   "list-analyses",
   "get-analysis",
-  "save-analysis",
   // Dashboard/extension INSPECTION stays on the initial surface so a
   // template-clone request can resolve and inspect the source on the first
   // turn. The MUTATING writers (update-dashboard, mutate-dashboard,

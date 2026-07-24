@@ -30,7 +30,7 @@ export const dispatchExtensions = {
     {
       id: "agent",
       to: "/agent",
-      label: "Agent",
+      label: "Manage agent",
       icon: IconHierarchy2,
       section: "operations",
     },

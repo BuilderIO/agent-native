@@ -2,8 +2,9 @@
 //!
 //! Polls the frontmost macOS app every few seconds. When Zoom or Teams stays
 //! frontmost for a short dwell window, creates a meeting row via
-//! `create-meeting` and shows the same meeting-notification overlay used for
-//! calendar reminders — with `type: "adhoc"`.
+//! `create-meeting`, and silently starts transcription when the user has
+//! explicitly selected Auto mode. Ask/manual mode stays quiet because a
+//! frontmost Zoom window is not reliable evidence of an active call.
 //!
 //! Reuses `MeetingsWatcherState` session (server URL + cookie + auth token)
 //! so the popover only needs to push credentials once.
@@ -157,7 +158,7 @@ async fn tick_macos(
     let front = crate::util::frontmost_bundle_id();
     let matched = front.as_deref().and_then(match_vc_bundle);
 
-    let Some((platform, title)) = matched else {
+    let Some((platform, _title)) = matched else {
         // VC app left front — clear session dedupe so a later re-focus can
         // fire again (cooldown still applies).
         clear_session_if_left(app, None);
@@ -173,9 +174,7 @@ async fn tick_macos(
         return Ok(());
     }
 
-    if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
-        && !config.show_meeting_widget_enabled
-    {
+    if config.meeting_transcription_mode != MeetingTranscriptionMode::Auto {
         reset_dwell(app);
         return Ok(());
     }
@@ -250,44 +249,14 @@ async fn tick_macos(
         }
     };
 
-    let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
-    let show_widget = config.show_meeting_widget_enabled
-        || config.meeting_transcription_mode == MeetingTranscriptionMode::Ask
-        || auto_start;
-
-    if show_widget {
-        let app_clone = app.clone();
-        let id_clone = meeting_id.clone();
-        let title_clone = title.to_string();
-        let platform_clone = platform.to_string();
-        let scheduled_start = chrono::Utc::now().to_rfc3339();
-        tauri::async_runtime::spawn(async move {
-            let _ = crate::notifications::notify_meeting_starting(
-                app_clone,
-                id_clone,
-                title_clone,
-                0,
-                None,
-                Some(scheduled_start),
-                None,
-                Some(platform_clone),
-                Some(auto_start),
-                Some("adhoc".to_string()),
-            )
-            .await;
-        });
-    }
-
-    if auto_start {
-        let _ = app.emit(
-            "meetings:start-transcription",
-            serde_json::json!({
-                "meetingId": meeting_id,
-                "joinUrl": null,
-                "reason": "adhoc-auto",
-            }),
-        );
-    }
+    let _ = app.emit(
+        "meetings:start-transcription",
+        serde_json::json!({
+            "meetingId": meeting_id,
+            "joinUrl": null,
+            "reason": "adhoc-auto",
+        }),
+    );
 
     Ok(())
 }

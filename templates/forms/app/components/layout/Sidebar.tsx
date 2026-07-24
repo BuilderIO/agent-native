@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -277,45 +276,47 @@ export function Sidebar() {
             {newFormPopover}
           </Popover>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/agent"
-                aria-label={t("navigation.agent")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname.startsWith("/agent")
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconHierarchy2 className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.agent")}
-            </TooltipContent>
-          </Tooltip>
+          <div className="mt-auto flex flex-col items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/agent"
+                  aria-label={t("settings.agentTitle")}
+                  className={cn(
+                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                    location.pathname.startsWith("/agent")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <IconHierarchy2 className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("settings.agentTitle")}
+              </TooltipContent>
+            </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                aria-label={t("navigation.settings")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname === "/settings"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconSettings className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.settings")}
-            </TooltipContent>
-          </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/settings"
+                  aria-label={t("navigation.settings")}
+                  className={cn(
+                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                    location.pathname === "/settings"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <IconSettings className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </nav>
       </TooltipProvider>
     </div>
@@ -446,7 +447,7 @@ export function Sidebar() {
           )}
         >
           <IconHierarchy2 size={14} className="shrink-0" />
-          <span>{t("navigation.agent")}</span>
+          <span>{t("settings.agentTitle")}</span>
         </Link>
 
         <Link
@@ -462,11 +463,6 @@ export function Sidebar() {
           <IconSettings size={14} className="shrink-0" />
           <span>{t("navigation.settings")}</span>
         </Link>
-      </div>
-
-      {/* Tools */}
-      <div className="shrink-0 px-1.5 py-1.5">
-        <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}

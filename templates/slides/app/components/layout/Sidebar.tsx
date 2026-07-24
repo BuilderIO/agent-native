@@ -1,6 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -28,6 +27,9 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+];
+
+const bottomNavItems = [
   { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -85,6 +87,29 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                     )}
                   >
                     <Icon className="h-4 w-4" />
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </nav>
+        <nav className="flex shrink-0 flex-col items-center gap-1 py-1">
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Tooltip key={item.href} delayDuration={0}>
+                <TooltipTrigger asChild>
+                  <Link
+                    to={item.href}
+                    aria-label={t(item.labelKey)}
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                      isItemActive(item.href) &&
+                        "bg-sidebar-accent text-sidebar-accent-foreground",
+                    )}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
                   </Link>
                 </TooltipTrigger>
                 <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
@@ -156,9 +181,27 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         </nav>
 
         <div className="mt-auto shrink-0">
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
+          <nav className="space-y-1 px-2 py-1">
+            {bottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isItemActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {t(item.labelKey)}
+                </Link>
+              );
+            })}
+          </nav>
 
           <div className="px-3 py-2">
             <OrgSwitcher />

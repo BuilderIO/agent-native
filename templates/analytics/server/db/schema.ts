@@ -67,6 +67,10 @@ export const dashboardRevisions = table(
       t.dashboardId,
       t.createdAt,
     ),
+    orgDashboardIdx: index("dashboard_revisions_org_dashboard_idx").on(
+      t.orgId,
+      t.dashboardId,
+    ),
   }),
 );
 

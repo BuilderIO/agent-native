@@ -257,9 +257,7 @@ describe("document sidebar layout", () => {
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
     expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
-    expect(sidebar.indexOf("<ExtensionsSidebarSection />")).toBeLessThan(
-      sidebar.indexOf("<OrgSwitcher reserveSpace />"),
-    );
+    expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
     expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
       sidebar.indexOf("{/* Footer */}"),
     );

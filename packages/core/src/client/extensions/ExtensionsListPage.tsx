@@ -99,7 +99,14 @@ function CreateToolInput({ className }: { className?: string }) {
   );
 }
 
-export function ExtensionsListPage() {
+export interface ExtensionsListPageProps {
+  /** Skip the standalone extensions navigation state when embedded in Settings. */
+  embedded?: boolean;
+}
+
+export function ExtensionsListPage({
+  embedded = false,
+}: ExtensionsListPageProps = {}) {
   const t = useT();
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -111,12 +118,13 @@ export function ExtensionsListPage() {
   );
 
   useEffect(() => {
+    if (embedded) return;
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ view: "extensions" }),
     }).catch(() => {});
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -189,7 +197,12 @@ export function ExtensionsListPage() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div
+      className={cn(
+        "flex w-full flex-col",
+        embedded ? "min-h-[28rem]" : "h-full",
+      )}
+    >
       <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>

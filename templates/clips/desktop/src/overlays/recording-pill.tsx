@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor } from "../lib/transcription-engine";
+import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
@@ -65,9 +66,6 @@ export function RecordingPill() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Mic and system audio share one calm activity meter, matching Granola's
   // single indicator for the combined meeting capture.
-  const levelRef = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
@@ -165,15 +163,6 @@ export function RecordingPill() {
         if (ev.payload?.detached) setExpanded(false);
       }),
     );
-    trackListen(
-      listen<{ level: number; source?: "mic" | "system" }>(
-        "voice:audio-level",
-        (ev) => {
-          const lvl = Math.max(0, Math.min(1, ev.payload.level));
-          levelRef.current = lvl;
-        },
-      ),
-    );
     // Signal that all listeners are registered. app.tsx listens for this and
     // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
@@ -206,62 +195,6 @@ export function RecordingPill() {
       tickRef.current = null;
     };
   }, [ctx.mode, paused]);
-
-  // One combined "dancing bars" meter — a few discrete vertical bars instead
-  // of separate mic and system waveforms.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const N_BARS = 3;
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth;
-    const H = canvas.clientHeight;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    const ctx2d = canvas.getContext("2d");
-    if (!ctx2d) return;
-    ctx2d.scale(dpr, dpr);
-    const slot = W / N_BARS;
-    const gap = Math.max(2, slot * 0.3);
-    const barWidth = Math.max(3, slot - gap);
-    const centerY = H / 2;
-    const startMs = Date.now();
-    let lastDrawMs = 0;
-    const FRAME_INTERVAL_MS = 1000 / 20;
-    const tick = () => {
-      rafRef.current = requestAnimationFrame(tick);
-      const nowMs = Date.now();
-      if (nowMs - lastDrawMs < FRAME_INTERVAL_MS) return;
-      lastDrawMs = nowMs;
-      const t = (nowMs - startMs) % 1_000_000;
-      const target = Math.min(1, levelRef.current);
-      ctx2d.clearRect(0, 0, W, H);
-      ctx2d.fillStyle = "rgba(132, 204, 22, 0.98)";
-      ctx2d.shadowColor = "rgba(132, 204, 22, 0.48)";
-      ctx2d.shadowBlur = 4;
-      for (let i = 0; i < N_BARS; i += 1) {
-        const phase = t * 0.005 + i * (Math.PI * 0.65);
-        const barTarget = 0.2 + Math.sin(phase) * 0.42 * target + target * 0.38;
-        const h = Math.max(4, Math.min(1, barTarget) * H * 0.92);
-        const x = i * (barWidth + gap) + gap / 2;
-        const y = centerY - h / 2;
-        const radius = Math.min(barWidth / 2, 3);
-        ctx2d.beginPath();
-        if (typeof ctx2d.roundRect === "function") {
-          ctx2d.roundRect(x, y, barWidth, h, radius);
-        } else {
-          ctx2d.rect(x, y, barWidth, h);
-        }
-        ctx2d.fill();
-      }
-      ctx2d.shadowBlur = 0;
-    };
-    tick();
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-  }, [expanded]);
 
   // Let the compact chip land first, then reveal the live transcript once per
   // meeting. The delay keeps the indicator from feeling like a sudden panel.
@@ -380,7 +313,10 @@ export function RecordingPill() {
             onClick={!expanded && !detached ? handlePillMediaClick : undefined}
           >
             <PillLogo className="pill-logo" />
-            <canvas ref={canvasRef} className="pill-wave-canvas" aria-hidden />
+            <LiveAudioBars
+              compact={!expanded && !detached}
+              className="pill-wave-meter"
+            />
           </div>
           <div className="pill-controls">
             <span className="pill-timer">

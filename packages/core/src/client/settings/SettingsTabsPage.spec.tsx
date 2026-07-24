@@ -374,6 +374,30 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Team members");
   });
 
+  it("renders the Extensions tab from Settings", () => {
+    window.history.replaceState(null, "", "/settings#extensions");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "extensions",
+              label: "Extensions",
+              group: "workspace",
+              content: <div>Extension management</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-extensions")).not.toBeNull();
+    expect(container.textContent).toContain("Extension management");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("opens an organization tab from organization and legacy team hashes", () => {
     window.history.replaceState(null, "", "/settings#organization");
 

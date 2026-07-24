@@ -19,6 +19,7 @@ describe("meeting notification dismissal", () => {
 
     expect(invoke).toHaveBeenCalledWith("dismiss_meeting_notification", {
       meetingId: "meeting-1",
+      joinUrl: null,
       notificationType: "adhoc",
       platform: "zoom",
       scheduledStart: "2026-07-22T19:10:00.000Z",

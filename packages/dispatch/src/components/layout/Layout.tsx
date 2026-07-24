@@ -8,7 +8,6 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -177,12 +176,14 @@ const OPERATIONS_NAV_ITEMS = [
     icon: IconLayersSubtract,
     section: "operations",
   },
+] as const satisfies readonly DispatchNavItem[];
+
+const BOTTOM_NAV_ITEMS = [
   {
     id: "settings",
     to: "/settings",
     label: "Settings",
     icon: IconSettings,
-    section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];
 
@@ -707,12 +708,20 @@ export function NavContent({
           )}
         </nav>
 
+        <div className="mt-auto shrink-0">
+          <nav className={cn("py-1", collapsed ? "px-1" : "px-2")}>
+            <ul
+              className={cn(
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+              )}
+            >
+              {BOTTOM_NAV_ITEMS.map(renderNavItem)}
+            </ul>
+          </nav>
+        </div>
+
         {!collapsed ? (
           <div className="mt-auto shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
