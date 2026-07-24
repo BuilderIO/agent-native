@@ -3,8 +3,9 @@
  *
  * Owner-only — uses assertAccess at editor level (owners always satisfy).
  *
- * Returns: views, uniqueViewers, completionRate, dropOff (100 buckets),
- * ctaConversionRate.
+ * Returns: views (total counted view sessions, so a returning viewer counts
+ * again), uniqueViewers (distinct people behind those views), completionRate,
+ * dropOff (100 buckets), ctaConversionRate.
  *
  * Usage:
  *   pnpm action get-recording-insights --recordingId=<id>

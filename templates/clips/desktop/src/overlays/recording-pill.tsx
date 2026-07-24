@@ -1,11 +1,11 @@
 import {
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
   IconCopy,
   IconExternalLink,
   IconLoader2,
-  IconMessageCircle,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
@@ -32,8 +32,8 @@ interface PillContext {
  * Granola-style recording indicator. A floating pill anchored by Rust:
  * center-right for meetings, bottom-center for ordinary recordings.
  *
- *   - Collapsed (default): red dot + elapsed timer + tiny waveform + chevron.
- *   - Expanded: same header + scrolling live transcript + Pause / Stop.
+ *   - Collapsed (default): logo + live waveform capsule, click to expand.
+ *   - Expanded: header + scrolling live transcript + Pause / Stop + Ask bar.
  *
  * The hosting Tauri window is always-on-top, transparent, no decorations,
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
@@ -51,6 +51,7 @@ export function RecordingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
+  const [ask, setAsk] = useState("");
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -196,17 +197,6 @@ export function RecordingPill() {
     };
   }, [ctx.mode, paused]);
 
-  // Let the compact chip land first, then reveal the live transcript once per
-  // meeting. The delay keeps the indicator from feeling like a sudden panel.
-  useEffect(() => {
-    if (ctx.mode !== "meeting" || detached) return;
-    const timer = setTimeout(() => {
-      setExpanded(true);
-      invoke("recording_pill_expand", { expanded: true }).catch(() => {});
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [ctx.mode, detached]);
-
   async function toggleExpanded() {
     const next = !expanded;
     setExpanded(next);
@@ -307,11 +297,9 @@ export function RecordingPill() {
                 ? " pill-vertical"
                 : ""
           }`}
+          onClick={!expanded && !detached ? handlePillMediaClick : undefined}
         >
-          <div
-            className="pill-media"
-            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
-          >
+          <div className="pill-media">
             <PillLogo className="pill-logo" />
             <LiveAudioBars
               compact={!expanded && !detached}

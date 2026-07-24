@@ -52,10 +52,7 @@ import { countedViewCondition, countRecordingViews } from "./recordings.js";
  * Two counts come back per call — one per table — so the fake resolves each
  * `.where()` against the table the builder was pointed at.
  */
-function createDb(rowsByTable: {
-  viewers?: unknown[];
-  views?: unknown[];
-}) {
+function createDb(rowsByTable: { viewers?: unknown[]; views?: unknown[] }) {
   const calls: {
     tables: unknown[];
     wheres: unknown[];
@@ -124,7 +121,10 @@ describe("countRecordingViews", () => {
   });
 
   it("never reports fewer views than counted viewers", async () => {
-    const { db } = createDb({ viewers: [{ value: 11 }], views: [{ value: 4 }] });
+    const { db } = createDb({
+      viewers: [{ value: 11 }],
+      views: [{ value: 4 }],
+    });
     mocks.getDb.mockReturnValue(db);
 
     await expect(countRecordingViews("rec-1")).resolves.toBe(11);
