@@ -4770,11 +4770,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // POST /checkpoints — restore to a checkpoint
-          // h3 prefix-matches, so /checkpoints/restore hits this handler with
-          // event.path containing "/restore".
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          if (method === "POST" && remainder.startsWith("restore")) {
+          // POST /checkpoints/restore — restore to a checkpoint.
+          const restorePath = event.path || event.node?.req?.url || "";
+          if (method === "POST" && isCheckpointRestorePath(restorePath)) {
             if (!canToggle) {
               setResponseStatus(event, 403);
               return { error: "Checkpoints only available in dev mode" };
@@ -4785,17 +4783,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const body = await readBody(event);
             const checkpointId = body?.checkpointId;
-            if (!checkpointId) {
+            const restoreRunId =
+              typeof body?.runId === "string" ? body.runId : "";
+            if (!checkpointId && !restoreRunId) {
               setResponseStatus(event, 400);
-              return { error: "checkpointId is required" };
+              return { error: "checkpointId or runId is required" };
             }
             try {
-              const { getCheckpointById } =
+              const { getCheckpointById, getCheckpointByRunId } =
                 await import("../checkpoints/store.js");
-              const checkpoint = await getCheckpointById(checkpointId);
+              const checkpoint = checkpointId
+                ? await getCheckpointById(checkpointId)
+                : await getCheckpointByRunId(restoreRunId);
               if (!checkpoint) {
                 setResponseStatus(event, 404);
-                return { error: "Checkpoint not found" };
+                return {
+                  error: restoreRunId
+                    ? "No checkpoint was saved for this turn, so there is nothing to restore."
+                    : "Checkpoint not found",
+                };
               }
               const owner = await getOwnerFromEvent(event);
               const thread = await getThread(checkpoint.threadId);
