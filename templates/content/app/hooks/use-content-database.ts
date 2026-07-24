@@ -170,6 +170,57 @@ export function writeContentDatabaseResponseToCache(
   );
 }
 
+export function applyOptimisticBuilderWriteMode(
+  current: ContentDatabaseResponse | undefined,
+  request: SetContentDatabaseSourceWriteModeRequest,
+) {
+  if (!current || !request.writeMode) return current;
+  const sourceId = request.sourceId ?? current.source?.id;
+  if (!sourceId) return current;
+  const writeMode = request.writeMode;
+  const liveWritesEnabled = writeMode !== "read_only";
+  const allowPublicationTransitions =
+    writeMode === "publish_updates" &&
+    request.allowPublicationTransitions === true;
+  const allowedWriteModes =
+    writeMode === "publish_updates"
+      ? (["autosave", "publish"] as const)
+      : writeMode === "stage_only"
+        ? (["autosave"] as const)
+        : ([] as const);
+  const patchSource = (
+    source: ContentDatabaseResponse["source"],
+  ): ContentDatabaseResponse["source"] =>
+    source?.id === sourceId
+      ? {
+          ...source,
+          capabilities: {
+            ...source.capabilities,
+            liveWritesEnabled,
+          },
+          metadata: {
+            ...source.metadata,
+            writeMode,
+            allowPublicationTransitions,
+            allowedWriteModes: [...allowedWriteModes],
+            allowDraftWrites: false,
+            allowPublishWrites: writeMode === "publish_updates",
+            pushMode:
+              writeMode === "publish_updates"
+                ? "publish"
+                : writeMode === "stage_only"
+                  ? "autosave"
+                  : "none",
+          },
+        }
+      : source;
+  return {
+    ...current,
+    source: patchSource(current.source),
+    sources: current.sources?.map((source) => patchSource(source)!),
+  };
+}
+
 export function applyDocumentPropertyValueToDatabaseResponse(
   current: ContentDatabaseResponse | undefined,
   patch: {
@@ -1218,6 +1269,29 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
     ContentDatabaseResponse,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
+      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(documentId),
+      );
+      queryClient.setQueriesData<ContentDatabaseResponse>(
+        contentDatabaseQueryFilter(documentId),
+        (current) => applyOptimisticBuilderWriteMode(current, variables),
+      );
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      const rollback = context as
+        | {
+            previous?: Array<
+              [readonly unknown[], ContentDatabaseResponse | undefined]
+            >;
+          }
+        | undefined;
+      for (const [queryKey, data] of rollback?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
+      }
+    },
     onSuccess: (data) => {
       writeContentDatabaseResponseToCache(queryClient, documentId, data);
       queryClient.invalidateQueries({

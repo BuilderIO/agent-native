@@ -9,6 +9,7 @@ import {
   applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
   applyOptimisticItemToContentDatabase,
+  applyOptimisticBuilderWriteMode,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
@@ -216,6 +217,58 @@ function databaseResponse(): ContentDatabaseResponse {
     },
   };
 }
+
+describe("applyOptimisticBuilderWriteMode", () => {
+  it("updates the active Builder policy without replacing database rows", () => {
+    const current = databaseResponse();
+    current.sources = [current.source!];
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      documentId: "database-page",
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.items).toBe(current.items);
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+        allowedWriteModes: ["autosave", "publish"],
+        allowPublishWrites: true,
+        pushMode: "publish",
+      },
+    });
+    expect(updated?.sources?.[0]).toMatchObject(updated?.source ?? {});
+  });
+
+  it("optimistically disables publication transitions for read-only mode", () => {
+    const current = applyOptimisticBuilderWriteMode(databaseResponse(), {
+      sourceId: "source",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
+    });
+
+    const updated = applyOptimisticBuilderWriteMode(current, {
+      sourceId: "source",
+      writeMode: "read_only",
+      allowPublicationTransitions: true,
+    });
+
+    expect(updated?.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "read_only",
+        allowPublicationTransitions: false,
+        allowedWriteModes: [],
+        allowPublishWrites: false,
+        pushMode: "none",
+      },
+    });
+  });
+});
 
 function sourceFieldPatch(): ContentDatabaseSourceFieldPropertyResponse {
   return {
