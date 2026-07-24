@@ -105,6 +105,7 @@ export function buildDashboardAgentContext(
     hiddenBy: dashboard.hiddenBy,
     createdAt: dashboard.createdAt,
     updatedAt: dashboard.updatedAt,
+    updatedBy: dashboard.updatedBy,
     url: `/dashboards/${dashboard.id}`,
   };
   return options.includeConfig === false ? base : { ...base, ...config };

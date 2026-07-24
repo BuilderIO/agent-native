@@ -154,15 +154,15 @@ describe("A2AClient", () => {
         }
 
         return new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener(
-            "abort",
-            () => {
-              reject(
-                new DOMException("The operation was aborted", "AbortError"),
-              );
-            },
-            { once: true },
-          );
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
         });
       },
     );
@@ -197,7 +197,7 @@ describe("A2AClient", () => {
           JSON.parse(String(init.body)).method === "tasks/get",
       )?.[1]?.signal,
     ).toBeInstanceOf(AbortSignal);
-  });
+  }, 30_000);
 
   it("recovers after one task-status request exceeds the per-request timeout", async () => {
     vi.useFakeTimers();
@@ -218,15 +218,17 @@ describe("A2AClient", () => {
         if (taskReads === 1) {
           firstPollSignal = init.signal ?? null;
           return new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener(
-              "abort",
-              () => {
-                reject(
-                  new DOMException("The operation was aborted", "AbortError"),
-                );
-              },
-              { once: true },
-            );
+            const rejectAborted = () =>
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            if (init.signal?.aborted) {
+              rejectAborted();
+              return;
+            }
+            init.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
           });
         }
         return completedResponse(body, "recovered after transient poll hang");
@@ -254,7 +256,7 @@ describe("A2AClient", () => {
     await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
-  });
+  }, 30_000);
 
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

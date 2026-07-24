@@ -12,7 +12,9 @@ vi.mock("../server/tasks/store.js", () => ({
   },
 }));
 
-import bulkDeleteTasksAction from "./bulk-delete-tasks.js";
+import bulkDeleteTasksAction, {
+  bulkDeleteTasksSchema,
+} from "./bulk-delete-tasks.js";
 
 describe("bulk-delete-tasks", () => {
   beforeEach(() => {
@@ -21,14 +23,10 @@ describe("bulk-delete-tasks", () => {
 
   describe("schema", () => {
     it("requires at least one task id", () => {
-      expect(
-        bulkDeleteTasksAction.schema.parse({ taskIds: ["t1", "t2"] }),
-      ).toEqual({
+      expect(bulkDeleteTasksSchema.parse({ taskIds: ["t1", "t2"] })).toEqual({
         taskIds: ["t1", "t2"],
       });
-      expect(() =>
-        bulkDeleteTasksAction.schema.parse({ taskIds: [] }),
-      ).toThrow();
+      expect(() => bulkDeleteTasksSchema.parse({ taskIds: [] })).toThrow();
     });
   });
 

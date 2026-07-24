@@ -1,3 +1,4 @@
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -76,6 +77,20 @@ function TaskFieldsSidebarPanel({ task }: { task: TaskWithFields }) {
           />
         ))
       )}
+
+      {/* Stable extension contract: changing this slot id or context requires a migration. */}
+      <ExtensionSlot
+        id="tasks.task-detail.bottom"
+        context={{
+          taskId: task.id,
+          title: task.title,
+          done: task.done,
+          fieldValues: fields.map((field) => ({
+            fieldId: field.id,
+            value: field.value ?? null,
+          })),
+        }}
+      />
     </div>
   );
 }

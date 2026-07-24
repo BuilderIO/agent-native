@@ -6401,6 +6401,10 @@ export async function chainServerDrivenContinuation(opts: {
         terminalEvent: run.events.at(-1)?.event,
       })
       .catch(() => {});
+    run.continuationTerminalEvent = {
+      type: "auto_continue",
+      reason: continuationReason,
+    };
   } catch (chainErr) {
     // Chain dispatch failed — fail loud so the held row goes terminal
     // instead of spinning. The reaper would also catch it, but this is
@@ -7746,18 +7750,6 @@ export function createProductionAgentHandler(
       }).catch(() => {});
     }
 
-    // The background worker must AWAIT the run to completion before returning,
-    // or Netlify freezes/kills the function the instant the handler returns and
-    // the detached run dies mid-turn (mirrors the agent-teams processor, which
-    // wraps startRun in `await new Promise(resolve => startRun(..., onComplete:
-    // () => resolve()))`). We resolve this when the run's onComplete fires.
-    let resolveBackgroundRunDone: (() => void) | null = null;
-    const backgroundRunDone = isBackgroundWorker
-      ? new Promise<void>((resolve) => {
-          resolveBackgroundRunDone = resolve;
-        })
-      : null;
-
     const baseHandleRunComplete =
       options.onRunComplete || trackedProgressRunId
         ? async (run: ActiveRun) => {
@@ -7771,119 +7763,114 @@ export function createProductionAgentHandler(
           }
         : undefined;
 
-    // Wrap so the background worker is unblocked even when there is no app
-    // onRunComplete / tracked-progress callback configured. Also installed for
-    // a foreground run eligible for self-chain — that path needs this same
-    // wrapper to fire the continuation dispatch below.
+    // Install the completion callback for background continuation even when
+    // there is no app onRunComplete / tracked-progress callback configured.
+    // The foreground self-chain path uses the same continuation dispatch.
     const handleRunComplete =
       isBackgroundWorker || foregroundSelfChainEligible || baseHandleRunComplete
         ? async (run: ActiveRun) => {
-            try {
-              // DIAGNOSTIC: a background worker that completed in an errored
-              // state threw inside the loop. Record it (with the last error
-              // event's message when available) so the failure cause is
-              // readable from the client. Skipped for clean completions and for
-              // recoverable soft-timeout boundaries (those chain a continuation
-              // below, they did not "throw").
-              if (
-                isBackgroundWorker &&
-                run.status === "errored" &&
-                !willChainBackgroundContinuation(run)
-              ) {
-                const errEvent = [...run.events]
-                  .reverse()
-                  .find((e) => e.event.type === "error")?.event as
-                  | { error?: string; errorCode?: string }
-                  | undefined;
-                await recordRunDiagnostic(
-                  run.runId,
-                  RUN_DIAG_STAGE.workerThrew,
-                  errEvent?.errorCode || errEvent?.error
-                    ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
-                    : "run ended in errored state",
-                ).catch(() => {});
-              }
-              // Persist the (partial) assistant turn to thread_data FIRST — the
-              // server-driven continuation below rebuilds from it, so it must be
-              // committed before we re-fire.
-              await baseHandleRunComplete?.(run);
+            // DIAGNOSTIC: a background worker that completed in an errored
+            // state threw inside the loop. Record it (with the last error
+            // event's message when available) so the failure cause is
+            // readable from the client. Skipped for clean completions and for
+            // recoverable soft-timeout boundaries (those chain a continuation
+            // below, they did not "throw").
+            if (
+              isBackgroundWorker &&
+              run.status === "errored" &&
+              !willChainBackgroundContinuation(run)
+            ) {
+              const errEvent = [...run.events]
+                .reverse()
+                .find((e) => e.event.type === "error")?.event as
+                | { error?: string; errorCode?: string }
+                | undefined;
+              await recordRunDiagnostic(
+                run.runId,
+                RUN_DIAG_STAGE.workerThrew,
+                errEvent?.errorCode || errEvent?.error
+                  ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
+                  : "run ended in errored state",
+              ).catch(() => {});
+            }
+            // Persist the (partial) assistant turn to thread_data FIRST — the
+            // server-driven continuation below rebuilds from it, so it must be
+            // committed before we re-fire.
+            await baseHandleRunComplete?.(run);
 
-              // Server-driven background→background continuation. If this chunk
-              // hit its soft-timeout still unfinished (ended at an auto_continue
-              // / loop_limit / recoverable boundary), chain the next chunk by
-              // re-firing the `_process-run` self-dispatch with mode "continue"
-              // (carried as internalContinuation + an incremented count),
-              // instead of relying on the client to re-POST. Mirrors the
-              // agent-teams `fireInternalDispatch({ body: { mode: "continue" }})`
-              // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
-              // user-stopped runs do NOT chain.
-              // Self-chain server-side for EVERY durable worker, not only the
-              // ones inside a `-background` function. Server-driven
-              // continuation is the whole point of durable background: the run
-              // must survive the client disconnecting (closed tab), so it
-              // cannot depend on the browser re-POSTing `auto_continue`. A
-              // worker on the regular ~60s function — a Netlify routing miss,
-              // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
-              // never emits a `-background` function — checkpoints at the 40s
-              // soft-timeout and self-dispatches the next 40s chunk; a worker
-              // in a real `-background` function chains ~13-min chunks. Only
-              // the per-chunk BUDGET differs by function type (gated by
-              // `runsInBackgroundFunction` at the startRun call below); the
-              // continuation itself must stay server-driven on both. (The
-              // self-chain is only reachable when the initial dispatch already
-              // succeeded — a dispatch fast-fail degrades to the inline
-              // foreground fallback, which is not a worker and rides the
-              // connected client's auto_continue instead.)
-              if (willChainBackgroundContinuation(run)) {
-                // Full handoff discipline lives in
-                // `chainServerDrivenContinuation` (exported + unit-tested):
-                // per-turn SQL run budget, successor row PRE-INSERTED before
-                // the dispatch, fully awaited dispatch with retries, loud
-                // diag/terminal marking on failure. Never throws.
-                await chainServerDrivenContinuation({
-                  event,
-                  run,
-                  effectiveThreadId,
-                  effectiveTurnId,
-                  requestBody: body as unknown as Record<string, unknown>,
-                  backgroundContinuationCount,
-                  // Re-evaluate the durable gate rather than keying off
-                  // isBackgroundWorker: a successor chunk of a FOREGROUND
-                  // self-chain re-enters as a worker too, and must keep
-                  // chaining via the regular function — the Netlify
-                  // `-background` function is only emitted into the deploy
-                  // output when the durable flag is on.
-                  //
-                  // `&& !runsInBackgroundFunction`: a worker PROVEN to already
-                  // be executing inside the real `-background` function must
-                  // never dispatch back to that same function's own URL — a
-                  // background function invoking itself by URL from inside a
-                  // live invocation is a documented Netlify platform
-                  // limitation (404), unlike the initial foreground→background
-                  // dispatch or a worker that landed on the regular function
-                  // (a genuinely different function calling the background
-                  // one, which works). This only changes the dispatch TARGET
-                  // for that one proven-in-bg-function case — by this point
-                  // (with the in-process resumable-error resume above) it is
-                  // reached only when the chunk genuinely exhausted its
-                  // budget, so falling back to the regular `_process-run`
-                  // function (40s clamp) here is the correct, safe target.
-                  chainViaDurableBackground:
-                    isAgentChatDurableBackgroundEnabled({
-                      appOptIn: options.durableBackgroundRuns,
-                    }) && !runsInBackgroundFunction,
-                  // Only changes the retry BUDGET, never the dispatch target
-                  // above: a worker proven in a real background function has
-                  // minutes of remaining wall clock and no connected-client
-                  // fallback, so it must not be demoted to the foreground's
-                  // 2-attempt budget just because it was forced onto the
-                  // regular-function dispatch target. See
-                  // `resolveContinuationDispatchBudget`.
-                  workerProvenInBackgroundFunction: runsInBackgroundFunction,
-                });
-              }
-            } finally {
-              resolveBackgroundRunDone?.();
+            // Server-driven background→background continuation. If this chunk
+            // hit its soft-timeout still unfinished (ended at an auto_continue
+            // / loop_limit / recoverable boundary), chain the next chunk by
+            // re-firing the `_process-run` self-dispatch with mode "continue"
+            // (carried as internalContinuation + an incremented count),
+            // instead of relying on the client to re-POST. Mirrors the
+            // agent-teams `fireInternalDispatch({ body: { mode: "continue" }})`
+            // chain. Bounded by MAX_BACKGROUND_RUN_CONTINUATIONS. Aborted /
+            // user-stopped runs do NOT chain.
+            // Self-chain server-side for EVERY durable worker, not only the
+            // ones inside a `-background` function. Server-driven
+            // continuation is the whole point of durable background: the run
+            // must survive the client disconnecting (closed tab), so it
+            // cannot depend on the browser re-POSTing `auto_continue`. A
+            // worker on the regular ~60s function — a Netlify routing miss,
+            // or a non-Netlify host (Vercel/Cloudflare/Render/Fly) that
+            // never emits a `-background` function — checkpoints at the 40s
+            // soft-timeout and self-dispatches the next 40s chunk; a worker
+            // in a real `-background` function chains ~13-min chunks. Only
+            // the per-chunk BUDGET differs by function type (gated by
+            // `runsInBackgroundFunction` at the startRun call below); the
+            // continuation itself must stay server-driven on both. (The
+            // self-chain is only reachable when the initial dispatch already
+            // succeeded — a dispatch fast-fail degrades to the inline
+            // foreground fallback, which is not a worker and rides the
+            // connected client's auto_continue instead.)
+            if (willChainBackgroundContinuation(run)) {
+              // Full handoff discipline lives in
+              // `chainServerDrivenContinuation` (exported + unit-tested):
+              // per-turn SQL run budget, successor row PRE-INSERTED before
+              // the dispatch, fully awaited dispatch with retries, loud
+              // diag/terminal marking on failure. Never throws.
+              await chainServerDrivenContinuation({
+                event,
+                run,
+                effectiveThreadId,
+                effectiveTurnId,
+                requestBody: body as unknown as Record<string, unknown>,
+                backgroundContinuationCount,
+                // Re-evaluate the durable gate rather than keying off
+                // isBackgroundWorker: a successor chunk of a FOREGROUND
+                // self-chain re-enters as a worker too, and must keep
+                // chaining via the regular function — the Netlify
+                // `-background` function is only emitted into the deploy
+                // output when the durable flag is on.
+                //
+                // `&& !runsInBackgroundFunction`: a worker PROVEN to already
+                // be executing inside the real `-background` function must
+                // never dispatch back to that same function's own URL — a
+                // background function invoking itself by URL from inside a
+                // live invocation is a documented Netlify platform
+                // limitation (404), unlike the initial foreground→background
+                // dispatch or a worker that landed on the regular function
+                // (a genuinely different function calling the background
+                // one, which works). This only changes the dispatch TARGET
+                // for that one proven-in-bg-function case — by this point
+                // (with the in-process resumable-error resume above) it is
+                // reached only when the chunk genuinely exhausted its
+                // budget, so falling back to the regular `_process-run`
+                // function (40s clamp) here is the correct, safe target.
+                chainViaDurableBackground:
+                  isAgentChatDurableBackgroundEnabled({
+                    appOptIn: options.durableBackgroundRuns,
+                  }) && !runsInBackgroundFunction,
+                // Only changes the retry BUDGET, never the dispatch target
+                // above: a worker proven in a real background function has
+                // minutes of remaining wall clock and no connected-client
+                // fallback, so it must not be demoted to the foreground's
+                // 2-attempt budget just because it was forced onto the
+                // regular-function dispatch target. See
+                // `resolveContinuationDispatchBudget`.
+                workerProvenInBackgroundFunction: runsInBackgroundFunction,
+              });
             }
           }
         : undefined;
@@ -7970,7 +7957,7 @@ export function createProductionAgentHandler(
         )
       : null;
 
-    startRun(
+    const startedRun = startRun(
       runId,
       effectiveThreadId,
       async (rawSend, signal) => {
@@ -8414,9 +8401,8 @@ export function createProductionAgentHandler(
     // Background worker: await the run to completion so Netlify keeps the
     // background function alive for the whole turn (the client is streaming the
     // same events via the foreground POST's cross-isolate SQL subscription).
-    // The onComplete wrapper above resolves `backgroundRunDone`.
     if (isBackgroundWorker) {
-      if (backgroundRunDone) await backgroundRunDone;
+      await startedRun.finalized;
       return { ok: true, runId };
     }
 

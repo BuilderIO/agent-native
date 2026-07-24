@@ -167,6 +167,7 @@ export interface AgentChatRequest {
     continuationReason?:
       | "run_timeout"
       | "loop_limit"
+      | "max_tokens"
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
@@ -371,6 +372,7 @@ export type AgentChatEvent =
       reason:
         | "run_timeout"
         | "loop_limit"
+        | "max_tokens"
         | "no_progress"
         | "stream_ended"
         | "gateway_timeout"

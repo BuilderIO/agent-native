@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 export interface DismissibleMeetingNotification {
   type: "calendar" | "adhoc";
   meetingId: string;
+  joinUrl?: string | null;
   platform?: string | null;
   scheduledStart?: string | null;
   scheduledEnd?: string | null;
@@ -21,6 +22,7 @@ export async function dismissMeetingNotification(
     await nativeInvoke("dismiss_meeting_notification", {
       meetingId: notification.meetingId,
       notificationType: notification.type,
+      joinUrl: notification.joinUrl ?? null,
       platform: notification.platform ?? null,
       scheduledStart: notification.scheduledStart ?? null,
       scheduledEnd: notification.scheduledEnd ?? null,

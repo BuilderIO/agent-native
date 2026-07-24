@@ -438,7 +438,7 @@ export default defineAction({
           includes: [
             "dashboard created and modified dates",
             "last tracked modifier",
-            "view and engagement counts",
+            "view, edit, and engagement counts",
             "saved view counts",
             "hidden and archived state",
           ],
