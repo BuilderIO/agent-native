@@ -198,7 +198,7 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
   const publicKey = resolvePublicKey();
   const disabled = telemetryDisabled() || !publicKey;
   const endpoint = resolveEndpoint();
-  const installId = disabled ? "" : resolveInstallId();
+  let installId: string | undefined = disabled ? "" : undefined;
   const runId = crypto.randomUUID();
   const inFlight = new Set<Promise<void>>();
 
@@ -211,18 +211,18 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
     ci: process.env.CI === "true",
     interactive: options.interactive,
     runId,
-    installId,
   };
 
   function track(event: string, properties?: Record<string, unknown>): void {
     if (disabled) return;
+    installId ??= resolveInstallId();
     const body = JSON.stringify({
       publicKey,
       event,
       anonymousId: installId,
       sessionId: runId,
       timestamp: new Date().toISOString(),
-      properties: { ...base, ...properties },
+      properties: { ...base, installId, ...properties },
     });
     const promise = fetch(endpoint, {
       method: "POST",
