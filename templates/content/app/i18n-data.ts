@@ -3085,6 +3085,7 @@ const enUS = {
     askAi: "Ask AI",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
+    unanchored: "Highlight unavailable",
     reply: "Reply...",
     reopen: "Reopen",
     agentRegardingText: 'Regarding this text: "{{text}}"',
@@ -8761,6 +8762,19 @@ const contentReferenceMessagesByLocale = {
   },
 } satisfies Partial<Record<LocaleCode, typeof enUS.editor.reference>>;
 
+const commentMessagesByLocale = {
+  "zh-CN": { unanchored: "高亮不可用" },
+  "zh-TW": { unanchored: "無法使用醒目提示" },
+  "es-ES": { unanchored: "Resaltado no disponible" },
+  "fr-FR": { unanchored: "Surlignage indisponible" },
+  "de-DE": { unanchored: "Hervorhebung nicht verfügbar" },
+  "ja-JP": { unanchored: "ハイライトを利用できません" },
+  "ko-KR": { unanchored: "강조 표시를 사용할 수 없음" },
+  "pt-BR": { unanchored: "Destaque indisponível" },
+  "hi-IN": { unanchored: "हाइलाइट उपलब्ध नहीं है" },
+  "ar-SA": { unanchored: "التمييز غير متاح" },
+} satisfies Partial<Record<LocaleCode, Partial<typeof enUS.comments>>>;
+
 function mergeMessages(overrides: PartialMessages): Messages {
   return {
     root: { ...enUS.root, ...overrides.root },
@@ -8862,6 +8876,7 @@ function mergeMessagesForLocale(
   });
   return {
     ...base,
+    comments: { ...base.comments, ...commentMessagesByLocale[locale] },
     root: { ...base.root, ...rawLiteralOverrides.root },
     team: { ...base.team, ...rawLiteralOverrides.team },
     settings: { ...base.settings, ...rawLiteralOverrides.settings },

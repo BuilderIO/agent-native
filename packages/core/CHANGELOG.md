@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.120.4
+
+### Patch Changes
+
+- 8afb252: Stabilize A2A polling deadline coverage under full-suite load.
+- Updated dependencies [8afb252]
+  - @agent-native/toolkit@0.10.6
+
 ## 0.120.3
 
 ### Patch Changes
