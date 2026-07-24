@@ -38,6 +38,7 @@ const repoRoot = path.resolve(__dirname, "..");
 const SOURCE_OF_TRUTH = "packages/shared-app-config/templates.ts";
 const CLI_DUPLICATE = "packages/core/src/cli/templates-meta.ts";
 const HOSTED_GA_MEASUREMENT_ID = "G-ESF7FYXGN9";
+const HOSTED_GTM_CONTAINER_ID = "GTM-N3WSTXZ";
 
 /**
  * Parse a TEMPLATES array out of a templates-meta-shaped file. Returns
@@ -174,11 +175,17 @@ for (const slug of allowed) {
     continue;
   }
   const src = fs.readFileSync(absPath, "utf-8");
-  const expected = `GA_MEASUREMENT_ID = "${HOSTED_GA_MEASUREMENT_ID}"`;
-  if (!src.includes(expected)) {
-    errors.push(
-      `${relPath}: missing ${expected}. Hosted template app sessions will not appear in GA.`,
-    );
+  const expectedAnalyticsConfig = [
+    ["GA_MEASUREMENT_ID", HOSTED_GA_MEASUREMENT_ID],
+    ["GTM_CONTAINER_ID", HOSTED_GTM_CONTAINER_ID],
+  ];
+  for (const [key, value] of expectedAnalyticsConfig) {
+    const expected = `${key} = "${value}"`;
+    if (!src.includes(expected)) {
+      errors.push(
+        `${relPath}: missing ${expected}. Hosted template analytics will not be wired.`,
+      );
+    }
   }
 }
 

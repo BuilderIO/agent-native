@@ -1139,7 +1139,7 @@ export function installDesktopVoiceDictation(
    * `stop()` works the same way as for the browser path.
    *
    * No `getUserMedia()` here — the audio engine handles the mic on the Rust
-   * side. The synthetic meter still drives the flow-bar's waveform.
+   * side and emits the real level events consumed by the flow bar.
    */
   const startNative = async (
     cleanupProvider?: ServerVoiceProvider,
@@ -1191,7 +1191,6 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       startInFlight = false;
-      startSyntheticMeter(next);
       try {
         // Bias the recognizer toward the user's learned vocabulary. Stage
         // the list via a separate command so meeting capture can pass mic
@@ -1299,7 +1298,6 @@ export function installDesktopVoiceDictation(
       };
       session = next;
       startInFlight = false;
-      startSyntheticMeter(next);
       if (stopRequestedBeforeReady) {
         stop();
       }

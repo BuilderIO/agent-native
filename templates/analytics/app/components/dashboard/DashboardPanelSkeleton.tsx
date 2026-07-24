@@ -8,6 +8,12 @@ export function DashboardPanelSkeleton({
   ...props
 }: ComponentProps<typeof Skeleton>) {
   return (
-    <Skeleton {...props} className={cn("bg-muted-foreground/20", className)} />
+    <Skeleton
+      {...props}
+      className={cn(
+        "dashboard-panel-skeleton bg-muted-foreground/25",
+        className,
+      )}
+    />
   );
 }

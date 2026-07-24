@@ -9,7 +9,6 @@ import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -73,6 +72,9 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
+];
+
+const bottomNavItems = [
   { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -638,12 +640,43 @@ export function Sidebar({
         })}
       </nav>
 
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname.startsWith(item.href);
+          const link = (
+            <Link
+              to={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                collapsed && "justify-center gap-0 px-0",
+              )}
+              aria-label={collapsed ? t(item.labelKey) : undefined}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {collapsed ? (
+                <span className="sr-only">{t(item.labelKey)}</span>
+              ) : (
+                t(item.labelKey)
+              )}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
+
       {!collapsed && session ? (
         <>
-          <div className="px-2 py-2">
-            <ExtensionsSidebarSection />
-          </div>
-
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <div className="flex items-center justify-end gap-1">
