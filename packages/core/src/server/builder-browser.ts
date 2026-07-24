@@ -15,8 +15,6 @@ import {
 } from "./better-auth-instance.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 
-declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
-
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
 const DEFAULT_BUILDER_API_HOST = "https://api.builder.io";
 const BUILDER_BROWSER_HOST = "agent-native-browser";
@@ -174,9 +172,9 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
 
 /**
  * Netlify's deploy-preview alias is convenient for people but mutable, so it
- * must never be the signed relay destination. Vite captures Netlify's
- * DEPLOY_ID into __AGENT_NATIVE_BUILD_ID__ during the build, while SITE_NAME
- * remains available to Functions at runtime. Use that pair only when it
+ * must never be the signed relay destination. The deploy builder embeds
+ * Netlify's DEPLOY_ID into the Nitro server bundle, while SITE_NAME remains
+ * available to Functions at runtime. Use that pair only when it
  * identifies the same site as the visible preview alias; otherwise preserve
  * the visible origin so callback validation fails closed.
  */
@@ -194,13 +192,7 @@ export function resolveBuilderPreviewRelayTargetOrigin(
   );
   if (!previewMatch?.groups?.site) return previewOrigin;
 
-  const buildId = (
-    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
-      ? __AGENT_NATIVE_BUILD_ID__
-      : process.env.AGENT_NATIVE_BUILD_ID
-  )
-    ?.trim()
-    .toLowerCase();
+  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim().toLowerCase();
   const siteName = process.env.SITE_NAME?.trim().toLowerCase();
   if (
     !buildId ||
