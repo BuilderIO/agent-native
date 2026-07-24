@@ -4,90 +4,38 @@ import * as WebBrowser from "expo-web-browser";
 import { useEffect } from "react";
 import { Linking } from "react-native";
 
-import { clipsSessionOwnerKey } from "@/lib/clips-session";
+import { completeOAuthCallback } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
   OAUTH_OWNER_KEY_KEY,
   OAUTH_RETURN_PATH_KEY,
-  OAUTH_STATE_KEY,
   OAUTH_TOKEN_STORE_KEY,
 } from "@/lib/oauth-storage";
-import { saveSessionToken } from "@/lib/session-token-store";
-
-// Clips needs an owner key (email/orgId) alongside the token before its session
-// counts as connected. The token alone can't produce it, so resolve the owner
-// from the app's session endpoint using the freshly-saved token.
-async function setOwnerKeyIfNeeded(
-  token: string,
-  ownerKeyName: string | null,
-  baseUrl: string | null,
-): Promise<void> {
-  if (!ownerKeyName || !baseUrl) return;
-  try {
-    const res = await fetch(
-      `${baseUrl}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-      { headers: { Accept: "application/json" } },
-    );
-    const data = (await res.json()) as { email?: unknown; orgId?: unknown };
-    if (typeof data.email === "string" && data.email.trim()) {
-      await AsyncStorage.setItem(
-        ownerKeyName,
-        clipsSessionOwnerKey(
-          data.email,
-          typeof data.orgId === "string" ? data.orgId : undefined,
-        ),
-      );
-      console.log("[oauth] owner key set for", ownerKeyName);
-    }
-  } catch {
-    // Owner key will still be set by the WebView session bridge on next load.
-  }
-}
-
-// Custom-scheme URLs don't parse reliably via `new URL` in React Native, so
-// read the query string directly.
-function queryParams(url: string): URLSearchParams {
-  const queryStart = url.indexOf("?");
-  return new URLSearchParams(queryStart < 0 ? "" : url.slice(queryStart + 1));
-}
 
 async function handleOAuthUrl(url: string | null): Promise<void> {
   console.log("[oauth] handleOAuthUrl saw url:", url);
   if (!url || !url.includes("oauth-complete")) return;
-  const params = queryParams(url);
-  const token = params.get("token");
-  const state = params.get("state");
-  const [expectedState, returnPath, tokenKey, ownerKeyName, baseUrl] =
-    await Promise.all([
-      AsyncStorage.getItem(OAUTH_STATE_KEY),
-      AsyncStorage.getItem(OAUTH_RETURN_PATH_KEY),
-      AsyncStorage.getItem(OAUTH_TOKEN_STORE_KEY),
-      AsyncStorage.getItem(OAUTH_OWNER_KEY_KEY),
-      AsyncStorage.getItem(OAUTH_BASE_URL_KEY),
-    ]);
+  // completeOAuthCallback consumes OAUTH_STATE_KEY itself; here we read the rest
+  // of the context persisted before the browser opened (they survive an app
+  // kill) so the completion is identical to the iOS inline path.
+  const [returnPath, tokenKey, ownerKeyName, baseUrl] = await Promise.all([
+    AsyncStorage.getItem(OAUTH_RETURN_PATH_KEY),
+    AsyncStorage.getItem(OAUTH_TOKEN_STORE_KEY),
+    AsyncStorage.getItem(OAUTH_OWNER_KEY_KEY),
+    AsyncStorage.getItem(OAUTH_BASE_URL_KEY),
+  ]);
   await AsyncStorage.multiRemove([
-    OAUTH_STATE_KEY,
     OAUTH_RETURN_PATH_KEY,
     OAUTH_TOKEN_STORE_KEY,
     OAUTH_OWNER_KEY_KEY,
     OAUTH_BASE_URL_KEY,
   ]);
-  const stateMatch = !!expectedState && state === expectedState;
-  console.log(
-    "[oauth] deep link handler. token:",
-    !!token,
-    "stateMatch:",
-    stateMatch,
-    "returnPath:",
-    returnPath,
-    "tokenKey:",
+  const token = await completeOAuthCallback(url, {
     tokenKey,
-  );
-  if (token && stateMatch) {
-    await saveSessionToken(token, tokenKey ?? undefined);
-    console.log("[oauth] token saved via deep link handler");
-    await setOwnerKeyIfNeeded(token, ownerKeyName, baseUrl);
-  }
+    ownerKeyName,
+    baseUrl,
+  });
+  console.log("[oauth] deep link handler. token saved:", !!token, returnPath);
   // Close the Custom Tab left open by openBrowserAsync (Android) so the app is
   // visible again. No-op if nothing is open.
   try {

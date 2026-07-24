@@ -24,6 +24,7 @@ import type { WebView as WebViewRef } from "react-native-webview";
 
 import { WebView } from "@/components/uniwind-interop";
 import { clipsSessionOwnerKey } from "@/lib/clips-session";
+import { completeOAuthCallback } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
   OAUTH_OWNER_KEY_KEY,
@@ -141,16 +142,6 @@ function isGoogleAuthUrl(url: string): boolean {
   }
 }
 
-// The redirect is agentnative://oauth-complete?token=…&state=…. Custom-scheme
-// URLs don't parse reliably via `new URL` in React Native, so read the token
-// straight off the query string.
-function tokenFromRedirect(url: string): string | null {
-  const queryStart = url.indexOf("?");
-  if (queryStart < 0) return null;
-  const token = new URLSearchParams(url.slice(queryStart + 1)).get("token");
-  return token && token.length > 0 ? token : null;
-}
-
 // Resolve the auth-url endpoint's JSON form (without `redirect=1`) so we get
 // the accounts.google.com URL — including the server-minted `state`. The start
 // URL itself has no `state` yet (the server mints it), so it can't be opened
@@ -247,40 +238,37 @@ function AppWebView(
     return () => sub.remove();
   }, [sessionTokenKey]);
 
-  const applySessionToken = useCallback(
-    (token: string) => {
-      void saveSessionToken(token, sessionTokenKey).then(() => {
-        if (token !== lastTokenRef.current) {
-          lastTokenRef.current = token;
-          setSessionToken(token);
-        }
-      });
-    },
-    [sessionTokenKey],
+  // The OAuth completion context for this WebView — passed to the shared
+  // completeOAuthCallback so the iOS inline path and the Android deep-link
+  // handler validate and persist the session identically.
+  const oauthContext = useMemo(
+    () => ({
+      tokenKey: sessionTokenKey,
+      ownerKeyName: sessionOwnerKey ?? null,
+      baseUrl: trustedOrigin,
+    }),
+    [sessionTokenKey, sessionOwnerKey, trustedOrigin],
   );
 
   // Google refuses OAuth inside embedded WebViews, so run the flow in a system
-  // browser tab. The return-path and token key are persisted first so the
-  // OAuthDeepLinkHandler can finish the sign-in even if Android kills this app
-  // while it's in the browser.
+  // browser tab.
   const openGoogleSession = useCallback(
     async (googleUrl: string) => {
       rememberOAuthState(googleUrl);
-      await AsyncStorage.multiSet([
-        [OAUTH_RETURN_PATH_KEY, pathnameRef.current],
-        [OAUTH_TOKEN_STORE_KEY, sessionTokenKey],
-        // Only Clips passes a sessionOwnerKey; the handler uses it plus the app
-        // origin to set the owner key the Clips session also requires.
-        [OAUTH_OWNER_KEY_KEY, sessionOwnerKey ?? ""],
-        [OAUTH_BASE_URL_KEY, trustedOrigin ?? ""],
-      ]);
       try {
         if (Platform.OS === "android") {
           // openAuthSessionAsync is unreliable on Android — it can hand off to
           // an external browser/app and never redirect back (expo #27500).
-          // Open a Custom Tab in the preferred browser instead and let the
+          // Open a Custom Tab in the preferred browser and let the
           // agentnative://oauth-complete deep link (OAuthDeepLinkHandler) bring
-          // the result back into the app.
+          // the result back — persist the completion context first so it can
+          // finish even if Android kills this app while it's in the browser.
+          await AsyncStorage.multiSet([
+            [OAUTH_RETURN_PATH_KEY, pathnameRef.current],
+            [OAUTH_TOKEN_STORE_KEY, sessionTokenKey],
+            [OAUTH_OWNER_KEY_KEY, sessionOwnerKey ?? ""],
+            [OAUTH_BASE_URL_KEY, trustedOrigin ?? ""],
+          ]);
           const { preferredBrowserPackage } =
             await WebBrowser.getCustomTabsSupportingBrowsersAsync();
           await WebBrowser.openBrowserAsync(googleUrl, {
@@ -289,20 +277,24 @@ function AppWebView(
           });
           return;
         }
+        // iOS: the auth session returns the callback inline. Run it through the
+        // same validated completion, then apply the token to this WebView.
         const result = await WebBrowser.openAuthSessionAsync(
           googleUrl,
           "agentnative://oauth-complete",
         );
         console.log("[oauth] auth session result:", result.type);
         if (result.type !== "success" || !result.url) return;
-        const token = tokenFromRedirect(result.url);
-        console.log("[oauth] inline token extracted:", token ? "yes" : "no");
-        if (token) applySessionToken(token);
+        const token = await completeOAuthCallback(result.url, oauthContext);
+        if (token && token !== lastTokenRef.current) {
+          lastTokenRef.current = token;
+          setSessionToken(token);
+        }
       } catch (e) {
         console.log("[oauth] auth session error:", String(e));
       }
     },
-    [applySessionToken, sessionTokenKey, sessionOwnerKey, trustedOrigin],
+    [oauthContext, sessionTokenKey, sessionOwnerKey, trustedOrigin],
   );
 
   // Some core versions navigate the WebView straight to the auth-url endpoint,
@@ -311,7 +303,14 @@ function AppWebView(
   const startGoogleAuth = useCallback(
     async (startUrl: string) => {
       const authUrl = await resolveGoogleAuthUrl(startUrl);
-      if (authUrl) await openGoogleSession(authUrl);
+      if (authUrl) {
+        await openGoogleSession(authUrl);
+      } else {
+        // We already blocked the in-WebView auth navigation, so a failed
+        // resolve would otherwise leave the page stuck with no browser and no
+        // feedback. Surface the recoverable error/retry screen instead.
+        setError(true);
+      }
     },
     [openGoogleSession],
   );
