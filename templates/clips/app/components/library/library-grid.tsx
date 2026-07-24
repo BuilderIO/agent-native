@@ -80,9 +80,6 @@ function NewRecordingTile({
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-        <IconPlayerRecord className="h-5 w-5 text-primary" />
-      </div>
       <Button className="w-full max-w-[180px] gap-1.5" size="sm" asChild>
         <NavLink to={recordHref}>
           <IconPlayerRecord className="h-4 w-4" />
