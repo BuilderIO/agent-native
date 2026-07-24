@@ -1,8 +1,10 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconPencil,
   IconTemplate,
@@ -11,6 +13,7 @@ import {
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";
@@ -61,6 +64,59 @@ export function Sidebar() {
     }
   }, [collapsed]);
 
+  const collapseButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={t("sidebar.search")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <aside
       className={cn(
@@ -93,30 +149,6 @@ export function Sidebar() {
             </span>
           </div>
         )}
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              aria-label={
-                collapsed
-                  ? t("navigation.expandSidebar")
-                  : t("navigation.collapseSidebar")
-              }
-            >
-              {collapsed ? (
-                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-              ) : (
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {collapsed
-              ? t("navigation.expandSidebar")
-              : t("navigation.collapseSidebar")}
-          </TooltipContent>
-        </Tooltip>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -202,17 +234,20 @@ export function Sidebar() {
               <div className="px-3 py-2">
                 <OrgSwitcher reserveSpace />
               </div>
-
               <div className="px-3 py-2">
                 <DevDatabaseLink />
-                <div className="flex items-center justify-end gap-1">
-                  <FeedbackButton className="min-w-0 flex-1" />
-                  <ThemeToggle className="h-8 w-8 shrink-0" />
-                </div>
+                <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
           )}
         </div>
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );
