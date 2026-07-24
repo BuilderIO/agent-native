@@ -640,10 +640,12 @@ export function CommentsSidebar({
             members={members}
             placeholder={t("comments.add")}
             autoFocus
+            disabled={createComment.isPending}
           />
           <div className="flex justify-end gap-1 mt-1.5">
             <button
               onClick={handlePendingCancel}
+              disabled={createComment.isPending}
               className="px-2.5 py-1 text-xs rounded-md text-muted-foreground hover:bg-accent"
             >
               {t("comments.cancel")}
@@ -691,11 +693,13 @@ export function CommentsSidebar({
               marginTop={marginTop}
               isActive={isActive}
               isExpanded={replyingThreadId === thread.threadId}
+              isSubmitting={createComment.isPending}
               replyText={replyingThreadId === thread.threadId ? replyText : ""}
               onHoverChange={(hovered) =>
                 onHoveredThreadChange?.(hovered ? thread.threadId : null)
               }
               onExpand={() => {
+                if (createComment.isPending) return;
                 onActivateThread?.(thread.threadId);
                 scrollToCommentAnchor(
                   scrollContainerRef?.current ?? null,
@@ -708,6 +712,7 @@ export function CommentsSidebar({
                 setReplyMentions([]);
               }}
               onCollapse={() => {
+                if (createComment.isPending) return;
                 setReplyingThreadId(null);
                 onSelectedThreadChange?.(null);
                 setReplyText("");
@@ -797,6 +802,7 @@ function ThreadView({
   marginTop,
   isActive,
   isExpanded,
+  isSubmitting,
   replyText,
   members,
   onHoverChange,
@@ -814,6 +820,7 @@ function ThreadView({
   marginTop: number;
   isActive: boolean;
   isExpanded: boolean;
+  isSubmitting: boolean;
   replyText: string;
   members: MentionMember[];
   onHoverChange: (hovered: boolean) => void;
@@ -859,7 +866,9 @@ function ThreadView({
           : "ring-1 ring-border/50 hover:ring-border"
       }`}
       style={{ marginTop }}
-      onClick={onExpand}
+      onClick={() => {
+        if (!isSubmitting) onExpand();
+      }}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
     >
@@ -946,13 +955,14 @@ function ThreadView({
               onEscape={onCollapse}
               members={members}
               placeholder={t("comments.reply")}
+              disabled={isSubmitting}
               rows={1}
               className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none pr-16"
             />
             <div className="absolute right-1 bottom-0.5 flex items-center gap-0.5">
               <button
                 onClick={onSubmitReply}
-                disabled={!replyText.trim()}
+                disabled={!replyText.trim() || isSubmitting}
                 className="p-1 rounded-full text-muted-foreground/40 hover:text-foreground disabled:opacity-30"
               >
                 <IconArrowUp size={16} />
