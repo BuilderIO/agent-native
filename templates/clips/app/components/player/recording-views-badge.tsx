@@ -111,12 +111,12 @@ export function RecordingViewsBadge({
           )}
         >
           {viewers.length > 0 ? (
-            <span className="hidden -space-x-2 sm:flex">
+            <span className="hidden -space-x-1.5 sm:flex">
               {viewers.slice(0, 3).map((v) => (
                 <ViewerAvatar
                   key={v.id}
                   viewer={v}
-                  className="h-5 w-5 ring-2 ring-background"
+                  className="h-6 w-6 ring-2 ring-card"
                 />
               ))}
             </span>
@@ -229,11 +229,18 @@ export function RecordingViewsBadge({
   );
 }
 
-function ViewerAvatar({
+/** Identity fields every viewer surface shares — `list-viewers` rows and the
+ * leaner `topViewers` rows from `get-recording-insights` alike. */
+export interface ViewerIdentity {
+  viewerEmail: string | null;
+  viewerName: string | null;
+}
+
+export function ViewerAvatar({
   viewer,
   className,
 }: {
-  viewer: ViewerRow;
+  viewer: ViewerIdentity;
   className?: string;
 }) {
   const anonymous = !viewer.viewerName && !viewer.viewerEmail;
@@ -261,7 +268,10 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function viewerLabel(viewer: ViewerRow, anonymousLabel: string): string {
+export function viewerLabel(
+  viewer: ViewerIdentity,
+  anonymousLabel: string,
+): string {
   if (viewer.viewerName) return viewer.viewerName;
   if (viewer.viewerEmail) return viewer.viewerEmail.split("@")[0];
   return anonymousLabel;

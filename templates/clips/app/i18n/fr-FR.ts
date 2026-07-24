@@ -828,7 +828,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     recentViewers: "Spectateurs récents",
     noViewers: "Aucun spectateur pour le moment.",
     anonymous: "Anonyme",
-    anon: "Anon",
     moreViewers: "+{{count}} de plus",
     viewedBy: "Vu par",
     someone: "Quelqu’un",

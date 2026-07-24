@@ -823,7 +823,6 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     recentViewers: "Visualizadores recentes",
     noViewers: "Ainda não há visualizadores.",
     anonymous: "Anônimo",
-    anon: "Anôn.",
     moreViewers: "+{{count}} mais",
     viewedBy: "Visualizado por",
     someone: "Alguém",

@@ -808,7 +808,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     recentViewers: "최근 시청자",
     noViewers: "아직 시청자가 없습니다.",
     anonymous: "익명",
-    anon: "익명",
     moreViewers: "+{{count}}명 더",
     viewedBy: "시청자",
     someone: "누군가",

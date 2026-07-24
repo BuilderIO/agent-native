@@ -812,7 +812,6 @@ const messages = {
     recentViewers: "المشاهدون الأخيرون",
     noViewers: "لا يوجد مشاهدون بعد.",
     anonymous: "مجهول",
-    anon: "مجهول",
     moreViewers: "+{{count}} آخرين",
     viewedBy: "شاهده",
     someone: "شخص ما",

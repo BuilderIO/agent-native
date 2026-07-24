@@ -806,7 +806,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     recentViewers: "Recent viewers",
     noViewers: "No viewers yet.",
     anonymous: "Anonymous",
-    anon: "Anon",
     moreViewers: "+{{count}} more",
     viewedBy: "Viewed by",
     someone: "Someone",

@@ -833,7 +833,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     recentViewers: "Aktuelle Zuschauer",
     noViewers: "Noch keine Zuschauer.",
     anonymous: "Anonym",
-    anon: "Anon",
     moreViewers: "+{{count}} weitere",
     viewedBy: "Angesehen von",
     someone: "Jemand",

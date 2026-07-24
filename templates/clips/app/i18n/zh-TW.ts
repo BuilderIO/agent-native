@@ -766,7 +766,6 @@ const messages = {
     recentViewers: "最近觀看者",
     noViewers: "還沒有觀看者。",
     anonymous: "匿名",
-    anon: "匿名",
     moreViewers: "+{{count}} 更多",
     viewedBy: "觀看者",
     someone: "有人",
