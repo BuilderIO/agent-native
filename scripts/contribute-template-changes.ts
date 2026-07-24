@@ -663,6 +663,16 @@ function main(): void {
       if (templateText === undefined && substituted) {
         warnings.push(`${rel}: new file; all placeholders applied (${substituted})`);
       }
+      const leftover = replacements.filter(
+        (item) =>
+          !allow.has(item.placeholder) && inverse.content.includes(item.value),
+      );
+      for (const item of leftover) {
+        warnings.push(
+          `${rel}: left "${item.value}" literal — the template file has no ${item.placeholder}. ` +
+            "Introduce the placeholder by hand if this text must vary per app.",
+        );
+      }
 
       let outText = inverse.content;
       let conflicts = 0;
