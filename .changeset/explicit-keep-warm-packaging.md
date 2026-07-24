@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Explicitly disable dependency bundling and include all self-contained files for generated Netlify keep-warm functions.
+Explicitly disable dependency bundling for generated self-contained Netlify keep-warm functions.

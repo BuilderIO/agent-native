@@ -1585,7 +1585,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
     expect(entry).toContain('schedule: "* * * * *"');
     expect(entry).toContain('nodeBundler: "none"');
-    expect(entry).toContain('includedFiles: ["**"]');
+    expect(entry).not.toContain("includedFiles");
     expect(entry).toContain("await fetch(url");
     expect(entry).toContain("agent-native-netlify-keep-warm");
     expect(entry).not.toMatch(/^\s*path:/m);

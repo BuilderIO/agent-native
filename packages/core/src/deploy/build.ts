@@ -2448,7 +2448,6 @@ export const config = {
   generator: "agent-native build",
   schedule: "* * * * *",
   nodeBundler: "none",
-  includedFiles: ["**"],
 };
 `;
 
