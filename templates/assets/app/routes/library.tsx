@@ -34,8 +34,6 @@ import {
   IconArrowUpRight,
   IconCheck,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconClipboard,
   IconLibraryPhoto,
   IconPhotoPlus,
@@ -60,16 +58,10 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
+import { AssetPreviewDialog as SharedAssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -165,6 +157,12 @@ type Asset = {
   downloadUrl?: string;
   embedUrl?: string;
   embedPath?: string;
+  folderId?: string | null;
+  category?: string | null;
+  model?: string | null;
+  aspectRatio?: string | null;
+  durationSeconds?: number | null;
+  metadata?: Record<string, unknown> | null;
   libraryTitle?: string | null;
   lineage?: {
     label?: string | null;
@@ -829,7 +827,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
       src={source}
       crossOrigin={isCrossOriginPreview(source) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
-      className="max-h-[85vh] w-full rounded-lg object-contain"
+      className="max-h-[72vh] max-w-full rounded-lg object-contain"
       onError={() =>
         setSourceIndex((index) =>
           index + 1 < sources.length ? index + 1 : index,
@@ -1542,98 +1540,15 @@ function AssetPreviewDialog({
   assets: Asset[];
   onAssetChange: (asset: Asset | null) => void;
 }) {
-  const t = useT();
   return (
-    <Dialog
-      open={Boolean(asset)}
-      onOpenChange={(open) => {
-        if (!open) onAssetChange(null);
-      }}
-    >
-      {asset &&
-        (() => {
-          const previewIndex = assets.findIndex(
-            (candidate) => candidate.id === asset.id,
-          );
-          const hasPrev = previewIndex > 0;
-          const hasNext = previewIndex >= 0 && previewIndex < assets.length - 1;
-          const showPreviousAsset = () => {
-            if (hasPrev) onAssetChange(assets[previewIndex - 1]);
-          };
-          const showNextAsset = () => {
-            if (hasNext) onAssetChange(assets[previewIndex + 1]);
-          };
-          return (
-            <DialogContent
-              hideClose
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft") showPreviousAsset();
-                if (event.key === "ArrowRight") showNextAsset();
-              }}
-              className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-            >
-              <DialogTitle className="sr-only">
-                {assetDisplayTitle(asset)}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                {t("library.fullSizePreview", {
-                  title: assetDisplayTitle(asset),
-                })}
-              </DialogDescription>
-              <div className="relative">
-                <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/asset/${encodeURIComponent(asset.id)}`}>
-                      {t("library.viewDetails")}
-                    </Link>
-                  </Button>
-                  <DialogClose
-                    aria-label={t("library.closePreview")}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                  >
-                    <IconX className="h-5 w-5" />
-                  </DialogClose>
-                </div>
-                {asset.mediaType === "video" ||
-                asset.mimeType?.startsWith("video/") ? (
-                  <video
-                    src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                    poster={asset.thumbnailUrl}
-                    controls
-                    autoPlay
-                    playsInline
-                    className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                  />
-                ) : (
-                  <AssetOverlayImage asset={asset} />
-                )}
-              </div>
-              {(hasPrev || hasNext) && (
-                <div className="mt-5 flex justify-center gap-2">
-                  <button
-                    type="button"
-                    aria-label={t("library.previousImage")}
-                    onClick={showPreviousAsset}
-                    disabled={!hasPrev}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t("library.nextImage")}
-                    onClick={showNextAsset}
-                    disabled={!hasNext}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronRight className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
-            </DialogContent>
-          );
-        })()}
-    </Dialog>
+    <SharedAssetPreviewDialog
+      asset={asset}
+      assets={assets}
+      onAssetChange={(next) => onAssetChange(next as Asset | null)}
+      renderImage={(previewAsset) => (
+        <AssetOverlayImage asset={previewAsset as Asset} />
+      )}
+    />
   );
 }
 
@@ -3487,103 +3402,11 @@ export function AssetPickerSurface() {
         )}
       </main>
 
-      <Dialog
-        open={Boolean(previewAsset)}
-        onOpenChange={(open) => {
-          if (!open) setPreviewAsset(null);
-        }}
-      >
-        {previewAsset &&
-          (() => {
-            const previewIndex = assets.findIndex(
-              (asset) => asset.id === previewAsset.id,
-            );
-            const hasPrev = previewIndex > 0;
-            const hasNext =
-              previewIndex >= 0 && previewIndex < assets.length - 1;
-            const showPreviousAsset = () => {
-              if (hasPrev) setPreviewAsset(assets[previewIndex - 1]);
-            };
-            const showNextAsset = () => {
-              if (hasNext) setPreviewAsset(assets[previewIndex + 1]);
-            };
-            return (
-              <DialogContent
-                hideClose
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowLeft") showPreviousAsset();
-                  if (event.key === "ArrowRight") showNextAsset();
-                }}
-                className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-              >
-                <DialogTitle className="sr-only">
-                  {assetDisplayTitle(previewAsset)}
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  {t("library.fullSizePreview", {
-                    title: assetDisplayTitle(previewAsset),
-                  })}
-                </DialogDescription>
-                <div className="relative">
-                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                    <Button asChild variant="outline" size="sm">
-                      <Link
-                        to={`/asset/${encodeURIComponent(previewAsset.id)}`}
-                      >
-                        {t("library.viewDetails")}
-                      </Link>
-                    </Button>
-                    <DialogClose
-                      aria-label={t("library.closePreview")}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                      <IconX className="h-5 w-5" />
-                    </DialogClose>
-                  </div>
-                  {previewAsset.mediaType === "video" ||
-                  previewAsset.mimeType?.startsWith("video/") ? (
-                    <video
-                      src={
-                        previewAsset.previewUrl ??
-                        previewAsset.downloadUrl ??
-                        previewAsset.url
-                      }
-                      poster={previewAsset.thumbnailUrl}
-                      controls
-                      autoPlay
-                      playsInline
-                      className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                    />
-                  ) : (
-                    <AssetOverlayImage asset={previewAsset} />
-                  )}
-                </div>
-                {(hasPrev || hasNext) && (
-                  <div className="mt-5 flex justify-center gap-2">
-                    <button
-                      type="button"
-                      aria-label={t("library.previousImage")}
-                      onClick={showPreviousAsset}
-                      disabled={!hasPrev}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t("library.nextImage")}
-                      onClick={showNextAsset}
-                      disabled={!hasNext}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronRight className="h-5 w-5" />
-                    </button>
-                  </div>
-                )}
-              </DialogContent>
-            );
-          })()}
-      </Dialog>
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={assets}
+        onAssetChange={setPreviewAsset}
+      />
     </div>
   );
 }
