@@ -6,7 +6,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  _appTitleForScaffold,
+  _fixPackageJsonName,
+  _fixWebManifestName,
+  _getCoreDependencyVersion,
+  _getDispatchDependencyVersion,
+  _getToolkitDependencyVersion,
   _postProcessStandalone,
+  _renameGitignore,
+  _replacePlaceholders,
+  _rewriteNetlifyToml,
+  _rewriteTrackingAppId,
   _scaffoldAppTemplate,
   _shouldSkipScaffoldEntry,
 } from "./create.js";
@@ -23,6 +33,7 @@ import {
   resolveTargets,
   runTemplate,
 } from "./template-sync.js";
+import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
 let origCwd: string;
@@ -283,6 +294,66 @@ describe("materializeTemplate", () => {
       template: "chat",
       ref: null,
       shape: "standalone",
+    });
+
+    const scaffoldFiles = scaffoldFileList(appDir);
+    expect(scaffoldFiles.length).toBeGreaterThan(20);
+    expect(scaffoldFileList(materialized.dir)).toEqual(scaffoldFiles);
+    for (const rel of scaffoldFiles) {
+      expect(
+        fs.readFileSync(path.join(materialized.dir, rel)),
+        `mismatch at ${rel}`,
+      ).toEqual(fs.readFileSync(path.join(appDir, rel)));
+    }
+    fs.rmSync(materialized.dir, { recursive: true, force: true });
+  }, 180_000);
+
+  it("reproduces a workspace app scaffold byte-for-byte", async () => {
+    const workspaceRoot = path.join(tmpDir, "my-ws");
+    const appDir = path.join(workspaceRoot, "apps", "crm");
+    fs.mkdirSync(workspaceRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "my-ws",
+          private: true,
+          "agent-native": { workspaceCore: "@my-ws/shared" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    // Mirrors scaffoldOneAppIntoWorkspace's transform order exactly.
+    const resolution = await _scaffoldAppTemplate(appDir, "chat");
+    _replacePlaceholders(appDir, "crm", _appTitleForScaffold("crm"), "my-ws");
+    _rewriteTrackingAppId(appDir, "crm", "chat");
+    workspacifyApp({
+      appDir,
+      appName: "crm",
+      templateName: "chat",
+      workspaceRoot,
+      workspaceCoreName: "@my-ws/shared",
+      coreDependencyVersion: _getCoreDependencyVersion(),
+      dispatchDependencyVersion: _getDispatchDependencyVersion(),
+      toolkitDependencyVersion: _getToolkitDependencyVersion(),
+    });
+    _fixPackageJsonName(appDir, "crm", "chat", {
+      ...resolution,
+      shape: "workspace",
+    });
+    _fixWebManifestName(appDir, "crm", "chat");
+    _rewriteNetlifyToml(appDir, "crm", "workspace");
+    _renameGitignore(appDir);
+
+    const materialized = await materializeTemplate({
+      appName: "crm",
+      template: "chat",
+      ref: null,
+      shape: "workspace",
+      workspaceRoot,
+      workspaceCoreName: "@my-ws/shared",
     });
 
     const scaffoldFiles = scaffoldFileList(appDir);

@@ -362,8 +362,9 @@ function gitMergeFile(
 
 export function readProvenance(appDir: string): TemplateProvenance {
   const pkg = readJson(path.join(appDir, "package.json"));
-  const scaffold = (pkg?.["agent-native"] as Record<string, unknown> | undefined)
-    ?.scaffold;
+  const scaffold = (
+    pkg?.["agent-native"] as Record<string, unknown> | undefined
+  )?.scaffold;
   if (!scaffold || typeof scaffold !== "object") return {};
   return scaffold as TemplateProvenance;
 }
@@ -373,7 +374,8 @@ export function resolveTargets(cwd: string, appArg?: string): AppTarget[] {
 
   if (appArg) {
     const candidates = [path.resolve(cwd, appArg)];
-    if (workspace) candidates.push(path.join(workspace.workspaceRoot, "apps", appArg));
+    if (workspace)
+      candidates.push(path.join(workspace.workspaceRoot, "apps", appArg));
     for (const candidate of candidates) {
       if (fs.existsSync(path.join(candidate, "package.json"))) {
         return [toTarget(candidate)];
@@ -433,7 +435,9 @@ function findAppDir(cwd: string): string | null {
   for (let i = 0; i < 20; i++) {
     const pkg = readJson(path.join(dir, "package.json"));
     if (pkg) {
-      const agentNative = pkg["agent-native"] as Record<string, unknown> | undefined;
+      const agentNative = pkg["agent-native"] as
+        | Record<string, unknown>
+        | undefined;
       if (agentNative?.workspaceCore) return null;
       const deps = (pkg.dependencies ?? {}) as Record<string, string>;
       const devDeps = (pkg.devDependencies ?? {}) as Record<string, string>;
@@ -461,13 +465,18 @@ export async function runTemplate(
   io: TemplateIO = defaultIO,
 ): Promise<number> {
   const command = args[0];
-  if (!command || command === "help" || command === "--help" || command === "-h") {
+  if (
+    !command ||
+    command === "help" ||
+    command === "--help" ||
+    command === "-h"
+  ) {
     io.out(templateUsage());
     return command ? 0 : 1;
   }
 
   const rest = args.slice(1);
-  const appArg = rest.find((arg) => !arg.startsWith("-"));
+  const appArg = positionalArgs(rest)[0];
   const flags = {
     to: flagValue(rest, "--to"),
     ref: flagValue(rest, "--ref"),
@@ -827,10 +836,9 @@ function renderTreeDiff(baseDir: string, theirsDir: string): string {
     );
     const output = (res.stdout ?? "").toString();
     return output.trim()
-      ? output.replace(/(^|\s)a\//gm, "$1upstream-base/").replace(
-          /(^|\s)b\//gm,
-          "$1upstream-new/",
-        )
+      ? output
+          .replace(/(^|\s)a\//gm, "$1upstream-base/")
+          .replace(/(^|\s)b\//gm, "$1upstream-new/")
       : "No upstream changes.";
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });

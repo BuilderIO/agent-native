@@ -143,18 +143,13 @@ describe("template baseline store", () => {
       { ...META, templateRef: "@agent-native/core@1.3.0" },
     );
 
-    const message = git(repoRoot, [
-      "log",
-      "-1",
-      "--format=%B",
-      second.commit!,
-    ]);
+    const message = git(repoRoot, ["log", "-1", "--format=%B", second.commit!]);
     expect(message).toContain("template: chat");
     expect(message).toContain("templateRef: @agent-native/core@1.3.0");
     expect(message).toContain("coreVersion: 1.2.3");
-    expect(
-      git(repoRoot, ["rev-parse", `${second.commit}^`]).trim(),
-    ).toBe(first.commit);
+    expect(git(repoRoot, ["rev-parse", `${second.commit}^`]).trim()).toBe(
+      first.commit,
+    );
   });
 
   it("round-trips a baseline back to a flat app-rooted directory", () => {
@@ -215,9 +210,9 @@ describe("template baseline store", () => {
       "remote.origin.fetch",
       "remote.origin.push",
     ]);
-    expect(git(repoRoot, ["config", "--get-all", "remote.origin.push"])).toContain(
-      "+refs/agent-native/*:refs/agent-native/*",
-    );
+    expect(
+      git(repoRoot, ["config", "--get-all", "remote.origin.push"]),
+    ).toContain("+refs/agent-native/*:refs/agent-native/*");
     expect(ensureBaselineRefspecs(store)).toEqual([]);
   });
 

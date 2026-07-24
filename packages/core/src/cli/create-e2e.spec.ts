@@ -212,7 +212,9 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
       template: "chat",
       frameworkSkills: "default",
       templateRef: expect.any(String),
-      templateSource: expect.stringMatching(/^(github|bundled|local-checkout)$/),
+      templateSource: expect.stringMatching(
+        /^(github|bundled|local-checkout)$/,
+      ),
       coreVersion: expect.any(String),
       shape: "standalone",
     });
@@ -351,6 +353,10 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(readPkg(root)["agent-native"]?.scaffold).toEqual({
       template: "headless",
       frameworkSkills: "headless",
+      templateRef: expect.any(String),
+      templateSource: "bundled",
+      coreVersion: expect.any(String),
+      shape: "standalone",
     });
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");

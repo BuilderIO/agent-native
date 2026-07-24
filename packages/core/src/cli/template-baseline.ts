@@ -95,7 +95,8 @@ export function baselineExists(
   store: BaselineStore,
   slot: BaselineSlot,
 ): boolean {
-  if (store.gitDir) return revParse(store, baselineRefName(store, slot)) !== null;
+  if (store.gitDir)
+    return revParse(store, baselineRefName(store, slot)) !== null;
   return fs.existsSync(baselineTarballPath(store, slot));
 }
 
@@ -128,7 +129,9 @@ export function writeBaseline(
   if (!store.gitDir) {
     const file = baselineTarballPath(store, slot);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    execFileSync("tar", ["-czf", file, "-C", sourceDir, "."], { stdio: "pipe" });
+    execFileSync("tar", ["-czf", file, "-C", sourceDir, "."], {
+      stdio: "pipe",
+    });
     return { kind: "tarball", location: file, configuredRefspecs: [] };
   }
 
@@ -163,13 +166,7 @@ export function writeBaseline(
     ].join("\n");
     const commit = git(
       store,
-      [
-        "commit-tree",
-        tree,
-        ...(parent ? ["-p", parent] : []),
-        "-m",
-        message,
-      ],
+      ["commit-tree", tree, ...(parent ? ["-p", parent] : []), "-m", message],
       { cwd: stageRoot, env },
     ).trim();
 
@@ -249,7 +246,13 @@ export function materializeBaseline(
     const strip = store.prefix ? store.prefix.split("/").length : 0;
     execFileSync(
       "tar",
-      ["-xf", tarPath, "-C", out, ...(strip ? [`--strip-components=${strip}`] : [])],
+      [
+        "-xf",
+        tarPath,
+        "-C",
+        out,
+        ...(strip ? [`--strip-components=${strip}`] : []),
+      ],
       { stdio: "pipe" },
     );
     fs.rmSync(tarPath, { force: true });
