@@ -164,6 +164,11 @@ describe("ExtensionsListPage", () => {
         String(call[0]).includes("/_agent-native/application-state/navigation"),
       ),
     ).toBe(false);
-    expect(container.textContent).toContain("Extensions");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.textContent).not.toContain("Agent");
+    expect(container.textContent).toContain("New extension");
+    expect(
+      container.querySelector('button[aria-label="Options for Extensions"]'),
+    ).not.toBeNull();
   });
 });
