@@ -367,6 +367,13 @@ describe("document editor layout", () => {
       'event.key === flushRequestKey || event.key === "*"',
     );
     expect(source).toContain("void flushIfRequested()");
+    expect(source).toContain(
+      "const persistDocumentUpdatesRef = useRef(persistDocumentUpdates)",
+    );
+    expect(source).toContain("persistDocumentUpdatesRef.current(updates)");
+    expect(source).not.toMatch(
+      /useEffect\(\(\) => \{[\s\S]*?void flushIfRequested\(\)[\s\S]*?\}, \[[\s\S]*?persistDocumentUpdates,[\s\S]*?\]\);/,
+    );
     expect(source).not.toContain("setTimeout(poll, 600)");
     expect(source).not.toContain("setTimeout(flushIfRequested");
   });

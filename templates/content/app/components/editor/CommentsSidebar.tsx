@@ -17,6 +17,7 @@ import {
   useCallback,
   type RefObject,
 } from "react";
+import { toast } from "sonner";
 
 import {
   Tooltip,
@@ -366,20 +367,31 @@ export function CommentsSidebar({
   }, [pendingComment]);
 
   const handlePendingSubmit = () => {
-    if (!pendingText.trim()) return;
-    createComment.mutate({
-      documentId,
-      content: pendingText.trim(),
-      quotedText: pendingComment?.quotedText,
-      anchorPrefix: pendingComment?.anchor?.prefix,
-      anchorSuffix: pendingComment?.anchor?.suffix,
-      anchorStartOffset: pendingComment?.anchor?.startOffset,
-      authorName,
-      mentions: mentionsJsonFor(pendingText, pendingMentions),
-    });
-    setPendingText("");
-    setPendingMentions([]);
-    onPendingDone?.();
+    if (!pendingText.trim() || createComment.isPending) return;
+    createComment.mutate(
+      {
+        documentId,
+        content: pendingText.trim(),
+        quotedText: pendingComment?.quotedText,
+        anchorPrefix: pendingComment?.anchor?.prefix,
+        anchorSuffix: pendingComment?.anchor?.suffix,
+        anchorStartOffset: pendingComment?.anchor?.startOffset,
+        authorName,
+        mentions: mentionsJsonFor(pendingText, pendingMentions),
+      },
+      {
+        onSuccess: () => {
+          setPendingText("");
+          setPendingMentions([]);
+          onPendingDone?.();
+        },
+        onError: (error) => {
+          toast.error(t("empty.genericError"), {
+            description: error.message,
+          });
+        },
+      },
+    );
   };
 
   const handlePendingCancel = () => {
@@ -389,19 +401,30 @@ export function CommentsSidebar({
   };
 
   const handleReply = (threadId: string) => {
-    if (!replyText.trim()) return;
+    if (!replyText.trim() || createComment.isPending) return;
     const thread = threads?.find((t) => t.threadId === threadId);
-    createComment.mutate({
-      documentId,
-      content: replyText.trim(),
-      threadId,
-      parentId: thread?.comments[0]?.id,
-      authorName,
-      mentions: mentionsJsonFor(replyText, replyMentions),
-    });
-    setReplyText("");
-    setReplyMentions([]);
-    setReplyingThreadId(null);
+    createComment.mutate(
+      {
+        documentId,
+        content: replyText.trim(),
+        threadId,
+        parentId: thread?.comments[0]?.id,
+        authorName,
+        mentions: mentionsJsonFor(replyText, replyMentions),
+      },
+      {
+        onSuccess: () => {
+          setReplyText("");
+          setReplyMentions([]);
+          setReplyingThreadId(null);
+        },
+        onError: (error) => {
+          toast.error(t("empty.genericError"), {
+            description: error.message,
+          });
+        },
+      },
+    );
   };
 
   const handleSendToAI = (thread: CommentThread) => {
@@ -627,7 +650,7 @@ export function CommentsSidebar({
             </button>
             <button
               onClick={handlePendingSubmit}
-              disabled={!pendingText.trim()}
+              disabled={!pendingText.trim() || createComment.isPending}
               className="px-2.5 py-1 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
             >
               {t("comments.submit")}

@@ -193,6 +193,20 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(": undefined");
   });
 
+  it("keeps comment drafts open until their mutation succeeds", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("createComment.isPending");
+    expect(source).toContain("onSuccess: () => {");
+    expect(source).toContain("onError: (error) => {");
+    expect(source).toContain('toast.error(t("empty.genericError")');
+    expect(source).toMatch(
+      /createComment\.mutate\([\s\S]*?onSuccess: \(\) => \{[\s\S]*?setPendingText\(""\)/,
+    );
+  });
+
   it("keeps card height estimates based on the thread reply count", () => {
     const thread = {
       comments: [{ id: "root" }, { id: "reply" }],

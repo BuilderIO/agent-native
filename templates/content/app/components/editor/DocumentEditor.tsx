@@ -897,6 +897,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     },
     [document, documentId, queryClient, updateDocument],
   );
+  // The document query can refresh its object identity without changing the
+  // flush request itself. Keep the latest save function behind a ref so those
+  // routine refreshes do not restart the one-shot flush reader and flood the
+  // browser with duplicate application-state requests.
+  const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
+  persistDocumentUpdatesRef.current = persistDocumentUpdates;
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -1213,7 +1219,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                const saved = await persistDocumentUpdates(updates);
+                const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The
                   // requester must stop instead of pushing/replacing stale SQL.
@@ -1287,7 +1293,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     flushRequestKey,
     flushRequestWake,
     isLocalFileDocument,
-    persistDocumentUpdates,
     t,
   ]);
 
