@@ -1545,6 +1545,7 @@ const frFR = {
     dispatch: "Dispatch",
     a2aProtocol: "Protocole A2A",
     mcpClients: "Clients MCP (ajouter des outils)",
+    httpApi: "API HTTP (appeler des opérations)",
     mcpServer: "Serveur MCP (exposer votre app)",
     externalAgents: "Agents externes (connecter un hôte)",
     mcpApps: "MCP Apps (UI intégrées)",

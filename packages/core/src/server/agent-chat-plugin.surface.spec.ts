@@ -315,11 +315,13 @@ describe("prompt content invariants", () => {
   it("routes extension requests that need native placement to code customization", () => {
     const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
 
+    // The 7-row routing table and worked examples were cut in favor of one
+    // boundary sentence (routing among render-inline-extension/create-extension/
+    // show-extension-inline/update-extension is already derivable from each
+    // tool's own description; the "can't reach native chrome" case is also
+    // restated in connect-builder's own tool description).
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
-      "UI inside or beside a native component where no named slot exists",
-    );
-    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
-      "show local time beside every native Calendar attendee row",
+      "they cannot inject UI into arbitrary native components",
     );
     expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
       'do not end with "extensions cannot do that."',
@@ -411,17 +413,26 @@ describe("available action prompt rendering", () => {
     ).toEqual(["common"]);
   });
 
-  it("summarizes only starter actions and points to tool-search for the rest", () => {
+  it("points to tool-search for actions omitted from the initial tool set, without re-listing loaded actions (already covered by native tool schemas)", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       actions,
       "tool",
       ["common"],
     );
 
-    expect(prompt).toContain("`common`");
+    expect(prompt).not.toContain("`common`");
     expect(prompt).not.toContain("`rare`");
     expect(prompt).toContain("1 less-common app action is available on demand");
     expect(prompt).toContain("`tool-search`");
+  });
+
+  it("returns nothing when every action is already loaded and none has a native widget", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      actions,
+      "tool",
+    );
+
+    expect(prompt).toBe("");
   });
 
   it("labels actions that render native chat widgets", () => {

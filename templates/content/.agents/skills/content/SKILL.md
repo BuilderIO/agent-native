@@ -237,6 +237,11 @@ File access still requires a local Content app, Agent Native Desktop, or another
 trusted bridge. Disconnecting a folder leaves the SQL pages and disk files in
 place. Concurrent edits and missing source files require explicit review.
 
+See **`references/local-file-mode.md`** for the full folder-source Pull/Check/Push
+workflow, the manifest/CLI launch commands, Builder Symbols and Builder
+source-component preservation rules, picked-folder/Desktop component
+previews, and the agent component-edit workflow.
+
 ## MDX And Components
 
 - Preserve frontmatter keys you do not understand. Preserve MDX imports,

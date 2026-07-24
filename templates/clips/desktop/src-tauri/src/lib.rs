@@ -256,6 +256,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(shortcuts::build_shortcut_plugin().build())
         .manage(TrayAnchor::default())
         .manage(TrayMeetings::default())
@@ -284,7 +285,9 @@ pub fn run() {
             logfile::init(app.handle());
 
             // Keeps the app from yanking the user out of fullscreen when the
-            // popover appears. Production bundles reinforce this with LSUIElement=1.
+            // popover appears. Bundles set LSUIElement=1 so macOS never creates
+            // a Dock tile in the first place; this call still matters for
+            // `tauri dev`, which runs the bare executable with no bundle plist.
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);

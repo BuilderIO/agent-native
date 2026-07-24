@@ -37,6 +37,7 @@
     "autostart:default",
     "process:allow-restart",
     "notification:default",
+    "clipboard-manager:allow-write-text",
     "fs:allow-video-write-recursive",
     "fs:allow-video-read-recursive"
   ]

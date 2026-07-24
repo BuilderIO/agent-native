@@ -1533,6 +1533,7 @@ const arSA = {
     dispatch: "Dispatch",
     a2aProtocol: "بروتوكول A2A",
     mcpClients: "MCP Clients (إضافة أدوات)",
+    httpApi: "HTTP API (استدعاء الإجراءات)",
     mcpServer: "MCP Server (إتاحة تطبيقك)",
     externalAgents: "External Agents (ربط مضيف)",
     mcpApps: "MCP Apps (واجهات مضمنة)",

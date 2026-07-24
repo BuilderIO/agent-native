@@ -1,11 +1,11 @@
 import { readAppState } from "@agent-native/core/application-state";
-import { orgMembers } from "@agent-native/core/org";
+import { implicitServiceOrgRole, orgMembers } from "@agent-native/core/org";
 import { getSession } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { HTTPError, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
@@ -142,7 +142,11 @@ export async function getOrganizationRoleForEmail(
     // org_members table may not exist yet on first boot before migrations finish.
   }
 
-  return null;
+  return implicitServiceOrgRole({
+    email,
+    orgId: organizationId,
+    requestOrgId: getRequestOrgId(),
+  });
 }
 
 export async function requireOrganizationAccess(
@@ -361,4 +365,30 @@ export function shouldCountView(
   scrubbedToEnd: boolean,
 ): boolean {
   return totalWatchMs >= 5000 || completedPct >= 75 || scrubbedToEnd;
+}
+
+/**
+ * The single definition of a counted view: one `recording_viewers` row whose
+ * `countedView` flag is set. Every surface that reports a view count (library
+ * list, insights, public share page) goes through this condition,
+ * `countRecordingViews`, or the in-memory twin `isCountedViewerRow` in
+ * `shared/view-analytics.ts`, so the numbers cannot drift apart.
+ */
+export function countedViewCondition() {
+  return eq(schema.recordingViewers.countedView, true);
+}
+
+export async function countRecordingViews(
+  recordingId: string,
+): Promise<number> {
+  const [row] = await getDb()
+    .select({ value: count() })
+    .from(schema.recordingViewers)
+    .where(
+      and(
+        eq(schema.recordingViewers.recordingId, recordingId),
+        countedViewCondition(),
+      ),
+    );
+  return Number(row?.value ?? 0);
 }

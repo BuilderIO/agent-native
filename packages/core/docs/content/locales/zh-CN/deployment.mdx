@@ -329,6 +329,41 @@ export default defineConfig({
 });
 ```
 
+## SSR 缓存 {#ssr-caching}
+
+每个 SSR HTML 响应和每个 React Router `.data` 响应都是同一个非个性化的公共外壳：`createH3SSRHandler` 会在渲染前剥离 cookie，因此同样的字节对每个访问者都是正确的，所有个性化都在加载完成后于客户端进行。这正是为什么默认在这些响应上盖上单一硬缓存策略是安全的：
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+同样的值会镜像到 `cdn-cache-control` 和 `netlify-cdn-cache-control` 上。这样一个共享的 CDN 条目就能服务整个站点，而不是逐请求渲染，这是首次响应延迟上最大的单一杠杆——除非您的部署符合下面的某种情况，否则请保持开启。
+
+### 使用 `AGENT_NATIVE_SSR_CACHE` 覆盖设置 {#ssr-cache-env}
+
+在部署环境中设置 `AGENT_NATIVE_SSR_CACHE`，即可更改整个部署的策略：
+
+| 值                                                  | 结果                                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 未设置、`on`、`default`、`true`、`1`                | 上面的默认策略，不变。推荐——性能最佳。                                                |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上的 `no-store`。 |
+| 一个时长：`30`、`30s`、`5m`、`2h`                   | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。              |
+
+裸数字表示秒。`stale-while-revalidate` 有意为自定义时长镜像 `max-age`：将一个短的新鲜度窗口与默认的七天陈旧窗口搭配，会恰好返回您本想选择退出的那种陈旧数据。无法识别的值会记录一条警告并回退到默认值，因此拼写错误永远不会悄悄禁用 CDN。
+
+在以下任一情况成立时，请将其调低或关闭：
+
+1. **您的主机不会在部署时清除其 CDN。** Netlify 和 Vercel 会；一些自托管的部署不会。如果没有清除，已发布的构建可能会在 `max-age` 加上 `stale-while-revalidate` 的时长内继续提供之前的外壳。
+2. **您的加载器返回可变的公共数据。** 在一次成功的变更之后，`useRevalidator()` 或操作后重定向触发的重新获取，可能会读取浏览器缓存的 `.data` 副本，而不是最新的加载器输出。
+
+该设置适用于每一个公共外壳界面：React Router 的 SSR HTML 与 `.data`、登录 HTML 外壳、`/_agent-native/speculation-rules.json` 路由、文档站点，以及 forms 模板中的公共表单 SSR。生成的 Cloudflare Worker 会在构建时解析该值，因此请在构建运行之前于部署环境中设置它。
+
+有三点需要记住：
+
+- **关闭缓存并不会让 SSR 变得个性化。** Cookie 在渲染前仍会被剥离，SSR 加载器仍然只会看到匿名分支。用户专属数据依然必须在客户端解析。此变量只控制缓存*时长*。
+- **它是部署范围的设置，而非按路由，这是有意为之的设计。** 按路由或按请求的缓存覆盖，会导致一个访问者的负载最终出现在另一个访问者共享的 CDN 条目中，因此框架不提供这种选项——`guard:ssr-cache-shell` 会强制执行这一点。
+- **对于需要变更后立即新鲜的数据，优先使用 actions 而不是禁用缓存。** 应用数据属于 [actions](/docs/actions)，通过 `useActionQuery` / `useActionMutation` 从客户端读取，并通过 `useDbSync()` 轮询保持实时；这些都不会经过 SSR 外壳缓存。让 SSR 加载器继续渲染公共外壳，只有在您确实需要更新鲜的加载器数据时，才使用此变量。
+
 ## 环境变量 {#environment-variables}
 
 ### 构建/运行时 {#env-runtime}
@@ -339,6 +374,7 @@ export default defineConfig({
 | `NITRO_PRESET`                              | 在构建时覆盖构建预设                                                                                                                                                                                                                                                                  |
 | `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
+| `AGENT_NATIVE_SSR_CACHE`                    | 部署范围的 SSR 外壳缓存策略：未设置/`on` 保持默认硬缓存，`off` 发送 `no-store`，或使用一个时长（例如 `30s` / `5m`）设置更短的新鲜度。参见 [SSR Caching](#ssr-caching)。                                                                                                               |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 

@@ -1516,6 +1516,7 @@ const messages = {
     dispatch: "調度",
     a2aProtocol: "A2A 協議",
     mcpClients: "MCP 用戶端（新增工具）",
+    httpApi: "HTTP API（呼叫行動）",
     mcpServer: "MCP 伺服器（暴露你的應用）",
     externalAgents: "外部 Agents（連線主機）",
     mcpApps: "MCP Apps（行內 UI）",

@@ -21,6 +21,7 @@ import {
 } from "../server/lib/agent-recording-access.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
+  countedViewCondition,
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
@@ -233,7 +234,7 @@ export default defineAction({
       SELECT COUNT(1)
       FROM ${schema.recordingViewers}
       WHERE ${schema.recordingViewers.recordingId} = ${schema.recordings.id}
-        AND ${eq(schema.recordingViewers.countedView, true)}
+        AND ${countedViewCondition()}
     )`;
     const orderBy =
       args.sort === "oldest"
@@ -333,7 +334,7 @@ export default defineAction({
         .where(
           and(
             inArray(schema.recordingViewers.recordingId, ids),
-            eq(schema.recordingViewers.countedView, true),
+            countedViewCondition(),
           ),
         )
         .groupBy(schema.recordingViewers.recordingId);

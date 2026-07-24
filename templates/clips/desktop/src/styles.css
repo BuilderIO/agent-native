@@ -945,19 +945,20 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 42px;
+  min-height: 36px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
-  color: var(--fg);
+  color: var(--fg-muted);
   cursor: pointer;
-  padding: 10px 12px;
+  padding: 7px 12px;
   text-align: left;
-  transition: background 120ms;
+  transition: color 120ms;
 }
 
-.readiness-summary:hover {
-  color: var(--fg-muted);
+.readiness-summary:hover,
+.readiness-summary:focus-visible {
+  color: var(--fg);
 }
 
 .readiness-summary:focus-visible {
@@ -966,28 +967,28 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-open .readiness-summary {
-  min-height: 42px;
+  min-height: 36px;
   border-radius: var(--radius-sm);
-  padding: 10px 12px;
+  padding: 7px 12px;
   background: transparent;
 }
 
 .readiness-title {
-  color: var(--fg);
+  color: inherit;
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
 }
 
 .readiness-open .readiness-title {
-  color: var(--fg);
+  color: inherit;
 }
 
 .readiness-action {
   display: flex;
   align-items: center;
   gap: 3px;
-  color: var(--brand);
+  color: inherit;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -1000,7 +1001,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-open .readiness-action {
-  color: var(--fg-muted);
+  color: inherit;
 }
 
 .readiness-list {
@@ -1385,19 +1386,20 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 42px;
-  padding: 10px 12px;
+  min-height: 36px;
+  padding: 7px 12px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--fg);
+  color: var(--fg-muted);
   cursor: pointer;
   text-align: left;
   transition: color 120ms;
 }
 
-.rewind-home-summary:hover {
-  color: var(--fg-muted);
+.rewind-home-summary:hover,
+.rewind-home-summary:focus-visible {
+  color: var(--fg);
 }
 
 .rewind-home-summary:focus-visible {
@@ -1415,7 +1417,7 @@ body[data-clips-route="recording-pill"] #root {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--fg-muted);
+  color: inherit;
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -3033,7 +3035,8 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .local-recording-banner,
-.local-save-banner {
+.local-save-banner,
+.share-link-banner {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -3052,7 +3055,8 @@ body[data-clips-route="recording-pill"] #root {
   color: var(--fg-muted);
 }
 
-.local-save-banner {
+.local-save-banner,
+.share-link-banner {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
@@ -3075,7 +3079,8 @@ body[data-clips-route="recording-pill"] #root {
   white-space: nowrap;
 }
 
-.local-save-banner button {
+.local-save-banner button,
+.share-link-banner button {
   height: 28px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -3090,17 +3095,20 @@ body[data-clips-route="recording-pill"] #root {
     border-color 120ms;
 }
 
-.local-save-banner button:hover {
+.local-save-banner button:hover,
+.share-link-banner button:hover {
   background: var(--brand-hover);
   border-color: transparent;
 }
 
-.local-save-banner .local-save-dismiss {
+.local-save-banner .local-save-dismiss,
+.share-link-banner .local-save-dismiss {
   background: transparent;
   color: var(--fg-muted);
 }
 
-.local-save-banner .local-save-dismiss:hover {
+.local-save-banner .local-save-dismiss:hover,
+.share-link-banner .local-save-dismiss:hover {
   background: var(--surface-hover);
   border-color: var(--border-strong);
   color: var(--fg);

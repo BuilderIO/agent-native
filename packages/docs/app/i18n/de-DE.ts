@@ -1545,6 +1545,7 @@ const deDE = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A-Protokoll",
     mcpClients: "MCP-Clients (Tools hinzufügen)",
+    httpApi: "HTTP-API (Aktionen aufrufen)",
     mcpServer: "MCP-Server (App bereitstellen)",
     externalAgents: "Externe Agents (Host verbinden)",
     mcpApps: "MCP Apps (Inline-UIs)",

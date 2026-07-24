@@ -1535,6 +1535,7 @@ const hiIN = {
     dispatch: "डिस्पैच",
     a2aProtocol: "A2A प्रोटोकॉल",
     mcpClients: "MCP Clients (Tools जोड़ें)",
+    httpApi: "HTTP API (क्रियाएँ कॉल करें)",
     mcpServer: "MCP Server (अपनी app expose करें)",
     externalAgents: "External Agents (host connect करें)",
     mcpApps: "MCP Apps (Inline UIs)",

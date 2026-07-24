@@ -182,6 +182,23 @@
       "port": 3102
     },
     {
+      "name": "clips-views",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eada16db-e3d0-4176-b0ce-6a41f2c62be4/scratchpad/clips-views.sqlite",
+        "PORT=3212",
+        "AUTH_MODE=local",
+        "APP_URL=http://localhost:3212",
+        "pnpm",
+        "--dir",
+        "templates/clips",
+        "dev",
+        "--port",
+        "3212"
+      ],
+      "port": 3212
+    },
+    {
       "name": "calendar",
       "runtimeExecutable": "env",
       "runtimeArgs": [

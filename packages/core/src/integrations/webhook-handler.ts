@@ -8,6 +8,7 @@ import {
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -41,7 +42,11 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
-import { createThread, getThread } from "../chat-threads/store.js";
+import {
+  createThread,
+  getThread,
+  grantThreadUserShare,
+} from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
@@ -88,6 +93,20 @@ const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
 const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
   "The model finished without a visible answer. Try again, or open the thread in Dispatch to inspect the run.";
+const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
+  "I ran out of time on this one before I could write up an answer — it needed more research than a single run allows. " +
+  "Open the thread in Dispatch to see what I gathered, or ask me again in smaller pieces (one source at a time works best).";
+
+/**
+ * True when the run stopped at a continuation boundary rather than finishing:
+ * the run-manager's soft timeout emits `auto_continue` and aborts the loop, and
+ * the loop itself emits one when it hits an internal step budget. The run's
+ * status is still "completed", so without this check a cut-off research request
+ * is reported to the user as a model that answered with nothing.
+ */
+function endedAtContinuationBoundary(run: ActiveRun): boolean {
+  return run.events.some((runEvent) => runEvent.event.type === "auto_continue");
+}
 
 type ToolDoneEvent = {
   type: "tool_done";
@@ -789,6 +808,29 @@ async function processIncomingMessage(
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
   }
+
+  // Channel conversations run as the integration service principal, so the
+  // thread is owned by `integration@<platform>` and not by the human who asked.
+  // The "Open thread" deep link we hand back would then 404 for them and the
+  // chat surface would silently render an empty new chat, so grant each
+  // verified participant an explicit share on the thread they are driving.
+  if (
+    incoming.senderVerified === true &&
+    incoming.senderEmail &&
+    incoming.senderEmail.trim().toLowerCase() !== ownerEmail.toLowerCase()
+  ) {
+    await grantThreadUserShare(
+      threadId,
+      incoming.senderEmail,
+      "editor",
+      ownerEmail,
+    ).catch((error) => {
+      console.warn(
+        `[integrations] Could not grant ${incoming.platform} sender access to thread ${threadId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    });
+  }
   const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
     existingMessages.push(...threadDataToEngineMessages(thread.threadData));
@@ -1051,7 +1093,10 @@ async function processIncomingMessage(
                 "directly is the most reliable way to get an answer right now.";
             } else {
               responseText =
-                verifiedMutationReceipt ?? EMPTY_INTEGRATION_RESPONSE_MESSAGE;
+                verifiedMutationReceipt ??
+                (endedAtContinuationBoundary(completedRun)
+                  ? CUTOFF_INTEGRATION_RESPONSE_MESSAGE
+                  : EMPTY_INTEGRATION_RESPONSE_MESSAGE);
             }
           }
           if (approval?.type === "approval_required") {
@@ -1346,13 +1391,22 @@ async function processIncomingMessage(
           resolve(outcome);
         }
       },
-      // Integration workers are ordinary self-dispatched serverless requests,
-      // not a Netlify background-function route. Without the hosted soft
-      // timeout, a wedged model connection can outlive the worker and leave
-      // Slack's native stream in "working" forever when the host kills the
-      // process. Checkpoint at the foreground-safe boundary so onComplete can
-      // always close the provider progress surface before the function wall.
-      { useHostedSoftTimeoutDefault: true },
+      // Without the hosted soft timeout, a wedged model connection can outlive
+      // the worker and leave Slack's native stream in "working" forever when
+      // the host kills the process. Checkpoint at the safe boundary so
+      // onComplete can always close the provider progress surface first.
+      //
+      // Which boundary that is depends on where this task is actually running:
+      // when durable dispatch routes it to the emitted `-background` function
+      // it has ~15min, and clamping it to the 40s foreground budget anyway cut
+      // off every research-shaped request (multi-source sweeps, long tool
+      // chains) with no visible answer. `isInBackgroundFunctionRuntime()` is
+      // the runtime proof — never a config guess — so the wider ceiling is
+      // taken only where the ~60s synchronous wall genuinely does not apply.
+      {
+        useHostedSoftTimeoutDefault: true,
+        backgroundFunction: isInBackgroundFunctionRuntime(),
+      },
     );
   });
 }

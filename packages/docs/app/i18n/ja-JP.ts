@@ -1542,6 +1542,7 @@ const jaJP = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A プロトコル",
     mcpClients: "MCP クライアント (ツール追加)",
+    httpApi: "HTTP API (アクション呼び出し)",
     mcpServer: "MCP サーバー (アプリ公開)",
     externalAgents: "外部 Agents (ホスト接続)",
     mcpApps: "MCP Apps (インライン UI)",

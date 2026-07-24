@@ -302,7 +302,6 @@ const messages = {
       "Speicher angeschlossen. Ich schaue mir diesen Clip an...",
     signInToFinish: "Melden Sie sich an, um den Vorgang abzuschließen",
     signInIfYours: "Melden Sie sich an, wenn dies Ihnen gehört",
-    openDashboard: "Dashboard öffnen",
     checkAgain: "Erneut prüfen",
     backToHome: "Zurück nach Hause",
     generatingTitle: "Titel wird generiert",
@@ -839,6 +838,15 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     viewedBy: "Angesehen von",
     someone: "Jemand",
     noViewsYet: "Noch keine Aufrufe.",
+    viewsCount_one: "{{count}} Aufruf",
+    viewsCount_other: "{{count}} Aufrufe",
+    totalViewsSummary:
+      "{{total}} Aufrufe insgesamt, {{unique}} eindeutige Zuschauer",
+    viewsTab: "Aufrufe",
+    insightsTab: "Einblicke",
+    totalVideoViews: "Videoaufrufe insgesamt",
+    averageCompletionRate: "Durchschnittliche Abschlussrate",
+    moreInsights: "Mehr Einblicke",
   },
   libraryGrid: {
     spaceRoot: "Space-Stamm",
@@ -1328,6 +1336,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     couldNotImportLoom: "Could not import that Loom. (Lokalisiert)",
     recordingReadyToUpload: "Recording is ready to upload (Lokalisiert)",
     recordingSaved: "Recording saved (Lokalisiert)",
+    linkCopied: "Link kopiert",
+    copyLinkAction: "Link kopieren",
     noLocalRecordingData:
       "No local recording data is available to download. (Lokalisiert)",
     recordingDownloadStarted: "Recording download started (Lokalisiert)",

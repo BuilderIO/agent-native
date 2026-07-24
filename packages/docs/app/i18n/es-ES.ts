@@ -1543,6 +1543,7 @@ const esES = {
     dispatch: "Dispatch",
     a2aProtocol: "Protocolo A2A",
     mcpClients: "Clientes MCP (añadir herramientas)",
+    httpApi: "API HTTP (llamar acciones)",
     mcpServer: "Servidor MCP (exponer tu app)",
     externalAgents: "Agents externos (conectar un host)",
     mcpApps: "MCP Apps (UI integrada)",

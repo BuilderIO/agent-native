@@ -1,0 +1,266 @@
+---
+title: "HTTP API: Call Actions from Anything"
+description: "Call an agent-native app's actions over plain HTTP with a long-lived bearer token — from a support-desk bot, a CI job, a cron script, or any backend service, no browser session required."
+search: "HTTP API bearer token service token connect CLI curl action endpoint server-to-server webhook CI backend integration Authorization header revoke rotate"
+---
+
+# HTTP API
+
+**This page: call an app's actions from an external system over HTTP.** Use it when a support-desk bot, a CI job, a cron script, a Lambda, or any backend service needs to invoke your app without a browser and without an MCP client.
+
+| If you want to…                                      | Read                                     |
+| ---------------------------------------------------- | ---------------------------------------- |
+| Call one action from a script or backend service     | **This page** — HTTP API                 |
+| Let an AI host discover and call every action        | [MCP Server](/docs/mcp-protocol)         |
+| Connect Claude, ChatGPT, Codex, Cursor to your app   | [External Agents](/docs/external-agents) |
+| Have another agent-native app delegate work to yours | [A2A Protocol](/docs/a2a-protocol)       |
+| Define the operation in the first place              | [Actions](/docs/actions)                 |
+
+Every `defineAction` in `actions/` is already an HTTP endpoint. The frontend calls it through `useActionQuery` / `useActionMutation` with a session cookie, but the same route accepts an `Authorization: Bearer` token, so anything that can make an HTTPS request can call it. There is no separate "public API" to build and no REST wrapper to maintain — the action you wrote for the agent and the UI is the API.
+
+## When to use this surface {#when}
+
+Pick HTTP when the caller is code and already knows exactly which operation it wants:
+
+| Caller                                                 | Use                                    |
+| ------------------------------------------------------ | -------------------------------------- |
+| A script, backend service, CI job, or webhook consumer | **HTTP** — this page                   |
+| An LLM host that should discover tools and choose      | [MCP](/docs/mcp-protocol)              |
+| Another agent-native app delegating a fuzzy task       | [A2A](/docs/a2a-protocol)              |
+| A browser page in your own app                         | `useActionQuery` / `useActionMutation` |
+
+HTTP is the cheapest of the three: one request, one JSON body, one JSON response, no handshake, no session, no model in the loop. MCP and A2A both sit on top of the same actions — reach for them when the caller needs a tool catalog or the whole agent loop, not a single known operation.
+
+## Mint a token {#mint-token}
+
+Tokens come from the `connect` CLI. There are two kinds, and the choice matters.
+
+**Personal token** — bound to the person who runs the command. Use it for your own scripts and local development.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com
+```
+
+This opens a browser sign-in, then writes the token into your local MCP client configs. Rows the token creates are owned by you.
+
+**Org service token** — bound to a synthetic, organization-owned identity rather than a person. Use it for anything that must keep running after people change teams: CI, a support-desk bot, a scheduled integration.
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 90
+```
+
+The command still authenticates you in the browser first — minting requires org **owner or admin** — but the resulting token's subject is `svc-support-desk@service.<orgId>`. It survives you leaving the org or revoking your own personal tokens, and the rows it creates are org-scoped, so every org member can see them. The token value is printed exactly once and is never written to a local config file; copy it straight into your secret store.
+
+|                              | Personal token              | Org service token                |
+| ---------------------------- | --------------------------- | -------------------------------- |
+| Identity                     | The person who minted it    | `svc-<name>@service.<orgId>`     |
+| Survives that person leaving | No                          | Yes                              |
+| Rows it creates              | Owned by that person        | Org-scoped                       |
+| Who can mint                 | Any signed-in user          | Org owner/admin only             |
+| Best for                     | Your own scripts, local dev | CI, bots, scheduled integrations |
+
+Both default to a 365-day lifetime and accept `--ttl-days` between 1 and 365. If a machine cannot open a browser, the app's connect page at `https://<app>/mcp/connect` is the fallback: sign in there, copy the token, and pass it with `connect <url> --token <token>` or paste it directly into your secret store.
+
+For a self-hosted, single-tenant app where per-person identity does not matter, the static `ACCESS_TOKEN` / `ACCESS_TOKENS` environment variables are the simplest option — see [Authentication — Static MCP Bearer Tokens](/docs/authentication#access-tokens).
+
+## Call an action {#call}
+
+The route is `POST /_agent-native/actions/<action-id>`. The action id defaults to the action's filename, so `actions/import-loom-recording.ts` mounts at `/_agent-native/actions/import-loom-recording`.
+
+The request body is the raw JSON of the action's zod schema — no envelope, no `{ args: ... }` wrapper. The response is the action's return value serialized bare at the top level, not wrapped in `{ result: ... }`.
+
+```bash
+curl -sS -X POST \
+  https://clips.example.com/_agent-native/actions/import-loom-recording \
+  -H "Authorization: Bearer $AGENT_NATIVE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.loom.com/share/EXAMPLE_SHARE_ID"}'
+```
+
+```json
+{
+  "recordingId": "rec_8f2a91",
+  "title": "Checkout fails on Safari 17",
+  "status": "imported"
+}
+```
+
+<Endpoint id="doc-block-http-api-action" title="Call an action over HTTP" method="POST" path="/_agent-native/actions/import-loom-recording" summary={"Invoke any action by id with a bearer token — no browser session required."} auth={"Authorization: Bearer <connect-minted personal or org service token>, or a session cookie for same-origin browser calls"} params={[
+  {
+    "name": "Authorization",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "Bearer <token> from `connect` or `connect --service-token`. Omit only for same-origin browser calls that carry the session cookie."
+  },
+  {
+    "name": "Content-Type",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "application/json for POST actions."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"url\": \"https://www.loom.com/share/EXAMPLE_SHARE_ID\"\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "The action's return value, serialized bare at the top level.",
+    "example": "{\n  \"recordingId\": \"rec_8f2a91\",\n  \"title\": \"Checkout fails on Safari 17\",\n  \"status\": \"imported\"\n}"
+  },
+  {
+    "status": "400",
+    "description": "Input failed the action's zod schema before run() fired.",
+    "example": "{ \"error\": \"Invalid action parameters: url: Required\" }"
+  },
+  {
+    "status": "401",
+    "description": "Missing, expired, revoked, or wrong-audience token."
+  },
+  {
+    "status": "405",
+    "description": "Wrong HTTP method for this action.",
+    "example": "{ \"error\": \"Method not allowed. Use POST.\" }"
+  },
+  {
+    "status": "500",
+    "description": "The action threw. The real message stays server-side.",
+    "example": "{ \"error\": \"Internal server error\" }"
+  }
+]}>
+
+The body is validated against the action's zod schema before `run` executes. The token is verified the same way the app's MCP endpoint verifies it: same signature check, same audience binding to `{appUrl}/mcp`, same revocation gate. The caller's organization comes from the token's signed `org_id` claim — never from an ambient browser cookie that happens to ride along on the request.
+
+</Endpoint>
+
+### GET actions and query params {#get-actions}
+
+An action that declares an `http` override is reachable with the method it names, and `GET` args arrive as query params instead of a JSON body:
+
+```ts filename="actions/get-lead.ts"
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    /* ... */
+  },
+});
+```
+
+```bash
+curl -sS \
+  "https://crm.example.com/_agent-native/actions/get-lead?leadId=lead_123" \
+  -H "Authorization: Bearer $AGENT_NATIVE_TOKEN"
+```
+
+`http: { path: "..." }` changes the mounted URL for direct HTTP callers only, and `http: false` removes the endpoint entirely. See [Actions — HTTP config](/docs/actions#http) for the full option set.
+
+### Errors {#errors}
+
+Every failure returns `{ "error": string }` with an appropriate status:
+
+| Status | Meaning                                                                                                                                             |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | Input failed the action's zod schema. The message names the offending field.                                                                        |
+| `401`  | Missing, expired, revoked, or wrong-audience bearer token.                                                                                          |
+| `403`  | Authenticated, but not allowed to touch this data — see [When it 403s](#troubleshooting).                                                           |
+| `405`  | Wrong method. The message tells you which one the action declares.                                                                                  |
+| `409`  | Only for browser clients running a stale build; server-to-server callers never see it.                                                              |
+| `500`  | The action threw. The response message is always `Internal server error` — the real detail is logged server-side with a capture id, never returned. |
+
+Treat a `500` as "check the app's logs", not "read the error text". Actions that want to return a specific, user-facing failure should throw with an explicit `statusCode` below 500; those messages do come back verbatim.
+
+### CSRF and CORS {#csrf-cors}
+
+A cookieless server-to-server call skips CSRF entirely — there is no session cookie to confuse, so there is nothing to protect against. You do not need to fetch a CSRF token, and you should not send cookies.
+
+Cross-origin calls _from a browser_ are different: they need an allowlisted origin. If you are calling from browser JavaScript on another domain, configure the app's CORS allowlist first. Server-side callers are unaffected.
+
+## Worked example: a support-desk bot {#worked-example}
+
+A support-desk bot watches inbound tickets. When a customer attaches a Loom share link to a bug report, the bot imports it into Clips so the support team can comment on the recording, clip the relevant 20 seconds, and attach it to the engineering issue.
+
+**1. Mint a token the bot owns.** Run this once, as an org owner or admin:
+
+```bash
+npx @agent-native/core@latest connect https://clips.example.com \
+  --service-token support-desk --ttl-days 365
+```
+
+Copy the printed value into the bot's secret store as `AGENT_NATIVE_TOKEN`. It is shown once and never stored by the app.
+
+**2. Call the action when a ticket arrives.**
+
+```ts
+const res = await fetch(
+  "https://clips.example.com/_agent-native/actions/import-loom-recording",
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.AGENT_NATIVE_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ url: shareUrl }),
+  },
+);
+
+if (!res.ok) {
+  const { error } = await res.json();
+  throw new Error(`Clips import failed (${res.status}): ${error}`);
+}
+
+const { recordingId } = await res.json();
+```
+
+**3. Link back to the recording.** Post `https://clips.example.com/r/${recordingId}` into the ticket thread. Because the bot used an org service token, the recording is org-scoped: every teammate who opens that link sees it, and it does not disappear when the person who set up the bot changes teams.
+
+The action ran exactly as it would have from chat or the UI — same validation, same access checks, same app state write that focuses the new recording for anyone who has the app open.
+
+## Lifetime, rotation, and revocation {#lifecycle}
+
+Tokens are JWTs signed by the app and bound to that app's audience. A token minted for one app cannot call another.
+
+- **Lifetime** — 365 days by default, `--ttl-days` between 1 and 365. Shorter is better for anything that runs unattended.
+- **Rotation** — mint the new token, deploy it to the caller, confirm traffic is flowing, then revoke the old one. There is no in-place rotation; the two tokens are independent and can overlap.
+- **Revocation** — every token carries a `jti`, and revocation is a `jti` check on every request, so a revoked token stops working immediately. Use the `list-org-service-tokens` action to see names, who minted them, and last-used timestamps, then `revoke-org-service-token` with the id. Both are owner/admin-gated for writes; any org member can list.
+- **Recovery** — the token value is never stored, only its `jti`. If you lose it, mint a new one and revoke the old.
+
+Because `list-org-service-tokens` reports `lastUsedAt`, it doubles as a cleanup tool: anything that has not been used in months is a candidate for revocation.
+
+<Callout id="doc-block-http-api-security" tone="warning">
+
+**Treat the token exactly like a password.** It authenticates as a real identity in your organization, and it is long-lived by default.
+
+- Put it in a secret manager or CI secret, never in source, a Dockerfile, a log line, or a client-side bundle.
+- Give each caller its own named service token (`--service-token support-desk`, `--service-token ci`) so you can revoke one without breaking the others, and so `lastUsedAt` tells you who is actually calling.
+- Prefer the shortest `--ttl-days` the caller can live with.
+- A service token acts as an org **`member`, and only ever `member`.** The synthetic `svc-*@service.<orgId>` identity is never inserted into `org_members`; it resolves an implicit member role for the org it was minted against, and nothing higher. So it can read and write that org's data like any member, but it cannot mint further tokens, revoke existing ones, or manage org members and settings — every one of those is admin-gated. It can still do everything a normal member can do with the org's data, so scope it deliberately.
+- Actions you never want reachable this way should set `http: false` (agent and CLI only) or `toolCallable: false`. See [Actions — Exposure flags](/docs/actions#exposure-flags).
+
+</Callout>
+
+## When it 403s {#troubleshooting}
+
+A `401` means the token was not accepted at all. A `403` means the token _was_ accepted and the request then failed an access check — a different problem with a different fix.
+
+| Symptom                                                          | Likely cause                                                                                                                                                                      |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `401` on every call, immediately after minting                   | Token minted against a different app URL. It is audience-bound to `{appUrl}/mcp`; mint it against the app you are calling.                                                        |
+| `401` that started working and then stopped                      | Expired (check `--ttl-days`) or revoked. Check `list-org-service-tokens` with `includeRevoked: true`.                                                                             |
+| `403` on a data action                                           | The identity is not scoped to the org that owns the row. Confirm the token was minted with an active org, and that the row is org-scoped rather than owned by a person.           |
+| `403` on a data action from a service token only                 | The app authorizes with its own `org_members` role lookup and has not adopted `implicitServiceOrgRole` from `@agent-native/core/org`, so the synthetic identity resolves no role. |
+| `403` on `create-org-service-token` / `revoke-org-service-token` | The caller is an org `member`, or is a service token. Minting and revoking require a human owner/admin.                                                                           |
+| `403` from browser JavaScript, but curl works                    | Cross-origin browser call from an origin that is not allowlisted. See [CSRF and CORS](#csrf-cors).                                                                                |
+| `405` with a method you did not expect                           | The action declares `http: { method: "GET" }`. Send args as query params, not a JSON body.                                                                                        |
+| `404`                                                            | Wrong action id, an `http: { path: "..." }` override, or `http: false`.                                                                                                           |
+
+## What's next {#related-docs}
+
+- [**Actions**](/docs/actions) — define the operation once; HTTP, MCP, A2A, CLI, and the UI all call the same one
+- [**Authentication**](/docs/authentication) — session auth, orgs, and static `ACCESS_TOKEN` bearers
+- [**MCP Server**](/docs/mcp-protocol) — the tool-catalog surface these tokens are audience-bound to
+- [**A2A Protocol**](/docs/a2a-protocol) — agent-to-agent delegation between agent-native apps
+- [**Security**](/docs/security) — data scoping, access guards, and secret handling

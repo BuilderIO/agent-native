@@ -299,7 +299,6 @@ const messages = {
       "Almacenamiento conectado. Comprobando este vídeo...",
     signInToFinish: "Inicia sesión para finalizar",
     signInIfYours: "Inicia sesión si este es tuyo",
-    openDashboard: "Abrir panel",
     checkAgain: "Comprobar de nuevo",
     backToHome: "De vuelta a casa",
     generatingTitle: "Generando título",
@@ -833,6 +832,16 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     viewedBy: "Visto por",
     someone: "Alguien",
     noViewsYet: "Aún no hay visualizaciones.",
+    viewsCount_one: "{{count}} visualización",
+    viewsCount_many: "{{count}} visualizaciones",
+    viewsCount_other: "{{count}} visualizaciones",
+    totalViewsSummary:
+      "{{total}} visualizaciones totales, {{unique}} espectadores únicos",
+    viewsTab: "Vistas",
+    insightsTab: "Estadísticas",
+    totalVideoViews: "Visualizaciones totales del vídeo",
+    averageCompletionRate: "Tasa media de finalización",
+    moreInsights: "Más estadísticas",
   },
   libraryGrid: {
     spaceRoot: "Raíz del espacio",
@@ -1320,6 +1329,8 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     couldNotImportLoom: "Could not import that Loom. (Localizado)",
     recordingReadyToUpload: "Recording is ready to upload (Localizado)",
     recordingSaved: "Recording saved (Localizado)",
+    linkCopied: "Enlace copiado",
+    copyLinkAction: "Copiar enlace",
     noLocalRecordingData:
       "No local recording data is available to download. (Localizado)",
     recordingDownloadStarted: "Recording download started (Localizado)",

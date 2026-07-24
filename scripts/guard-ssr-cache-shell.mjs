@@ -6,22 +6,29 @@
  * regress silently.
  *
  * Background: every SSR HTML response and every React Router `.data` response
- * is ONE impersonal, public, hard-CDN-cached shell served identically to every
- * visitor, logged in or not. `createH3SSRHandler` in
- * packages/core/src/server/ssr-handler.ts deliberately strips cookies/
- * authorization before rendering and pins an anonymous request context, then
- * `applyDefaultSsrCacheHeader` stamps the same `DEFAULT_SSR_CACHE_HEADERS`
- * policy on every response. ALL personalization (who's logged in, private
- * records, access checks) happens CLIENT-SIDE after load. Agents keep
- * regressing this — reading a session/cookie on the SSR path, setting
- * `private`/`no-store`/`Vary: Cookie`, or adding a cache-overwrite escape
- * hatch — which makes the page uncacheable for every logged-in visitor (slow,
- * expensive) or, worse, leaks one user's per-request output into a CDN-shared
- * cache key that other visitors read. See the boxed comment above
+ * is ONE impersonal, public shell served identically to every visitor, logged
+ * in or not. `createH3SSRHandler` in packages/core/src/server/ssr-handler.ts
+ * deliberately strips cookies/authorization before rendering and pins an
+ * anonymous request context, then `applyDefaultSsrCacheHeader` stamps the same
+ * resolved cache policy on every response. ALL personalization (who's logged
+ * in, private records, access checks) happens CLIENT-SIDE after load. Agents
+ * keep regressing this — reading a session/cookie on the SSR path, setting
+ * `private`/`Vary: Cookie`, or adding a per-route cache-overwrite escape hatch
+ * — which leaks one user's per-request output into a CDN-shared cache key that
+ * other visitors read. See the boxed comment above
  * `applyDefaultSsrCacheHeader` in ssr-handler.ts, the `authentication` and
  * `performance` skills, and packages/core/src/server/ssr-handler.spec.ts
  * (which enforces the same contract at runtime and must not be weakened
  * either).
+ *
+ * What is NOT forbidden: the cache DURATION is a deployment-wide setting.
+ * `AGENT_NATIVE_SSR_CACHE` (see packages/core/src/shared/cache-control.ts)
+ * lets an operator keep the default policy, shorten it ("30s", "5m"), or turn
+ * caching off entirely ("off" → `no-store`). One value applies to every
+ * visitor of that deployment, so it cannot poison a shared CDN key, and it
+ * does NOT make SSR personalized — `requestForAnonymousSsr` still strips
+ * cookies before render either way. The forbidden thing is variation PER
+ * REQUEST or PER USER, whatever the duration happens to be.
  *
  * Detection logic:
  *
@@ -32,11 +39,16 @@
  *      the resolved value does not contain both "public" and
  *      "stale-while-revalidate", or if it contains any of "no-store",
  *      "private", "must-revalidate", "max-age=0". This is the "someone
- *      turned browser caching back off" regression.
+ *      turned browser caching back off for everyone by default" regression.
+ *      Only that one export is resolved: `DISABLED_SSR_CACHE_CONTROL`
+ *      ("no-store") is the opt-in `AGENT_NATIVE_SSR_CACHE=off` policy and is
+ *      covered by check F instead.
  *
  *   B. packages/core/src/server/ssr-handler.ts — FAIL on any of:
  *        - a `getSession(`, `getCookie(`, or `parseCookies(` call
- *        - a string literal containing "no-store"
+ *        - a string literal containing "no-store" (the disabled policy must
+ *          come from the shared env-resolved helper, never be hand-written
+ *          into a branch here)
  *        - a string literal containing the word "private"
  *        - the escape-hatch shapes `headers.has("cache-control")` or
  *          `.includes("private" | "no-store")`
@@ -54,8 +66,10 @@
  *      still appear in the generated worker source.
  *
  *   D. packages/core/src/server/auth.ts — presence check only: must contain
- *      `...DEFAULT_SSR_CACHE_HEADERS` (the login HTML shell spreads the same
- *      public cache policy as the SSR path).
+ *      either `...DEFAULT_SSR_CACHE_HEADERS` or `...resolveSsrCacheHeaders()`
+ *      (the login HTML shell spreads the same deployment-wide cache policy as
+ *      the SSR path — the constant and the env-resolved headers are both
+ *      acceptable, anything else is not).
  *
  *   E. templates/*\/server/routes/[...page].get.ts — every template's SSR
  *      catch-all route (the literal filename `[...page].get.ts`; directories
@@ -70,6 +84,26 @@
  *      `packages/core/corpus/` is a generated snapshot mirror of `templates/`
  *      (built for agent retrieval) and is skipped entirely — it is not the
  *      live template source.
+ *
+ *   F. packages/core/src/shared/cache-control.ts — the deployment-wide
+ *      override itself. It is sanctioned only because its value is fixed for a
+ *      whole deployment, so the resolver must stay derivable from env alone.
+ *      FAIL on:
+ *        - a `getSession(`, `getCookie(`, or `parseCookies(` call
+ *        - a read of a request/headers object (`req.headers`, `event.node`,
+ *          `getRequestHeaders(`, an `H3Event` / `Request` / `Headers` type)
+ *        - a string literal containing "private" or "vary" (case-insensitive)
+ *      The "off" policy must stay `no-store`, which every visitor receives
+ *      identically; `private` and `Vary: Cookie` are the shapes that leak one
+ *      visitor's response through a shared cache, so they stay banned here
+ *      even though the duration itself is now configurable. Presence check:
+ *      `resolveSsrCacheHeaders` and `parseSsrCacheSetting` must both exist.
+ *
+ *   G. packages/core/src/server/ssr-handler.ts — FAIL if
+ *      `resolveSsrCacheHeaders(` is called with ANY argument. The zero-arg
+ *      form reads `AGENT_NATIVE_SSR_CACHE` from the process env, which is
+ *      deployment-wide; passing something in is how the policy would start
+ *      depending on the request.
  *
  * Comment handling: this guard does not attempt real tokenization or full
  * `/* … *\/` block-comment stripping across a whole file. build.ts embeds a
@@ -446,12 +480,15 @@ function checkAuth() {
   if (content === null) {
     return [{ file: AUTH_FILE, message: "file not found" }];
   }
-  if (!/\.\.\.DEFAULT_SSR_CACHE_HEADERS\b/.test(content)) {
+  const spreadsSharedPolicy =
+    /\.\.\.DEFAULT_SSR_CACHE_HEADERS\b/.test(content) ||
+    /\.\.\.resolveSsrCacheHeaders\s*\(\s*\)/.test(content);
+  if (!spreadsSharedPolicy) {
     return [
       {
         file: AUTH_FILE,
         message:
-          'missing "...DEFAULT_SSR_CACHE_HEADERS" — the login HTML shell must spread the same public SSR cache policy as the main SSR path',
+          'missing "...DEFAULT_SSR_CACHE_HEADERS" or "...resolveSsrCacheHeaders()" — the login HTML shell must spread the same deployment-wide SSR cache policy as the main SSR path (either the constant, or the env-resolved headers)',
       },
     ];
   }
@@ -485,6 +522,113 @@ function checkTemplateCatchAlls() {
   return violations;
 }
 
+// ─── Checks F/G: the deployment-wide AGENT_NATIVE_SSR_CACHE override ───
+
+// The env override is sanctioned ONLY because one value applies to every
+// visitor of a deployment, so it cannot poison a shared CDN key. These
+// patterns catch the moment someone starts deriving the policy from the
+// incoming request instead.
+const REQUEST_DERIVED_PATTERNS = [
+  ...CALL_PATTERNS,
+  {
+    name: "request/headers object read in the cache-policy resolver",
+    re: /\b(?:req|request|event|ctx|context)\s*\??\.\s*(?:headers|cookies|node|raw|req|url)\b/g,
+  },
+  {
+    name: "request-scoped helper call in the cache-policy resolver",
+    re: /\b(?:getRequestHeaders?|getRequestURL|getHeaders?|readBody|toWebRequest|useSession)\s*\(/g,
+  },
+  {
+    name: "request type referenced in the cache-policy resolver",
+    re: /\b(?:H3Event|IncomingMessage|Request|Headers)\b/g,
+  },
+];
+
+// Case-insensitive variants of the check B/C literal scans: a real `Vary`
+// header literal is normally capitalized, and the disabled policy must stay
+// `no-store` (uniform for everyone) rather than `private` / `Vary: Cookie`
+// (which is what leaks one visitor's response through a shared cache).
+const CACHE_POLICY_LITERAL_PATTERNS = [
+  {
+    name: 'string literal containing "private"',
+    re: /["'`][^"'`]*\bprivate\b[^"'`]*["'`]/gi,
+  },
+  {
+    name: 'string literal containing "vary"',
+    re: /["'`][^"'`]*\bvary\b[^"'`]*["'`]/gi,
+  },
+];
+
+const RESOLVE_WITH_ARGUMENT_RE = /\bresolveSsrCacheHeaders\s*\((?!\s*\))/g;
+
+function checkCachePolicyResolver() {
+  const abs = path.join(REPO_ROOT, CACHE_CONTROL_FILE);
+  const content = readFileSafe(abs);
+  if (content === null) {
+    return [{ file: CACHE_CONTROL_FILE, message: "file not found" }];
+  }
+  const lines = content.split("\n");
+  const violations = [];
+  for (const { name, re } of [
+    ...REQUEST_DERIVED_PATTERNS,
+    ...CACHE_POLICY_LITERAL_PATTERNS,
+  ]) {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      const { line, col } = lineColForOffset(content, m.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (!hasValidOptOut(lines, line - 1)) {
+        violations.push({
+          file: CACHE_CONTROL_FILE,
+          line,
+          col,
+          rule: name,
+          snippet: lineText.trim(),
+        });
+      }
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+  }
+  violations.push(
+    ...requireIdentifiers(CACHE_CONTROL_FILE, content, [
+      "resolveSsrCacheHeaders",
+      "parseSsrCacheSetting",
+    ]),
+  );
+  return violations;
+}
+
+function checkResolverStaysDeploymentWide() {
+  const abs = path.join(REPO_ROOT, SSR_HANDLER_FILE);
+  const content = readFileSafe(abs);
+  if (content === null) {
+    return [{ file: SSR_HANDLER_FILE, message: "file not found" }];
+  }
+  const lines = content.split("\n");
+  const violations = [];
+  const re = RESOLVE_WITH_ARGUMENT_RE;
+  re.lastIndex = 0;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const { line, col } = lineColForOffset(content, m.index);
+    const lineText = lines[line - 1] ?? "";
+    if (isCommentLine(lineText)) continue;
+    if (!hasValidOptOut(lines, line - 1)) {
+      violations.push({
+        file: SSR_HANDLER_FILE,
+        line,
+        col,
+        rule: "resolveSsrCacheHeaders( called with an argument — the SSR cache policy must stay deployment-wide (zero-arg, read from AGENT_NATIVE_SSR_CACHE), never computed from the request",
+        snippet: lineText.trim(),
+      });
+    }
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+  return violations;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────
 
 const violations = [
@@ -493,6 +637,8 @@ const violations = [
   ...checkDeployBuild(),
   ...checkAuth(),
   ...checkTemplateCatchAlls(),
+  ...checkCachePolicyResolver(),
+  ...checkResolverStaysDeploymentWide(),
 ];
 
 if (violations.length > 0) {
@@ -503,17 +649,33 @@ if (violations.length > 0) {
   );
   console.error(bar);
   console.error(`
-SSR HTML and React Router \`.data\` responses are ONE impersonal, public,
-hard-CDN-cached shell served IDENTICALLY to every visitor, logged in or not.
-ALL personalization (who's logged in, private records, access checks) is
-resolved CLIENT-SIDE after load, never baked into the SSR response.
+SSR HTML and React Router \`.data\` responses are ONE impersonal, public shell
+served IDENTICALLY to every visitor, logged in or not. ALL personalization
+(who's logged in, private records, access checks) is resolved CLIENT-SIDE
+after load, never baked into the SSR response.
 
-That means the SSR path must NEVER:
-  - read the request's session or cookies (\`getSession(\`, \`getCookie(\`,
-    \`parseCookies(\`)
-  - set \`private\`, \`no-store\`, or \`Vary: Cookie\` / \`Vary: Authorization\`
-  - branch around the shared cache policy with an escape hatch like
-    \`headers.has("cache-control")\` or \`.includes("private" | "no-store")\`
+You have violated ONE OF TWO things — check which:
+
+1. PER-REQUEST / PER-USER VARIATION (always forbidden). The SSR path must
+   NEVER:
+     - read the request's session or cookies (\`getSession(\`, \`getCookie(\`,
+       \`parseCookies(\`)
+     - set \`private\` or \`Vary: Cookie\` / \`Vary: Authorization\`
+     - branch around the shared cache policy with an escape hatch like
+       \`headers.has("cache-control")\` or \`.includes("private" | "no-store")\`
+   Fix: move the per-user logic client-side.
+
+2. THE DEPLOYMENT-WIDE CACHE SETTING (allowed, but only in one place). How
+   LONG the shell is cached is an operator setting, not a code branch: set
+   \`AGENT_NATIVE_SSR_CACHE\` for the deployment — unset/"on" keeps the default
+   policy, "30s"/"5m" shortens it, "off" serves \`no-store\`. It is resolved
+   once from env by \`resolveSsrCacheHeaders()\` in
+   packages/core/src/shared/cache-control.ts, and every SSR surface spreads
+   that same result. Do not hand-write a cache-control literal, pass the
+   request into the resolver, or add a per-route override.
+   Note: turning caching OFF does not make SSR personalized —
+   \`requestForAnonymousSsr\` still strips cookies before render — so \`off\` is
+   never a substitute for the client-side personalization in (1).
 
 This has been silently regressed multiple times — most recently in the
 generated Cloudflare Worker template in deploy/build.ts on July 10, which
@@ -535,8 +697,9 @@ Violations:
     }
   }
   console.error(`
-Fix: move the per-user logic client-side, or restore the shared public
-\`DEFAULT_SSR_CACHE_HEADERS\` policy instead of overriding it.
+Fix: move the per-user logic client-side, or go back to spreading the shared
+policy (\`...resolveSsrCacheHeaders()\`, or \`...DEFAULT_SSR_CACHE_HEADERS\`)
+and express the duration change through \`AGENT_NATIVE_SSR_CACHE\` instead.
 
 Last-resort opt-out (same line or the line immediately above a flagged
 match) — this requires EXPLICIT SIGN-OFF FROM THE REPO OWNER, because this

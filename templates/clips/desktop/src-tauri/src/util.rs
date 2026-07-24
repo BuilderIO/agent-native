@@ -162,6 +162,46 @@ pub fn configure_overlay_behavior(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Spaces are a macOS concept.
 }
 
+/// Raise a window to NSStatusWindowLevel (25).
+///
+/// Tauri's `always_on_top` maps to NSFloatingWindowLevel (3). Within a level
+/// macOS still orders the *active* app's windows ahead of a background app's,
+/// and the recording overlays are deliberately never key — so another app's
+/// floating chrome (call controls, launchers) covers them. Level 25 clears
+/// that whole class while staying below NSPopUpMenuWindowLevel (101) so
+/// context menus still draw on top.
+#[cfg(target_os = "macos")]
+pub fn raise_to_status_level(window: &WebviewWindow) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] raise_to_status_level({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] raise_to_status_level({label}): ns_window is null");
+            return;
+        }
+        // SAFETY: ns_window() returns a live NSWindow*; called on main thread.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setLevel: 25isize];
+        }
+        dlog!("[clips-tray] raise_to_status_level({label}): NSStatusWindowLevel");
+    }) {
+        eprintln!("[clips-tray] raise_to_status_level: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn raise_to_status_level(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Window levels are an AppKit concept.
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn set_capture_excluded(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Screen-capture exclusion isn't a public

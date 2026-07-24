@@ -18,7 +18,7 @@ ladder.
 - Follow the root framework contract: data in SQL, actions first, application state for navigation/selection, and shared agent chat for AI work.
 - Use actions for app operations and keep frontend/API parity.
 - Prefer improving the action surface before adding new pages. The task list is the primary durable UI for MVP.
-- Keep the action surface small: task CRUD actions plus `reorder-tasks`, `view-screen`, and `navigate`.
+- Keep the action surface deliberate: it already covers task and inbox-item CRUD/bulk operations, custom field definitions and visibility prefs, reordering, `view-screen`, `navigate`, and `render-task-list-inline` (25 actions total — see the table below). Extend it thoughtfully rather than adding new pages.
 - Do not use `db-query` for normal task operations.
 - Call `view-screen` first when the user's visible task context matters (especially on `/tasks`).
 - Tasks are private to each user. Preserve `ownerEmail` scoping unless intentionally implementing sharing.

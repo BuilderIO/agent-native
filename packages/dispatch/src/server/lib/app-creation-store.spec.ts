@@ -5,6 +5,7 @@ import {
   generateWorkspaceAppDescription,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
+  startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
 
@@ -28,6 +29,23 @@ const mocks = vi.hoisted(() => {
         rows: state.orgRole ? [{ role: state.orgRole }] : [],
       })),
     })),
+    resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+      privateKey: null as string | null,
+      publicKey: null as string | null,
+      userId: null as string | null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+    })),
+    runBuilderAgent: vi.fn(),
+    resolveBuilderBranchProjectId: vi.fn(async () => ""),
+    getBuilderBranchProjectId: vi.fn(() => ""),
   };
 });
 
@@ -44,6 +62,21 @@ vi.mock("@agent-native/core/settings", () => ({
   putSetting: (...args: any[]) => mocks.putSetting(...args),
 }));
 
+vi.mock("@agent-native/core/server", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/server")>();
+  return {
+    ...actual,
+    resolveBuilderCredentialsDetailed: (...args: any[]) =>
+      mocks.resolveBuilderCredentialsDetailed(...args),
+    runBuilderAgent: (...args: any[]) => mocks.runBuilderAgent(...args),
+    resolveBuilderBranchProjectId: (...args: any[]) =>
+      mocks.resolveBuilderBranchProjectId(...args),
+    getBuilderBranchProjectId: (...args: any[]) =>
+      mocks.getBuilderBranchProjectId(...args),
+  };
+});
+
 vi.mock("./dispatch-store.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./dispatch-store.js")>();
   return {
@@ -58,6 +91,22 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.settings.clear();
   mocks.state.orgRole = "admin";
+  mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
+    privateKey: null,
+    publicKey: null,
+    userId: null,
+    orgName: null,
+    orgKind: null,
+    subscription: null,
+    subscriptionLevel: null,
+    subscriptionName: null,
+    isEnterprise: null,
+    isFreeAccount: null,
+    source: null,
+    lookupFailed: false,
+  });
+  mocks.resolveBuilderBranchProjectId.mockResolvedValue("");
+  mocks.getBuilderBranchProjectId.mockReturnValue("");
   globalThis.fetch = originalFetch;
 });
 
@@ -375,5 +424,123 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(templates).toEqual([]);
+  });
+});
+
+describe("startWorkspaceAppCreation", () => {
+  const leakedProjectId = "940ebc5a83164aa6a37dde445e494f3a";
+
+  function stubHostedRuntime() {
+    vi.stubEnv("NODE_ENV", "production");
+  }
+
+  function stubBuilderProjectConfigured() {
+    vi.stubEnv("DISPATCH_BUILDER_PROJECT_ID", leakedProjectId);
+  }
+
+  function credentials(overrides: Record<string, unknown> = {}) {
+    return {
+      privateKey: null,
+      publicKey: null,
+      userId: null,
+      orgName: null,
+      orgKind: null,
+      subscription: null,
+      subscriptionLevel: null,
+      subscriptionName: null,
+      isEnterprise: null,
+      isFreeAccount: null,
+      source: null,
+      lookupFailed: false,
+      ...overrides,
+    };
+  }
+
+  function create(appId = "onboarding") {
+    return runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+      startWorkspaceAppCreation({ prompt: "Track onboarding tasks", appId }),
+    );
+  }
+
+  it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-not-connected");
+    expect(result.message).not.toContain(leakedProjectId);
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("returns credential-store-unavailable when the credential lookup itself fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({ lookupFailed: true }),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("credential-store-unavailable");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("returns builder-error with the raw failure in detail when runBuilderAgent throws", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-1",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(
+      new Error("Builder keys are not configured"),
+    );
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-error");
+    expect(result.detail).toBe("Builder keys are not configured");
+    expect(result.message).not.toContain(leakedProjectId);
+  });
+
+  it("starts the Builder branch and passes the resolved userId through", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockResolvedValue({
+      branchName: "onboarding1",
+      url: "https://builder.io/app/projects/project-1/branch/onboarding1",
+      status: "processing",
+    });
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "builder-user-42" }),
+    );
+  });
+
+  it("returns coming-soon when no Builder project is configured", async () => {
+    stubHostedRuntime();
+
+    const result = (await create()) as any;
+
+    expect(result.mode).toBe("coming-soon");
+    expect(mocks.resolveBuilderCredentialsDetailed).not.toHaveBeenCalled();
   });
 });

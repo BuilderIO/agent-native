@@ -46,8 +46,16 @@ import { isMediaVerificationPending } from "../../lib/media-verification-state.j
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+  type RecordingPageAccessRole,
+} from "../../lib/recording-page-access.js";
+import { hasExplicitRecordingShare } from "../../lib/recording-share-grant.js";
+import {
+  countRecordingViews,
   getOrganizationRoleForEmail,
   parseSpaceIds,
+  type RecordingVisibility,
 } from "../../lib/recordings.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
@@ -258,12 +266,10 @@ export default defineEventHandler(async (event) => {
   }
 
   // Expiry check
-  if (rec.expiresAt) {
-    const expires = new Date(rec.expiresAt).getTime();
-    if (isFinite(expires) && expires < Date.now()) {
-      setResponseStatus(event, 410);
-      return { error: "Recording has expired", expired: true };
-    }
+  const recordingExpired = isRecordingExpired(rec.expiresAt);
+  if (recordingExpired) {
+    setResponseStatus(event, 410);
+    return { error: "Recording has expired", expired: true };
   }
 
   // Password check
@@ -405,6 +411,32 @@ export default defineEventHandler(async (event) => {
     recordingStatus: rec.status,
   });
 
+  const viewCount = await countRecordingViews(recordingId);
+
+  const viewerRole =
+    viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
+  // Mirrors the gate in `get-recording-player-data` exactly: the share page
+  // auto-redirects on this flag, so a false positive bounces the viewer
+  // between /share/:id and /r/:id forever. Only a resolved access role can
+  // open the direct page — the org-member fallback above is a display role,
+  // not access the player action would grant.
+  const canOpenDashboard =
+    Boolean(session?.email) && viewerAccess && !recordingExpired
+      ? canOpenDirectRecordingPage({
+          role: viewerAccess.role as RecordingPageAccessRole,
+          visibility: rec.visibility as RecordingVisibility,
+          hasPassword: Boolean(rec.password),
+          hasExplicitShare: await hasExplicitRecordingShare({
+            recordingId,
+            role: viewerAccess.role as RecordingPageAccessRole,
+            visibility: rec.visibility as RecordingVisibility,
+            hasPassword: Boolean(rec.password),
+            userEmail: session?.email ?? null,
+            orgId: session?.orgId ?? null,
+          }),
+        })
+      : false;
+
   return {
     recording: {
       id: rec.id,
@@ -439,6 +471,8 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
+    // Aggregate count only — never viewer identities on this public payload.
+    viewCount,
     transcript: transcript
       ? {
           status: transcriptPresentation.status,
@@ -479,17 +513,15 @@ export default defineEventHandler(async (event) => {
       placement: c.placement,
     })),
     viewer: session?.email
-      ? (() => {
-          const role =
-            viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
-          const canEdit =
-            role === "owner" || role === "admin" || role === "editor";
-          return {
-            canEdit,
-            isOwner: role === "owner",
-            role: role ?? "viewer",
-          };
-        })()
+      ? {
+          canEdit:
+            viewerRole === "owner" ||
+            viewerRole === "admin" ||
+            viewerRole === "editor",
+          isOwner: viewerRole === "owner",
+          role: viewerRole ?? "viewer",
+          canOpenDashboard,
+        }
       : null,
   };
 });

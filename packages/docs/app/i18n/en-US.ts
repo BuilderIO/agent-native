@@ -1535,6 +1535,7 @@ const enUS = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A Protocol",
     mcpClients: "MCP Clients (Add Tools)",
+    httpApi: "HTTP API (Call Actions)",
     mcpServer: "MCP Server (Expose Your App)",
     externalAgents: "External Agents (Connect a Host)",
     mcpApps: "MCP Apps (Inline UIs)",

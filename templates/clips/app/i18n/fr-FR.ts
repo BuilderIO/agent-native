@@ -299,7 +299,6 @@ const messages = {
     storageConnectedChecking: "Stockage connecté. Je vérifie ce clip...",
     signInToFinish: "Connectez-vous pour terminer",
     signInIfYours: "Connectez-vous si c'est le vôtre",
-    openDashboard: "Ouvrir le tableau de bord",
     checkAgain: "Revérifier",
     backToHome: "Retour à la maison",
     generatingTitle: "Génération du titre",
@@ -834,6 +833,16 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     viewedBy: "Vu par",
     someone: "Quelqu’un",
     noViewsYet: "Aucune vue pour le moment.",
+    viewsCount_one: "{{count}} vue",
+    viewsCount_many: "{{count}} vues",
+    viewsCount_other: "{{count}} vues",
+    totalViewsSummary:
+      "{{total}} vues au total, {{unique}} spectateurs uniques",
+    viewsTab: "Vues",
+    insightsTab: "Insights",
+    totalVideoViews: "Vues totales de la vidéo",
+    averageCompletionRate: "Taux d’achèvement moyen",
+    moreInsights: "Plus d’insights",
   },
   libraryGrid: {
     spaceRoot: "Racine de l’espace",
@@ -1321,6 +1330,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     couldNotImportLoom: "Could not import that Loom. (Localisé)",
     recordingReadyToUpload: "Recording is ready to upload (Localisé)",
     recordingSaved: "Recording saved (Localisé)",
+    linkCopied: "Lien copié",
+    copyLinkAction: "Copier le lien",
     noLocalRecordingData:
       "No local recording data is available to download. (Localisé)",
     recordingDownloadStarted: "Recording download started (Localisé)",

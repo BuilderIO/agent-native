@@ -1538,6 +1538,7 @@ const koKR = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A 프로토콜",
     mcpClients: "MCP 클라이언트 (도구 추가)",
+    httpApi: "HTTP API (작업 호출)",
     mcpServer: "MCP 서버 (앱 노출)",
     externalAgents: "외부 Agents (호스트 연결)",
     mcpApps: "MCP Apps (인라인 UI)",

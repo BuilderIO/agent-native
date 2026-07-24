@@ -4,6 +4,7 @@
 ar-SA|automation-connectors
 ar-SA|durable-background-runs
 ar-SA|generative-ui
+ar-SA|http-api
 ar-SA|integrations
 ar-SA|organizations-teams-permissions
 ar-SA|toolkit-agent-ux
@@ -21,6 +22,7 @@ ar-SA|toolkit-ui
 de-DE|automation-connectors
 de-DE|durable-background-runs
 de-DE|generative-ui
+de-DE|http-api
 de-DE|integrations
 de-DE|organizations-teams-permissions
 de-DE|toolkit-agent-ux
@@ -38,6 +40,7 @@ de-DE|toolkit-ui
 es-ES|automation-connectors
 es-ES|durable-background-runs
 es-ES|generative-ui
+es-ES|http-api
 es-ES|integrations
 es-ES|organizations-teams-permissions
 es-ES|toolkit-agent-ux
@@ -55,6 +58,7 @@ es-ES|toolkit-ui
 fr-FR|automation-connectors
 fr-FR|durable-background-runs
 fr-FR|generative-ui
+fr-FR|http-api
 fr-FR|integrations
 fr-FR|organizations-teams-permissions
 fr-FR|toolkit-agent-ux
@@ -72,6 +76,7 @@ fr-FR|toolkit-ui
 hi-IN|automation-connectors
 hi-IN|durable-background-runs
 hi-IN|generative-ui
+hi-IN|http-api
 hi-IN|integrations
 hi-IN|organizations-teams-permissions
 hi-IN|toolkit-agent-ux
@@ -89,6 +94,7 @@ hi-IN|toolkit-ui
 ja-JP|automation-connectors
 ja-JP|durable-background-runs
 ja-JP|generative-ui
+ja-JP|http-api
 ja-JP|integrations
 ja-JP|organizations-teams-permissions
 ja-JP|toolkit-agent-ux
@@ -106,6 +112,7 @@ ja-JP|toolkit-ui
 ko-KR|automation-connectors
 ko-KR|durable-background-runs
 ko-KR|generative-ui
+ko-KR|http-api
 ko-KR|integrations
 ko-KR|organizations-teams-permissions
 ko-KR|toolkit-agent-ux
@@ -123,6 +130,7 @@ ko-KR|toolkit-ui
 pt-BR|automation-connectors
 pt-BR|durable-background-runs
 pt-BR|generative-ui
+pt-BR|http-api
 pt-BR|integrations
 pt-BR|organizations-teams-permissions
 pt-BR|toolkit-agent-ux
@@ -140,6 +148,7 @@ pt-BR|toolkit-ui
 zh-CN|automation-connectors
 zh-CN|durable-background-runs
 zh-CN|generative-ui
+zh-CN|http-api
 zh-CN|integrations
 zh-CN|organizations-teams-permissions
 zh-CN|toolkit-agent-ux
@@ -156,6 +165,7 @@ zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
 zh-TW|automation-connectors
 zh-TW|generative-ui
+zh-TW|http-api
 zh-TW|integrations
 zh-TW|organizations-teams-permissions
 zh-TW|toolkit-agent-ux

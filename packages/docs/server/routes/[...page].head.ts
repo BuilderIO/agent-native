@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 
 import {
   createH3SSRHandler,
-  DEFAULT_SSR_CACHE_HEADERS,
+  resolveSsrCacheHeaders,
 } from "@agent-native/core/server/ssr-handler";
 import { getRequestURL, setHeader, type H3Event } from "h3";
 
@@ -26,7 +26,7 @@ export default async function docsHeadHandler(event: H3Event) {
       "content-length",
       String(Buffer.byteLength(asset.content)),
     );
-    setDefaultSsrCacheHeaders(event);
+    setSsrCacheHeaders(event);
     setHeader(event, "link", `<${SITE_URL}/llms.txt>; rel="llms-txt"`);
     if (asset.contentType.startsWith("text/markdown")) {
       setHeader(
@@ -41,11 +41,11 @@ export default async function docsHeadHandler(event: H3Event) {
   return ssrHandler(event);
 }
 
-function setDefaultSsrCacheHeaders(event: H3Event) {
+function setSsrCacheHeaders(event: H3Event) {
   // HEAD mirrors the GET cache policy exactly. Keep this tied to the framework
-  // header object instead of app-level provider config so public docs deploys
-  // keep CDN SWR and Netlify durable caching without local header blocks.
-  for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
+  // resolver instead of app-level provider config so public docs deploys keep
+  // CDN SWR and Netlify durable caching without local header blocks.
+  for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
 }

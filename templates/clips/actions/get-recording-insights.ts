@@ -16,7 +16,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { clampCompletionPct } from "../shared/view-analytics.js";
+import {
+  clampCompletionPct,
+  displayViewerName,
+  isCountedViewerRow,
+} from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -39,7 +43,9 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    const views = viewerRows.filter((v) => v.countedView).length;
+    // Same definition as `countRecordingViews`, applied to rows already in
+    // memory so this action keeps its single viewer-row read.
+    const views = viewerRows.filter(isCountedViewerRow).length;
     const uniqueViewers = new Set(
       viewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
@@ -85,7 +91,7 @@ export default defineAction({
       .slice(0, 20)
       .map((v) => ({
         viewerEmail: v.viewerEmail,
-        viewerName: v.viewerName,
+        viewerName: displayViewerName(v.viewerName),
         totalWatchMs: v.totalWatchMs ?? 0,
         completedPct: clampCompletionPct(v.completedPct),
       }));

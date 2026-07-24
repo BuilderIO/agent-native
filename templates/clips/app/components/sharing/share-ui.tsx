@@ -1,3 +1,4 @@
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -70,7 +71,7 @@ export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
 ];
 
 export function copyToClipboard(value: string): void {
-  navigator.clipboard.writeText(value).catch(() => {});
+  void writeClipboardText(value);
 }
 
 // ---------------------------------------------------------------------------

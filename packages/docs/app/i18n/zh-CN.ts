@@ -1518,6 +1518,7 @@ const zhCN = {
     dispatch: "调度",
     a2aProtocol: "A2A 协议",
     mcpClients: "MCP 客户端（添加工具）",
+    httpApi: "HTTP API（调用行动）",
     mcpServer: "MCP 服务器（暴露你的应用）",
     externalAgents: "外部 Agents（连接主机）",
     mcpApps: "MCP Apps（内联 UI）",

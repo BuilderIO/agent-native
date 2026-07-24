@@ -73,6 +73,11 @@ export const NON_ANALYTICS_FALLBACK_FINAL_MESSAGE =
 export function analyticsSourceGuidanceOpening(): string {
   return (
     "<data-source-guidance>\n" +
+    // Measured in production: this ran in under 1% of data threads while the
+    // equivalent instruction sat ~7000 words deep. Threads that did call it used
+    // roughly a third the tool calls. Keep it first and keep it imperative.
+    "START HERE — For any question about a metric, cohort, list, count, or trend, your FIRST tool call is `search-analytics-query-catalog`. This is the analytics equivalent of grepping a codebase before writing new code: someone has very likely already built and saved the query you need, and its saved SQL tells you the exact source, table, and column names so you do not have to discover them. Adapt the closest saved query to the requested filters and time window, run it once, and stop. Only fall back to schema discovery or provider catalogs when the catalog search returns nothing usable — and never run more than one schema-discovery pass before querying. " +
+    'ONE BOUNDED CALL — List, filter, count, and cohort questions ("which X, excluding Y") are a single query, not a loop. Express the include filter, the exclude filter, and the aggregation in one SQL statement or one `run-code` script that filters server-side. Never page through a cohort across separate tool calls and never fan out per item to apply a filter; that is what turns a ten-second answer into a twenty-minute one. ' +
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
     NON_ANALYTICS_REQUEST_GUIDANCE +
     BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +

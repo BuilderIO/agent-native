@@ -1541,6 +1541,7 @@ const ptBR = {
     dispatch: "Dispatch",
     a2aProtocol: "Protocolo A2A",
     mcpClients: "Clientes MCP (adicionar ferramentas)",
+    httpApi: "API HTTP (chamar ações)",
     mcpServer: "Servidor MCP (expor seu app)",
     externalAgents: "Agents externos (conectar host)",
     mcpApps: "MCP Apps (UIs inline)",

@@ -143,7 +143,7 @@ function slugifyDocId(value: string): string {
 
 async function loadAgentBundleDocs(): Promise<DocFull[]> {
   try {
-    const { loadAgentsBundle, getRuntimeSkills } =
+    const { loadAgentsBundle, getRuntimeSkills, skillSubfileDocsSlug } =
       await import("../../server/agents-bundle.js");
     const bundle = await loadAgentsBundle();
     const docs: DocFull[] = [];
@@ -174,6 +174,17 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
         description: skill.meta.description,
         body: skill.content,
       });
+      // Progressive-disclosure sub-files (e.g. `references/*.md`) get their
+      // own searchable/readable doc so the "also contains" pointers the
+      // skill prompt block advertises actually resolve to something.
+      for (const [relPath, content] of Object.entries(skill.files)) {
+        docs.push({
+          slug: skillSubfileDocsSlug(skill.meta.name, relPath),
+          title: `Skill: ${skill.meta.name} — ${relPath}`,
+          description: `Reference file from the "${skill.meta.name}" skill (${relPath}).`,
+          body: content,
+        });
+      }
     }
     return docs;
   } catch {

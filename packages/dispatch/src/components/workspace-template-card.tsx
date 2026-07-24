@@ -151,7 +151,17 @@ export function WorkspaceTemplateCard({
   const setupNote = template.integrationSetup || template.setupNote;
   const remix = useActionMutation("remix-workspace-template", {
     onSuccess: (result) => {
-      toast.success(labels.remixSuccess);
+      const mode = (result as { mode?: string } | null)?.mode;
+      const message = (result as { message?: string } | null)?.message;
+      if (mode === "builder") {
+        toast.success(labels.remixSuccess);
+      } else if (mode === "builder-unavailable") {
+        toast.error(message || labels.remixError);
+      } else if (mode === "coming-soon") {
+        toast.info(message || labels.remixSuccess);
+      } else {
+        toast.success(labels.remixSuccess);
+      }
       setOpen(false);
       onRemixSuccess?.(result, template);
     },

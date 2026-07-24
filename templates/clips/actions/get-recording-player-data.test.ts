@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { MockForbiddenError } = vi.hoisted(() => {
   class MockForbiddenError extends Error {}
@@ -20,14 +20,26 @@ const mockShareQuery = vi.hoisted(() => {
   query.where.mockReturnValue(query);
   return query;
 });
+// Unselected `db.select()` means the run reached the player payload queries.
+// It throws unless a test opts in by installing a builder, which keeps the
+// access-gate tests honest about never getting that far.
+const mockPlayerQuery = vi.hoisted(() => ({
+  build: null as null | (() => unknown),
+}));
 const mockDb = vi.hoisted(() => ({
   select: vi.fn((selection?: unknown) => {
     if (!selection) {
-      throw new Error("player data query reached before share verification");
+      if (!mockPlayerQuery.build) {
+        throw new Error("player data query reached before share verification");
+      }
+      return mockPlayerQuery.build();
     }
     return mockShareQuery;
   }),
 }));
+const mockCountRecordingViews = vi.hoisted(() =>
+  vi.fn(async (_recordingId: string) => 0),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -35,7 +47,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: vi.fn(),
+  readAppState: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -115,6 +127,8 @@ vi.mock("../server/lib/media-verification-state.js", () => ({
 
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
+  countRecordingViews: (recordingId: string) =>
+    mockCountRecordingViews(recordingId),
 }));
 
 vi.mock("../shared/browser-diagnostics.js", () => ({
@@ -191,5 +205,57 @@ describe("get-recording-player-data direct public access", () => {
     ).rejects.toThrow(
       "Open this recording from its share link instead of the direct recording URL",
     );
+  });
+});
+
+function emptyPlayerQuery() {
+  const query: Record<string, unknown> = {};
+  query.from = () => query;
+  query.where = () => query;
+  query.orderBy = async () => [];
+  query.limit = async () => [];
+  return query;
+}
+
+describe("get-recording-player-data view count", () => {
+  beforeEach(() => {
+    mockPlayerQuery.build = emptyPlayerQuery;
+    mockCountRecordingViews.mockClear();
+    mockCountRecordingViews.mockResolvedValue(0);
+    mockShareLimit.mockResolvedValue([]);
+    mockResolveAccess.mockResolvedValue({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlayerQuery.build = null;
+  });
+
+  it("returns the counted-view total for the recording", async () => {
+    mockCountRecordingViews.mockResolvedValue(9);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.viewCount).toBe(9);
+    // Going through the shared helper is what keeps this number identical to
+    // list-recordings.viewCount and get-recording-insights.views.
+    expect(mockCountRecordingViews).toHaveBeenCalledWith("rec-1");
+  });
+
+  it("reports zero views without failing the player payload", async () => {
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.viewCount).toBe(0);
+    expect(result.recording.id).toBe("rec-1");
   });
 });

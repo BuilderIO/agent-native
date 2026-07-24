@@ -322,7 +322,7 @@ size. Avoid dense multi-line copy at these sizes regardless.
 
 ### Phase 4 — Always ship tweaks with the design
 
-`generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs.
+`generate-design` accepts a `--tweaks` array — pass 3-6 of the most impactful knobs bound to CSS custom properties the design's `:root` block actually defines. Surface controls users will actually want to adjust (accent color, density, radius, dark-mode toggle, font choice). Don't ship a generic preset; let the design's structure pick the knobs. When a user asks to add a tweak control to an existing design, preserve the existing useful tweaks and add/update only the requested definitions — read the current file with `get-design-snapshot` first if source edits are needed, and persist the complete updated tweak list through `generate-design`.
 
 ### Phase 5 — Audit, screenshot, fix, and eyeball before calling it ready
 
@@ -347,7 +347,17 @@ instead — fall back to a careful read of the HTML plus the audit findings. The
 returned screenshot `url` is for human review (embed it as `![...](url)` in
 your reply); also still scan the rendered output yourself for anything the
 diagnostics don't catch — broken hierarchy, empty/loading/error states for app
-UI, and whether the copy/content still sounds real.
+UI, and whether the copy/content still sounds real. To compare two design
+snapshots/branches for a file-level visual diff (added/removed/modified) —
+e.g. after a large refactor or before/after a review pass — call
+`get-design-review` instead of eyeballing both versions.
+
+After generation or a broad update, leave the user in the screen overview
+(`navigate --view editor --editorView overview`) when the work involves
+multiple screens or artboard placement — it's the primary editing surface for
+selecting, moving, resizing, and entering focused single-screen editing via a
+frame's Interact button. Reserve single-screen mode as the default landing
+view only when the user asked to focus one specific screen.
 
 ## HTML Structure Requirements
 
@@ -698,6 +708,12 @@ regeneration is slow, expensive, and regresses unrelated parts.
    tokens in `:root` rather than touching every element.
 5. **Don't add unrequested features** during a refinement pass.
 
+For selecting/editing DOM elements as code layers (layer projection, the
+deterministic `apply-visual-edit` slice, and the semantic React/TSX handoff),
+read `references/code-layers.md`. For the VS Code-style source workbench
+(explorer, quick open, `list-source-files`/`apply-source-edit`), read
+`references/code-workspace.md`.
+
 ## Tailwind v4 + motion gotchas
 
 - **Gradients:** Tailwind v4 renamed the utilities. Use `bg-linear-to-r`,
@@ -792,6 +808,26 @@ persists it. `open-component-source` navigates to the component's source
 location (the design file for inline/Alpine designs, or the resolved external
 file for localhost/fusion sources).
 
+## Suggested auto layout
+
+For an absolute/freeform container, first measure its direct children and
+present the proposed direction, visual order, gap, four-side padding,
+alignment, and sizing — do not mutate source until the user applies the
+preview. Inline HTML/Alpine applies the reviewed proposal through one
+`apply-visual-edit`-backed content transaction so undo restores the exact
+prior structure. Local React uses the semantic source handoff (see
+`references/code-layers.md`, never generic AST rewriting), preserves nested
+absolute descendants and responsive logic, and applies the approved proposal
+as one reversible source edit.
+
+## Editor extensions
+
+Design editor extensions render in the right inspector slot
+`design.editor.inspector` (`create-extension` →
+`add-extension-slot-target` → `install-extension`). Read
+`references/editor-extensions.md` for the context shape and the AI-driven
+style/artboard change flow.
+
 ## Realistic app-state content
 
 For app/product UI (not marketing pages), populate lists and tables with
@@ -829,9 +865,13 @@ tokened SVG/CSS, not photos.
 
 - **Use the Assets generation tool** (`generate-asset`, or `insert-asset` once
   an asset is chosen) instead of `<img>` placeholder URLs or colored-div
-  stand-ins. See the Core Rules image-generation bullet in `AGENTS.md` for the
-  full calling convention (default `tier: "fast"`, `callerAppId: "design"`,
-  matching `aspectRatio`).
+  stand-ins — for raster generation, restyling, or editing existing
+  screenshots/photos. Always pass `callerAppId: "design"`. If no Assets MCP
+  tool is available, use the first-party Assets app via `call-agent` with
+  agent `"assets"` when available. If the user attached an image, use its
+  hosted chat-attachment URL or call `upload-image` to create one before
+  delegating. If no image/upload provider is configured, say that specific
+  setup is needed and continue any non-image Design work separately.
 - **Write image prompts as art direction, not a one-line label.** Specify
   subject, composition, lens/framing, lighting, and palette, and tie the
   palette/mood back to the design's own `:root` tokens so the image reads as
@@ -847,6 +887,8 @@ tokened SVG/CSS, not photos.
   Mismatched aspect ratios force ugly crops in the browser.
 - **Always write real `alt` text** describing the image's content — never
   leave `alt=""` on a meaningful (non-decorative) image.
-- **Placement is a two-step pass**: call `insert-asset` to place the chosen
-  image, then do one `edit-design` pass to adjust surrounding layout/spacing
-  if the inserted figure doesn't sit flush with the rest of the design.
+- **Placement is a two-step pass**: when the Assets picker returns a selected
+  asset, preserve its `assetId`, `runId`, and URLs verbatim; call `insert-asset`
+  to place the chosen image, then do one `edit-design` pass (using
+  `get-design-snapshot` first) to adjust surrounding layout/spacing if the
+  inserted figure doesn't sit flush with the rest of the design.
