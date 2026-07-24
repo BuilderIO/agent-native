@@ -1269,29 +1269,6 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
     ContentDatabaseResponse,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
-    onMutate: async (variables) => {
-      await queryClient.cancelQueries(contentDatabaseQueryFilter(documentId));
-      const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
-        contentDatabaseQueryFilter(documentId),
-      );
-      queryClient.setQueriesData<ContentDatabaseResponse>(
-        contentDatabaseQueryFilter(documentId),
-        (current) => applyOptimisticBuilderWriteMode(current, variables),
-      );
-      return { previous };
-    },
-    onError: (_error, _variables, context) => {
-      const rollback = context as
-        | {
-            previous?: Array<
-              [readonly unknown[], ContentDatabaseResponse | undefined]
-            >;
-          }
-        | undefined;
-      for (const [queryKey, data] of rollback?.previous ?? []) {
-        queryClient.setQueryData(queryKey, data);
-      }
-    },
     onSuccess: (data) => {
       writeContentDatabaseResponseToCache(queryClient, documentId, data);
       queryClient.invalidateQueries({

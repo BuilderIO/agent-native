@@ -159,6 +159,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  applyOptimisticBuilderWriteMode,
+  contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
@@ -2935,36 +2937,44 @@ function DatabaseTable({
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
-        onSetBuilderLiveWrites={(settings) =>
-          setSourceWriteMode.mutate(
-            {
-              documentId: document.id,
-              sourceId: settings.sourceId,
-              writeMode: settings.writeMode,
-              allowPublicationTransitions:
-                settings.writeMode === "publish_updates" &&
-                settings.allowPublicationTransitions === true,
+        onSetBuilderLiveWrites={(settings) => {
+          const request = {
+            documentId: document.id,
+            sourceId: settings.sourceId,
+            writeMode: settings.writeMode,
+            allowPublicationTransitions:
+              settings.writeMode === "publish_updates" &&
+              settings.allowPublicationTransitions === true,
+          };
+          const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+          );
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+            (current) => applyOptimisticBuilderWriteMode(current, request),
+          );
+          setSourceWriteMode.mutate(request, {
+            onSuccess: () => {
+              toast.success(dbText("builderWriteModeUpdated"), {
+                description:
+                  settings.writeMode === "publish_updates"
+                    ? "Approved updates can write through to Builder while preserving publication state."
+                    : settings.writeMode === "stage_only"
+                      ? "Approved updates will stage Builder autosave revisions."
+                      : "Builder writes are disabled for this source.",
+              });
             },
-            {
-              onSuccess: () => {
-                toast.success(dbText("builderWriteModeUpdated"), {
-                  description:
-                    settings.writeMode === "publish_updates"
-                      ? "Approved updates can write through to Builder while preserving publication state."
-                      : settings.writeMode === "stage_only"
-                        ? "Approved updates will stage Builder autosave revisions."
-                        : "Builder writes are disabled for this source.",
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("builderWriteModeWasNotChanged"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
+            onError: (error) => {
+              for (const [queryKey, data] of previous) {
+                queryClient.setQueryData(queryKey, data);
+              }
+              toast.error(dbText("builderWriteModeWasNotChanged"), {
+                description:
+                  error instanceof Error ? error.message : dbText("tryAgain"),
+              });
             },
-          )
-        }
+          });
+        }}
         sourceActionPending={
           attachSource.isPending ||
           changeSourceRole.isPending ||
