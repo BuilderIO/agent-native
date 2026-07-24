@@ -235,14 +235,18 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn default_center_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
+fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
-    // Anchor Y to expanded height so header stays fixed on expand.
+    // Center whatever is actually on screen — meetings now open collapsed, so
+    // reserving the expanded height here would strand the capsule high up.
+    // Expanding pins this top edge and grows downward (see `anchored_rect`),
+    // clamped below so a tall panel still fits.
     let (_, h_exp) = pill_size_physical(app, true);
-    let y = (my + (mh as i32 - h_exp as i32) / 2).max(my);
+    let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
+    let y = (my + (mh as i32 - h as i32) / 2).clamp(my, max_y_exp);
     (x, y)
 }
 
