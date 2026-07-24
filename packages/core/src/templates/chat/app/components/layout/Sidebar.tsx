@@ -445,8 +445,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "chat" ? (
-                  <ChatThreadsSection open={isChatRoute} />
+                {!collapsed && item.view === "chat" && isChatRoute ? (
+                  <ChatThreadsSection open />
                 ) : null}
               </div>
             );

@@ -671,8 +671,8 @@ export function Sidebar({
           return (
             <div key={item.href}>
               {link}
-              {item.href === "/" ? (
-                <PlanChatsSection collapsed={collapsed} open={isActive} />
+              {item.href === "/" && isActive ? (
+                <PlanChatsSection collapsed={collapsed} open />
               ) : null}
               {item.href === "/plans" && isActive ? (
                 <PlansSidebarSection collapsed={collapsed} />

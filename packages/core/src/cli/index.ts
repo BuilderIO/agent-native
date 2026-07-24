@@ -256,7 +256,7 @@ process.on("unhandledRejection", (reason: any) => {
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
 // leaves a half-extracted package in the npx cache and a follow-up run fails
 // to load one of our own sub-modules.
-function handleScaffoldImportError(err: any): never {
+function handleScaffoldImportError(err: any): void {
   const msg = err?.message ?? String(err);
   const looksLikeCorruptCache =
     err?.code === "ERR_MODULE_NOT_FOUND" ||
@@ -279,7 +279,6 @@ function handleScaffoldImportError(err: any): never {
   });
   Sentry.captureException(err);
   flushTelemetryAndExit(1);
-  throw err;
 }
 
 function findBinUpwards(binName: string): string | undefined {

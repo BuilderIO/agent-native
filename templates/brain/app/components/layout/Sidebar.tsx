@@ -393,8 +393,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "ask" ? (
-                  <BrainChatsSection open={isAskRoute} />
+                {!collapsed && item.view === "ask" && isAskRoute ? (
+                  <BrainChatsSection open />
                 ) : null}
               </div>
             );

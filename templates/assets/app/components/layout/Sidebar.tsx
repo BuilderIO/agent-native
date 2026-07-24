@@ -480,8 +480,8 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" ? (
-                  <AssetsChatsSection open={isCreateRoute} />
+                {item.href === "/" && isCreateRoute ? (
+                  <AssetsChatsSection open />
                 ) : null}
               </div>
             );
