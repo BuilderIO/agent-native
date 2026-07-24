@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+  convertMarkdownPrefixToBullet,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
@@ -193,5 +194,84 @@ describe("styled bullet editing", () => {
       "</div></div>";
     const list = document.querySelector(".bullets") as HTMLElement;
     expect(isBulletList(list)).toBe(true);
+  });
+});
+
+describe("markdown prefix autoformat", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("converts a leading '- ' into a bullet row nested inside the block", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div style="font-size: 28px;">- </div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    expect(el.style.display).toBe("flex");
+    expect(el.style.flexDirection).toBe("column");
+    expect(el.children.length).toBe(1);
+
+    const row = el.children[0] as HTMLElement;
+    expect(isBulletRow(row)).toBe(true);
+    expect(isBulletList(el)).toBe(true);
+    expect(row.children[0].textContent).toBe("\u25CF");
+    expect((row.children[1].textContent ?? "").replace(/\u200B/g, "")).toBe("");
+
+    const sel = window.getSelection();
+    const anchor = sel?.anchorNode;
+    const landedInTextSpan =
+      anchor === row.children[1] || anchor?.parentElement === row.children[1];
+    const landedInMarker =
+      anchor === row.children[0] || anchor?.parentElement === row.children[0];
+    expect(landedInTextSpan).toBe(true);
+    expect(landedInMarker).toBe(false);
+  });
+
+  it("lets Enter extend a list created from a markdown prefix", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div style="font-size: 28px;">- hi</div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstChild as Text;
+    placeCaret(textNode, "- ".length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    const row = el.children[0] as HTMLElement;
+    expect(row.children[1].textContent).toBe("hi");
+
+    const textNodeAfterConvert = row.children[1].firstChild as Text;
+    placeCaret(textNodeAfterConvert, textNodeAfterConvert.length);
+    expect(findEnclosingList(row.children[1] as HTMLElement, root)).toBe(el);
+    expect(insertBulletAfterCaret(el)).toBe(true);
+    expect(el.children.length).toBe(2);
+    expect(isBulletRow(el.children[1] as HTMLElement)).toBe(true);
+  });
+
+  it("does not convert once the block is already a bullet row", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div><span>\u25CF</span><span>- text</span></div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const row = root.firstElementChild as HTMLElement;
+    const textSpan = row.children[1] as HTMLElement;
+    const textNode = textSpan.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(row)).toBe(false);
+  });
+
+  it("does not convert when there is no markdown prefix", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div>Just text</div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = el.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(false);
+    expect(el.children.length).toBe(0);
   });
 });

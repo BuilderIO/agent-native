@@ -36,6 +36,7 @@ import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
 import {
+  convertMarkdownPrefixToBullet,
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
@@ -1244,7 +1245,14 @@ export default function SlideEditor({
   useEffect(() => {
     if (!editingEl) return;
     const editingSlideId = slide.id;
-    const handleInput = () => captureInlineEditDraft(editingSlideId);
+    const handleInput = () => {
+      // Markdown-style "- "/"* " at the start of a plain text block converts
+      // it into a styled bullet row, so it's recognized as a list and Enter
+      // can extend it — contentEditable has no native concept of these
+      // styled (non-<ul>) bullet lists.
+      convertMarkdownPrefixToBullet(editingEl);
+      captureInlineEditDraft(editingSlideId);
+    };
     editingEl.addEventListener("input", handleInput);
     return () => editingEl.removeEventListener("input", handleInput);
   }, [captureInlineEditDraft, editingEl, slide.id]);

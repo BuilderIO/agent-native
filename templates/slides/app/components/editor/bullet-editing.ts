@@ -123,6 +123,74 @@ export function isBulletList(el: HTMLElement): boolean {
   return rows >= 1 && rows >= kids.length - 1;
 }
 
+/** Regex for a markdown-style bullet prefix: a dash or asterisk plus a space,
+ * at the very start of a block's content (e.g. "- " or "* "). */
+const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
+
+/**
+ * If `el`'s content starts with a markdown-style "- "/"* " prefix and the
+ * caret sits right after it, convert `el`'s content into a styled bullet row
+ * — a small marker span plus a text span holding the rest of `el`'s content —
+ * nested inside `el`, which becomes the list container. `el` itself must stay
+ * the contentEditable root (nesting the row rather than turning `el` itself
+ * into the row) so a later Enter's cloned sibling row lands inside the same
+ * contentEditable boundary and is actually typeable. Returns false when `el`
+ * is already a bullet row/list, there's no such prefix, or the selection
+ * isn't a collapsed caret.
+ */
+export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
+  if (isBulletRow(el) || isBulletList(el)) return false;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const caretRange = sel.getRangeAt(0);
+  if (!caretRange.collapsed) return false;
+
+  const beforeCaretRange = document.createRange();
+  beforeCaretRange.selectNodeContents(el);
+  beforeCaretRange.setEnd(caretRange.endContainer, caretRange.endOffset);
+  if (!MARKDOWN_BULLET_PREFIX.test(beforeCaretRange.toString())) return false;
+  beforeCaretRange.deleteContents();
+
+  const marker = document.createElement("span");
+  marker.style.fontSize = "0.3em";
+  marker.style.position = "relative";
+  marker.style.top = "-0.15em";
+  marker.textContent = "\u25CF";
+
+  const textSpan = document.createElement("span");
+  while (el.firstChild) textSpan.appendChild(el.firstChild);
+  const restFirstChild = textSpan.firstChild;
+  if (!restFirstChild) {
+    textSpan.appendChild(document.createTextNode(ZERO_WIDTH_SPACE));
+  }
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.alignItems = "baseline";
+  row.style.gap = "0.7em";
+  row.append(marker, textSpan);
+  el.append(row);
+
+  if (!el.style.display) el.style.display = "flex";
+  if (!el.style.flexDirection) el.style.flexDirection = "column";
+  if (!el.style.gap) el.style.gap = "0.6em";
+
+  const range = document.createRange();
+  if (restFirstChild) {
+    range.setStartBefore(restFirstChild);
+  } else {
+    // See primeNewRow: anchor the caret inside the placeholder text node
+    // (not an element-based position) so it keeps the text span's font
+    // instead of falling back to the marker's.
+    const zws = textSpan.firstChild as Text;
+    range.setStart(zws, ZERO_WIDTH_SPACE.length);
+  }
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return true;
+}
+
 /**
  * Walk up from a text leaf to the nearest enclosing styled bullet-row
  * container, so Enter can add a new item to the whole list instead of being
