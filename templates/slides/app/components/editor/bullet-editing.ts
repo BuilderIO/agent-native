@@ -148,7 +148,14 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   const beforeCaretRange = document.createRange();
   beforeCaretRange.selectNodeContents(el);
   beforeCaretRange.setEnd(caretRange.endContainer, caretRange.endOffset);
-  if (!MARKDOWN_BULLET_PREFIX.test(beforeCaretRange.toString())) return false;
+  // A freshly-placed text box seeds its content with a zero-width-space
+  // placeholder (see placeTextBoxAt) so it has a font to inherit before any
+  // real text exists. Strip it before testing so "- " typed as the very
+  // first characters is still recognized as a bullet prefix.
+  const beforeCaretText = beforeCaretRange
+    .toString()
+    .replace(new RegExp(ZERO_WIDTH_SPACE, "g"), "");
+  if (!MARKDOWN_BULLET_PREFIX.test(beforeCaretText)) return false;
   beforeCaretRange.deleteContents();
 
   const marker = document.createElement("span");

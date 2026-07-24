@@ -655,7 +655,7 @@ export function SlideInner({
           canvasWidth={dims.width}
           canvasHeight={dims.height}
           fitKey={content}
-          className="h-full w-full"
+          className="slide-content h-full w-full"
           onOverflowChange={onOverflowChange}
         >
           <BlankSlideContent content={content} />
