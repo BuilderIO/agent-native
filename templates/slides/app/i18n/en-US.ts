@@ -121,6 +121,7 @@ const messages = {
     uploadAttachedFailed: "Could not upload the attached file.",
     uploadFailed: "Upload failed",
     doubleClickEdit: "Double-click any text to edit",
+    dragToMove: "Drag to move",
     aiEditing: "AI editing",
     startTypingCommands: "Start typing… or press / for commands",
     pinDropHint: "Click anywhere to drop a comment pin",

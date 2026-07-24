@@ -612,6 +612,7 @@ function ElementSelectionOutline({
   viewportRect: DOMRect | null;
   onDragStart?: (e: React.PointerEvent) => void;
 }) {
+  const t = useT();
   const pad = 2;
   const handle = 7;
   const handleClass =
@@ -650,7 +651,7 @@ function ElementSelectionOutline({
         {onDragStart && (
           <span
             onPointerDown={onDragStart}
-            title="Drag to move"
+            title={t("raw.dragToMove")}
             className="absolute flex items-center justify-center rounded-full border border-background bg-[#609FF8] shadow-sm cursor-move"
             style={{
               left: "50%",

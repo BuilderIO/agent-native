@@ -122,6 +122,7 @@ const messages = {
     uploadAttachedFailed: "No se pudo subir el archivo adjunto.",
     uploadFailed: "Error al subir",
     doubleClickEdit: "Haz doble clic en cualquier texto para editarlo",
+    dragToMove: "Arrastra para mover",
     aiEditing: "IA editando",
     startTypingCommands: "Empieza a escribir… o pulsa / para comandos",
     pinDropHint:

@@ -118,6 +118,7 @@ const messages = {
     uploadAttachedFailed: "添付ファイルをアップロードできませんでした。",
     uploadFailed: "アップロード失敗",
     doubleClickEdit: "テキストをダブルクリックして編集",
+    dragToMove: "拖动以移动",
     aiEditing: "AIが編集中",
     startTypingCommands: "入力を開始…または / でコマンド",
     pinDropHint: "任意の場所をクリックしてコメントピンを追加",

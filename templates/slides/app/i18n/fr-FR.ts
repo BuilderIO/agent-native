@@ -123,6 +123,7 @@ const messages = {
     uploadAttachedFailed: "Impossible d’envoyer le fichier joint.",
     uploadFailed: "Échec de l’envoi",
     doubleClickEdit: "Double-cliquez sur un texte pour le modifier",
+    dragToMove: "Faites glisser pour déplacer",
     aiEditing: "IA en édition",
     startTypingCommands:
       "Commencez à écrire… ou appuyez sur / pour les commandes",

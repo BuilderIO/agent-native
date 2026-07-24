@@ -120,6 +120,7 @@ const messages = {
     uploadAttachedFailed: "Não foi possível enviar o arquivo anexado.",
     uploadFailed: "Falha no envio",
     doubleClickEdit: "Clique duas vezes em qualquer texto para editar",
+    dragToMove: "स्थानांतरित करने के लिए खींचें",
     aiEditing: "IA editando",
     startTypingCommands: "Comece a digitar… ou pressione / para comandos",
     pinDropHint: "Clique em qualquer lugar para soltar um pin de comentário",

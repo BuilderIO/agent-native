@@ -116,6 +116,7 @@ const messages = {
     uploadAttachedFailed: "無法上傳附件。",
     uploadFailed: "上傳失敗",
     doubleClickEdit: "按兩下文字以編輯",
+    dragToMove: "拖曳以移動",
     aiEditing: "AI 正在編輯",
     startTypingCommands: "開始輸入…或輸入 / 使用命令",
     pinDropHint: "點選任意位置以新增評論圖釘",
