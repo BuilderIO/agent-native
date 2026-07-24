@@ -682,7 +682,7 @@ describe("execute Builder source execution", () => {
     });
   });
 
-  it("blocks publish transitions when the entry is already published", async () => {
+  it("publishes an approved revision when the entry is already published", async () => {
     const approvedChangeSet = changeSet({ pushMode: "draft" });
     const builderSource = source({
       changeSets: [approvedChangeSet],
@@ -717,15 +717,56 @@ describe("execute Builder source execution", () => {
         },
         deps,
       ),
-    ).rejects.toThrow("Entry is already published.");
+    ).resolves.toMatchObject(RESPONSE);
 
-    expect(deps.updateExecutionState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        executionId: execution.id,
-        state: "blocked",
-        lastError: "Entry is already published.",
+    expect(deps.readLiveEntry).toHaveBeenCalledTimes(1);
+    expect(deps.executeWrite).toHaveBeenCalledWith({
+      request: expect.objectContaining({
+        body: expect.objectContaining({
+          data: expect.objectContaining({ title: "New title" }),
+          published: "published",
+        }),
       }),
+    });
+  });
+
+  it("fails closed when a publish preflight cannot verify publication state", async () => {
+    const approvedChangeSet = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      changeSets: [approvedChangeSet],
+      metadata: { allowPublicationTransitions: true },
+    });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+      publicationTransition: "publish",
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      readLiveEntry: {
+        exists: true,
+        published: null,
+        lastUpdated: BUILDER_LAST_UPDATED_MS,
+        blocksHash: null,
+        id: "builder-entry-1",
+      },
+    });
+
+    await expect(
+      executeBuilderSourceExecutionWithDeps(
+        {
+          databaseId: "database-1",
+          changeSetId: approvedChangeSet.id,
+          pushModeConfirmation: "draft",
+          publicationTransition: "publish",
+        },
+        deps,
+      ),
+    ).rejects.toThrow(
+      "Builder publication state could not be verified; refresh and re-review.",
     );
+
     expect(deps.claimExecution).not.toHaveBeenCalled();
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });

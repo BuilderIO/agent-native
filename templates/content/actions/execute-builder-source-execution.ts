@@ -494,8 +494,12 @@ function livePreflightBlockMessage(args: {
   ) {
     return "Builder body changed since this diff was approved; refresh and re-review.";
   }
-  if (args.effect === "publish" && args.liveState.published !== "draft") {
-    return "Entry is already published.";
+  if (
+    args.effect === "publish" &&
+    args.liveState.published !== "draft" &&
+    args.liveState.published !== "published"
+  ) {
+    return "Builder publication state could not be verified; refresh and re-review.";
   }
   if (args.effect === "unpublish" && args.liveState.published !== "published") {
     return "Entry is not currently published.";
