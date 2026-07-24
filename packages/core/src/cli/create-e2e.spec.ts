@@ -614,6 +614,42 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
   });
 
+  it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
+    const generatedDir = path.join(wsDir, "apps", "design", ".generated");
+    const scaffoldedBridgeDir = path.join(generatedDir, "bridge");
+
+    expect(
+      fs.existsSync(path.join(scaffoldedBridgeDir, "hit-test.generated.ts")),
+    ).toBe(true);
+
+    const sourceBridgeDir = path.join(
+      CORE_ROOT,
+      "..",
+      "..",
+      "templates",
+      "design",
+      ".generated",
+      "bridge",
+    );
+    const sourceBridgeFiles = fs.readdirSync(sourceBridgeDir).sort();
+    expect(sourceBridgeFiles.length).toBeGreaterThan(0);
+    for (const file of sourceBridgeFiles) {
+      expect(
+        fs.existsSync(path.join(scaffoldedBridgeDir, file)),
+        `expected scaffolded apps/design/.generated/bridge to include ${file}`,
+      ).toBe(true);
+    }
+
+    // Everything else under .generated is regenerated at dev time (e.g.
+    // actions-registry.ts, action-types.d.ts) and must stay excluded — only
+    // the committed bridge/ subdir survives scaffolding.
+    expect(fs.existsSync(path.join(generatedDir, "actions-registry.ts"))).toBe(
+      false,
+    );
+    expect(fs.readdirSync(generatedDir)).toEqual(["bridge"]);
+  });
+
   it("backs first-party workspace deps with scaffolded packages", async () => {
     // Includes every template that declares an @agent-native/* workspace:*
     // dep so a missing `requiredPackages` entry surfaces here instead of as

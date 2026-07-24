@@ -185,7 +185,7 @@
       "name": "clips-views",
       "runtimeExecutable": "env",
       "runtimeArgs": [
-        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eada16db-e3d0-4176-b0ce-6a41f2c62be4/scratchpad/clips-views.sqlite",
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/a7b10286-d35c-419c-a70b-662962cb51ea/scratchpad/clips-agent-views.sqlite",
         "PORT=3212",
         "AUTH_MODE=local",
         "APP_URL=http://localhost:3212",
