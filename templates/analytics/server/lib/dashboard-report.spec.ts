@@ -370,6 +370,20 @@ describe("dashboard report email", () => {
     }
   });
 
+  it("checkpoints the completed capture before starting email delivery", async () => {
+    const page = createPage();
+    const { browser } = createBrowser([page]);
+    const onCaptureOutcome = vi.fn(async () => {});
+    mocks.launch.mockResolvedValue(browser);
+
+    await sendDashboardReportSubscription(subscription(), { onCaptureOutcome });
+
+    expect(onCaptureOutcome).toHaveBeenCalledWith({ mode: "full" });
+    expect(onCaptureOutcome.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.sendEmail.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+    );
+  });
+
   it("keeps a single chunk dashboard as one inline image", async () => {
     const page = createPage();
     const { browser } = createBrowser([page]);

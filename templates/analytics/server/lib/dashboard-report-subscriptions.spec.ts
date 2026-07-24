@@ -38,7 +38,7 @@ import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 function createClaimDbMock(rows: unknown[]) {
   const returning = vi.fn(async () => rows);
   const where = vi.fn(() => ({ returning }));
-  const set = vi.fn(() => ({ where }));
+  const set = vi.fn((_values: Record<string, unknown>) => ({ where }));
   const update = vi.fn(() => ({ set }));
   return {
     db: { update },
@@ -407,7 +407,8 @@ describe("dashboard report subscriptions", () => {
 
     const recorded = await recordDashboardReportCaptureOutcome(sub, {
       mode: "none",
-      error: "chunk failed at ?__an_embed_token=secret-token&reportScreenshot=1",
+      error:
+        "chunk failed at ?__an_embed_token=secret-token&reportScreenshot=1",
     });
 
     expect(recorded).toBe(true);
