@@ -55,7 +55,9 @@ describe("page-chat handoff defaults", () => {
 
       expect(layout).toContain("useAgentChatHomeHandoff");
       expect(layout).toContain("useAgentChatHomeHandoffLinks");
+      expect(layout).toContain("isAgentChatHomeHandoffActive");
       expect(layout).toContain("chatViewTransition");
+      expect(layout).toContain("chatViewTransitionHandoff");
       expect(layout).toContain(
         `requireActiveHandoff: ${REQUIRE_ACTIVE_HANDOFF[template]}`,
       );

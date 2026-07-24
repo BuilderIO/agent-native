@@ -38,7 +38,15 @@ export interface CliTelemetryOptions {
 
 export interface CliTelemetry {
   track(event: string, properties?: Record<string, unknown>): void;
+  captureException(error: unknown, context?: CliExceptionContext): void;
   flush(): Promise<void>;
+}
+
+export interface CliExceptionContext {
+  handled?: boolean;
+  level?: "fatal" | "error" | "warning" | "info" | "debug";
+  tags?: Record<string, string | number | boolean | null | undefined>;
+  extra?: Record<string, unknown>;
 }
 
 function resolvePublicKey(): string {
@@ -58,6 +66,110 @@ function telemetryDisabled(): boolean {
     process.env.NODE_ENV === "test" ||
     typeof fetch !== "function"
   );
+}
+
+const MAX_EXCEPTION_MESSAGE_LENGTH = 1000;
+const MAX_EXCEPTION_STACK_LENGTH = 8000;
+const MAX_EXCEPTION_TAGS = 30;
+const MAX_EXCEPTION_EXTRA_KEYS = 30;
+const MAX_EXCEPTION_VALUE_LENGTH = 1000;
+const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
+const SECRET_KEY_RE =
+  /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
+
+function redactExceptionText(value: string): string {
+  return value
+    .replace(SECRET_RE, (match) => `${match.split(/\s+/, 1)[0]} <redacted>`)
+    .replace(
+      /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
+      "$1<redacted>",
+    );
+}
+
+function boundedExceptionText(value: unknown, max: number): string {
+  const text =
+    typeof value === "string" ? value : String(value ?? "Unknown error");
+  const safe = redactExceptionText(text);
+  return safe.length > max ? safe.slice(0, max) : safe;
+}
+
+function safeExceptionValue(value: unknown, depth = 2): unknown {
+  if (
+    value == null ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return boundedExceptionText(value, MAX_EXCEPTION_VALUE_LENGTH);
+  }
+  if (depth <= 0)
+    return boundedExceptionText(value, MAX_EXCEPTION_VALUE_LENGTH);
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 20)
+      .map((item) => safeExceptionValue(item, depth - 1));
+  }
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      if (Object.keys(out).length >= MAX_EXCEPTION_EXTRA_KEYS) break;
+      const safeKey = boundedExceptionText(key, 100);
+      out[safeKey] = SECRET_KEY_RE.test(safeKey)
+        ? "<redacted>"
+        : safeExceptionValue(child, depth - 1);
+    }
+    return out;
+  }
+  return boundedExceptionText(value, MAX_EXCEPTION_VALUE_LENGTH);
+}
+
+function captureException(
+  error: unknown,
+  context: CliExceptionContext,
+  trackEvent: (event: string, properties?: Record<string, unknown>) => void,
+): void {
+  const exception =
+    error instanceof Error
+      ? {
+          type: boundedExceptionText(error.name || "Error", 200),
+          message: boundedExceptionText(
+            error.message || error.name || "Error",
+            MAX_EXCEPTION_MESSAGE_LENGTH,
+          ),
+          stack: error.stack
+            ? boundedExceptionText(error.stack, MAX_EXCEPTION_STACK_LENGTH)
+            : undefined,
+        }
+      : {
+          type: "Error",
+          message: boundedExceptionText(error, MAX_EXCEPTION_MESSAGE_LENGTH),
+          stack: undefined,
+        };
+  const tags: Record<string, string> = {};
+  for (const [key, value] of Object.entries(context.tags ?? {})) {
+    if (Object.keys(tags).length >= MAX_EXCEPTION_TAGS || value == null) break;
+    const safeKey = boundedExceptionText(key, 100);
+    tags[safeKey] = SECRET_KEY_RE.test(safeKey)
+      ? "<redacted>"
+      : boundedExceptionText(value, 200);
+  }
+  const extra = safeExceptionValue(context.extra);
+  trackEvent("$exception", {
+    app: "agent-native-cli",
+    template: "cli",
+    runtime: "cli",
+    source: "cli",
+    exceptionType: exception.type,
+    exceptionMessage: exception.message,
+    ...(exception.stack ? { exceptionStack: exception.stack } : {}),
+    handled: context.handled ?? false,
+    level: context.level ?? "error",
+    occurredAt: new Date().toISOString(),
+    ...(Object.keys(tags).length ? { exceptionTags: tags } : {}),
+    ...(extra && typeof extra === "object" ? { exceptionExtra: extra } : {}),
+  });
 }
 
 /**
@@ -132,5 +244,10 @@ export function createCliTelemetry(options: CliTelemetryOptions): CliTelemetry {
     ]);
   }
 
-  return { track, flush };
+  return {
+    track,
+    captureException: (error, context = {}) =>
+      captureException(error, context, track),
+    flush,
+  };
 }

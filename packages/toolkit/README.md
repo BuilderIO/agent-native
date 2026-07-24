@@ -45,7 +45,10 @@ import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { useToast } from "@agent-native/toolkit/hooks/use-toast";
-import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+import {
+  SidebarFooterActions,
+  useSetHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 ```
 
 Import `@agent-native/toolkit/styles.css` after Tailwind to include Toolkit's
@@ -58,6 +61,10 @@ progressively discloses up to fifteen, and keeps the app-provided New chat
 action in a footer row with the ellipsis disclosure on its right. The app
 continues to own thread persistence, sorting, routing, and mutations through
 Core.
+
+Use `SidebarFooterActions` for the shared left-sidebar utility row. Provide the
+app-owned controls through its slots; the rendered order is feedback, translate,
+search, then collapse, with the same order stacked in collapsed sidebars.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.
