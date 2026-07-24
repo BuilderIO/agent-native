@@ -7,8 +7,11 @@ import {
   IconAlertTriangle,
   IconChevronLeft,
   IconChevronRight,
+  IconPlayerRecord,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink } from "react-router";
 import { toast } from "sonner";
 
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
@@ -55,6 +58,44 @@ function Skeleton() {
         <div className="h-3.5 w-3/4 rounded bg-muted" />
         <div className="h-3 w-1/2 rounded bg-muted" />
       </div>
+    </div>
+  );
+}
+
+function NewRecordingTile({
+  spaceId,
+  folderId,
+}: {
+  spaceId?: string | null;
+  folderId?: string | null;
+}) {
+  const t = useT();
+  const recordHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    const qs = params.toString();
+    return qs ? `/record?${qs}` : "/record";
+  }, [spaceId, folderId]);
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+        <IconPlayerRecord className="h-5 w-5 text-primary" />
+      </div>
+      <Button className="w-full max-w-[180px] gap-1.5" size="sm" asChild>
+        <NavLink to={recordHref}>
+          <IconPlayerRecord className="h-4 w-4" />
+          {t("navigation.newRecording")}
+        </NavLink>
+      </Button>
+      <NavLink
+        to={recordHref}
+        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+      >
+        <IconUpload className="h-3.5 w-3.5" />
+        {t("navigation.import")}
+      </NavLink>
     </div>
   );
 }
@@ -491,6 +532,9 @@ export function LibraryGrid({
                     readOnly={!canManageRecordings}
                   />
                 ))}
+                {view === "library" && page === totalPages && (
+                  <NewRecordingTile spaceId={spaceId} folderId={folderId} />
+                )}
               </div>
             )}
           </div>
