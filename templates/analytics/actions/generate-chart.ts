@@ -303,16 +303,16 @@ export function renderStaticChartSvg({
  * user's chair, the chat said "I'll do something else" and no chart appeared.
  *
  * For in-chat data questions the right answer is always the live `/chart`
- * embed (see AGENTS.md "Inline Charts in Chat"). Only `save-analysis`
- * artifacts need a static image, and those flows have full data in hand
- * before they call here.
+ * embed (see the `data-querying` skill's "Inline Charts In Chat" section for
+ * the full shape). Only `save-analysis` artifacts need a static image, and
+ * those flows have full data in hand before they call here.
  */
 const CHART_FALLBACK_HINT =
-  "If you're answering an in-chat data question, do not retry generate-chart. Switch to the live /chart embed described in AGENTS.md ('Inline Charts in Chat') — it accepts a SqlPanel object directly and doesn't require pre-stringified JSON params. Only use generate-chart when you're building a save-analysis artifact.";
+  "If you're answering an in-chat data question, do not retry generate-chart. Switch to the live /chart embed instead — it accepts a SqlPanel object directly and doesn't require pre-stringified JSON params. See the data-querying skill's \"Inline Charts In Chat\" section for the embed syntax. Only use generate-chart when you're building a save-analysis artifact.";
 
 export default defineAction({
   description:
-    "Render a static chart image to the media directory **for save-analysis artifacts only**. Uses PNG when the native renderer is available and a portable SVG fallback otherwise. For an in-chat answer to a data question, do NOT call this — emit a live `/chart` embed instead (see AGENTS.md 'Inline Charts in Chat'). The static image path exists for analyses that need to render outside this app (exports, archived reports). If validation here fails, switch to the live embed rather than retrying.",
+    'Render a static chart image to the media directory **for save-analysis artifacts only**. Uses PNG when the native renderer is available and a portable SVG fallback otherwise. For an in-chat answer to a data question, do NOT call this — emit a live `/chart` embed instead (see the data-querying skill\'s "Inline Charts In Chat" section for the embed syntax). The static image path exists for analyses that need to render outside this app (exports, archived reports). If validation here fails, switch to the live embed rather than retrying.',
   schema: z.object({
     title: z.string().optional().describe("Chart title (required)"),
     labels: z.string().optional().describe("JSON array of x-axis labels"),

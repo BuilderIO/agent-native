@@ -40,6 +40,7 @@ import {
   IconStack2,
   IconMessageChatbot,
   IconPencil,
+  IconAlertTriangle,
   IconLoader2,
 } from "@tabler/icons-react";
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -284,11 +285,53 @@ export const CheckpointContext = React.createContext<{
   apiUrl: string;
   devMode: boolean;
   threadId?: string;
+  // Run ids that actually have a saved checkpoint. Restore is only offered for
+  // these — auto-checkpointing skips turns that started from a dirty tree or a
+  // non-git cwd, and without this the menu item appears on every turn and does
+  // nothing when clicked.
+  checkpointRunIds?: ReadonlySet<string>;
 } | null>(null);
 
 export const MessageActionsContext = React.createContext<{
   onForkChat?: () => void | boolean | Promise<void | boolean>;
 } | null>(null);
+
+/**
+ * Restore rewrites the working tree, so only offer it when the server actually
+ * has a checkpoint for this turn. Auto-checkpointing skips turns that started
+ * from a dirty tree or a non-git cwd; gating on Code mode alone put a
+ * "Revert to here" item on turns where clicking it could do nothing.
+ */
+export function shouldOfferRestore(args: {
+  devMode: boolean | undefined;
+  isComplete: boolean;
+  isLast: boolean;
+  runId: string | undefined;
+  checkpointRunIds: ReadonlySet<string> | undefined;
+}): boolean {
+  return Boolean(
+    args.devMode &&
+    args.isComplete &&
+    !args.isLast &&
+    args.runId &&
+    args.checkpointRunIds?.has(args.runId),
+  );
+}
+
+/**
+ * Live yields put the run id at `metadata.custom.runId`; server-persisted
+ * messages put it at `metadata.runId`.
+ */
+export function assistantMessageRunId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { runId?: unknown }; runId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.runId === "string"
+    ? metadata.custom.runId
+    : typeof metadata?.runId === "string"
+      ? metadata.runId
+      : undefined;
+}
 
 // ─── MessageBranchPicker ──────────────────────────────────────────────────────
 
@@ -557,20 +600,12 @@ export function MessageActionsMenu({
 
   const handleCopyRequestId = useCallback(() => {
     const m = messageRuntime.getState();
-    const meta = m.metadata as
-      | {
-          custom?: { runId?: unknown };
-          runId?: unknown;
-        }
-      | undefined;
-    // Live yields put the trace ID at metadata.custom.runId; server-persisted
-    // messages put it at metadata.runId. If neither is present (e.g. the run
-    // is still in flight and this is the first message), fall back to the
-    // active-run state so a hung / mid-stream chat still surfaces a usable
-    // trace ID. Last resort is the assistant-ui local message id.
+    // If the message carries no run id (e.g. the run is still in flight and
+    // this is the first message), fall back to the active-run state so a hung /
+    // mid-stream chat still surfaces a usable trace ID. Last resort is the
+    // assistant-ui local message id.
     const runId =
-      (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-      (typeof meta?.runId === "string" && meta.runId) ||
+      assistantMessageRunId(m) ||
       (typeof window !== "undefined" ? getActiveRun()?.runId : null) ||
       m.id ||
       "";
@@ -1201,8 +1236,9 @@ function isAssistantToolSummaryPart(
 
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
-    "idle" | "confirming" | "restoring"
+    "idle" | "confirming" | "restoring" | "error"
   >("idle");
+  const [restoreError, setRestoreError] = useState<string | null>(null);
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
@@ -1275,60 +1311,60 @@ export function AssistantMessage() {
     wasRunningRef.current = chatRunning && isLast;
   }, [chatRunning, isComplete, isLast]);
 
+  const messageRunId = assistantMessageRunId(msg);
+
   const handleRestore = useCallback(async () => {
-    if (restoreState === "idle") {
+    if (restoreState === "idle" || restoreState === "error") {
+      setRestoreError(null);
       setRestoreState("confirming");
       return;
     }
     if (restoreState !== "confirming" || !cpCtx) return;
+    if (!messageRunId) {
+      setRestoreError("This message has no run to restore to.");
+      setRestoreState("error");
+      return;
+    }
     setRestoreState("restoring");
     try {
-      const m = messageRuntime.getState();
-      const meta = m.metadata as
-        | { custom?: { runId?: unknown }; runId?: unknown }
-        | undefined;
-      const runId =
-        (typeof meta?.custom?.runId === "string" && meta.custom.runId) ||
-        (typeof meta?.runId === "string" && meta.runId) ||
-        null;
-      if (!runId) {
-        setRestoreState("idle");
-        return;
-      }
-      const tid = cpCtx.threadId || "";
-      const res = await fetch(
-        `${cpCtx.apiUrl}/checkpoints?threadId=${encodeURIComponent(tid)}`,
-      );
-      const checkpoints: unknown[] = res.ok ? await res.json() : [];
-      const checkpoint = checkpoints.find(
-        (cp) => (cp as { runId?: string }).runId === runId,
-      );
-      if (!checkpoint) {
-        setRestoreState("idle");
-        return;
-      }
       const restoreRes = await fetch(`${cpCtx.apiUrl}/checkpoints/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          checkpointId: (checkpoint as { id?: string }).id,
-        }),
+        body: JSON.stringify({ runId: messageRunId }),
       });
       if (restoreRes.ok) {
         window.location.reload();
-      } else {
-        setRestoreState("idle");
+        return;
       }
-    } catch {
-      setRestoreState("idle");
+      const payload = (await restoreRes.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+      setRestoreError(
+        typeof payload?.error === "string"
+          ? payload.error
+          : `Restore failed (${restoreRes.status}).`,
+      );
+      setRestoreState("error");
+    } catch (err) {
+      setRestoreError(
+        err instanceof Error ? err.message : "Restore request failed.",
+      );
+      setRestoreState("error");
     }
-  }, [restoreState, cpCtx, messageRuntime]);
+  }, [restoreState, cpCtx, messageRunId]);
 
   const cancelRestore = useCallback(() => {
+    setRestoreError(null);
     setRestoreState("idle");
   }, []);
 
-  const showRestore = cpCtx?.devMode && isComplete && !isLast;
+  const showRestore = shouldOfferRestore({
+    devMode: cpCtx?.devMode,
+    isComplete,
+    isLast,
+    runId: messageRunId,
+    checkpointRunIds: cpCtx?.checkpointRunIds,
+  });
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
@@ -1497,20 +1533,21 @@ export function AssistantMessage() {
               <IconLoader2 className="h-3 w-3 animate-spin" />
               Restoring...
             </span>
+          ) : restoreState === "error" ? (
+            <span className="flex items-center gap-1 text-xs text-destructive">
+              <IconAlertTriangle className="h-3 w-3 shrink-0" />
+              <span className="truncate">{restoreError}</span>
+              <button
+                onClick={cancelRestore}
+                className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted-foreground hover:bg-accent"
+              >
+                Dismiss
+              </button>
+            </span>
           ) : (
             <ThumbsFeedback
               threadId={cpCtx?.threadId ?? ""}
-              runId={(() => {
-                const meta = messageRuntime.getState().metadata as
-                  | { custom?: { runId?: unknown }; runId?: unknown }
-                  | undefined;
-                return (
-                  (typeof meta?.custom?.runId === "string" &&
-                    meta.custom.runId) ||
-                  (typeof meta?.runId === "string" && meta.runId) ||
-                  ""
-                );
-              })()}
+              runId={messageRunId ?? ""}
               messageSeq={thread.messages.findIndex((m) => m.id === msg.id)}
             />
           )}

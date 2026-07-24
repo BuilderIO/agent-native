@@ -1,4 +1,5 @@
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconBook,
   IconCheck,
@@ -13,6 +14,7 @@ import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
 import { PromptComposer } from "./composer/index.js";
+import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {
@@ -70,6 +72,16 @@ function defaultDispatchBasePath(sourceApp?: string): string | null {
   const base = appBasePath();
   if (base === "/dispatch") return null;
   return "/dispatch";
+}
+
+const ERROR_FAILURE_REASONS = new Set([
+  "builder-error",
+  "builder-not-connected",
+  "credential-store-unavailable",
+]);
+
+function isErrorFailureReason(reason: string | null): boolean {
+  return !!reason && ERROR_FAILURE_REASONS.has(reason);
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -162,6 +174,8 @@ export function NewWorkspaceAppFlow({
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isDevMode } = useDevMode();
 
@@ -169,6 +183,19 @@ export function NewWorkspaceAppFlow({
     dispatchBasePath === undefined
       ? defaultDispatchBasePath(sourceApp)
       : dispatchBasePath;
+
+  // Enabled only while the connect CTA is on screen. Left always-on, the hook
+  // would poll Builder status on every mount and fire onConnected on its first
+  // status read for anyone already connected.
+  const connectFlow = useBuilderConnectFlow({
+    enabled: failureReason === "builder-not-connected",
+    trackingSource: "new_workspace_app_flow",
+    trackingFlow: "create_app",
+    onConnected: () => {
+      setFailureReason(null);
+      setStatusMessage("Builder connected. Press Create app to try again.");
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -264,9 +291,11 @@ export function NewWorkspaceAppFlow({
       selectedResources,
       vaultAccessMode,
     });
+    setLastSubmittedPrompt(prompt);
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
+    setFailureReason(null);
 
     try {
       if (isInBuilderFrame()) {
@@ -297,10 +326,14 @@ export function NewWorkspaceAppFlow({
             result?.message ||
               "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
           );
+          setFailureReason(
+            result?.mode === "builder-unavailable" ? result.reason : null,
+          );
         }
       }
     } catch (err: any) {
       setStatusMessage(err?.message || "Could not start the new app flow.");
+      setFailureReason(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -338,17 +371,49 @@ export function NewWorkspaceAppFlow({
           />
 
           {statusMessage ? (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-              {statusMessage}
-              {branchUrl ? (
-                <a
-                  href={branchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ms-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+            <div
+              className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-sm ${
+                isErrorFailureReason(failureReason)
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {isErrorFailureReason(failureReason) ? (
+                  <IconAlertTriangle className="h-4 w-4 shrink-0" />
+                ) : null}
+                <span>{statusMessage}</span>
+                {branchUrl ? (
+                  <a
+                    href={branchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-foreground underline"
+                  >
+                    Open branch <IconArrowUpRight className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+              {failureReason === "builder-not-connected" ? (
+                <button
+                  type="button"
+                  onClick={() => connectFlow.start()}
+                  disabled={connectFlow.connecting}
+                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Open branch <IconArrowUpRight className="h-3 w-3" />
-                </a>
+                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                </button>
+              ) : null}
+              {failureReason === "credential-store-unavailable" ||
+              failureReason === "builder-error" ? (
+                <button
+                  type="button"
+                  onClick={() => submit(lastSubmittedPrompt)}
+                  disabled={isSubmitting}
+                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Try again
+                </button>
               ) : null}
             </div>
           ) : null}

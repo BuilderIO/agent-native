@@ -872,6 +872,7 @@ const CORE_CLIENT_SUBPATHS = [
   // entry.client.tsx imports from here so it never pulls the full client barrel
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
   "@agent-native/core/client/api-path",
+  "@agent-native/core/client/clipboard",
   "@agent-native/core/blocks",
   "@agent-native/core/blocks/server",
   "@agent-native/core/client/extensions",
@@ -1264,6 +1265,10 @@ function getCoreSourceAliases(
     "@agent-native/core/client/api-path": path.join(
       coreSrc,
       "client/api-path.ts",
+    ),
+    "@agent-native/core/client/clipboard": path.join(
+      coreSrc,
+      "client/clipboard.ts",
     ),
     "@agent-native/core/blocks": path.join(coreSrc, "client/blocks/index.ts"),
     "@agent-native/core/blocks/server": path.join(

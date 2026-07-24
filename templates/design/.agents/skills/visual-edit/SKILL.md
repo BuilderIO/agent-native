@@ -16,6 +16,15 @@ visually instead of generating standalone Alpine HTML. The source of truth is
 the running localhost app plus its route URLs. Design shows those routes as
 iframe-backed screens on the infinite canvas.
 
+## Installing this skill for an external MCP host
+
+The hosted install path
+(`npx @agent-native/core@latest skills add visual-edit`, or `design` for the
+full Design bundle) installs the exported instructions and registers the
+hosted Design MCP connector together. The open Skills CLI path
+(`npx skills@latest add BuilderIO/agent-native --skill visual-edit`) installs
+exported instructions only, with no MCP connector registration.
+
 ## Core Model
 
 - Each screen is a URL-backed iframe, not copied HTML.
@@ -227,6 +236,14 @@ the connected app's text/code files through the bridge
   write-consent dialog (an 8-hour, folder-scoped grant) and retries
   automatically once granted. Only text/code files are writable; secret paths
   are always blocked.
+- If the agent calls `write-local-file` directly (not through a UI save) and it
+  fails with "no write-consent grant", call `request-localhost-write-consent`.
+  It opens the write-consent dialog in the editor, or reports `alreadyGranted`
+  if one already exists. Granting is human-only —
+  `grant-localhost-write-consent` is hidden from agents, so you cannot approve
+  it yourself. Tell the user to click "Allow writes", then retry
+  `write-local-file` once. Do not keep retrying blindly: the write stays
+  blocked until the user approves.
 - Saves are conflict-checked against the file's on-disk version — a file that
   changed since it was read fails with a version conflict instead of being
   overwritten.

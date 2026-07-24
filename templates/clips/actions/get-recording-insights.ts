@@ -3,8 +3,9 @@
  *
  * Owner-only — uses assertAccess at editor level (owners always satisfy).
  *
- * Returns: views, uniqueViewers, completionRate, dropOff (100 buckets),
- * ctaConversionRate.
+ * Returns: views (total counted view sessions, so a returning viewer counts
+ * again), uniqueViewers (distinct people behind those views), completionRate,
+ * dropOff (100 buckets), ctaConversionRate.
  *
  * Usage:
  *   pnpm action get-recording-insights --recordingId=<id>
@@ -12,11 +13,15 @@
 
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { clampCompletionPct } from "../shared/view-analytics.js";
+import {
+  clampCompletionPct,
+  displayViewerName,
+  isCountedViewerRow,
+} from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -39,10 +44,26 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    const views = viewerRows.filter((v) => v.countedView).length;
+    const [viewLogRow] = await db
+      .select({ value: count() })
+      .from(schema.recordingViews)
+      .where(eq(schema.recordingViews.recordingId, args.recordingId));
+
+    // Same definition as `countedViewCondition`, applied to rows already in
+    // memory so this action keeps its single viewer-row read. One row per
+    // person, so this is the distinct-viewer count, not the view total.
+    const countedViewers = viewerRows.filter(isCountedViewerRow).length;
     const uniqueViewers = new Set(
-      viewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
+      viewerRows
+        .filter(isCountedViewerRow)
+        .map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
+
+    // Mirrors `countRecordingViews`: `recording_views` only exists from
+    // migration v46, so clips recorded before it have zero log rows. Floor the
+    // total at the counted-viewer count so those clips keep reporting a real
+    // number instead of 0, and so total can never read below uniqueViewers.
+    const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
     const completionRate =
       viewerRows.length === 0
@@ -75,8 +96,12 @@ export default defineAction({
     }
 
     const ctaClicks = events.filter((e) => e.kind === "cta-click").length;
+    // CTA conversion is per person, so the denominator is counted viewers — not
+    // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
-      views === 0 ? 0 : Math.min(100, (ctaClicks / views) * 100);
+      countedViewers === 0
+        ? 0
+        : Math.min(100, (ctaClicks / countedViewers) * 100);
 
     // Top viewers by total watch ms
     const topViewers = viewerRows
@@ -85,7 +110,7 @@ export default defineAction({
       .slice(0, 20)
       .map((v) => ({
         viewerEmail: v.viewerEmail,
-        viewerName: v.viewerName,
+        viewerName: displayViewerName(v.viewerName),
         totalWatchMs: v.totalWatchMs ?? 0,
         completedPct: clampCompletionPct(v.completedPct),
       }));

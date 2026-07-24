@@ -4,6 +4,9 @@ import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
+  DATA_WIDGET_MAX_CHART_POINTS,
+  DATA_WIDGET_MAX_ROWS,
+  clampDataWidgetRows,
   createDataChartWidgetResult,
   createDataInsightsWidgetResult,
   createDataTableWidgetResult,
@@ -104,6 +107,67 @@ describe("data widget helpers", () => {
     );
 
     expect(result.scope).toEqual({ formId: "form_1" });
+  });
+
+  it("clamps oversized table rows and reports the real total", () => {
+    const rows = Array.from({ length: 211 }, (_, index) => ({
+      email: `user${index}@example.com`,
+    }));
+
+    const clamped = clampDataWidgetRows(
+      createDataTableWidgetResult({
+        table: { columns: [{ key: "email", label: "Email" }], rows },
+      }),
+    );
+
+    expect(clamped.table.rows).toHaveLength(DATA_WIDGET_MAX_ROWS);
+    expect(clamped.table.totalRows).toBe(211);
+    expect(clamped.table.sampledRows).toBe(DATA_WIDGET_MAX_ROWS);
+    expect(clamped.table.truncated).toBe(true);
+  });
+
+  it("preserves a caller-supplied totalRows when clamping", () => {
+    const clamped = clampDataWidgetRows(
+      createDataTableWidgetResult({
+        table: {
+          columns: [{ key: "email", label: "Email" }],
+          rows: Array.from({ length: 60 }, () => ({ email: "a@example.com" })),
+          totalRows: 5000,
+        },
+      }),
+    );
+
+    expect(clamped.table.totalRows).toBe(5000);
+  });
+
+  it("clamps oversized chart data and marks it sampled", () => {
+    const clamped = clampDataWidgetRows(
+      createDataChartWidgetResult({
+        chartSeries: {
+          type: "line",
+          xKey: "day",
+          series: [{ key: "count", label: "Count" }],
+          data: Array.from({ length: 500 }, (_, index) => ({
+            day: index,
+            count: index,
+          })),
+        },
+      }),
+    );
+
+    expect(clamped.chartSeries.data).toHaveLength(DATA_WIDGET_MAX_CHART_POINTS);
+    expect(clamped.chartSeries.sampled).toBe(true);
+  });
+
+  it("returns within-limit widgets unchanged", () => {
+    const result = createDataTableWidgetResult({
+      table: {
+        columns: [{ key: "email", label: "Email" }],
+        rows: [{ email: "a@example.com" }],
+      },
+    });
+
+    expect(clampDataWidgetRows(result)).toBe(result);
   });
 
   it("rejects invalid widget payloads when constructing results", () => {

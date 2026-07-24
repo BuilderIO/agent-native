@@ -122,3 +122,14 @@ For an app-created Design snapshot, use
 `clone-creative-context-design-native` instead. That typed action resolves the
 exact approved private file/Yjs payload and duplicates it through Design's
 native path. Generic context actions must never receive or return that payload.
+
+## Submitting to Creative Context
+
+To submit a design to a governed Creative Context, use the Context tab or
+`manage-context-membership`; it captures one immutable live design snapshot.
+Reuse only a returned opaque native clone reference through the Design clone
+action (`clone-creative-context-design-native` above) rather than re-deriving
+one from a screenshot or generic context item. Use `operation="submit-latest"`
+with a Library membership id when its native update status reports
+`update-available`, so the library entry advances to the design's current
+state instead of staying pinned to the original submission.

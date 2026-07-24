@@ -118,10 +118,12 @@ export function agentsBundlePlugin(): Plugin {
         const rel = path.relative(projectRoot, file);
         if (!rel.startsWith("..")) {
           if (rel === "AGENTS.md") return true;
-          if (rel.endsWith("SKILL.md")) {
-            for (const skillsDir of TEMPLATE_SKILLS_DIRS) {
-              if (rel.startsWith(skillsDir + path.sep)) return true;
-            }
+          for (const skillsDir of TEMPLATE_SKILLS_DIRS) {
+            // Any file under a skills directory can affect the bundle now —
+            // `readSkillsDir` reads reference sub-files (not just SKILL.md)
+            // into `Skill.files`, so dev HMR must match that or reference
+            // edits go stale until a manual restart.
+            if (rel.startsWith(skillsDir + path.sep)) return true;
           }
         }
         // Workspace-core files
@@ -130,8 +132,7 @@ export function agentsBundlePlugin(): Plugin {
         }
         if (
           workspaceSkillsDir &&
-          file.startsWith(workspaceSkillsDir + path.sep) &&
-          file.endsWith("SKILL.md")
+          file.startsWith(workspaceSkillsDir + path.sep)
         ) {
           return true;
         }

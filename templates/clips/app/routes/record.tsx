@@ -47,6 +47,10 @@ import {
   type BrowserDiagnosticsCapture,
 } from "@/lib/browser-diagnostics-capture";
 import {
+  getCaptureHostApp,
+  macPermissionGuidanceFor,
+} from "@/lib/capture-permissions";
+import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
   MAX_UPLOAD_BYTES,
@@ -61,6 +65,7 @@ import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
+import { copyRecordingShareLink } from "@/lib/recording-link";
 import {
   buildCaptureTitle,
   defaultRecordingTitle,
@@ -87,19 +92,6 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
   );
 }
 
-function recordingLink(recordingId: string): string {
-  const path = `${appBasePath()}/r/${encodeURIComponent(recordingId)}`;
-  if (typeof window === "undefined") return path;
-  return new URL(path, window.location.origin).toString();
-}
-
-async function copyRecordingLink(recordingId: string): Promise<void> {
-  if (typeof navigator === "undefined") return;
-  if (!navigator.clipboard?.writeText) return;
-  await navigator.clipboard
-    .writeText(recordingLink(recordingId))
-    .catch(() => undefined);
-}
 import {
   bugReportTitle,
   parseBugReportContext,
@@ -368,27 +360,30 @@ function permissionGuidance(
     return "Browser site permissions are not the blocker here. Open Clips directly in a browser tab, or use an app frame that delegates the selected capture sources.";
   }
   if (isScreenPermissionError(message)) {
-    if (isEmbeddedWindow()) {
+    // The desktop shell hosts the recorder in its own webview, so "open it in a
+    // real tab" is not advice a desktop user can act on.
+    if (isEmbeddedWindow() && getCaptureHostApp().kind !== "desktop") {
       return "The web client is running Clips inside a frame. Open the recorder in its own tab, then start recording; Chrome can block screen sharing in embedded pages even when macOS access is enabled.";
     }
     if (isMacPlatform()) {
-      return "Chrome can have Camera and Microphone allowed while macOS still blocks screen capture. Enable your browser in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen it.";
+      return `Camera and Microphone can be allowed while macOS still blocks screen capture. ${macPermissionGuidanceFor("screen")}`;
     }
     return "Choose a source in the browser screen picker. If it still fails, check this site's browser permissions and reload Clips.";
   }
   if (isCameraPermissionError(message)) {
     if (isMacPlatform()) {
-      return "Allow Camera in this site's browser settings and in macOS System Settings > Privacy & Security > Camera, then reload Clips.";
+      return `Allow Camera for this site first. ${macPermissionGuidanceFor("camera")}`;
     }
     return "Open this site's browser settings, allow Camera, then reload Clips.";
   }
   if (isMicrophonePermissionError(message)) {
     if (isMacPlatform()) {
-      return "Allow Microphone in this site's browser settings and in macOS System Settings > Privacy & Security > Microphone, then reload Clips.";
+      return `Allow Microphone for this site first. ${macPermissionGuidanceFor("microphone")}`;
     }
     return "Open this site's browser settings, allow Microphone, then reload Clips.";
   }
   if (isMacPlatform()) {
+    const host = getCaptureHostApp();
     const labels = getModePermissionLabels(opts?.mode, opts?.micDeviceId);
     if (labels.length > 0) {
       const readable = labels
@@ -400,9 +395,9 @@ function permissionGuidance(
               : "Microphone",
         )
         .join(", ");
-      return `Check this site's browser permissions first. If it still fails, enable ${readable} for your browser in macOS System Settings > Privacy & Security, then quit and reopen it.`;
+      return `Check this site's permissions first. If it still fails, turn on ${host.name} under ${readable} in macOS System Settings > Privacy & Security, then quit and reopen it. Clips is never listed there — macOS grants access to ${host.name}.`;
     }
-    return "Check this site's browser permissions first. If it still fails, open macOS System Settings > Privacy & Security for your browser, then quit and reopen it.";
+    return `Check this site's permissions first. If it still fails, turn on ${host.name} in macOS System Settings > Privacy & Security, then quit and reopen it.`;
   }
   return "Open this site's browser settings and allow the selected capture sources, then reload this page.";
 }
@@ -511,7 +506,7 @@ function friendlyRecordingErrorMessage(error: string): string {
   }
   if (isScreenPermissionError(error)) {
     if (isMacPlatform()) {
-      return "Clips could not start screen capture. Enable screen recording for your browser, then try again.";
+      return `Clips could not start screen capture. macOS is blocking screen recording for ${getCaptureHostApp().name}.`;
     }
     return "Clips could not start screen capture. Allow screen sharing for this site, then try again.";
   }
@@ -629,7 +624,10 @@ function RecordingErrorCard({
   const permissionError = !uploadFailure && isPermissionError(error);
   const policyError = !uploadFailure && isPolicyPermissionError(error);
   const embeddedScreenError =
-    !uploadFailure && isEmbeddedWindow() && isScreenPermissionError(error);
+    !uploadFailure &&
+    isEmbeddedWindow() &&
+    getCaptureHostApp().kind !== "desktop" &&
+    isScreenPermissionError(error);
   const settings = permissionError
     ? getModePermissionLabels(mode, micDeviceId)
     : [];
@@ -766,6 +764,27 @@ export default function RecordRoute() {
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
+  // A clipboard write can be refused (insecure origin, unfocused document, no
+  // transient activation). Never let the success toast imply the link was
+  // copied when it wasn't — offer a click instead, which restores the user
+  // gesture the browser is asking for.
+  const showSavedToast = useCallback(
+    (message: string, copied: boolean, recordingId: string) => {
+      if (copied) {
+        toast.success(message, { description: t("recordRoute.linkCopied") });
+        return;
+      }
+      toast.success(message, {
+        action: {
+          label: t("recordRoute.copyLinkAction"),
+          onClick: () => {
+            void copyRecordingShareLink(recordingId);
+          },
+        },
+      });
+    },
+    [t],
+  );
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -1723,8 +1742,13 @@ export default function RecordRoute() {
             description: t("recordRoute.connectStorageToFinish"),
             duration: 12_000,
           });
+        } else if (createdId && !reportContext) {
+          showSavedToast(
+            t("recordRoute.videoUploaded"),
+            await copyRecordingShareLink(createdId),
+            createdId,
+          );
         } else {
-          if (createdId && !reportContext) await copyRecordingLink(createdId);
           toast.success(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
@@ -1789,7 +1813,7 @@ export default function RecordRoute() {
         setUploadProgress(null);
       }
     },
-    [markStorageConfigured, navigate, probeVideoMetadata],
+    [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
   );
 
   const importLoom = useCallback(
@@ -1827,8 +1851,11 @@ export default function RecordRoute() {
             duration: 12_000,
           });
         } else {
-          await copyRecordingLink(recordingId);
-          toast.success(t("recordRoute.loomImported"));
+          showSavedToast(
+            t("recordRoute.loomImported"),
+            await copyRecordingShareLink(recordingId),
+            recordingId,
+          );
         }
         await writeAppState("navigate", {
           view: "recording",
@@ -1845,7 +1872,7 @@ export default function RecordRoute() {
         setLoomImporting(false);
       }
     },
-    [folderIdFromUrl, navigate, spaceIdFromUrl],
+    [folderIdFromUrl, navigate, spaceIdFromUrl, showSavedToast],
   );
 
   const saveBrowserDiagnostics = useCallback(
@@ -1944,7 +1971,14 @@ export default function RecordRoute() {
   // Stop / upload / navigate.
   // -------------------------------------------------------------------------
   const finishSavedRecording = useCallback(
-    async (recordingId: string, result: RecorderFinalizeResult) => {
+    async (
+      recordingId: string,
+      result: RecorderFinalizeResult,
+      // Started by the caller the moment the recording became durable, so the
+      // clipboard write happens closer to the user's stop gesture than to the
+      // end of the post-save bookkeeping.
+      pendingCopy?: Promise<boolean>,
+    ) => {
       // Recording is fully saved — clear refs so that if anything below throws
       // and the user clicks "Try again", doCancel() won't trash a good recording.
       pendingRef.current = null;
@@ -1960,9 +1994,14 @@ export default function RecordRoute() {
           description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
-      } else {
-        if (!reportContext) await copyRecordingLink(recordingId);
+      } else if (reportContext) {
         toast.success(t("recordRoute.recordingSaved"));
+      } else {
+        showSavedToast(
+          t("recordRoute.recordingSaved"),
+          await (pendingCopy ?? copyRecordingShareLink(recordingId)),
+          recordingId,
+        );
       }
 
       if (reportContext) {
@@ -1986,7 +2025,7 @@ export default function RecordRoute() {
         navigate(`/r/${recordingId}`);
       }, 50);
     },
-    [navigate],
+    [navigate, showSavedToast],
   );
 
   const doStop = useCallback(async () => {
@@ -2056,8 +2095,15 @@ export default function RecordRoute() {
       }
 
       const stopResult = await engine.stop();
+      // The recording is durable here; saveBrowserDiagnostics is one more
+      // round trip. Start the clipboard write first so it isn't pushed even
+      // further from the stop gesture that authorized it.
+      const pendingCopy =
+        stopResult.waitingForStorage || bugReportContextRef.current
+          ? undefined
+          : copyRecordingShareLink(pending.id).catch(() => false);
       await saveBrowserDiagnostics(pending.id);
-      await finishSavedRecording(pending.id, stopResult);
+      await finishSavedRecording(pending.id, stopResult, pendingCopy);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : t("recordRoute.uploadFailed");

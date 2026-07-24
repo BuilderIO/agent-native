@@ -1,11 +1,11 @@
 import {
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
   IconCopy,
   IconExternalLink,
   IconLoader2,
-  IconMessageCircle,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
@@ -32,8 +32,8 @@ interface PillContext {
  * Granola-style recording indicator. A floating pill anchored by Rust:
  * center-right for meetings, bottom-center for ordinary recordings.
  *
- *   - Collapsed (default): red dot + elapsed timer + tiny waveform + chevron.
- *   - Expanded: same header + scrolling live transcript + Pause / Stop.
+ *   - Collapsed (default): logo + live waveform capsule, click to expand.
+ *   - Expanded: header + scrolling live transcript + Pause / Stop + Ask bar.
  *
  * The hosting Tauri window is always-on-top, transparent, no decorations,
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
@@ -51,6 +51,7 @@ export function RecordingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
+  const [ask, setAsk] = useState("");
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -196,17 +197,6 @@ export function RecordingPill() {
     };
   }, [ctx.mode, paused]);
 
-  // Let the compact chip land first, then reveal the live transcript once per
-  // meeting. The delay keeps the indicator from feeling like a sudden panel.
-  useEffect(() => {
-    if (ctx.mode !== "meeting" || detached) return;
-    const timer = setTimeout(() => {
-      setExpanded(true);
-      invoke("recording_pill_expand", { expanded: true }).catch(() => {});
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [ctx.mode, detached]);
-
   async function toggleExpanded() {
     const next = !expanded;
     setExpanded(next);
@@ -258,6 +248,19 @@ export function RecordingPill() {
     }
   };
 
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const question = ask.trim();
+    const mid = activeMeetingIdRef.current;
+    if (!question || !mid) return;
+    setAsk("");
+    emit("clips:open-meeting", {
+      meetingId: mid,
+      openChat: true,
+      prompt: question,
+    }).catch(() => {});
+  };
+
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -307,11 +310,9 @@ export function RecordingPill() {
                 ? " pill-vertical"
                 : ""
           }`}
+          onClick={!expanded && !detached ? handlePillMediaClick : undefined}
         >
-          <div
-            className="pill-media"
-            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
-          >
+          <div className="pill-media">
             <PillLogo className="pill-logo" />
             <LiveAudioBars
               compact={!expanded && !detached}
@@ -413,43 +414,43 @@ export function RecordingPill() {
             />
           </div>
           {ctx.mode === "meeting" ? (
-            <div className="pill-saved-bar">
+            <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
+              <input
+                data-no-drag
+                className="pill-ask-input"
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                placeholder="Ask anything"
+                aria-label="Ask anything about this meeting"
+                disabled={!ctx.meetingId}
+              />
+              <button
+                type="submit"
+                data-no-drag
+                className="pill-ask-send"
+                disabled={!ask.trim() || !ctx.meetingId}
+                aria-label="Ask"
+                title="Ask"
+              >
+                <IconArrowUp size={13} />
+              </button>
               <button
                 type="button"
                 data-no-drag
-                className="pill-open-web-btn"
+                className="pill-ask-open"
                 onClick={() => {
                   const mid = activeMeetingIdRef.current;
                   if (mid)
-                    emit("clips:open-meeting", {
-                      meetingId: mid,
-                      openChat: true,
-                    }).catch(() => {});
+                    emit("clips:open-meeting", { meetingId: mid }).catch(
+                      () => {},
+                    );
                 }}
-                title="Chat with transcript"
+                aria-label="Open in browser"
+                title="Open this meeting in the browser"
               >
-                <IconMessageCircle size={12} />
-                Chat with transcript
+                <IconExternalLink size={13} />
               </button>
-              <span className="pill-saved-status">
-                <button
-                  type="button"
-                  data-no-drag
-                  className="pill-open-web-btn"
-                  onClick={() => {
-                    const mid = activeMeetingIdRef.current;
-                    if (mid)
-                      emit("clips:open-meeting", { meetingId: mid }).catch(
-                        () => {},
-                      );
-                  }}
-                  title="Open this meeting in the browser"
-                >
-                  <IconExternalLink size={12} />
-                  Open in browser
-                </button>
-              </span>
-            </div>
+            </form>
           ) : null}
         </div>
       </div>

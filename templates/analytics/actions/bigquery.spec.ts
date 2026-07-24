@@ -51,6 +51,23 @@ describe("bigquery action error handling", () => {
     expect(result.recoverable).toBe(true);
   });
 
+  it("treats a query timeout as a cost problem, not a schema problem", async () => {
+    runQuery.mockRejectedValue(
+      new Error("BigQuery query timed out after 60 seconds"),
+    );
+
+    const result = (await bigquery.run({
+      sql: "SELECT * FROM `p.dbt_analytics.events`",
+    })) as Record<string, unknown>;
+
+    expect(result.error).toBe("bigquery_query_timeout");
+    expect(result.recoverable).toBe(true);
+    // The old behaviour sent the model back to search-bigquery-schema, which
+    // produced repeated 60-second reruns of valid-but-slow SQL.
+    expect(String(result.hint)).not.toMatch(/search-bigquery-schema/);
+    expect(String(result.hint)).toMatch(/LIMIT|narrow the date range/i);
+  });
+
   it("still stops the turn (non-recoverable) when BigQuery is not configured", async () => {
     runQuery.mockRejectedValue(
       new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured"),

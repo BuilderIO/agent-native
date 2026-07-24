@@ -329,6 +329,41 @@ export default defineConfig({
 });
 ```
 
+## SSR 캐싱 {#ssr-caching}
+
+모든 SSR HTML 응답과 모든 React Router `.data` 응답은 하나의 비개인화된 공개 셸입니다. `createH3SSRHandler`가 렌더링 전에 쿠키를 제거하므로 동일한 바이트가 모든 방문자에게 올바르게 제공되며, 모든 개인화는 로드 후 클라이언트에서 이루어집니다. 이 때문에 이러한 응답에 기본적으로 단일 하드 캐시 정책을 적용해도 안전합니다.
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+동일한 값이 `cdn-cache-control`과 `netlify-cdn-cache-control`에도 미러링됩니다. 그러면 요청마다 렌더링하는 대신 하나의 공유 CDN 항목이 사이트 전체를 제공하게 되며, 이는 최초 응답 지연 시간을 좌우하는 가장 큰 요인입니다 — 아래 사례 중 하나가 배포에 해당하지 않는 한 켜 둔 상태로 두세요.
+
+### `AGENT_NATIVE_SSR_CACHE`로 재정의하기 {#ssr-cache-env}
+
+배포 환경에서 `AGENT_NATIVE_SSR_CACHE`를 설정하면 배포 전체의 정책을 변경할 수 있습니다.
+
+| 값                                                  | 결과                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| unset, `on`, `default`, `true`, `1`                 | 위의 기본 정책 그대로 유지됩니다. 권장 — 최고의 성능.                                        |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `cache-control`, `cdn-cache-control`, `netlify-cdn-cache-control`에 `no-store`를 적용합니다. |
+| 기간: `30`, `30s`, `5m`, `2h`                       | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`.                      |
+
+숫자만 있으면 초 단위로 처리됩니다. `stale-while-revalidate`는 커스텀 기간에 대해 의도적으로 `max-age`를 그대로 반영합니다. 짧은 신선도 창에 기본 7일 stale 창을 그대로 두면, 정확히 여러분이 없애려던 그 오래됨이 그대로 돌아오기 때문입니다. 인식할 수 없는 값은 경고를 기록하고 기본값으로 대체되므로, 오타로 인해 CDN이 조용히 비활성화되는 일은 없습니다.
+
+다음 중 하나에 해당하면 캐시를 낮추거나 꺼야 합니다.
+
+1. **호스트가 배포 시 CDN을 퍼지하지 않는 경우.** Netlify와 Vercel은 퍼지하지만, 일부 자체 관리 환경은 그렇지 않습니다. 퍼지가 없으면 배포된 빌드가 `max-age`에 `stale-while-revalidate`를 더한 기간 동안 이전 셸을 계속 제공할 수 있습니다.
+2. **로더가 변경 가능한 공개 데이터를 반환하는 경우.** 뮤테이션이 성공한 후 `useRevalidator()` 또는 액션 후 리디렉션에 의한 재요청이 최신 로더 출력 대신 브라우저에 캐시된 `.data` 사본을 읽을 수 있습니다.
+
+이 설정은 모든 공개 셸 서페이스에 적용됩니다: React Router SSR HTML 및 `.data`, 로그인 HTML 셸, `/_agent-native/speculation-rules.json` 경로, 문서 사이트, forms 템플릿의 공개 폼 SSR. 생성된 Cloudflare Worker는 이를 빌드 시점에 해석하므로, 빌드를 실행하기 전에 배포 환경에서 설정하세요.
+
+기억해야 할 세 가지가 있습니다.
+
+- **캐싱을 끈다고 해서 SSR이 개인화되는 것은 아닙니다.** 쿠키는 여전히 렌더링 전에 제거되며 SSR 로더는 여전히 익명 분기를 봅니다. 사용자별 데이터는 여전히 클라이언트 측에서 해결해야 합니다. 이 변수는 캐시 *기간*만 제어합니다.
+- **이는 설계상 라우트별이 아니라 배포 전체 설정입니다.** 라우트별 또는 요청별 캐시 재정의는 한 방문자의 페이로드가 다른 방문자의 공유 CDN 항목에 섞여 들어가는 원인이 되므로, 프레임워크는 이를 제공하지 않습니다 — `guard:ssr-cache-shell`이 이를 강제합니다.
+- **뮤테이션 직후의 최신 데이터가 필요하면 캐시를 비활성화하는 대신 Actions를 사용하세요.** 앱 데이터는 [Actions](/docs/actions)에 속하며, 클라이언트에서는 `useActionQuery` / `useActionMutation`으로 읽고 `useDbSync()` 폴링으로 최신 상태를 유지합니다. 이 중 어느 것도 SSR 셸 캐시를 거치지 않습니다. SSR 로더는 계속 공개 셸을 렌더링하게 두고, 이 변수는 정말로 로더 데이터를 더 신선하게 만들고 싶을 때만 사용하세요.
+
 ## 환경변수 {#environment-variables}
 
 ### 빌드/런타임 {#env-runtime}
@@ -339,6 +374,7 @@ export default defineConfig({
 | `NITRO_PRESET`                              | 빌드 시 빌드 사전 설정 재정의                                                                                                                                                                                                                                                                                                                                              |
 | `APP_BASE_PATH`                             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다.                                                                                                                                                                                                           |
 | `AGENT_PROD_CODE_EXECUTION`                 | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_SSR_CACHE`                    | 배포 전체 SSR 셸 캐시 정책: 미설정/`on`은 기본 하드 캐시를 유지하고, `off`는 `no-store`를 보내며, `30s` / `5m` 같은 기간을 지정하면 신선도 기간이 짧아집니다. [SSR Caching](#ssr-caching)을 참조하세요.                                                                                                                                                                    |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 미리 보기에서 안전한 Builder 권한 부여 릴레이를 위한 전용 32자 이상의 공유 HMAC 비밀입니다. 권한 부여 결과가 격리된 미리 보기 데이터베이스에 저장되어야 할 때만 승인된 기업 콜백 배포와 미리 보기 배포 양쪽에 동일한 값을 설정하세요.                                                                                                                                      |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 기업 콜백 전용으로, 정확히 일치하는 신뢰할 수 있는 미리 보기 origin을 쉼표로 구분한 허용 목록입니다(예: `https://0123456789abcdef01234567--content.netlify.app`). 기업 콜백 배포에만 설정하세요. Netlify origin은 24자리 16진수 ID를 포함한 변경 불가능한 배포별 영구 링크를 사용해야 합니다. 변경 가능한 `deploy-preview-*` 별칭, 와일드카드, 도메인 접미사는 거부됩니다. |
 

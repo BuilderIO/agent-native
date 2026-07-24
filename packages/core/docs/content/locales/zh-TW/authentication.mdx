@@ -405,6 +405,8 @@ function SignInCta() {
 
 一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/_agent-native/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
+此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
+
 ### 幕後花絮：GoogleOAuth
 
 兩個流（顯式 `/_agent-native/sign-in` 入口點和書簽路徑情況）都將傳回 URL 對話串穿過 OAuth 狀態。該狀態是 HMAC 簽名的，因此在運輸過程中無法偽造。在回調中，返回的 URL 在重新導向之前被重新驗證為同來源 - 因此泄漏的簽名金鑰仍然無法轉換為開放重新導向預言機。

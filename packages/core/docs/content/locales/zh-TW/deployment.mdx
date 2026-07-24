@@ -329,6 +329,41 @@ export default defineConfig({
 });
 ```
 
+## SSR 快取 {#ssr-caching}
+
+每個 SSR HTML 回應和每個 React Router `.data` 回應都是同一個非個人化的公開外殼：`createH3SSRHandler` 會在渲染前剝離 cookie，因此相同的位元組對每位訪客都是正確的，所有個人化都在載入完成後於用戶端進行。這正是為什麼預設在這些回應上蓋上單一硬快取策略是安全的：
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+相同的值會鏡像到 `cdn-cache-control` 和 `netlify-cdn-cache-control` 上。這樣一個共用的 CDN 條目就能服務整個網站，而不是逐請求渲染，這是首次回應延遲上最大的單一槓桿——除非您的部署符合下面的某種情況，否則請保持開啟。
+
+### 使用 `AGENT_NATIVE_SSR_CACHE` 覆蓋設定 {#ssr-cache-env}
+
+在部署環境中設定 `AGENT_NATIVE_SSR_CACHE`，即可變更整個部署的策略：
+
+| 值                                                  | 結果                                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 未設定、`on`、`default`、`true`、`1`                | 上面的預設策略，不變。建議使用——效能最佳。                                            |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上的 `no-store`。 |
+| 一個時長：`30`、`30s`、`5m`、`2h`                   | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。              |
+
+裸數字表示秒。`stale-while-revalidate` 有意為自訂時長鏡像 `max-age`：將一個短的新鮮度視窗與預設的七天過時視窗搭配，會恰好返回您本想選擇退出的那種過時資料。無法辨識的值會記錄一則警告並回退到預設值，因此拼寫錯誤永遠不會悄悄停用 CDN。
+
+在以下任一情況成立時，請將其調低或關閉：
+
+1. **您的主機不會在部署時清除其 CDN。** Netlify 和 Vercel 會；一些自行託管的部署不會。如果沒有清除，已發布的建置可能會在 `max-age` 加上 `stale-while-revalidate` 的時長內繼續提供先前的外殼。
+2. **您的載入器回傳可變的公開資料。** 在一次成功的變更之後，`useRevalidator()` 或操作後重新導向觸發的重新擷取，可能會讀取瀏覽器快取的 `.data` 副本，而不是最新的載入器輸出。
+
+此設定適用於每一個公開外殼介面：React Router 的 SSR HTML 與 `.data`、登入 HTML 外殼、`/_agent-native/speculation-rules.json` 路由、檔案站點，以及 forms 範本中的公開表單 SSR。產生的 Cloudflare Worker 會在建置時解析該值，因此請在建置執行之前於部署環境中設定它。
+
+有三點需要記住：
+
+- **關閉快取並不會讓 SSR 變得個人化。** Cookie 在渲染前仍會被剝離，SSR 載入器仍然只會看到匿名分支。使用者專屬資料依然必須在用戶端解析。此變數只控制快取*時長*。
+- **它是部署範圍的設定，而非按路由，這是有意為之的設計。** 按路由或按請求的快取覆蓋，會導致一位訪客的負載最終出現在另一位訪客共用的 CDN 條目中，因此框架不提供這種選項——`guard:ssr-cache-shell` 會強制執行這一點。
+- **對於需要變更後立即新鮮的資料，優先使用 actions 而不是停用快取。** 應用程式資料屬於 [actions](/docs/actions)，透過 `useActionQuery` / `useActionMutation` 從用戶端讀取，並透過 `useDbSync()` 輪詢保持即時；這些都不會經過 SSR 外殼快取。讓 SSR 載入器繼續渲染公開外殼，只有在您確實需要更新鮮的載入器資料時，才使用此變數。
+
 ## 環境變數 {#environment-variables}
 
 ### 建置/執行時 {#env-runtime}
@@ -339,6 +374,7 @@ export default defineConfig({
 | `NITRO_PRESET`                              | 在建置時覆蓋建置預設                                                                                                                                                                                                                                                                      |
 | `APP_BASE_PATH`                             | 將應用程式安裝在前綴下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自動設定；保持未設定為獨立。                                                                                                                                                                              |
 | `AGENT_PROD_CODE_EXECUTION`                 | 可選的正式環境程式碼執行模式：`off`（預設）、`sandboxed` 或 `trusted`。參見[Production Code Execution](#production-code-execution)。                                                                                                                                                      |
+| `AGENT_NATIVE_SSR_CACHE`                    | 部署範圍的 SSR 外殼快取策略：未設定/`on` 保持預設硬快取，`off` 傳送 `no-store`，或使用一個時長（例如 `30s` / `5m`）設定更短的新鮮度。參見 [SSR Caching](#ssr-caching)。                                                                                                                   |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用於預覽安全的 Builder 授權中繼的專用 32+ 字元共用 HMAC 金鑰。只有當授權結果必須寫入隔離的預覽資料庫時，才在核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                                  |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 僅供企業回呼使用、以逗號分隔的精確可信預覽來源允許清單（例如 `https://0123456789abcdef01234567--content.netlify.app`）。僅在企業回呼部署中設定。Netlify 來源必須使用包含 24 位十六進位 ID、不可變且特定於部署的永久連結；可變的 `deploy-preview-*` 別名、萬用字元和網域尾碼都會遭到拒絕。 |
 

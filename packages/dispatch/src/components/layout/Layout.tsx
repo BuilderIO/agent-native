@@ -747,13 +747,16 @@ export function NavContent({
           </nav>
         </div>
 
-        {!collapsed ? (
-          <div className="mt-auto shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher />
-            </div>
+        <div className="mt-auto shrink-0">
+          <div
+            className={cn(
+              "py-2",
+              collapsed ? "flex justify-center px-1" : "px-3",
+            )}
+          >
+            <OrgSwitcher compact={collapsed} />
           </div>
-        ) : null}
+        </div>
         <SidebarFooterActions
           collapsed={collapsed}
           feedback={feedbackButton}

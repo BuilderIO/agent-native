@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockViewerRows = vi.hoisted(() => vi.fn());
 const mockEventRows = vi.hoisted(() => vi.fn());
+const mockViewLogRows = vi.hoisted(() => vi.fn());
 const mockRecordingRows = vi.hoisted(() => vi.fn());
 const tables = vi.hoisted(() => ({
   recordingViewers: { recordingId: "recordingViewers.recordingId" },
+  recordingViews: { recordingId: "recordingViews.recordingId" },
   recordingEvents: { recordingId: "recordingEvents.recordingId" },
   recordings: { id: "recordings.id", durationMs: "recordings.durationMs" },
 }));
@@ -18,6 +20,7 @@ const mockDb = vi.hoisted(() => ({
       }),
       where: vi.fn(() => {
         if (table === tables.recordingViewers) return mockViewerRows();
+        if (table === tables.recordingViews) return mockViewLogRows();
         if (table === tables.recordingEvents) return mockEventRows();
         return builder;
       }),
@@ -37,6 +40,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  count: vi.fn(() => ({ kind: "count" })),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
@@ -46,6 +50,17 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 import getRecordingInsights from "./get-recording-insights";
+
+function countedViewer(id: string, viewerEmail: string) {
+  return {
+    id,
+    viewerEmail,
+    viewerName: "Viewer",
+    totalWatchMs: 12_000,
+    completedPct: 100,
+    countedView: true,
+  };
+}
 
 describe("get-recording-insights", () => {
   beforeEach(() => {
@@ -61,6 +76,7 @@ describe("get-recording-insights", () => {
       },
     ]);
     mockEventRows.mockResolvedValue([]);
+    mockViewLogRows.mockResolvedValue([{ value: 1 }]);
     mockRecordingRows.mockResolvedValue([{ durationMs: 10_000 }]);
   });
 
@@ -76,5 +92,78 @@ describe("get-recording-insights", () => {
       topViewers: [expect.objectContaining({ completedPct: 100 })],
     });
     expect(result.dropOff.at(-1)).toEqual({ bucket: 99, watching: 1 });
+  });
+
+  it("counts repeat sessions from one viewer as multiple views", async () => {
+    mockViewLogRows.mockResolvedValue([{ value: 4 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBe(4);
+    expect(result.uniqueViewers).toBe(1);
+  });
+
+  it("falls back to counted viewers when the view log is empty", async () => {
+    mockViewerRows.mockResolvedValue([
+      countedViewer("viewer-1", "a@example.com"),
+      countedViewer("viewer-2", "b@example.com"),
+      countedViewer("viewer-3", "c@example.com"),
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBe(3);
+    expect(result.uniqueViewers).toBe(3);
+  });
+
+  it("never reports fewer views than unique viewers", async () => {
+    mockViewerRows.mockResolvedValue([
+      countedViewer("viewer-1", "a@example.com"),
+      countedViewer("viewer-2", "b@example.com"),
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 1 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBeGreaterThanOrEqual(result.uniqueViewers);
+    expect(result.views).toBe(2);
+  });
+
+  it("divides CTA conversion by counted viewers, not repeat views", async () => {
+    mockViewerRows.mockResolvedValue([
+      countedViewer("viewer-1", "a@example.com"),
+      countedViewer("viewer-2", "b@example.com"),
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 8 }]);
+    mockEventRows.mockResolvedValue([{ kind: "cta-click" }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBe(8);
+    expect(result.ctaConversionRate).toBe(50);
+  });
+
+  it("ignores viewers who never met the counting threshold", async () => {
+    mockViewerRows.mockResolvedValue([
+      countedViewer("viewer-1", "a@example.com"),
+      { ...countedViewer("viewer-2", "b@example.com"), countedView: false },
+    ]);
+    mockViewLogRows.mockResolvedValue([{ value: 0 }]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBe(1);
+    expect(result.uniqueViewers).toBe(1);
   });
 });

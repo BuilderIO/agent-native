@@ -489,6 +489,11 @@ function buildPrompt({
     "dueDate"?: string              // ISO date if explicitly mentioned
   }>
 }
+Rules for summaryMd:
+- Write it the way the person who made this recording would describe it themselves — plain, direct, and about the subject matter.
+- Never narrate the recording from the outside. Do not write "the speaker", "the presenter", "the narrator", "the author", "the team", "the video", "this recording", "this clip", "this meeting", "the discussion covered", or any equivalent framing.
+- Lead with the topic, decisions, and specifics. Name a person only when who said or owns something actually matters.
+- No praise, no meta commentary about the transcript, no "overall" wrap-up sentence.
 Rules for action items:
 - Attribute each action item to a specific attendee whenever the transcript makes the owner clear (e.g. "I'll send the deck", "Alice will follow up").
 - The "assigneeEmail" MUST be one of the attendee emails listed in the <context> block above — do not invent emails or use display names.

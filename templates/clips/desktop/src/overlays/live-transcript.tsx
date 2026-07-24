@@ -151,8 +151,9 @@ export function LiveTranscript({
 
 /**
  * A single chat-style transcript bubble. The mic stream ("You") is aligned to
- * the right with a warm amber bubble; the system-audio stream ("Them") sits on
- * the left with a cool sky bubble. In-flight partials render dimmed.
+ * the right; the system-audio stream ("Them") sits on the left. Both use
+ * neutral greys — side, not hue, is what distinguishes the speakers. In-flight
+ * partials render dimmed.
  */
 function ChatBubble({
   source,

@@ -228,6 +228,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
       { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
+      { id: "http-api", labelKey: "httpApi", slug: "http-api" },
       {
         id: "mcp-protocol",
         labelKey: "mcpServer",
@@ -261,6 +262,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "creating-templates",
         labelKey: "creatingTemplates",
         slug: "creating-templates",
+      },
+      {
+        id: "syncing-template-changes",
+        labelKey: "syncingTemplateChanges",
+        slug: "syncing-template-changes",
       },
       {
         id: "writing-agent-instructions",

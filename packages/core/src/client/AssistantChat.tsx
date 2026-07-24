@@ -96,6 +96,7 @@ import { TextStreamingContext } from "./chat/markdown-renderer.js";
 import {
   CheckpointContext,
   MessageActionsContext,
+  assistantMessageRunId,
   UserMessage,
   AssistantMessage,
   SelectionAttachedPill,
@@ -364,16 +365,7 @@ function activeRunMatchesThread(
   return Boolean(threadId && state?.threadId === threadId && state.runId);
 }
 
-export function assistantMessageRunId(message: unknown): string | undefined {
-  const metadata = (message as { metadata?: unknown })?.metadata as
-    | { custom?: { runId?: unknown }; runId?: unknown }
-    | undefined;
-  return typeof metadata?.custom?.runId === "string"
-    ? metadata.custom.runId
-    : typeof metadata?.runId === "string"
-      ? metadata.runId
-      : undefined;
-}
+export { assistantMessageRunId };
 
 export function shouldAcceptRunError(args: {
   errorRunId?: string;
@@ -4945,9 +4937,43 @@ const AssistantChatInner = forwardRef<
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
+  const [checkpointRunIds, setCheckpointRunIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  useEffect(() => {
+    if (!cpDevMode || !threadId) {
+      setCheckpointRunIds(new Set<string>());
+      return;
+    }
+    // Refetch once each run settles: the checkpoint for that turn is written
+    // after the run completes, so a list loaded mid-run would miss it.
+    if (isRunning) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiUrl}/checkpoints?threadId=${encodeURIComponent(threadId)}`,
+        );
+        if (!res.ok) throw new Error(String(res.status));
+        const rows: unknown = await res.json();
+        if (cancelled) return;
+        const runIds = Array.isArray(rows)
+          ? rows
+              .map((row) => (row as { runId?: unknown })?.runId)
+              .filter((id): id is string => typeof id === "string" && !!id)
+          : [];
+        setCheckpointRunIds(new Set(runIds));
+      } catch {
+        if (!cancelled) setCheckpointRunIds(new Set<string>());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, cpDevMode, threadId, isRunning]);
   const checkpointCtx = useMemo(
-    () => ({ apiUrl, devMode: cpDevMode, threadId }),
-    [apiUrl, cpDevMode, threadId],
+    () => ({ apiUrl, devMode: cpDevMode, threadId, checkpointRunIds }),
+    [apiUrl, cpDevMode, threadId, checkpointRunIds],
   );
   const messageActionsCtx = useMemo(() => ({ onForkChat }), [onForkChat]);
   const lastMessageLoopLimit = useMemo(() => {
