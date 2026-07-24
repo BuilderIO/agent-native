@@ -746,6 +746,84 @@ describe("@agent-native/skills", () => {
     );
   });
 
+  it("delegates Rewind installs to the core local Screen Memory flow", async () => {
+    const project = tmpDir();
+    const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
+    delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+
+    try {
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--yes",
+          "--json",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+    } finally {
+      if (previousDirect === undefined)
+        delete process.env.AGENT_NATIVE_SKILLS_DIRECT;
+      else process.env.AGENT_NATIVE_SKILLS_DIRECT = previousDirect;
+    }
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      [
+        "add",
+        "rewind",
+        "--client",
+        "codex",
+        "--scope",
+        "user",
+        "--yes",
+        "--json",
+      ],
+      expect.objectContaining({
+        baseDir: project,
+        catalogMode: "all",
+        isInteractive: expect.any(Function),
+        publicSkillEntries: [],
+        publicSkillSource: "BuilderIO/skills",
+      }),
+    );
+  });
+
+  it("surfaces Core's rejection when Rewind MCP setup is disabled", async () => {
+    const project = tmpDir();
+    vi.mocked(runCoreSkills).mockRejectedValueOnce(
+      new Error(
+        "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+      ),
+    );
+
+    await expect(
+      runSkillsCli(
+        [
+          "add",
+          "--skill",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--no-mcp",
+          "--yes",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      ),
+    ).rejects.toThrow("cannot be installed with --no-mcp");
+
+    expect(runCoreSkills).toHaveBeenCalledWith(
+      expect.arrayContaining(["rewind", "--no-mcp"]),
+      expect.objectContaining({ baseDir: project }),
+    );
+  });
+
   it("delegates content local-files installs to agent-native core", async () => {
     const project = tmpDir();
     const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
