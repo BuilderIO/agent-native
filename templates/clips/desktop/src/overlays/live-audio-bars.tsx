@@ -75,7 +75,8 @@ export function LiveAudioBars({
         // clear. A gentle curve keeps the meter responsive without turning
         // background noise into a full-height signal.
         const level = levels[index] ?? 0;
-        const shaped = level > 0 ? Math.min(1, Math.pow(level, 0.52) * 1.08) : 0;
+        const shaped =
+          level > 0 ? Math.min(1, Math.pow(level, 0.52) * 1.08) : 0;
         const height = (IDLE_HEIGHT + shaped * gain * (1 - IDLE_HEIGHT)) * 100;
         return (
           <span

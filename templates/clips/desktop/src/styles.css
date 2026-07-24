@@ -5572,15 +5572,15 @@ body[data-clips-route="recording-pill"] #root {
 /* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   height: auto;
   width: auto;
-  padding: 10px 7px 8px;
+  padding: 12px 10px 10px;
   cursor: pointer;
 }
 
 .pill-vertical .pill-logo {
-  height: 11px;
+  height: 12px;
 }
 
 /* Controls (timer / pause / stop / chevron) live in the expanded view — the
