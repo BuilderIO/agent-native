@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
-import { and, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, eq, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -173,11 +173,23 @@ export default defineAction({
     const analyticsUserIdentity = sql<
       string | null
     >`coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, ''))`;
-    const dashboardEventLocation = or(
+    const indexedDashboardEventLocation = or(
       like(schema.analyticsEvents.path, "/dashboards/%"),
       like(schema.analyticsEvents.path, "/adhoc/%"),
-      like(schema.analyticsEvents.url, "%/dashboards/%"),
-      like(schema.analyticsEvents.url, "%/adhoc/%"),
+    );
+    const legacyAbsoluteUrlDashboardEventLocation = and(
+      or(
+        isNull(schema.analyticsEvents.path),
+        eq(schema.analyticsEvents.path, ""),
+      ),
+      or(
+        like(schema.analyticsEvents.url, "%/dashboards/%"),
+        like(schema.analyticsEvents.url, "%/adhoc/%"),
+      ),
+    );
+    const dashboardEventLocation = or(
+      indexedDashboardEventLocation,
+      legacyAbsoluteUrlDashboardEventLocation,
     );
 
     const [savedViewRows, revisionRows, eventRows, eventUserRows] =
@@ -191,7 +203,13 @@ export default defineAction({
             >`max(${schema.dashboardViews.createdAt})`,
           })
           .from(schema.dashboardViews)
-          .where(inArray(schema.dashboardViews.dashboardId, [...dashboardIds]))
+          .innerJoin(
+            schema.dashboards,
+            and(
+              eq(schema.dashboardViews.dashboardId, schema.dashboards.id),
+              eq(schema.dashboards.orgId, admin.orgId),
+            ),
+          )
           .groupBy(schema.dashboardViews.dashboardId),
         db
           .select({
