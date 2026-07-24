@@ -544,7 +544,10 @@ describe("runMonitorCheck timeout budget", () => {
       kind: "timeout",
       message: "Timed out after 1000ms",
     });
-    expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(1000);
+    // Real timers: the abort timer and this Date.now() delta are anchored at
+    // slightly different instants, so the measured request time can land a few
+    // ms shy of the nominal 1000ms budget on loaded CI runners.
+    expect(outcome.diagnostics.timings.requestMs).toBeGreaterThanOrEqual(950);
   });
 });
 
