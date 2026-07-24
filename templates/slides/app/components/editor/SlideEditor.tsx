@@ -1062,6 +1062,10 @@ export default function SlideEditor({
   }, [overflowInfo, slide.id, dims.width, dims.height]);
   /** Marquee origin (viewport coords). Set on pointerdown. */
   const marqueeOriginRef = useRef<{ x: number; y: number } | null>(null);
+  /** Set right before placing a text box so the click event that follows the
+   *  placing pointerdown doesn't fall through to click-to-select/deselect
+   *  logic and steal focus back off the freshly created box. */
+  const suppressNextClickRef = useRef(false);
   /**
    * If the user pressed shift/cmd before starting a marquee, additive mode
    * preserves the existing selection on pointerup.
@@ -1661,6 +1665,19 @@ export default function SlideEditor({
       fmdSlide.appendChild(box);
 
       enterInlineEdit(box);
+
+      // el.focus() alone doesn't reliably place the caret inside a freshly
+      // created contentEditable node across browsers — set it explicitly on
+      // the placeholder text so typing lands immediately.
+      const textNode = box.firstChild;
+      if (textNode) {
+        const range = document.createRange();
+        range.setStart(textNode, textNode.textContent?.length ?? 0);
+        range.collapse(true);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
     },
     [enterInlineEdit],
   );
@@ -1675,9 +1692,15 @@ export default function SlideEditor({
       const target = e.target as HTMLElement;
 
       if (textBoxMode && isHtmlSlide) {
-        if (!isSlideWhitespaceTarget(target, slideContent)) return;
+        // Unlike the marquee/select flow below, the text-box tool places a
+        // box on the very next click no matter what it lands on (mirroring
+        // Google Slides / PowerPoint). Gating this on "whitespace" left the
+        // tool silently stuck on when a click landed on existing text —
+        // editing that text worked, but the tool state never cleared, so an
+        // unrelated later click would unexpectedly drop a new box.
         e.preventDefault();
         if (editingEl) exitInlineEdit();
+        suppressNextClickRef.current = true;
         placeTextBoxAt(e.clientX, e.clientY);
         onExitTextBoxMode?.();
         return;
@@ -1855,6 +1878,11 @@ export default function SlideEditor({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        return;
+      }
+
       // If currently editing a block, clicks inside it are for the caret —
       // don't select/style-edit.
       if (editingEl?.contains(e.target as Node)) return;
