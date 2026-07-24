@@ -730,7 +730,12 @@ export function useAddDatabaseItem(documentId: string) {
   return useActionMutation<ContentDatabaseResponse, AddDatabaseItemRequest>(
     "add-database-item",
     {
-      onSuccess: () => {
+      onSuccess: (data) => {
+        // The action returns the committed row and full database snapshot.
+        // Seed every active pagination key before invalidating so navigating
+        // away from the creation side-peek cannot briefly lose an appended row
+        // behind an older 100/200-row response.
+        writeContentDatabaseResponseToCache(queryClient, documentId, data);
         queryClient.invalidateQueries({
           queryKey: contentDatabaseQueryKey(documentId),
         });

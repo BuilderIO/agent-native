@@ -25,6 +25,7 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderReviewBodyCandidateDocumentIds,
+  knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
   builderBodyUnavailableVersion,
@@ -1049,6 +1050,29 @@ describe("database source helpers", () => {
         },
       ]),
     ).toEqual(["changed", "media-reconversion", "fixture"]);
+  });
+
+  it("scopes a bounded known review batch before broad body discovery", () => {
+    expect(
+      knownBuilderReviewDocumentIds(
+        [
+          { documentId: "doc-new" },
+          { documentId: "doc-new" },
+          { documentId: "doc-existing" },
+        ],
+        100,
+      ),
+    ).toEqual(["doc-new", "doc-existing"]);
+    expect(knownBuilderReviewDocumentIds([], 100)).toBeNull();
+    expect(
+      knownBuilderReviewDocumentIds([{ documentId: null }], 100),
+    ).toBeNull();
+    expect(
+      knownBuilderReviewDocumentIds(
+        [{ documentId: "doc-1" }, { documentId: "doc-2" }],
+        1,
+      ),
+    ).toBeNull();
   });
 
   it("detects local Builder body edits as outbound pending changes", () => {

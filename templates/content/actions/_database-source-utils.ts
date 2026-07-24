@@ -3254,6 +3254,19 @@ export function builderReviewBodyCandidateDocumentIds(
   });
 }
 
+export function knownBuilderReviewDocumentIds(
+  changeSets: Array<{ documentId: string | null }>,
+  limit: number,
+): string[] | null {
+  if (changeSets.length === 0 || changeSets.length > limit) return null;
+  const documentIds = new Set<string>();
+  for (const changeSet of changeSets) {
+    if (!changeSet.documentId) return null;
+    documentIds.add(changeSet.documentId);
+  }
+  return [...documentIds];
+}
+
 type BuilderReviewSourceValueTextKey =
   | typeof BUILDER_CMS_BODY_BLOCKS_HASH_KEY
   | typeof BUILDER_CMS_BODY_CONTENT_KEY;
@@ -3359,6 +3372,21 @@ export async function getContentDatabaseSourceSnapshotForReview(
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
   );
+  // The interactive review surface is capped at 100 rows. When a complete
+  // pending batch is already known, load heavy body/sidecar data only for those
+  // documents instead of first transferring every hydrated Builder article to
+  // rediscover body-only candidates. That broad discovery remains the fallback
+  // when no pending batch exists (and after the current batch is resolved).
+  const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
+    reviewableChanges,
+    100,
+  );
+  if (knownReviewDocumentIds) {
+    return loadSourceSnapshot(source, database, {
+      includeHeavyBuilderBodyValues: true,
+      documentIds: knownReviewDocumentIds,
+    });
+  }
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return loadSourceSnapshot(source, database, {
       includeHeavyBuilderBodyValues: true,
