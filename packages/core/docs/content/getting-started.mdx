@@ -53,7 +53,7 @@ unavailable`. These are a normal race condition during the initial boot and
 resolve on their own. The app is ready once **VITE ready** displays in the
 terminal output.
 
-When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made up login to satisfy the login screen. 
+When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made up login to satisfy the login screen.
 For local development, no email verification is actually required.
 
 ### If you want a different type of app
@@ -150,7 +150,9 @@ export default defineAction({
   schema: z.object({
     text: z
       .string()
-      .default("The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."),
+      .default(
+        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
+      ),
   }),
   outputSchema: textStatsSchema,
   chatUI: {
@@ -163,8 +165,14 @@ export default defineAction({
     points: [
       { label: "Characters", value: text.length },
       { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
-      { label: "Sentences", value: text.split(/[.!?]+/).filter(Boolean).length },
-      { label: "Paragraphs", value: text.split(/\n\n+/).filter(Boolean).length },
+      {
+        label: "Sentences",
+        value: text.split(/[.!?]+/).filter(Boolean).length,
+      },
+      {
+        label: "Paragraphs",
+        value: text.split(/\n\n+/).filter(Boolean).length,
+      },
     ],
   }),
 });
@@ -183,7 +191,7 @@ Or open your app at `http://localhost:8080` and ask the agent in the chat there:
 #### Define once, call from anywhere
 
 This action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
-scheduled jobs, and webhooks. 
+scheduled jobs, and webhooks.
 
 TIP: Any time you want the agent to call a specific action without ambiguity, phrasing it as "Run the `<action-name>` action" is most reliable. Natural-language prompts work well once the agent has enough context about your app's domain. For a brand-new app with no data or context yet, explicit is safer.
 
@@ -238,7 +246,9 @@ function TextStatsChart({ context }: ToolRendererProps) {
           >
             <div
               className="w-full rounded-t bg-blue-500"
-              style={{ height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px` }}
+              style={{
+                height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px`,
+              }}
             />
             <span className="text-xs text-muted-foreground">{point.label}</span>
           </div>
