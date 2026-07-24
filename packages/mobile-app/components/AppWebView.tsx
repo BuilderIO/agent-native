@@ -424,15 +424,12 @@ function AppWebView(
   );
 
   // Append the session token as a query param so the server can promote it to
-  // an httpOnly cookie (bridges the Safari/WKWebView cookie jar gap), and force
-  // the sign-in page into redirect mode. Its default popup flow opens Google in
-  // a window this WebView can't intercept; redirect mode navigates the main
-  // frame to the auth-url endpoint, which handleShouldStartLoad hands to Safari.
+  // an httpOnly cookie (bridges the Safari/WKWebView cookie jar gap).
   const webviewUrl = useMemo(() => {
+    if (!sessionToken) return url;
     try {
       const parsed = new URL(url);
-      parsed.searchParams.set("authMode", "redirect");
-      if (sessionToken) parsed.searchParams.set("_session", sessionToken);
+      parsed.searchParams.set("_session", sessionToken);
       return parsed.toString();
     } catch {
       return url;
