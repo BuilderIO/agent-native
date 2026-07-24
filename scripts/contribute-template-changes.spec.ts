@@ -6,6 +6,11 @@ import path from "node:path";
 import { after, describe, it } from "node:test";
 
 import {
+  baselineRefName,
+  resolveBaselineStore,
+  writeBaseline,
+} from "../packages/core/src/cli/template-baseline.ts";
+import {
   classifyRelPath,
   diffTrees,
   globToRegExp,
@@ -377,5 +382,73 @@ describe("end to end", () => {
       stderr = String((error as { stderr?: string }).stderr ?? "");
     }
     assert.match(stderr, /agent-native"\.scaffold\.template/);
+  });
+
+  // `os.tmpdir()` is a symlink on macOS (/var → /private/var), the same shape
+  // as a symlinked home or work dir. Computing the ref name from a non-realpath
+  // app dir yields a ref that never resolves, and the script then degrades to
+  // overwrite mode instead of merging — silently reverting upstream work.
+  it("finds a baseline ref written by template-baseline on a symlinked path", () => {
+    const root = tmpDir("contribute-ref-");
+    const framework = path.join(root, "framework");
+    const templateDir = path.join(framework, "templates", "notes");
+    const repo = path.join(root, "workspace");
+    const app = path.join(repo, "apps", "notes");
+
+    write(
+      templateDir,
+      "actions/list.ts",
+      'export const v = "{{APP_TITLE}}";\n',
+    );
+    execFileSync("git", ["init", "-q"], { cwd: framework });
+
+    write(
+      app,
+      "package.json",
+      JSON.stringify(
+        { name: "notes", "agent-native": { scaffold: { template: "notes" } } },
+        null,
+        2,
+      ) + "\n",
+    );
+    write(app, "actions/list.ts", 'export const v = "Notes";\n');
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+    for (const cfg of [
+      ["user.email", "t@t.t"],
+      ["user.name", "t"],
+    ]) {
+      execFileSync("git", ["config", ...cfg], { cwd: repo });
+    }
+    execFileSync("git", ["add", "-A"], { cwd: repo });
+    execFileSync("git", ["commit", "-qm", "initial"], { cwd: repo });
+
+    const store = resolveBaselineStore(app);
+    writeBaseline(store, app, "baseline", {
+      template: "notes",
+      ref: "@agent-native/core@0.0.0",
+      coreVersion: "0.0.0",
+    });
+    assert.equal(
+      baselineRefName(store, "baseline"),
+      "refs/agent-native/template-baseline/apps/notes",
+    );
+
+    fs.writeFileSync(
+      path.join(app, "actions/list.ts"),
+      'export const v = "Notes";\nexport const added = true;\n',
+    );
+
+    const stdout = execFileSync(
+      process.execPath,
+      ["--import", "tsx", scriptPath, "--app", app, "--framework", framework],
+      { cwd: repoRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+
+    assert.match(stdout, /refs\/agent-native\/template-baseline\/apps\/notes/);
+    assert.doesNotMatch(stdout, /APPROXIMATE BASE/);
+    assert.match(
+      fs.readFileSync(path.join(templateDir, "actions/list.ts"), "utf-8"),
+      /added = true/,
+    );
   });
 });
