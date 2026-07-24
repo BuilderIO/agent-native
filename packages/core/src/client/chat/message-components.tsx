@@ -1048,6 +1048,27 @@ export function shouldShowMissingFinalResponse({
   );
 }
 
+/**
+ * "The agent stopped" is derived from local client state, which dips to
+ * not-running at every chunk boundary and transport re-attach while the turn is
+ * still alive server-side. Requiring the shape to hold for a beat keeps the
+ * notice off the screen for those gaps without hiding a real stop for long.
+ */
+const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
+
+function useSettledFlag(active: boolean, delayMs: number): boolean {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!active || delayMs <= 0) {
+      setSettled(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSettled(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [active, delayMs]);
+  return active && (delayMs <= 0 || settled);
+}
+
 export function shouldShowAssistantWorkSummary({
   isLast,
   isComplete,
@@ -1257,13 +1278,16 @@ export function AssistantMessage() {
     msg.content,
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
-  const showMissingFinalResponse = shouldShowMissingFinalResponse({
-    isCurrentTurnRunning: isLast && chatRunning,
-    statusIsTerminal,
-    hasAssistantText: responseConnectionText.trim().length > 0,
-    hasUnresolvedTool,
-    hasCompletedCustomUi,
-  });
+  const showMissingFinalResponse = useSettledFlag(
+    shouldShowMissingFinalResponse({
+      isCurrentTurnRunning: isLast && chatRunning,
+      statusIsTerminal,
+      hasAssistantText: responseConnectionText.trim().length > 0,
+      hasUnresolvedTool,
+      hasCompletedCustomUi,
+    }),
+    isLast ? MISSING_FINAL_RESPONSE_SETTLE_MS : 0,
+  );
   const responseConnectionContext = userMessageTextBeforeAssistant(
     thread.messages,
     msg.id,
