@@ -125,8 +125,7 @@ describe("slash command pointer activation", () => {
     };
   }
 
-  it("preserves selection and deduplicates deferred pointer clicks", () => {
-    vi.useFakeTimers();
+  it("preserves selection and deduplicates deferred pointer clicks", async () => {
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
@@ -150,31 +149,29 @@ describe("slash command pointer activation", () => {
       });
       expect(onExecute).not.toHaveBeenCalled();
 
-      vi.runOnlyPendingTimers();
+      await act(async () => {
+        await Promise.resolve();
+      });
       expect(onExecute).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
-      vi.useRealTimers();
     }
   });
 
-  it("cancels deferred execution when the command button unmounts", () => {
-    vi.useFakeTimers();
+  it("keeps the chosen command alive when closing the menu unmounts it", async () => {
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
-    try {
-      act(() => {
-        button?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, cancelable: true }),
-        );
-      });
-      cleanup();
-      vi.runOnlyPendingTimers();
-      expect(onExecute).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    act(() => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    cleanup();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onExecute).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -908,6 +908,7 @@ export function SlashCommandMenu({
 
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
+      if (editor.isDestroyed) return;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
         (slashPosRef.current !== null
@@ -1315,20 +1316,9 @@ export function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
-  const pendingExecutionRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const pendingExecutionRef = useRef(false);
   const onExecuteRef = useRef(onExecute);
   onExecuteRef.current = onExecute;
-
-  useEffect(
-    () => () => {
-      if (pendingExecutionRef.current !== null) {
-        clearTimeout(pendingExecutionRef.current);
-      }
-    },
-    [],
-  );
 
   return (
     <button
@@ -1337,13 +1327,16 @@ export function CommandButton({
         event.preventDefault();
       }}
       onClick={() => {
-        if (pendingExecutionRef.current !== null) {
-          clearTimeout(pendingExecutionRef.current);
-        }
-        pendingExecutionRef.current = setTimeout(() => {
-          pendingExecutionRef.current = null;
+        if (pendingExecutionRef.current) return;
+        pendingExecutionRef.current = true;
+        // Closing the menu unmounts this button. A component-owned timer is
+        // therefore canceled before it can run in fast hosted renders. A
+        // microtask lets the native click finish while keeping the selected
+        // command alive through that expected unmount.
+        queueMicrotask(() => {
+          pendingExecutionRef.current = false;
           onExecuteRef.current();
-        }, 0);
+        });
       }}
       onMouseEnter={onHover}
       className={cn(
