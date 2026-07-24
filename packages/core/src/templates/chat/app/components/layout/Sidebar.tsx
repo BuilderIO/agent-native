@@ -235,7 +235,7 @@ function ChatThreadsSection({ open }: { open: boolean }) {
       data-state={open ? "open" : "closed"}
       aria-hidden={!open}
     >
-      <div className="mt-2 ms-4">
+      <div className="ms-4">
         <ChatHistoryRail
           items={chatItems}
           activeId={displayedActiveThreadId}
