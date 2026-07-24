@@ -831,14 +831,24 @@ function renderTreeDiff(baseDir: string, theirsDir: string): string {
     copyMergeable(theirsDir, b);
     const res = spawnSync(
       "git",
-      ["diff", "--no-index", "--no-prefix", "--", "a", "b"],
+      [
+        "diff",
+        "--no-index",
+        "--src-prefix=upstream-base/",
+        "--dst-prefix=upstream-new/",
+        "--",
+        "a",
+        "b",
+      ],
       { cwd: staging, encoding: "utf-8", maxBuffer: 128 * 1024 * 1024 },
     );
     const output = (res.stdout ?? "").toString();
+    // Only the staging dir names leak into headers; content lines cannot
+    // contain the prefixed form, so this rewrite is safe.
     return output.trim()
       ? output
-          .replace(/(^|\s)a\//gm, "$1upstream-base/")
-          .replace(/(^|\s)b\//gm, "$1upstream-new/")
+          .replaceAll("upstream-base/a/", "upstream-base/")
+          .replaceAll("upstream-new/b/", "upstream-new/")
       : "No upstream changes.";
   } finally {
     fs.rmSync(staging, { recursive: true, force: true });
@@ -846,12 +856,12 @@ function renderTreeDiff(baseDir: string, theirsDir: string): string {
 }
 
 function copyMergeable(from: string, to: string): void {
+  fs.mkdirSync(to, { recursive: true });
   for (const rel of listMergeableFiles(from)) {
     const dest = path.join(to, rel);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(path.join(from, rel), dest);
   }
-  fs.mkdirSync(to, { recursive: true });
 }
 
 function findConflictMarkers(appDir: string): string[] {
@@ -897,6 +907,22 @@ function reportRefspecs(configured: string[], io: TemplateIO): void {
   io.out(
     `Configured ${configured.join(" and ")} to carry refs/agent-native/* so the baseline survives clone and push.`,
   );
+}
+
+const VALUE_FLAGS = new Set(["--to", "--ref", "--template"]);
+
+/** A flag's value must never be mistaken for the [app] positional. */
+function positionalArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg.startsWith("-")) {
+      if (VALUE_FLAGS.has(arg)) i++;
+      continue;
+    }
+    out.push(arg);
+  }
+  return out;
 }
 
 function flagValue(args: string[], flag: string): string | undefined {

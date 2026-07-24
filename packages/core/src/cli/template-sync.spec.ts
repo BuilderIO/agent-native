@@ -554,6 +554,19 @@ describe("agent-native template commands", () => {
     );
   }, 180_000);
 
+  it("does not mistake a flag value for the [app] positional", async () => {
+    const { appDir } = await scaffoldInRepo();
+    process.chdir(appDir);
+    await runTemplate(["baseline"], collectIO().io);
+
+    const status = collectIO();
+    expect(
+      await runTemplate(["status", "--to", "@agent-native/core@9.9.9"], status.io),
+    ).toBe(0);
+    expect(status.text()).toContain("my-app (standalone)");
+    expect(status.text()).toContain("latest ref:     @agent-native/core@9.9.9");
+  }, 180_000);
+
   it("prints usage for an unknown or missing command", async () => {
     const { appDir } = await scaffoldInRepo();
     process.chdir(appDir);
