@@ -20,12 +20,33 @@ function normalizeOrgRole(value: unknown): OrgRole | null {
     : null;
 }
 
-function isLikelyPersonalWorkspace(
-  membership: { orgName: string },
-  email: string,
-  session: { name?: string } | null,
-): boolean {
-  return membership.orgName.trim() === defaultOrgName(email, session);
+function emailDomainOf(email: string): string | null {
+  return email.split("@")[1]?.toLowerCase() || null;
+}
+
+/**
+ * A workspace the user owns that nobody else has joined is a default/personal
+ * workspace whatever it happens to be named, so moving the user into their
+ * company org is safe. An org with other members is a team they deliberately
+ * belong to — join the domain org in the background but leave them there.
+ */
+async function isSoloOwnedWorkspace(
+  exec: ReturnType<typeof getDbExec>,
+  orgId: string,
+  memberships: MembershipRow[],
+): Promise<boolean> {
+  const membership = memberships.find((m) => m.orgId === orgId);
+  if (!membership || membership.role !== "owner") return false;
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT COUNT(*) AS "memberCount" FROM org_members WHERE org_id = ?`,
+      args: [orgId],
+    });
+    const row = rows[0] as any;
+    return Number(row?.memberCount ?? row?.membercount ?? 0) <= 1;
+  } catch {
+    return false;
+  }
 }
 
 function autoCreateDefaultOrgEnabled(): boolean {
@@ -61,7 +82,12 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event));
 }
 
-type MembershipRow = { orgId: string; role: OrgRole; orgName: string };
+type MembershipRow = {
+  orgId: string;
+  role: OrgRole;
+  orgName: string;
+  allowedDomain: string | null;
+};
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
 const ACTIVE_ORG_SETTING_CACHE_KEY = "__anActiveOrgSettingCache";
@@ -157,17 +183,22 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  const shouldTryDomainAutoJoin =
-    memberships.length === 0 ||
-    (memberships.length === 1 &&
-      isLikelyPersonalWorkspace(memberships[0], email, session));
   const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
-  if (activeOrgSetting?.orgId === null) {
-    return { email, orgId: null, orgName: null, role: null };
-  }
-  if (activeOrgSetting?.orgId) {
+  const explicitPersonal = activeOrgSetting?.orgId === null;
+
+  const emailDomain = emailDomainOf(email);
+  // Membership in a domain-matched org is the only durable "already joined"
+  // signal. Recognizing the personal workspace by its *name* instead breaks the
+  // moment the provider display name or the workspace name changes, which
+  // strands an existing user in Personal with no way into their company org.
+  const shouldTryDomainAutoJoin =
+    !explicitPersonal &&
+    emailDomain !== null &&
+    !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
+
+  if (!explicitPersonal && activeOrgSetting?.orgId && !shouldTryDomainAutoJoin) {
     const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
-    if (active && !shouldTryDomainAutoJoin) {
+    if (active) {
       return {
         email,
         orgId: active.orgId,
@@ -182,27 +213,60 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     : null;
 
   if (shouldTryDomainAutoJoin) {
+    const membershipsBeforeJoin = memberships;
     const joined = await autoJoinDomainMatchingOrgs(email, {
-      activateJoinedOrg: "always",
+      activateJoinedOrg: "never",
     });
-    if (joined.joined.length > 0) {
+    const joinedOrgId = joined.joined[0]?.orgId ?? null;
+    if (joinedOrgId) {
       const refreshed = await loadMemberships(exec, email);
       if (refreshed !== null) {
         memberships = refreshed;
         updateMembershipsForEvent(event, email, refreshed);
       }
-    }
 
-    if (joined.activeOrgId) {
-      const active = memberships.find((m) => m.orgId === joined.activeOrgId);
-      if (active) {
-        return {
-          email,
-          orgId: active.orgId,
-          orgName: active.orgName,
-          role: active.role,
-        };
+      const currentOrgId =
+        activeOrgSetting?.orgId ??
+        sessionOrgId ??
+        membershipsBeforeJoin[0]?.orgId ??
+        null;
+      const shouldActivate =
+        !explicitPersonal &&
+        (currentOrgId === null ||
+          (await isSoloOwnedWorkspace(
+            exec,
+            currentOrgId,
+            membershipsBeforeJoin,
+          )));
+
+      if (shouldActivate) {
+        await putUserSetting(email, "active-org-id", { orgId: joinedOrgId });
+        const active = memberships.find((m) => m.orgId === joinedOrgId);
+        if (active) {
+          return {
+            email,
+            orgId: active.orgId,
+            orgName: active.orgName,
+            role: active.role,
+          };
+        }
       }
+    }
+  }
+
+  if (explicitPersonal) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
+
+  if (activeOrgSetting?.orgId) {
+    const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
+    if (active) {
+      return {
+        email,
+        orgId: active.orgId,
+        orgName: active.orgName,
+        role: active.role,
+      };
     }
   }
 
@@ -247,24 +311,25 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 async function loadMemberships(
   exec: ReturnType<typeof getDbExec>,
   email: string,
-): Promise<Array<{
-  orgId: string;
-  role: OrgRole;
-  orgName: string;
-}> | null> {
+): Promise<MembershipRow[] | null> {
   try {
     const { rows } = await exec.execute({
-      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName"
+      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                   o.allowed_domain AS "allowedDomain"
             FROM org_members m
             INNER JOIN organizations o ON m.org_id = o.id
             WHERE LOWER(m.email) = ?`,
       args: [email.toLowerCase()],
     });
-    return rows.map((r: any) => ({
-      orgId: String(r.orgId ?? r.org_id),
-      role: String(r.role) as OrgRole,
-      orgName: String(r.orgName ?? r.org_name),
-    }));
+    return rows.map((r: any) => {
+      const domain = r.allowedDomain ?? r.allowed_domain;
+      return {
+        orgId: String(r.orgId ?? r.org_id),
+        role: String(r.role) as OrgRole,
+        orgName: String(r.orgName ?? r.org_name),
+        allowedDomain: domain ? String(domain) : null,
+      };
+    });
   } catch {
     // Tables may not exist yet on first boot before migrations finish.
     return null;
