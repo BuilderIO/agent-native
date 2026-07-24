@@ -1261,16 +1261,6 @@ async function sweepOrphanedRecordingChunks(): Promise<void> {
   }
 }
 
-function rowNumber(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
 /**
  * Sweep orphaned resumable upload sessions out of `application_state`.
  *
@@ -1287,6 +1277,8 @@ function rowNumber(value: unknown): number {
 async function sweepOrphanedResumableSessions(): Promise<void> {
   const exec = getDbExec();
   const pg = isPostgres();
+  const SWEEP_BATCH = 500;
+  const IN_CHUNK = 200;
 
   let sessionRows: Array<{
     session_id?: unknown;
@@ -1295,7 +1287,7 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
   }> = [];
   try {
     const probe = await exec.execute({
-      sql: `SELECT session_id, key, updated_at FROM application_state WHERE key LIKE 'resumable-session-%'`,
+      sql: `SELECT session_id, key, updated_at FROM application_state WHERE key LIKE 'resumable-session-%' ORDER BY updated_at ASC LIMIT ${SWEEP_BATCH}`,
       args: [],
     });
     sessionRows =
@@ -1326,8 +1318,15 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
   const staleInProgressIso = new Date(
     Date.now() - 24 * 60 * 60 * 1000,
   ).toISOString();
-  let totalDeleted = 0;
 
+  // Parse candidate rows and collect the referenced recording ids so they can
+  // be resolved in a few batched lookups instead of one query per session.
+  const candidates: Array<{
+    key: string;
+    recordingId: string;
+    sessionUpdatedAt: string;
+  }> = [];
+  const recordingIds = new Set<string>();
   for (const row of sessionRows) {
     const key = typeof row.key === "string" ? row.key : "";
     if (!key.startsWith(prefix)) continue;
@@ -1343,78 +1342,124 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
       Number.isFinite(sessionUpdatedAtMs) && sessionUpdatedAtMs > 0
         ? new Date(sessionUpdatedAtMs).toISOString()
         : "";
+    candidates.push({ key, recordingId, sessionUpdatedAt });
+    recordingIds.add(recordingId);
+  }
+  if (candidates.length === 0) return;
 
-    let shouldSweep = false;
+  // Resolve every referenced recording in chunked `IN (...)` lookups.
+  const recordingById = new Map<
+    string,
+    { status?: string; updatedAt?: string }
+  >();
+  const idList = [...recordingIds];
+  for (let i = 0; i < idList.length; i += IN_CHUNK) {
+    const chunk = idList.slice(i, i + IN_CHUNK);
+    const placeholders = chunk
+      .map((_, j) => (pg ? `$${j + 1}` : "?"))
+      .join(", ");
     try {
       const probe = await exec.execute({
-        sql: pg
-          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
-          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
-        args: [recordingId],
+        sql: `SELECT id, status, updated_at FROM recordings WHERE id IN (${placeholders})`,
+        args: chunk,
       });
-      const recording = (
-        probe.rows as Array<{ status?: string; updated_at?: string }>
-      )[0];
-      if (!recording) {
-        shouldSweep = true;
-      } else if (
-        (recording.status === "ready" || recording.status === "failed") &&
-        (recording.updated_at ?? "") < oneHourAgoIso
-      ) {
-        shouldSweep = true;
-      } else if (
-        (recording.status === "uploading" ||
-          recording.status === "processing") &&
-        (sessionUpdatedAt || recording.updated_at || "") < staleInProgressIso
-      ) {
-        try {
-          await exec.execute({
-            sql: pg
-              ? `UPDATE recordings SET status = 'failed', failure_reason = $1, updated_at = $2 WHERE id = $3 AND status = $4`
-              : `UPDATE recordings SET status = 'failed', failure_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
-            args: [
-              "Upload did not finish before the resumable upload cleanup window.",
-              new Date().toISOString(),
-              recordingId,
-              recording.status,
-            ],
+      for (const rec of probe.rows as Array<{
+        id?: string;
+        status?: string;
+        updated_at?: string;
+      }>) {
+        if (typeof rec.id === "string") {
+          recordingById.set(rec.id, {
+            status: rec.status,
+            updatedAt: rec.updated_at,
           });
-        } catch (err) {
-          console.warn(
-            "[db] resumable-session sweep: stale upload mark-failed failed",
-            {
-              recordingId,
-              status: recording.status,
-              err: (err as Error)?.message ?? err,
-            },
-          );
         }
-        shouldSweep = true;
       }
     } catch (err) {
-      console.warn("[db] resumable-session sweep: recording probe failed", {
-        recordingId,
-        err: (err as Error)?.message ?? err,
-      });
+      console.warn(
+        "[db] resumable-session sweep: recordings batch probe failed",
+        (err as Error)?.message ?? err,
+      );
+      return;
+    }
+  }
+
+  // Decide sweeps in memory, then mark stale uploads failed and batch-delete.
+  const keysToDelete = new Set<string>();
+  const staleIdsByStatus = new Map<string, Set<string>>();
+  for (const candidate of candidates) {
+    const recording = recordingById.get(candidate.recordingId);
+    if (!recording) {
+      keysToDelete.add(candidate.key);
       continue;
     }
+    const status = recording.status;
+    if (
+      (status === "ready" || status === "failed") &&
+      (recording.updatedAt ?? "") < oneHourAgoIso
+    ) {
+      keysToDelete.add(candidate.key);
+    } else if (
+      (status === "uploading" || status === "processing") &&
+      (candidate.sessionUpdatedAt || recording.updatedAt || "") <
+        staleInProgressIso
+    ) {
+      const bucket = staleIdsByStatus.get(status) ?? new Set<string>();
+      bucket.add(candidate.recordingId);
+      staleIdsByStatus.set(status, bucket);
+      keysToDelete.add(candidate.key);
+    }
+  }
 
-    if (!shouldSweep) continue;
+  // Mark stale in-progress uploads failed, one chunked `IN (...)` update per
+  // status. The `status = ?` guard keeps a recording that concurrently
+  // advanced out of that status from being clobbered back to failed.
+  const staleReason =
+    "Upload did not finish before the resumable upload cleanup window.";
+  for (const [status, idSet] of staleIdsByStatus) {
+    const ids = [...idSet];
+    for (let i = 0; i < ids.length; i += IN_CHUNK) {
+      const chunk = ids.slice(i, i + IN_CHUNK);
+      const idPlaceholders = chunk
+        .map((_, j) => (pg ? `$${j + 3}` : "?"))
+        .join(", ");
+      const statusPlaceholder = pg ? `$${chunk.length + 3}` : "?";
+      try {
+        await exec.execute({
+          sql: `UPDATE recordings SET status = 'failed', failure_reason = ${pg ? "$1" : "?"}, updated_at = ${pg ? "$2" : "?"} WHERE id IN (${idPlaceholders}) AND status = ${statusPlaceholder}`,
+          args: [staleReason, new Date().toISOString(), ...chunk, status],
+        });
+      } catch (err) {
+        console.warn(
+          "[db] resumable-session sweep: stale upload mark-failed failed",
+          {
+            status,
+            recordingIds: chunk,
+            err: (err as Error)?.message ?? err,
+          },
+        );
+      }
+    }
+  }
 
+  let totalDeleted = 0;
+  const deleteKeys = [...keysToDelete];
+  for (let i = 0; i < deleteKeys.length; i += IN_CHUNK) {
+    const chunk = deleteKeys.slice(i, i + IN_CHUNK);
+    const placeholders = chunk
+      .map((_, j) => (pg ? `$${j + 1}` : "?"))
+      .join(", ");
     try {
       await exec.execute({
-        sql: pg
-          ? `DELETE FROM application_state WHERE session_id = $1 AND key = $2`
-          : `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
-        args: [String(row.session_id ?? ""), key],
+        sql: `DELETE FROM application_state WHERE key IN (${placeholders})`,
+        args: chunk,
       });
-      totalDeleted += 1;
+      totalDeleted += chunk.length;
     } catch (err) {
-      console.warn("[db] resumable-session sweep: delete failed", {
-        key,
-        updatedAt: rowNumber(row.updated_at),
-        err: (err as Error)?.message ?? err,
-      });
+      console.warn(
+        "[db] resumable-session sweep: batch delete failed",
+        (err as Error)?.message ?? err,
+      );
     }
   }
 

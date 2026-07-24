@@ -49,7 +49,7 @@ export function TimeSeriesChart({
   };
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="bg-card">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>

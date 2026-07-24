@@ -37,6 +37,14 @@ export interface DrainDesignSaveOutboxResult {
    * transient/conflict errors that SHOULD be retried.
    */
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
+  /**
+   * Entries dropped because the server moved past their base version (a 409
+   * conflict). Distinct from `dropped`: the file still exists and nothing was
+   * lost to deletion, so the editor should rebase from the server rather than
+   * warn "changes discarded". Kept separate so a normal concurrent edit is
+   * never presented as a deleted file.
+   */
+  rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
 
 /**
@@ -55,6 +63,24 @@ export function isTerminalSaveError(error: unknown): boolean {
     candidate.status === 404 &&
     typeof candidate.message === "string" &&
     /file not found/i.test(candidate.message)
+  );
+}
+
+/**
+ * The server's update-file version conflict ("File changed since it was read…").
+ * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
+ * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
+ * the client-side "no known base version" / "changed elsewhere" 409 synthetics
+ * are intentionally retained by drainEntries, and the client-build-mismatch 409
+ * is a reload-then-retry.
+ */
+export function isConflictSaveError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === "client_build_mismatch") return false;
+  return (
+    typeof candidate.message === "string" &&
+    /changed since it was read|re-read the file/i.test(candidate.message)
   );
 }
 
@@ -324,6 +350,7 @@ async function drainEntries(
     saved: [],
     failed: [],
     dropped: [],
+    rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
     try {
@@ -372,6 +399,18 @@ async function drainEntries(
         if (typeof console !== "undefined") {
           console.warn(
             `[design-save-outbox] dropped unrecoverable save for ${entry.actionName} ${entry.resourceId} (file no longer exists)`,
+          );
+        }
+      } else if (isConflictSaveError(error)) {
+        // Base version superseded — retry is futile and replaying the stale
+        // snapshot would clobber newer content. Drop into `rebased` (NOT
+        // `dropped`) so the editor rebases from the server instead of warning
+        // that the file was discarded/deleted.
+        await storage.deleteIfRevision(entry);
+        result.rebased.push({ entry, error });
+        if (typeof console !== "undefined") {
+          console.warn(
+            `[design-save-outbox] rebased superseded save for ${entry.actionName} ${entry.resourceId} (server content moved on)`,
           );
         }
       } else {

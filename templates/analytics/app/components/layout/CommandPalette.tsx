@@ -381,9 +381,11 @@ export function CommandPalette() {
     const openHandler = () => setOpen(true);
     document.addEventListener("keydown", handler);
     window.addEventListener("analytics:open-command-palette", openHandler);
+    window.addEventListener("agent-native:open-command-menu", openHandler);
     return () => {
       document.removeEventListener("keydown", handler);
       window.removeEventListener("analytics:open-command-palette", openHandler);
+      window.removeEventListener("agent-native:open-command-menu", openHandler);
     };
   }, []);
 

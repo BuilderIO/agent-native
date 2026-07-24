@@ -97,6 +97,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
@@ -140,7 +141,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
-import { captureError } from "./capture-error.js";
+import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -1198,6 +1199,14 @@ export function createCoreRoutesPlugin(
       // already registered the same key win.
       registerFrameworkSecrets();
       registerBuiltinProviders();
+      registerErrorCaptureProvider("agent-native-analytics", (error, context) =>
+        captureException(error, {
+          ...context,
+          handled: false,
+          runtime: "node",
+          source: "server",
+        }),
+      );
       registerBuiltinNotificationChannels();
 
       try {

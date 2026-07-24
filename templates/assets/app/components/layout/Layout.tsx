@@ -1,6 +1,7 @@
 import {
   AgentSidebar,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -65,6 +66,9 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isCreateRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
+    ASSETS_CHAT_STORAGE_KEY,
+  );
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
@@ -155,6 +159,7 @@ export function Layout({ children }: LayoutProps) {
       <AgentSidebar
         position="right"
         chatViewTransition
+        chatViewTransitionHandoff={chatHomeHandoffPending}
         storageKey={ASSETS_CHAT_STORAGE_KEY}
         browserTabId={getBrowserTabId()}
         openOnChatRunning={chatHomeHandoffActive}

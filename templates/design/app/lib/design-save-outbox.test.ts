@@ -289,7 +289,7 @@ describe("design save outbox", () => {
       storage,
     });
 
-    expect(result).toEqual({ saved: [], failed: [], dropped: [] });
+    expect(result).toEqual({ saved: [], failed: [], dropped: [], rebased: [] });
     expect(invokeAction).not.toHaveBeenCalled();
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
@@ -311,6 +311,29 @@ describe("design save outbox", () => {
     // A permanent failure is dropped (never retried), unlike a 409 conflict
     // which stays queued — otherwise an orphaned screen loops 500s forever.
     expect(result.dropped).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("rebases (not drops) a server version conflict so it is never shown as a deleted file", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(fileEntry(1), storage);
+    const conflict = Object.assign(
+      new Error("File changed since it was read. Re-read the file and retry."),
+      { status: 409 },
+    );
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(conflict),
+      storage,
+    });
+
+    // Superseded base: removed from the queue, but into `rebased` — the editor
+    // refetches; it must NOT land in `dropped` (which warns "changes discarded").
+    expect(result.rebased).toHaveLength(1);
+    expect(result.dropped).toEqual([]);
     expect(result.failed).toEqual([]);
     expect(await storage.list("design-1", "user-1")).toEqual([]);
   });

@@ -2745,6 +2745,12 @@ export interface AgentSidebarProps {
    * page-level AgentChatSurface can morph into it on navigation.
    */
   chatViewTransition?: boolean;
+  /**
+   * Mark the initial panel mount as the destination of a page-to-sidebar chat
+   * handoff. This suppresses only the drawer's initial entry animation; normal
+   * sidebar open/close transitions remain enabled.
+   */
+  chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
   /** Open the sidebar when a chat run is active or reconnects. */
@@ -2784,6 +2790,7 @@ export function AgentSidebar({
   animateMobile = true,
   animateDesktop = true,
   chatViewTransition = false,
+  chatViewTransitionHandoff = false,
   storageKey,
   openOnChatRunning = false,
   onFullscreenRequest,
@@ -3308,6 +3315,9 @@ export function AgentSidebar({
         data-agent-sidebar-position={position}
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
         data-agent-sidebar-resizing={isResizing ? "true" : undefined}
+        data-agent-sidebar-chat-handoff={
+          chatViewTransitionHandoff ? "true" : undefined
+        }
         style={
           chatViewTransition
             ? getAgentChatViewTransitionStyle(panelStyle)

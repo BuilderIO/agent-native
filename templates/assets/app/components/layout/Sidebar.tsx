@@ -7,9 +7,11 @@ import {
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -21,6 +23,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLayoutGrid,
   IconPhotoPlus,
+  IconSearch,
   IconSettings,
   IconShare3,
 } from "@tabler/icons-react";
@@ -118,7 +121,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function AssetsChatsSection() {
+function AssetsChatsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -242,51 +245,57 @@ function AssetsChatsSection() {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={openThread}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("chat.chats"),
-          showLess: t("chat.chats"),
-        }}
-        previewCount={5}
-        expandedCount={15}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        renameMaxLength={160}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        renderAdditionalRowActions={(item, closeMenu) => (
-          <button
-            type="button"
-            role="menuitem"
-            className="an-chat-history-row__menu-item"
-            onClick={() => {
-              closeMenu();
-              void handleCopyShareLink(item.id);
-            }}
-          >
-            <IconShare3 size={13} strokeWidth={1.8} />
-            <span>{t("chat.copyShareLink")}</span>
-          </button>
-        )}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) => `Rename ${item.titleText ?? ""}`,
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={openThread}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          previewCount={5}
+          expandedCount={15}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          renameMaxLength={160}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          renderAdditionalRowActions={(item, closeMenu) => (
+            <button
+              type="button"
+              role="menuitem"
+              className="an-chat-history-row__menu-item"
+              onClick={() => {
+                closeMenu();
+                void handleCopyShareLink(item.id);
+              }}
+            >
+              <IconShare3 size={13} strokeWidth={1.8} />
+              <span>{t("chat.copyShareLink")}</span>
+            </button>
+          )}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) => `Rename ${item.titleText ?? ""}`,
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+        />
+      </div>
     </div>
   );
 }
@@ -321,6 +330,59 @@ export function Sidebar() {
     }
   }, [collapsed]);
 
+  const collapseButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <aside
       className={cn(
@@ -353,30 +415,6 @@ export function Sidebar() {
             </span>
           </div>
         )}
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              aria-label={
-                collapsed
-                  ? t("navigation.expandSidebar")
-                  : t("navigation.collapseSidebar")
-              }
-            >
-              {collapsed ? (
-                <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-              ) : (
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {collapsed
-              ? t("navigation.expandSidebar")
-              : t("navigation.collapseSidebar")}
-          </TooltipContent>
-        </Tooltip>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -443,7 +481,7 @@ export function Sidebar() {
               <div key={item.href}>
                 {link}
                 {item.href === "/" && isCreateRoute ? (
-                  <AssetsChatsSection />
+                  <AssetsChatsSection open />
                 ) : null}
               </div>
             );
@@ -496,13 +534,19 @@ export function Sidebar() {
           )}
 
           {!collapsed && (
-            <div className="px-3 py-2 empty:hidden">
+            <div className="px-3 py-2">
               <DevDatabaseLink />
-              <FeedbackButton />
             </div>
           )}
         </div>
       </div>
+      <SidebarFooterActions
+        collapsed={collapsed}
+        feedback={feedbackButton}
+        translate={translateButton}
+        search={searchButton}
+        collapse={collapseButton}
+      />
     </aside>
   );
 }

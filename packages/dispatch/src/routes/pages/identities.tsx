@@ -31,7 +31,7 @@ export default function IdentitiesRoute() {
         />
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          <section className="rounded-2xl border bg-card p-5">
+          <section className="rounded-2xl bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold text-foreground">
                 Active links
@@ -73,7 +73,7 @@ export default function IdentitiesRoute() {
             </div>
           </section>
 
-          <section className="rounded-2xl border bg-card p-5">
+          <section className="rounded-2xl bg-card p-5">
             <h2 className="text-lg font-semibold text-foreground">
               Link tokens
             </h2>
