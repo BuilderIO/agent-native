@@ -335,11 +335,11 @@
     opacity: 0;
   }
 
-  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-chat-handoff="true"] {
     width: var(--agent-sidebar-width);
   }
 
-  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-chat-handoff="true"]
     > .agent-sidebar-panel-inner {
     transform: translateX(0);
   }
