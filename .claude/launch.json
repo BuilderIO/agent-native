@@ -310,6 +310,18 @@
       "port": 3207
     },
     {
+      "name": "clips-desktop-overlays",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "templates/clips/desktop",
+        "vite:dev",
+        "--port",
+        "1425"
+      ],
+      "port": 1425
+    },
+    {
       "name": "analytics-watchdog",
       "runtimeExecutable": "env",
       "runtimeArgs": [
