@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.15.18
+
+### Patch Changes
+
+- b00c38d: Remove the redundant extensions section from the Dispatch sidebar.
+
 ## 0.15.17
 
 ### Patch Changes
