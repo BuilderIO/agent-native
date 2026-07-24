@@ -211,6 +211,10 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg["agent-native"]?.scaffold).toEqual({
       template: "chat",
       frameworkSkills: "default",
+      templateRef: expect.any(String),
+      templateSource: expect.stringMatching(/^(github|bundled|local-checkout)$/),
+      coreVersion: expect.any(String),
+      shape: "standalone",
     });
     expect(fs.existsSync(toolkitSkill)).toBe(true);
     expect(

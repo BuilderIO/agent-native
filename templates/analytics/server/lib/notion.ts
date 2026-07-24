@@ -39,6 +39,19 @@ async function getApiKey(): Promise<string> {
   return credential.value;
 }
 
+// The name Notion reports for a token is whatever label its creator typed in, so it
+// routinely names an unrelated product. Never restate it as the current workspace.
+const NOTION_ACCESS_HINT =
+  "This usually means the page or database was never shared with the Notion integration behind NOTION_API_KEY, not that the id is wrong. Fix it in Notion: open the page, then ••• → Connections → add the integration. The integration's Notion-side label may not match this app or workspace.";
+
+function notionApiError(status: number, body: string): Error {
+  const suffix =
+    status === 401 || status === 403 || status === 404
+      ? ` ${NOTION_ACCESS_HINT}`
+      : "";
+  return new Error(`Notion API error ${status}: ${body}${suffix}`);
+}
+
 async function notionGet(path: string): Promise<unknown> {
   const res = await fetch(`${NOTION_API}${path}`, {
     headers: {
@@ -47,8 +60,7 @@ async function notionGet(path: string): Promise<unknown> {
     },
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion API error ${res.status}: ${text}`);
+    throw notionApiError(res.status, await res.text());
   }
   return res.json();
 }
@@ -64,8 +76,7 @@ async function notionPost(path: string, body: unknown): Promise<unknown> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion API error ${res.status}: ${text}`);
+    throw notionApiError(res.status, await res.text());
   }
   return res.json();
 }

@@ -396,6 +396,7 @@ export interface ProviderApiConfig {
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
   notes?: readonly string[];
+  accessErrorGuidance?: string;
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
 }
@@ -1326,6 +1327,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultHeaders: { "Notion-Version": "2026-03-11" },
     templateUses: ["analytics", "brain", "content", "dispatch"],
     examples: [{ label: "Search", method: "POST", path: "/search", body: {} }],
+    notes: [
+      "The name GET /users/me returns is the label whoever minted the token typed into Notion, so it often names an unrelated product or team. Call it the Notion-side integration label and never restate it as the workspace, app, or product the user is currently in.",
+    ],
+    accessErrorGuidance:
+      "Notion 401/403/404 on a specific page or database usually means that object was never shared with the integration, not that the id is wrong or the key is invalid. Fix: open the page or database in Notion, then ••• → Connections → add the integration. When naming the integration, describe it as the Notion-side integration label from GET /users/me and note that it may not match this app or workspace.",
     corpusRecipes: [
       {
         label: "Search a Notion data source with complete cursor coverage",
@@ -1624,6 +1630,7 @@ export function listProviderApiCatalog(
     defaultHeaders: config.defaultHeaders ?? {},
     examples: config.examples ?? [],
     notes: config.notes ?? [],
+    accessErrorGuidance: config.accessErrorGuidance ?? null,
     corpusRecipes: config.corpusRecipes ?? [],
     templateUses: config.templateUses ?? [],
   }));
@@ -1990,9 +1997,22 @@ export async function executeProviderApiRequest(
       ...(args.connectionId ? { connectionId: args.connectionId } : {}),
     },
     response,
-    guidance:
+    guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
+      ...(providerAccessErrorGuidance(config, response.status) ?? []),
+    ].join(" "),
   };
+}
+
+const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
+
+function providerAccessErrorGuidance(
+  config: ProviderApiConfig,
+  status: number,
+): [string] | null {
+  if (!config.accessErrorGuidance) return null;
+  if (!PROVIDER_ACCESS_ERROR_STATUSES.has(status)) return null;
+  return [config.accessErrorGuidance];
 }
 
 /**

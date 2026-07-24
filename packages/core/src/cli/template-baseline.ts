@@ -52,7 +52,9 @@ const GIT_IDENTITY = {
 };
 
 export function resolveBaselineStore(appDir: string): BaselineStore {
-  const resolved = path.resolve(appDir);
+  // git reports realpaths; comparing against a symlinked temp path (macOS
+  // /var → /private/var) would compute a nonsense repo-relative prefix.
+  const resolved = realpath(path.resolve(appDir));
   const gitDir = findGitDir(resolved);
   const repoRoot = gitDir ? findRepoRoot(resolved) : null;
   const prefix =
@@ -327,6 +329,14 @@ function revParse(store: BaselineStore, ref: string): string | null {
   if (!store.gitDir) return null;
   const out = gitAllowFail(store, ["rev-parse", "--verify", "--quiet", ref]);
   return out.trim() || null;
+}
+
+function realpath(dir: string): string {
+  try {
+    return fs.realpathSync(dir);
+  } catch {
+    return dir;
+  }
 }
 
 function findGitDir(dir: string): string | null {

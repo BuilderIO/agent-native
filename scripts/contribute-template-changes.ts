@@ -108,8 +108,7 @@ export function inversePlaceholders(
   allow?: Set<string>,
 ): InverseResult {
   const active = replacements.filter(
-    (item) =>
-      item.value.length > 0 && (!allow || allow.has(item.placeholder)),
+    (item) => item.value.length > 0 && (!allow || allow.has(item.placeholder)),
   );
   const ordered = [...active].sort((a, b) => b.value.length - a.value.length);
 
@@ -147,11 +146,7 @@ export function placeholderAllowances(
     return new Set(["{{APP_NAME}}", "{{APP_TITLE}}", "{{WORKSPACE_NAME}}"]);
   }
   const allowed = new Set<string>();
-  for (const token of [
-    "{{APP_NAME}}",
-    "{{APP_TITLE}}",
-    "{{WORKSPACE_NAME}}",
-  ]) {
+  for (const token of ["{{APP_NAME}}", "{{APP_TITLE}}", "{{WORKSPACE_NAME}}"]) {
     if (templateContent.includes(token)) allowed.add(token);
   }
   return allowed;
@@ -182,7 +177,10 @@ export function classifyRelPath(
     return { kind: "manual", reason: "environment file; never contributed" };
   }
   if (MANUAL_EXACT.has(rel)) {
-    return { kind: "manual", reason: MANUAL_REASONS[rel] ?? "create rewrites this file" };
+    return {
+      kind: "manual",
+      reason: MANUAL_REASONS[rel] ?? "create rewrites this file",
+    };
   }
   for (const prefix of MANUAL_PREFIXES) {
     if (rel.startsWith(prefix)) {
@@ -210,8 +208,12 @@ export function globToRegExp(glob: string): RegExp {
     if (ch === "*") {
       if (glob[i + 1] === "*") {
         i += 1;
-        if (glob[i + 1] === "/") i += 1;
-        out += "(?:.*/)?";
+        if (glob[i + 1] === "/") {
+          i += 1;
+          out += "(?:[^/]+/)*";
+        } else {
+          out += ".*";
+        }
       } else {
         out += "[^/]*";
       }
@@ -228,7 +230,12 @@ export function globToRegExp(glob: string): RegExp {
 
 export function matchesAnyGlob(rel: string, globs: string[]): boolean {
   if (globs.length === 0) return true;
-  return globs.some((glob) => globToRegExp(glob).test(rel));
+  return globs.some((glob) => {
+    if (!/[*?]/.test(glob) && rel.startsWith(`${glob.replace(/\/$/, "")}/`)) {
+      return true;
+    }
+    return globToRegExp(glob).test(rel);
+  });
 }
 
 export function isBinary(buf: Buffer): boolean {
@@ -391,12 +398,19 @@ function resolveBaseline(
     const appRel =
       path.relative(toplevel, appDir).split(path.sep).join("/") || ".";
     const ref = `refs/agent-native/template-baseline/${appRel}`;
-    const resolved = tryGit(toplevel, ["rev-parse", "--verify", "--quiet", ref]);
+    const resolved = tryGit(toplevel, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      ref,
+    ]);
     if (resolved) {
       const entries =
         tryGit(toplevel, ["ls-tree", "--name-only", `${ref}^{tree}`]) ?? "";
       const names = entries.split("\n").filter(Boolean);
-      const spec = names.includes("package.json") ? `${ref}^{tree}` : `${ref}:${appRel}`;
+      const spec = names.includes("package.json")
+        ? `${ref}^{tree}`
+        : `${ref}:${appRel}`;
       const dir = path.join(tmpRoot, "baseline");
       fs.mkdirSync(dir, { recursive: true });
       const tarPath = path.join(tmpRoot, "baseline.tar");
@@ -406,7 +420,11 @@ function resolveBaseline(
           stdio: ["ignore", "pipe", "pipe"],
         });
         execFileSync("tar", ["-xf", tarPath, "-C", dir], { stdio: "pipe" });
-        return { dir, source: `${ref} (${resolved.slice(0, 8)})`, approximate: false };
+        return {
+          dir,
+          source: `${ref} (${resolved.slice(0, 8)})`,
+          approximate: false,
+        };
       } catch (error) {
         console.warn(
           `[contribute:template] Found ${ref} but could not extract it (${
@@ -424,7 +442,10 @@ function resolveBaseline(
   };
 }
 
-function numstat(basePath: string | undefined, appPath: string | undefined): string {
+function numstat(
+  basePath: string | undefined,
+  appPath: string | undefined,
+): string {
   const a = basePath && fs.existsSync(basePath) ? basePath : "/dev/null";
   const b = appPath && fs.existsSync(appPath) ? appPath : "/dev/null";
   try {
@@ -505,11 +526,13 @@ function main(): void {
     opts.framework ?? path.resolve(import.meta.dirname, ".."),
   );
   const appDir = path.resolve(opts.app);
-  if (!fs.existsSync(appDir)) throw new Error(`App directory not found: ${appDir}`);
+  if (!fs.existsSync(appDir))
+    throw new Error(`App directory not found: ${appDir}`);
 
   const appPkg = readJson(path.join(appDir, "package.json"));
-  const scaffold = (appPkg?.["agent-native"] as Record<string, unknown> | undefined)
-    ?.scaffold as Record<string, unknown> | undefined;
+  const scaffold = (
+    appPkg?.["agent-native"] as Record<string, unknown> | undefined
+  )?.scaffold as Record<string, unknown> | undefined;
   const templateName =
     opts.template ??
     (typeof scaffold?.template === "string" ? scaffold.template : undefined);
@@ -525,8 +548,9 @@ function main(): void {
   }
 
   const appName =
-    (typeof appPkg?.name === "string" ? appPkg.name.replace(/^@[^/]+\//, "") : "") ||
-    path.basename(appDir);
+    (typeof appPkg?.name === "string"
+      ? appPkg.name.replace(/^@[^/]+\//, "")
+      : "") || path.basename(appDir);
   const appTitle = titleCaseAppName(appName);
   const displayName =
     typeof appPkg?.displayName === "string" ? appPkg.displayName : undefined;
@@ -540,7 +564,10 @@ function main(): void {
     replacements.push({ placeholder: "{{APP_TITLE}}", value: displayName });
   }
   if (workspaceName) {
-    replacements.push({ placeholder: "{{WORKSPACE_NAME}}", value: workspaceName });
+    replacements.push({
+      placeholder: "{{WORKSPACE_NAME}}",
+      value: workspaceName,
+    });
   }
 
   const rootSkillsDir = path.join(frameworkDir, ".agents", "skills");
@@ -553,11 +580,19 @@ function main(): void {
       : [],
   );
 
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "contribute-template-"));
+  const tmpRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "contribute-template-"),
+  );
   try {
-    const baseline = resolveBaseline(appDir, templateDir, opts.baseline, tmpRoot);
+    const baseline = resolveBaseline(
+      appDir,
+      templateDir,
+      opts.baseline,
+      tmpRoot,
+    );
     const branch =
-      tryGit(frameworkDir, ["rev-parse", "--abbrev-ref", "HEAD"]) ?? "(unknown)";
+      tryGit(frameworkDir, ["rev-parse", "--abbrev-ref", "HEAD"]) ??
+      "(unknown)";
 
     console.log(`app         ${appDir}`);
     console.log(`template    templates/${templateName}`);
@@ -631,7 +666,12 @@ function main(): void {
           fs.mkdirSync(path.dirname(targetAbs), { recursive: true });
           fs.writeFileSync(targetAbs, appBuf);
         }
-        written.push({ rel, target: targetLabel, status, note: "binary; copied verbatim" });
+        written.push({
+          rel,
+          target: targetLabel,
+          status,
+          note: "binary; copied verbatim",
+        });
         continue;
       }
 
@@ -661,7 +701,9 @@ function main(): void {
         );
       }
       if (templateText === undefined && substituted) {
-        warnings.push(`${rel}: new file; all placeholders applied (${substituted})`);
+        warnings.push(
+          `${rel}: new file; all placeholders applied (${substituted})`,
+        );
       }
       const leftover = replacements.filter(
         (item) =>
@@ -696,7 +738,12 @@ function main(): void {
       }
 
       if (templateText !== undefined && outText === templateText) {
-        skipped.push({ rel, target: targetLabel, status, note: "already identical" });
+        skipped.push({
+          rel,
+          target: targetLabel,
+          status,
+          note: "already identical",
+        });
         continue;
       }
 
@@ -721,7 +768,12 @@ function main(): void {
           note: `${conflicts} conflict(s)${note ? `; ${note}` : ""}`,
         });
       } else {
-        written.push({ rel, target: targetLabel, status, note: note || undefined });
+        written.push({
+          rel,
+          target: targetLabel,
+          status,
+          note: note || undefined,
+        });
       }
     }
 
@@ -778,7 +830,8 @@ function printGroup(title: string, items: Outcome[]): void {
     return;
   }
   for (const item of items) {
-    const flag = item.status === "added" ? "A" : item.status === "deleted" ? "D" : "M";
+    const flag =
+      item.status === "added" ? "A" : item.status === "deleted" ? "D" : "M";
     console.log(
       `  ${flag} ${item.target === "—" ? item.rel : item.target}${
         item.note ? `  — ${item.note}` : ""
@@ -822,7 +875,9 @@ function report(input: {
   console.log("  2. pnpm fmt");
   console.log("  3. pnpm guard:template-standard");
   console.log("  4. pnpm guard:template-ui-imports");
-  console.log("  5. pnpm guard:no-unscoped-queries && pnpm guard:request-storms");
+  console.log(
+    "  5. pnpm guard:no-unscoped-queries && pnpm guard:request-storms",
+  );
   console.log("     (or just `pnpm guards` for the full set)");
   if (input.reroutedSkills) {
     console.log(

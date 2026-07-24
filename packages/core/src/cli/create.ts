@@ -1440,6 +1440,7 @@ export {
   rewriteAgentChatAppId as _rewriteAgentChatAppId,
   fixWebManifestName as _fixWebManifestName,
   copyDir as _copyDir,
+  localTemplateSourceKind as _localTemplateSourceKind,
   REPO as _REPO,
   TEMPLATES_DIR as _TEMPLATES_DIR,
 };

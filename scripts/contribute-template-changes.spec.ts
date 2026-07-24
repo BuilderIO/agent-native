@@ -10,6 +10,7 @@ import {
   diffTrees,
   globToRegExp,
   inversePlaceholders,
+  matchesAnyGlob,
   placeholderAllowances,
   titleCaseAppName,
   toTemplateRelPath,
@@ -17,7 +18,11 @@ import {
 } from "./contribute-template-changes";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
-const scriptPath = path.join(repoRoot, "scripts", "contribute-template-changes.ts");
+const scriptPath = path.join(
+  repoRoot,
+  "scripts",
+  "contribute-template-changes.ts",
+);
 const tmpDirs: string[] = [];
 
 function tmpDir(prefix: string): string {
@@ -103,7 +108,10 @@ describe("inverse placeholder substitution", () => {
       ],
       allow,
     );
-    assert.equal(result.content, 'const appId = "{{APP_NAME}}";\n// {{APP_NAME}} deck\n');
+    assert.equal(
+      result.content,
+      'const appId = "{{APP_NAME}}";\n// {{APP_NAME}} deck\n',
+    );
   });
 
   it("allows every placeholder for files the template does not have yet", () => {
@@ -201,6 +209,13 @@ describe("glob filtering", () => {
     assert.equal(globToRegExp("actions/*.ts").test("actions/sub/a.ts"), false);
     assert.equal(globToRegExp("app/**/*.tsx").test("app/pages/x.tsx"), true);
     assert.equal(globToRegExp("app/**/*.tsx").test("app/x.tsx"), true);
+    assert.equal(globToRegExp("actions/**").test("actions/a/b.ts"), true);
+  });
+
+  it("treats a bare directory name as a prefix and no globs as match-all", () => {
+    assert.equal(matchesAnyGlob("actions/a.ts", ["actions"]), true);
+    assert.equal(matchesAnyGlob("app/a.tsx", ["actions"]), false);
+    assert.equal(matchesAnyGlob("anything", []), true);
   });
 });
 
@@ -233,7 +248,11 @@ describe("end to end", () => {
     const baseline = path.join(root, "baseline");
     const app = path.join(root, "app");
 
-    write(framework, ".agents/skills/actions/SKILL.md", "# Actions\nroot copy\n");
+    write(
+      framework,
+      ".agents/skills/actions/SKILL.md",
+      "# Actions\nroot copy\n",
+    );
     write(templateDir, "package.json", '{\n  "name": "notes"\n}\n');
     write(templateDir, "_gitignore", "node_modules\n");
     write(
@@ -241,7 +260,11 @@ describe("end to end", () => {
       "actions/list-notes.ts",
       'export const appId = "{{APP_NAME}}";\nexport const rows = 10;\n',
     );
-    write(templateDir, ".agents/skills/actions/SKILL.md", "# Actions\nroot copy\n");
+    write(
+      templateDir,
+      ".agents/skills/actions/SKILL.md",
+      "# Actions\nroot copy\n",
+    );
 
     // Pristine generated app (what `agent-native create` produced).
     write(
@@ -255,8 +278,16 @@ describe("end to end", () => {
       "actions/list-notes.ts",
       'export const appId = "my-notes";\nexport const rows = 10;\n',
     );
-    write(baseline, ".agents/skills/actions/SKILL.md", "# Actions\nroot copy\n");
-    write(baseline, "app/root.tsx", 'configureTracking({ app: "my-notes" });\n');
+    write(
+      baseline,
+      ".agents/skills/actions/SKILL.md",
+      "# Actions\nroot copy\n",
+    );
+    write(
+      baseline,
+      "app/root.tsx",
+      'configureTracking({ app: "my-notes" });\n',
+    );
 
     // The user's app, with real edits on top of the baseline.
     fs.cpSync(baseline, app, { recursive: true });
@@ -266,8 +297,16 @@ describe("end to end", () => {
       'export const appId = "my-notes";\nexport const rows = 50;\n',
     );
     write(app, "actions/archive-note.ts", 'export const owner = "My Notes";\n');
-    write(app, ".agents/skills/actions/SKILL.md", "# Actions\nroot copy\nedited\n");
-    write(app, "app/root.tsx", 'configureTracking({ app: "my-notes", debug: true });\n');
+    write(
+      app,
+      ".agents/skills/actions/SKILL.md",
+      "# Actions\nroot copy\nedited\n",
+    );
+    write(
+      app,
+      "app/root.tsx",
+      'configureTracking({ app: "my-notes", debug: true });\n',
+    );
     write(app, "node_modules/junk/index.js", "nope\n");
 
     const stdout = execFileSync(
@@ -291,7 +330,10 @@ describe("end to end", () => {
       'export const appId = "{{APP_NAME}}";\nexport const rows = 50;\n',
     );
     assert.equal(
-      fs.readFileSync(path.join(templateDir, "actions/archive-note.ts"), "utf-8"),
+      fs.readFileSync(
+        path.join(templateDir, "actions/archive-note.ts"),
+        "utf-8",
+      ),
       'export const owner = "{{APP_TITLE}}";\n',
     );
     assert.equal(
