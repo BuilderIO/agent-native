@@ -311,10 +311,10 @@ export function shouldOfferRestore(args: {
 }): boolean {
   return Boolean(
     args.devMode &&
-      args.isComplete &&
-      !args.isLast &&
-      args.runId &&
-      args.checkpointRunIds?.has(args.runId),
+    args.isComplete &&
+    !args.isLast &&
+    args.runId &&
+    args.checkpointRunIds?.has(args.runId),
   );
 }
 

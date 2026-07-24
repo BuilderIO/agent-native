@@ -15,9 +15,9 @@ const base = {
 
 describe("assistantMessageRunId", () => {
   it("reads the live-yield and server-persisted shapes", () => {
-    expect(assistantMessageRunId({ metadata: { custom: { runId: "a" } } })).toBe(
-      "a",
-    );
+    expect(
+      assistantMessageRunId({ metadata: { custom: { runId: "a" } } }),
+    ).toBe("a");
     expect(assistantMessageRunId({ metadata: { runId: "b" } })).toBe("b");
     expect(assistantMessageRunId({ metadata: {} })).toBeUndefined();
     expect(assistantMessageRunId(undefined)).toBeUndefined();
@@ -35,9 +35,9 @@ describe("shouldOfferRestore", () => {
     expect(
       shouldOfferRestore({ ...base, checkpointRunIds: new Set<string>() }),
     ).toBe(false);
-    expect(
-      shouldOfferRestore({ ...base, checkpointRunIds: undefined }),
-    ).toBe(false);
+    expect(shouldOfferRestore({ ...base, checkpointRunIds: undefined })).toBe(
+      false,
+    );
     expect(
       shouldOfferRestore({ ...base, checkpointRunIds: new Set(["other"]) }),
     ).toBe(false);
