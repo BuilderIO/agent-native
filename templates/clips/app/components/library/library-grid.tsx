@@ -78,6 +78,13 @@ function NewRecordingTile({
     const qs = params.toString();
     return qs ? `/record?${qs}` : "/record";
   }, [spaceId, folderId]);
+  const importHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    const qs = params.toString();
+    return qs ? `/import?${qs}` : "/import";
+  }, [spaceId, folderId]);
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
@@ -96,7 +103,7 @@ function NewRecordingTile({
           {t("preRecord.uploadVideo")}
         </NavLink>
         <NavLink
-          to={recordHref}
+          to={importHref}
           className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <IconLink className="h-3.5 w-3.5" />

@@ -1324,6 +1324,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
   },
+  importRoute: {
+    pageTitle: "Loom 가져오기 — Clips",
+    title: "Loom 가져오기",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "가져오기",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",
     howToUse: "How to use Dictate (현지화됨)",

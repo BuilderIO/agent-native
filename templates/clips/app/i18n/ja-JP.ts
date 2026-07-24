@@ -1339,6 +1339,12 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
   },
+  importRoute: {
+    pageTitle: "Loom をインポート — Clips",
+    title: "Loom をインポート",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "インポート",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (ローカライズ済み)",
     howToUse: "How to use Dictate (ローカライズ済み)",

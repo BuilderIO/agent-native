@@ -1327,6 +1327,12 @@ const messages = {
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
   },
+  importRoute: {
+    pageTitle: "استيراد Loom — Clips",
+    title: "استيراد Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "استيراد",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (مترجم)",
     howToUse: "How to use Dictate (مترجم)",

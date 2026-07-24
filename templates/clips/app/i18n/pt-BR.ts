@@ -1344,6 +1344,12 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
   },
+  importRoute: {
+    pageTitle: "Importar Loom — Clips",
+    title: "Importar Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importar",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",
     howToUse: "How to use Dictate (Localizado)",

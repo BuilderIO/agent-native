@@ -411,7 +411,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <NavLink
-                      to="/record"
+                      to="/import"
                       aria-label={t("preRecord.importLoom")}
                       className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     >
@@ -474,7 +474,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   variant="ghost"
                   asChild
                 >
-                  <NavLink to="/record">
+                  <NavLink to="/import">
                     <IconLink className="h-4 w-4" />
                     {t("preRecord.importLoom")}
                   </NavLink>

@@ -1317,6 +1317,12 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
   },
+  importRoute: {
+    pageTitle: "Import Loom — Clips",
+    title: "Import Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Import",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips",
     howToUse: "How to use Dictate",

@@ -1282,6 +1282,12 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     connectStorageToRetryLoom:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
   },
+  importRoute: {
+    pageTitle: "导入 Loom — Clips",
+    title: "导入 Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "导入",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (已本地化)",
     howToUse: "How to use Dictate (已本地化)",

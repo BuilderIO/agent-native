@@ -1313,6 +1313,12 @@ Clips में उपयोगकर्ताओं को दिखने व�
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
   },
+  importRoute: {
+    pageTitle: "Loom आयात करें — Clips",
+    title: "Loom आयात करें",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "आयात करें",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (स्थानीयकृत)",
     howToUse: "How to use Dictate (स्थानीयकृत)",

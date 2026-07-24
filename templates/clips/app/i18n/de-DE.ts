@@ -1356,6 +1356,12 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
   },
+  importRoute: {
+    pageTitle: "Loom importieren — Clips",
+    title: "Loom importieren",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importieren",
+  },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Lokalisiert)",
     howToUse: "How to use Dictate (Lokalisiert)",

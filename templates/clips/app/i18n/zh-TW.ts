@@ -1261,6 +1261,12 @@ const messages = {
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
   },
+  importRoute: {
+    pageTitle: "匯入 Loom — Clips",
+    title: "匯入 Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "匯入",
+  },
   dictateRoute: {
     pageTitle: "聽寫 · Clips",
     howToUse: "如何使用聽寫",
