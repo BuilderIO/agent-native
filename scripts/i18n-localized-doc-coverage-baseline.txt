@@ -7,7 +7,6 @@ ar-SA|generative-ui
 ar-SA|http-api
 ar-SA|integrations
 ar-SA|organizations-teams-permissions
-ar-SA|syncing-template-changes
 ar-SA|toolkit-agent-ux
 ar-SA|toolkit-collaboration
 ar-SA|toolkit-command-navigation
