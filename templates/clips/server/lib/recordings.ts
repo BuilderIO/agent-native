@@ -368,20 +368,26 @@ export function shouldCountView(
 }
 
 /**
- * The single definition of a counted view: one `recording_viewers` row whose
- * `countedView` flag is set. Every surface that reports a view count (library
- * list, insights, public share page) goes through this condition,
- * `countRecordingViews`, or the in-memory twin `isCountedViewerRow` in
- * `shared/view-analytics.ts`, so the numbers cannot drift apart.
+ * The single definition of a counted *viewer*: one `recording_viewers` row
+ * whose `countedView` flag is set. That is one row per person, so it answers
+ * "how many distinct viewers", not "how many views" — use
+ * `countRecordingViews` for the total. The in-memory twin is
+ * `isCountedViewerRow` in `shared/view-analytics.ts`.
  */
 export function countedViewCondition() {
   return eq(schema.recordingViewers.countedView, true);
 }
 
+/**
+ * Total views for a recording: one per counted view *session*, so a returning
+ * viewer's second visit counts again. Every surface that reports a view count
+ * (library list, insights, player, public share page) goes through this.
+ */
 export async function countRecordingViews(
   recordingId: string,
 ): Promise<number> {
-  const [row] = await getDb()
+  const db = getDb();
+  const [viewerRow] = await db
     .select({ value: count() })
     .from(schema.recordingViewers)
     .where(
@@ -390,5 +396,17 @@ export async function countRecordingViews(
         countedViewCondition(),
       ),
     );
-  return Number(row?.value ?? 0);
+  const [viewLogRow] = await db
+    .select({ value: count() })
+    .from(schema.recordingViews)
+    .where(eq(schema.recordingViews.recordingId, recordingId));
+
+  // `recording_views` only exists from migration v46, so clips recorded before
+  // it have zero log rows. Floor the total at the counted-viewer count so those
+  // clips keep reporting a real number instead of dropping to 0, and so the
+  // total can never read below the unique-viewer count beside it.
+  return Math.max(
+    Number(viewLogRow?.value ?? 0),
+    Number(viewerRow?.value ?? 0),
+  );
 }

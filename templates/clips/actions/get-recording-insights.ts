@@ -12,7 +12,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -43,12 +43,26 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    // Same definition as `countRecordingViews`, applied to rows already in
-    // memory so this action keeps its single viewer-row read.
-    const views = viewerRows.filter(isCountedViewerRow).length;
+    const [viewLogRow] = await db
+      .select({ value: count() })
+      .from(schema.recordingViews)
+      .where(eq(schema.recordingViews.recordingId, args.recordingId));
+
+    // Same definition as `countedViewCondition`, applied to rows already in
+    // memory so this action keeps its single viewer-row read. One row per
+    // person, so this is the distinct-viewer count, not the view total.
+    const countedViewers = viewerRows.filter(isCountedViewerRow).length;
     const uniqueViewers = new Set(
-      viewerRows.map((v) => v.viewerEmail ?? `anon:${v.id}`),
+      viewerRows
+        .filter(isCountedViewerRow)
+        .map((v) => v.viewerEmail ?? `anon:${v.id}`),
     ).size;
+
+    // Mirrors `countRecordingViews`: `recording_views` only exists from
+    // migration v46, so clips recorded before it have zero log rows. Floor the
+    // total at the counted-viewer count so those clips keep reporting a real
+    // number instead of 0, and so total can never read below uniqueViewers.
+    const views = Math.max(Number(viewLogRow?.value ?? 0), countedViewers);
 
     const completionRate =
       viewerRows.length === 0
