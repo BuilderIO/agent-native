@@ -132,8 +132,6 @@ export interface UseDesignHotkeysProps {
   onSendToBack?: DesignHotkeyHandler;
   onEscape?: DesignHotkeyHandler;
   onEnter?: DesignHotkeyHandler;
-  /** Cmd/Ctrl+Enter opens the agent chat for the current selection. */
-  onOpenAgentForSelection?: DesignHotkeyHandler;
   onSelectParent?: DesignHotkeyHandler;
   onTab?: DesignHotkeyTabHandler;
   onNextFrame?: DesignHotkeyHandler;
@@ -457,11 +455,6 @@ export function handleDesignHotkey(
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") {
-    // Cmd/Ctrl+Enter opens the agent for the current selection; checked before
-    // the drill-in/parent traversal so plain/Shift+Enter is unchanged.
-    if (primary && !event.shiftKey && props.onOpenAgentForSelection) {
-      return run(props.onOpenAgentForSelection);
-    }
     // Figma: Enter drills into the selection (selects its first child /
     // begins text editing); Shift+Enter is its sibling — select the
     // selection's PARENT. Checked before the plain onEnter fallback so

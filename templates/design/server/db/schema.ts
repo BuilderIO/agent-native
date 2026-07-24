@@ -109,10 +109,6 @@ export const designVersions = table("design_versions", {
   designId: text("design_id").notNull(),
   label: text("label"),
   snapshot: text("snapshot").notNull(),
-  // Checkpoint attribution and recovery. Additive, nullable.
-  createdBy: text("created_by"),
-  kind: text("kind"),
-  trigger: text("trigger"),
   createdAt: text("created_at").default(now()),
 });
 

@@ -223,7 +223,6 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "@/components/design/canvas-primitive-style";
-import { CanvasAgentStateBadge } from "@/components/design/CanvasAgentStateBadge";
 import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
@@ -317,7 +316,6 @@ import {
   type ReviewCommentsPanelProps,
 } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
-import { SelectionAgentAffordance } from "@/components/design/SelectionAgentAffordance";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -3406,23 +3404,6 @@ function DesignEditor() {
     null,
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
-  // Canvas agent-state badge inputs.
-  const [lastRunCompletedAt, setLastRunCompletedAt] = useState<number | null>(
-    null,
-  );
-  const [isOffline, setIsOffline] = useState(
-    typeof navigator !== "undefined" && navigator.onLine === false,
-  );
-  useEffect(() => {
-    const goOnline = () => setIsOffline(false);
-    const goOffline = () => setIsOffline(true);
-    window.addEventListener("online", goOnline);
-    window.addEventListener("offline", goOffline);
-    return () => {
-      window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
-    };
-  }, []);
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
@@ -3531,8 +3512,6 @@ function DesignEditor() {
     }
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationComplete = useCallback(() => {
-    // Stamp completion so the badge can show a transient "done" state.
-    setLastRunCompletedAt(Date.now());
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
       generationCompleteTimerRef.current = null;
@@ -8099,45 +8078,6 @@ function DesignEditor() {
     [canvasIframeRef, resolveSelectorRectInIframe],
   );
 
-  // Anchor for the agent affordance chip, recomputed after layout on
-  // selection/zoom/view changes. Coordinates are container-relative.
-  const [selectionAffordanceAnchor, setSelectionAffordanceAnchor] = useState<{
-    anchor: {
-      left: number;
-      top: number;
-      right: number;
-      bottom: number;
-      width: number;
-      height: number;
-    } | null;
-    container: { width: number; height: number } | null;
-  }>({ anchor: null, container: null });
-  useLayoutEffect(() => {
-    const selector = selectedElement?.selector;
-    const containerBox =
-      canvasContainerRef.current?.getBoundingClientRect() ?? null;
-    const selRect = selector ? resolveSelectorRect(selector) : null;
-    if (!selRect || !containerBox) {
-      setSelectionAffordanceAnchor((prev) =>
-        prev.anchor === null && prev.container === null
-          ? prev
-          : { anchor: null, container: null },
-      );
-      return;
-    }
-    setSelectionAffordanceAnchor({
-      anchor: {
-        left: selRect.left - containerBox.left,
-        top: selRect.top - containerBox.top,
-        right: selRect.right - containerBox.left,
-        bottom: selRect.bottom - containerBox.top,
-        width: selRect.width,
-        height: selRect.height,
-      },
-      container: { width: containerBox.width, height: containerBox.height },
-    });
-  }, [selectedElement, zoom, viewMode, resolveSelectorRect]);
-
   // Resolve a text quote to a viewport rect by walking the iframe body's text.
   const resolveTextQuoteRect = useCallback(
     (quote: string): DOMRect | null =>
@@ -12106,41 +12046,6 @@ function DesignEditor() {
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
-  // Single source of truth for the "design:selected-element" chat context, so
-  // the R69 mirror, the affordance, and Cmd+Enter stage identical payloads.
-  // Returns null when there is no meaningful selection.
-  const buildSelectionContextItem = useCallback((): {
-    title: string;
-    context: string;
-  } | null => {
-    if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
-      return null;
-    }
-    const labelSource =
-      selectedElement.textContent?.trim() ||
-      selectedCodeLayerNode?.layerName ||
-      selectedElement.id ||
-      selectedElement.tagName.toLowerCase();
-    const shortLabel =
-      labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
-    const contextLines = [
-      `Selected design element in design "${design?.title ?? id}".`,
-      activeFile
-        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
-        : "",
-      `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
-      `Selector: ${selectedElement.selector}`,
-      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
-      selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
-      selectedElement.classes.length
-        ? `Classes: ${selectedElement.classes.join(" ")}`
-        : "",
-      selectedElement.textContent?.trim()
-        ? `Text: ${selectedElement.textContent.trim()}`
-        : "",
-    ].filter(Boolean);
-    return { title: shortLabel, context: contextLines.join("\n") };
-  }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
   useEffect(() => {
     const key = "design:selected-element";
     if (!isSignedIn) return;
@@ -12177,12 +12082,34 @@ function DesignEditor() {
     }
     mirroredSelectionIdRef.current = selectionId;
 
-    const item = buildSelectionContextItem();
-    if (!item) return;
+    const labelSource =
+      selectedElement.textContent?.trim() ||
+      selectedCodeLayerNode?.layerName ||
+      selectedElement.id ||
+      selectedElement.tagName.toLowerCase();
+    const shortLabel =
+      labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
+    const contextLines = [
+      `Selected design element in design "${design?.title ?? id}".`,
+      activeFile
+        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
+        : "",
+      `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
+      `Selector: ${selectedElement.selector}`,
+      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
+      selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
+      selectedElement.classes.length
+        ? `Classes: ${selectedElement.classes.join(" ")}`
+        : "",
+      selectedElement.textContent?.trim()
+        ? `Text: ${selectedElement.textContent.trim()}`
+        : "",
+    ].filter(Boolean);
+
     setAgentChatContextItem({
       key,
-      title: item.title,
-      context: item.context,
+      title: shortLabel,
+      context: contextLines.join("\n"),
       openSidebar: false,
       // Mirror the selection into chat context without stealing focus: this
       // effect re-fires on every selection change and on each get-design poll
@@ -12191,7 +12118,14 @@ function DesignEditor() {
       focus: false,
     });
     composerContextHasOurKeyRef.current = true;
-  }, [buildSelectionContextItem, id, isSignedIn, selectedElement]);
+  }, [
+    activeFile,
+    design?.title,
+    id,
+    isSignedIn,
+    selectedCodeLayerNode,
+    selectedElement,
+  ]);
 
   // Bookkeeping only — mirrors "does the shared composer context still carry
   // our key" into a ref for the effect above to read. This is intentionally
@@ -12206,28 +12140,6 @@ function DesignEditor() {
     composerContextHasOurKeyRef.current =
       composerContextItemsForBookkeeping.some((item) => item.key === key);
   }, [composerContextItemsForBookkeeping]);
-
-  // Open the agent chat for the current selection: stage the same context the
-  // mirror builds, but open the sidebar and focus the composer. No new payload
-  // or LLM call; the agent's existing prefix contract governs read vs mutate.
-  const openAgentForSelection = useCallback(
-    (mode?: "ask" | "change") => {
-      const item = buildSelectionContextItem();
-      if (!item) return;
-      setAgentChatContextItem({
-        key: "design:selected-element",
-        title: item.title,
-        context:
-          mode === "ask"
-            ? `${item.context}\n\n(The user opened this to ASK about the element — answer read-only unless they request a change.)`
-            : item.context,
-        openSidebar: true,
-        focus: true,
-      });
-      composerContextHasOurKeyRef.current = true;
-    },
-    [buildSelectionContextItem],
-  );
 
   useEffect(() => {
     const key = "design:design-system";
@@ -22396,8 +22308,6 @@ function DesignEditor() {
       : undefined,
     onEscape: handleEscapeHotkey,
     onEnter: handleEnterHotkey,
-    onOpenAgentForSelection:
-      isSignedIn && selectedElement ? () => openAgentForSelection() : undefined,
     onSelectParent: handleSelectParentLayer,
     onTab: ({ backwards }) => handleCycleSibling(backwards),
     onNextFrame: () => handleCycleFile(false),
@@ -29752,35 +29662,6 @@ function DesignEditor() {
                         inset: 0,
                         zIndex: 10,
                         pointerEvents: "auto",
-                      }}
-                    />
-                  )}
-                  {/* Contextual agent affordance near the selection. */}
-                  {!embedded && isSignedIn && (
-                    <SelectionAgentAffordance
-                      anchorRect={selectionAffordanceAnchor.anchor}
-                      containerRect={selectionAffordanceAnchor.container}
-                      layoutTick={zoom}
-                      suppressed={
-                        uiHidden ||
-                        pinMode ||
-                        textEditingState.active ||
-                        (pendingQuestions?.length ?? 0) > 0
-                      }
-                      onChange={() => openAgentForSelection("change")}
-                      onAsk={() => openAgentForSelection("ask")}
-                    />
-                  )}
-                  {/* Canvas agent-state badge (silent when ready). */}
-                  {!embedded && !uiHidden && (
-                    <CanvasAgentStateBadge
-                      inputs={{
-                        generating,
-                        generationIssue: Boolean(generationIssue),
-                        pendingQuestionCount: pendingQuestions?.length ?? 0,
-                        resolveNodeRewritePending: false,
-                        offline: isOffline,
-                        lastRunCompletedAt,
                       }}
                     />
                   )}
