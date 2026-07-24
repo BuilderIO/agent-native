@@ -1,4 +1,5 @@
 import { type AspectRatio, getAspectRatioDims } from "./aspect-ratios";
+import { importExportModule } from "./dynamic-import";
 import {
   findSlideExportSource,
   preloadImagesWithCors,
@@ -83,7 +84,7 @@ export async function addSpeakerNotesToPptxBlob(
   const hasNotes = slides.some((slide) => slide.notes?.trim());
   if (!hasNotes) return blob;
 
-  const { default: JSZip } = await import("jszip");
+  const { default: JSZip } = await importExportModule(() => import("jszip"));
   const zip = await JSZip.loadAsync(blob);
 
   const contentTypesFile = zip.file("[Content_Types].xml");
@@ -317,7 +318,9 @@ export async function exportDeckAsPptx(
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
 ): Promise<void> {
-  const { exportToPptx } = await import("dom-to-pptx");
+  const { exportToPptx } = await importExportModule(
+    () => import("dom-to-pptx"),
+  );
 
   if (typeof document !== "undefined" && document.fonts?.ready) {
     await document.fonts.ready;
