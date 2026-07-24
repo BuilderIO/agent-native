@@ -150,10 +150,10 @@ Es vergleicht Ihre App mit ihrer Baseline, sodass nur Ihre eigenen Änderungen a
 
 ## Verhältnis zu anderen Befehlen {#relationship-to-other-commands}
 
-| Befehl | Bewegt |
-| --- | --- |
-| `agent-native upgrade` | `@agent-native/*`-Paketversionen, Importe, skills-Verzeichnisse |
+| Befehl                       | Bewegt                                                               |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*`-Paketversionen, Importe, skills-Verzeichnisse      |
 | `agent-native template sync` | Dateien, die zum Scaffold-Zeitpunkt aus einer Vorlage kopiert wurden |
-| `agent-native eject` | eine Framework-Komponente in app-eigenen Quellcode, mit Herkunft |
+| `agent-native eject`         | eine Framework-Komponente in app-eigenen Quellcode, mit Herkunft     |
 
 `upgrade` und `template sync` ergänzen sich und können gefahrlos zusammen ausgeführt werden. `eject` ist der entgegengesetzte Schritt – er übernimmt absichtlich die Eigentümerschaft an einer Datei, und ausgeworfene Dateien werden separat in `agent-native.ejections.json` erfasst.

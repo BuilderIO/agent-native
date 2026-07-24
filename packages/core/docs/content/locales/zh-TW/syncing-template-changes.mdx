@@ -150,10 +150,10 @@ pnpm contribute:template --app <path-to-app> --dry-run
 
 ## 與其他命令的關係 {#relationship-to-other-commands}
 
-| 命令 | 移動內容 |
-| --- | --- |
-| `agent-native upgrade` | `@agent-native/*` 套件版本、匯入、skill 目錄 |
-| `agent-native template sync` | 在 scaffold 時從範本複製出的檔案 |
-| `agent-native eject` | 將一個框架元件連同溯源資訊一起轉入應用程式自有原始碼 |
+| 命令                         | 移動內容                                             |
+| ---------------------------- | ---------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` 套件版本、匯入、skill 目錄         |
+| `agent-native template sync` | 在 scaffold 時從範本複製出的檔案                     |
+| `agent-native eject`         | 將一個框架元件連同溯源資訊一起轉入應用程式自有原始碼 |
 
 `upgrade` 和 `template sync` 是互補的，可以安全地一起執行。`eject` 是相反的動作——它是刻意接管某個檔案的所有權，被 eject 的檔案會在 `agent-native.ejections.json` 中單獨追蹤。
