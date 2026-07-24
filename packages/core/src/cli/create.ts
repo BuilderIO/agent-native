@@ -637,7 +637,7 @@ async function scaffoldOneAppIntoWorkspace(
   );
 
   try {
-    await scaffoldAppTemplate(appDir, templateName);
+    const resolution = await scaffoldAppTemplate(appDir, templateName);
     replacePlaceholders(
       appDir,
       appName,
@@ -655,7 +655,10 @@ async function scaffoldOneAppIntoWorkspace(
       dispatchDependencyVersion: getDispatchDependencyVersion(),
       toolkitDependencyVersion: getToolkitDependencyVersion(),
     });
-    fixPackageJsonName(appDir, appName, templateName);
+    fixPackageJsonName(appDir, appName, templateName, {
+      ...resolution,
+      shape: "workspace",
+    });
     fixWebManifestName(appDir, appName, templateName);
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
@@ -736,9 +739,9 @@ async function createStandaloneApp(
       : `Downloading the ${template} template from GitHub...`,
   );
   try {
-    await scaffoldAppTemplate(targetDir, template);
+    const resolution = await scaffoldAppTemplate(targetDir, template);
     s.message(`Setting up ${name}…`);
-    postProcessStandalone(name, targetDir, template);
+    postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
@@ -789,6 +792,17 @@ function cleanupOnFailure(targetDir: string): void {
  * Shared scaffolding helpers
  * ───────────────────────────────────────────────────────────────────────── */
 
+/** Where a scaffolded template's bytes came from, recorded so
+ *  `agent-native template sync` can reproduce them later. */
+export interface ScaffoldTemplateResolution {
+  templateRef?: string;
+  templateSource?: "github" | "bundled" | "local-checkout";
+}
+
+export interface ScaffoldProvenance extends ScaffoldTemplateResolution {
+  shape?: "workspace" | "standalone";
+}
+
 /**
  * Scaffold a single app template into `targetDir`. Resolves:
  *   - "headless" / legacy "blank" → bundled action-first template
@@ -799,7 +813,7 @@ function cleanupOnFailure(targetDir: string): void {
 async function scaffoldAppTemplate(
   targetDir: string,
   template: string,
-): Promise<void> {
+): Promise<ScaffoldTemplateResolution> {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
 
   // Normalize legacy / renamed aliases.
@@ -814,13 +828,16 @@ async function scaffoldAppTemplate(
       );
     }
     copyDir(headlessDir, targetDir);
-    return;
+    return {
+      templateSource: "bundled",
+      templateRef: getGitHubTemplateRefCandidates()[0],
+    };
   }
 
   if (resolved.startsWith("github:")) {
     const repo = resolved.slice("github:".length);
     await downloadGitHubRepo(repo, targetDir);
-    return;
+    return {};
   }
 
   if (!getTemplate(resolved)) {
@@ -836,13 +853,29 @@ async function scaffoldAppTemplate(
   const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyDir(localTemplate, targetDir);
-  } else {
-    await downloadGitHubSubdir(
-      REPO,
-      `${TEMPLATES_DIR}/${sourceTemplate}`,
-      targetDir,
-    );
+    return {
+      templateSource: localTemplateSourceKind(localTemplate),
+      templateRef: getGitHubTemplateRefCandidates()[0],
+    };
   }
+  const templateRef = await downloadGitHubSubdir(
+    REPO,
+    `${TEMPLATES_DIR}/${sourceTemplate}`,
+    targetDir,
+  );
+  return { templateSource: "github", templateRef };
+}
+
+/** A template dir inside the installed core package ships with the CLI;
+ *  anything above it belongs to a framework checkout. */
+function localTemplateSourceKind(
+  localTemplate: string,
+): "bundled" | "local-checkout" {
+  const packageRoot = path.resolve(__dirname, "../..");
+  const rel = path.relative(packageRoot, path.resolve(localTemplate));
+  return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
+    ? "bundled"
+    : "local-checkout";
 }
 
 function templateSourceName(name: string): string {
@@ -1039,12 +1072,16 @@ function postProcessStandalone(
   name: string,
   targetDir: string,
   templateName?: string,
+  resolution?: ScaffoldTemplateResolution,
 ): void {
   const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
   rewriteAgentChatAppId(targetDir, name, templateName);
-  fixPackageJsonName(targetDir, name, templateName);
+  fixPackageJsonName(targetDir, name, templateName, {
+    ...resolution,
+    shape: "standalone",
+  });
   fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -1393,6 +1430,18 @@ export {
   startShapePromptOptions as _startShapePromptOptions,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
+  downloadGitHubSubdir as _downloadGitHubSubdir,
+  findLocalTemplate as _findLocalTemplate,
+  templateSourceName as _templateSourceName,
+  normalizeTemplateName as _normalizeTemplateName,
+  appTitleForScaffold as _appTitleForScaffold,
+  replacePlaceholders as _replacePlaceholders,
+  rewriteTrackingAppId as _rewriteTrackingAppId,
+  rewriteAgentChatAppId as _rewriteAgentChatAppId,
+  fixWebManifestName as _fixWebManifestName,
+  copyDir as _copyDir,
+  REPO as _REPO,
+  TEMPLATES_DIR as _TEMPLATES_DIR,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1479,13 +1528,17 @@ async function downloadAndExtract(
   }
 }
 
+/** Resolves to the ref that actually succeeded so callers can record it. */
 async function downloadGitHubSubdir(
   repo: string,
   subdir: string,
   targetDir: string,
-): Promise<void> {
+  refOverride?: string[],
+): Promise<string> {
   validateRepoName(repo);
-  const refs = getGitHubTemplateRefCandidates();
+  const refs = refOverride?.length
+    ? refOverride
+    : getGitHubTemplateRefCandidates();
   if (refs.length === 0) {
     throw new Error(
       "Cannot download first-party scaffold files without a versioned @agent-native/core package.",
@@ -1510,7 +1563,7 @@ async function downloadGitHubSubdir(
         );
       }
       copyDir(srcDir, targetDir);
-      return;
+      return ref;
     } catch (err) {
       errors.push(
         `  ${ref}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
@@ -1678,6 +1731,7 @@ function fixPackageJsonName(
   appDir: string,
   name: string,
   templateName?: string,
+  provenance?: ScaffoldProvenance,
 ): void {
   const pkgPath = path.join(appDir, "package.json");
   if (!fs.existsSync(pkgPath)) return;
@@ -1706,9 +1760,18 @@ function fixPackageJsonName(
         !Array.isArray(pkg["agent-native"])
           ? pkg["agent-native"]
           : {};
+      const coreVersion = getCorePackageVersion();
       agentNative.scaffold = {
         template: trackingTemplateName(templateName),
         frameworkSkills: scaffoldGuidance,
+        ...(provenance?.templateRef
+          ? { templateRef: provenance.templateRef }
+          : {}),
+        ...(provenance?.templateSource
+          ? { templateSource: provenance.templateSource }
+          : {}),
+        ...(coreVersion ? { coreVersion } : {}),
+        ...(provenance?.shape ? { shape: provenance.shape } : {}),
       };
       pkg["agent-native"] = agentNative;
     }
