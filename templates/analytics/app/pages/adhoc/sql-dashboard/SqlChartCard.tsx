@@ -4,7 +4,6 @@ import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
-  IconExternalLink,
   IconMaximize,
   IconPencil,
   IconRefresh,
@@ -16,7 +15,6 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -142,7 +140,6 @@ export function SqlChartCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [extRefreshKey, setExtRefreshKey] = useState(0);
-  const navigate = useNavigate();
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
     eagerLoad ||
@@ -160,13 +157,6 @@ export function SqlChartCard({
       ] as const,
     [panel.id, panel.source, panel.sql, resolvedSql],
   );
-  const extensionId =
-    panel.chartType === "extension"
-      ? ((panel.config as Record<string, unknown> | undefined)?.extensionId as
-          | string
-          | undefined)
-      : undefined;
-
   const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
     cardRef.current = node;
   }, []);
@@ -368,7 +358,7 @@ export function SqlChartCard({
 
   // Extension panels render their sandboxed iframe full-bleed with no card chrome
   // or title — the extension owns its own UI. All viewers get the read-only
-  // actions (full screen, refresh, open embedded extension); editable
+  // actions (full screen and refresh); editable
   // dashboards also get delete and drag.
   if (panel.chartType === "extension") {
     return (
@@ -424,22 +414,6 @@ export function SqlChartCard({
                 <IconMaximize className="h-4 w-4 mr-2" />
                 {t("sqlDashboard.fullScreen")}
               </DropdownMenuItem>
-              {extensionId ? (
-                <DropdownMenuItem
-                  onSelect={() =>
-                    navigate(
-                      `/extensions/${extensionId}/${encodeURIComponent(
-                        (panel.title ?? "extension")
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-"),
-                      )}`,
-                    )
-                  }
-                >
-                  <IconExternalLink className="h-4 w-4 mr-2" />
-                  Open embedded extension {/* i18n-ignore */}
-                </DropdownMenuItem>
-              ) : null}
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
                 <IconRefresh className="h-4 w-4 mr-2" />

@@ -41,6 +41,16 @@ export interface ActiveRun {
   subscribers: Set<(event: RunEvent) => void>;
   abort: AbortController;
   abortReason?: string;
+  /**
+   * Terminal event to emit when a server-driven continuation has been handed
+   * off successfully. The continuation runs outside this process, so the
+   * normal loop-level auto_continue event is not sent through this run's
+   * `send` callback.
+   */
+  continuationTerminalEvent?: Extract<
+    AgentChatEvent,
+    { type: "auto_continue" }
+  >;
   startedAt: number;
 }
 
@@ -954,7 +964,15 @@ export function startRun(
       //    /runs/active check while we wait for SQL writes to land.
       let completionError: unknown = null;
       let terminalPersistenceError: unknown = null;
-      const terminalEvent = pendingTerminalEvent?.event ?? null;
+      const continuationTerminalEvent = run.continuationTerminalEvent
+        ? {
+            seq: run.events.length,
+            event: run.continuationTerminalEvent,
+          }
+        : null;
+      const terminalEventForCompletion =
+        continuationTerminalEvent ?? pendingTerminalEvent;
+      const terminalEvent = terminalEventForCompletion?.event ?? null;
       if (
         onComplete &&
         !(run.status === "aborted" && run.abortReason === "no_progress")
@@ -966,12 +984,12 @@ export function startRun(
               ? "errored"
               : run.status;
           const completionRun: ActiveRun =
-            pendingTerminalEvent || completionStatus !== run.status
+            terminalEventForCompletion || completionStatus !== run.status
               ? {
                   ...run,
                   status: completionStatus,
-                  events: pendingTerminalEvent
-                    ? [...run.events, pendingTerminalEvent]
+                  events: terminalEventForCompletion
+                    ? [...run.events, terminalEventForCompletion]
                     : run.events,
                 }
               : run;
@@ -1022,18 +1040,18 @@ export function startRun(
         // re-stamp the seq at emit time (max-seq+1) just below.
         const terminalEvent: AgentChatEvent =
           finalStatus === "completed"
-            ? (pendingTerminalEvent?.event ?? { type: "done" })
-            : pendingTerminalEvent?.event.type === "error" ||
-                pendingTerminalEvent?.event.type === "missing_api_key"
-              ? pendingTerminalEvent.event
-              : pendingTerminalEvent?.event.type === "auto_continue"
+            ? (terminalEventForCompletion?.event ?? { type: "done" })
+            : terminalEventForCompletion?.event.type === "error" ||
+                terminalEventForCompletion?.event.type === "missing_api_key"
+              ? terminalEventForCompletion.event
+              : terminalEventForCompletion?.event.type === "auto_continue"
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
                   // is recoverable: the partial turn is in agent_run_events and
                   // the continuation run will re-attempt the thread_data save.
                   // Even though the completion save failed (finalStatus stays
                   // "errored" for SQL/diagnostics), re-emit the auto_continue so
                   // the client resumes instead of seeing a dead chat.
-                  pendingTerminalEvent.event
+                  terminalEventForCompletion.event
                 : {
                     type: "error",
                     error: completionError

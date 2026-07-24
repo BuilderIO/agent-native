@@ -617,9 +617,23 @@ Extensions are private to the user who created them by default. To share:
 
 Shared extensions have their own URLs and plug into the same share dialog as documents, decks, and dashboards. Slot installs are always personal — sharing an extension means others _can_ install it; it doesn't auto-pin it to their UI.
 
-## Extensions vs. editing the app code {#vs-app-code}
+## Should I use an extension or edit the app code? {#vs-app-code}
 
-The framework lets the agent edit the app's source code directly — components, routes, styles. So when should you reach for an extension instead?
+The framework lets the agent edit the app's source code directly — components,
+routes, styles, and business logic. Use this question when either path could
+solve the request:
+
+- **Start with an extension** for a self-contained, relatively one-off widget:
+  a custom visualization or interaction, a dashboard tile, a standalone
+  utility, or an add-on in an existing slot. It is fast, requires no source
+  change, build, or deploy, and can be private or shared.
+- **Use app code** for a core feature of the template, a change to native UI,
+  layout, routes, or business logic, or anything that should be reused broadly
+  across dashboards or users. If the host has no suitable slot or the request
+  needs a new slot, use code.
+- **Promote repeated extensions.** If people keep rebuilding the same
+  extension, or maintaining copies in many places would be worse than one
+  shared implementation, move it into app code as a reusable native feature.
 
 |                       | Extension                                         | App code edit                        |
 | --------------------- | ------------------------------------------------- | ------------------------------------ |
@@ -630,7 +644,12 @@ The framework lets the agent edit the app's source code directly — components,
 | **Scope**             | One user (or shared with org)                     | The entire product, every user       |
 | **Best for**          | Personal widgets, custom KPIs, per-team utilities | Core features that ship to all users |
 
-Rule of thumb: **if it's for one user or one team, it's an extension.** If every user of the template should get it, ship it as a real feature.
+Rule of thumb: **if an extension can solve the problem, generally start there.**
+Use code when the extension boundary does not fit or when broad reuse and
+product-wide availability justify a native implementation. For example, a
+one-off custom visualization on a dashboard is a good extension; a new pie,
+multi-bar, or line chart type that should be available across dashboards
+belongs in the template code.
 
 If what you actually need is a cached, refreshable data source for an existing chart or table — not a new interactive widget — see [Data Programs](/docs/data-programs) instead; it shares this page's sandbox and security posture but has no UI of its own.
 

@@ -151,12 +151,12 @@ export default function AnalysisDetail() {
     send({
       message: t("analyses.rerunMessage", { name: analysis.name }),
       context:
-        `This is a re-run of a saved ad-hoc analysis. REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status, generate-chart, and save-analysis do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results.\n\n` +
+        `This is a re-run of a legacy saved ad-hoc analysis. Treat the refreshed result as a dashboard artifact: REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status and generate-chart do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results. If the report needs bespoke UI, create an extension and immediately embed it in a dashboard panel with config.extensionId. Only call save-analysis when the user explicitly asks to preserve this legacy analysis record.\n\n` +
         `Use these instructions to reproduce it:\n\n` +
         `Analysis ID: ${analysis.id}\n` +
         `Original question: ${analysis.question}\n\n` +
         `Instructions:\n${analysis.instructions}\n\n` +
-        `After gathering the data, call save-analysis with id="${analysis.id}" to update the results.`,
+        `After gathering the data, call update-dashboard with a new dashboardId to save the refreshed artifact. If the user explicitly asked to update this legacy record instead, call save-analysis with id="${analysis.id}".`,
       submit: true,
     });
   };

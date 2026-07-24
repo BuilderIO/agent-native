@@ -66,10 +66,6 @@ vi.mock("@agent-native/core/client/ui", () => ({
   FeedbackButton: () => <div>Feedback</div>,
 }));
 
-vi.mock("@agent-native/core/client/extensions", () => ({
-  ExtensionsSidebarSection: () => <div>Extensions</div>,
-}));
-
 vi.mock("@agent-native/core/client/org", () => ({
   InvitationBanner: () => null,
   OrgSwitcher: () => <div>Organization</div>,
