@@ -5448,17 +5448,16 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: recording pill                                                    */
 /* ------------------------------------------------------------------------- */
 
-/* The Tauri window is sized to the pill plus a transparent shadow gutter on
-   every side (OVERLAY_SHADOW_GUTTER_LOGICAL in recording_indicator.rs). Match
-   it here, otherwise the visible capsule sits flush in a corner of the window
-   and hover — polled against the window frame — fires far away from it. */
+/* Fills the window minus the shadow gutter `#root` already pads out. The
+   collapsed capsule centers here rather than hugging a corner: hover is polled
+   against the window frame, so slack between frame and capsule would light the
+   pill up while the cursor is nowhere near it. */
 .pill-outer {
   display: flex;
   height: 100%;
   width: 100%;
   align-items: center;
   justify-content: center;
-  padding: 18px;
 }
 
 .pill-inner {
