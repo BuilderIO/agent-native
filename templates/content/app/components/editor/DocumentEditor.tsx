@@ -108,6 +108,8 @@ const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
@@ -217,7 +219,11 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * only mount once we know the doc exists. Otherwise an invalid id triggers
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
-export function DocumentEditor({ documentId }: DocumentEditorProps) {
+export function DocumentEditor({
+  documentId,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorProps) {
   const { data: queriedDocument, isError } = useDocument(documentId);
   const navigate = useNavigate();
   const document =
@@ -233,12 +239,21 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     return <DocumentEditorSkeleton />;
   }
 
-  return <DocumentEditorBody documentId={documentId} document={document} />;
+  return (
+    <DocumentEditorBody
+      documentId={documentId}
+      document={document}
+      databaseId={databaseId}
+      databaseDocumentId={databaseDocumentId}
+    />
+  );
 }
 
 interface DocumentEditorBodyProps {
   documentId: string;
   document: Document;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type PendingDocumentSave = {
@@ -443,7 +458,12 @@ export function documentEditorBreadcrumbNavigationItems(
   return navigationItems;
 }
 
-function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
+function DocumentEditorBody({
+  documentId,
+  document,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorBodyProps) {
   const t = useT();
   const updateDocument = useUpdateDocument();
   const createDatabase = useCreateContentDatabase(documentId);
@@ -1575,6 +1595,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       {utilityPanel === "info" ? (
         <DocumentInfoPanel
           document={document}
+          databaseId={databaseId}
+          databaseDocumentId={databaseDocumentId}
           canEdit={editorCanEdit}
           onSaveDescription={(description) =>
             persistDocumentUpdates({ description })
@@ -1870,7 +1892,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseId={
+                              databaseId ??
+                              document.databaseMembership.databaseId
+                            }
                             databaseDocumentId={
+                              databaseDocumentId ??
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}

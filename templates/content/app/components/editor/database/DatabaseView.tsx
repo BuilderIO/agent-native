@@ -781,7 +781,11 @@ function DatabaseTable({
     document.id,
   );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
-  const setProperty = useSetDocumentProperty(document.id, document.id);
+  const setProperty = useSetDocumentProperty(
+    document.id,
+    expectedDatabaseId,
+    document.id,
+  );
   const updateView = useUpdateContentDatabaseView(document.id);
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -1399,7 +1403,7 @@ function DatabaseTable({
     if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
-    navigate(`/page/${item.document.id}`);
+    navigate(databaseItemPagePath(item.document.id, databaseId, document.id));
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
@@ -2390,7 +2394,13 @@ function DatabaseTable({
                   aria-label={dbText("openAsFullPage")}
                   className={databaseToolbarIconButtonClass()}
                 >
-                  <Link to={`/page/${databaseDocumentId}`}>
+                  <Link
+                    to={databaseItemPagePath(
+                      databaseDocumentId,
+                      databaseId,
+                      databaseDocumentId,
+                    )}
+                  >
                     <IconArrowsDiagonal className="size-3.5" />
                   </Link>
                 </Button>
@@ -2566,6 +2576,7 @@ function DatabaseTable({
         />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
@@ -2644,6 +2655,7 @@ function DatabaseTable({
         />
       ) : activeView.type === "calendar" ? (
         <DatabaseCalendarView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
@@ -2671,6 +2683,7 @@ function DatabaseTable({
         />
       ) : activeView.type === "timeline" ? (
         <DatabaseTimelineView
+          databaseId={databaseId}
           activeView={activeView}
           properties={orderedProperties}
           items={visibleItems}
@@ -2704,6 +2717,7 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          databaseId={databaseId}
           newRowLabel={newDatabaseRowLabel}
           properties={tableProperties}
           groupableProperties={orderedProperties}
@@ -3012,6 +3026,15 @@ export function databaseItemPreviewTitle(
   item: Pick<ContentDatabaseItem, "document"> | null | undefined,
 ) {
   return item?.document.title?.trim() || "Untitled";
+}
+
+export function databaseItemPagePath(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId: string,
+) {
+  const search = new URLSearchParams({ databaseId, databaseDocumentId });
+  return `/page/${documentId}?${search.toString()}`;
 }
 
 export function databaseNavigationState({
@@ -4893,6 +4916,7 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
+                databaseId={item.databaseId}
                 databaseDocumentId={databaseDocumentId}
                 canEdit={previewCanEdit}
                 popoversPortalled={false}
@@ -4931,6 +4955,7 @@ function DatabaseItemPreview({
                 const editor = previewDocument.databaseMembership ? (
                   <DocumentBlockFields
                     documentId={previewDocument.id}
+                    databaseId={item.databaseId}
                     databaseDocumentId={databaseDocumentId}
                     canEdit={previewCanEdit}
                     primaryEditor={primaryEditor}
@@ -5034,6 +5059,7 @@ function DatabaseItemPreview({
 }
 
 function DatabaseTableView({
+  databaseId,
   newRowLabel,
   properties,
   groupableProperties,
@@ -5080,6 +5106,7 @@ function DatabaseTableView({
   onDeletedPreviewItems,
   onOpenPage,
 }: {
+  databaseId: string;
   newRowLabel: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
@@ -5144,7 +5171,11 @@ function DatabaseTableView({
   const contentSpaces = useContentSpaces();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
-  const setProperty = useSetDocumentProperty(databaseDocumentId);
+  const setProperty = useSetDocumentProperty(
+    databaseDocumentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const deleteItems = useDeleteDatabaseItems(databaseDocumentId);
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dropTargetItemId, setDropTargetItemId] = useState<string | null>(null);
@@ -5598,6 +5629,7 @@ function DatabaseTableView({
             >
               <AddProperty
                 documentId={databaseDocumentId}
+                databaseId={databaseId}
                 variant={cleanDefaultTable ? "header" : "icon"}
                 label={dbText("addProperty")}
                 source={source}
@@ -7349,6 +7381,7 @@ function DatabaseSettingsPanelSheet({
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
             documentId={documentId}
+            databaseId={databaseId}
             properties={properties}
             activeView={activeView}
             items={items}
@@ -10598,6 +10631,7 @@ function DatabaseOpenPagesInSetting({
 
 function DatabaseSettingsPropertyVisibilityPanel({
   documentId,
+  databaseId,
   properties,
   activeView,
   items,
@@ -10608,6 +10642,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
@@ -10707,6 +10742,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           label={dbText("newProperty")}
           source={source}
           sources={sources}
@@ -11613,6 +11649,7 @@ export function DatabaseGroupHeader({
 }
 
 function DatabaseCalendarView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -11633,6 +11670,7 @@ function DatabaseCalendarView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -11784,7 +11822,12 @@ function DatabaseCalendarView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseCalendarView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : databaseViewHasNoMatchingPages(
           items.length,
@@ -12064,6 +12107,7 @@ export interface DatabaseBoardGroup {
 }
 
 function DatabaseBoardView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -12088,6 +12132,7 @@ function DatabaseBoardView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -12133,7 +12178,10 @@ function DatabaseBoardView({
     null,
   );
   const [dropGroupId, setDropGroupId] = useState<string | null>(null);
-  const configureProperty = useConfigureDocumentProperty(databaseDocumentId);
+  const configureProperty = useConfigureDocumentProperty(
+    databaseDocumentId,
+    databaseId,
+  );
   const canCreateGroup =
     canEdit && !!groupProperty && databaseBoardCanCreateGroup(groupProperty);
 
@@ -12318,7 +12366,12 @@ function DatabaseBoardView({
       ) : groupableProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addAStatusSelectMultiSelectOrCheckbox2")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+            />
+          ) : null}
         </div>
       ) : (
         <>
@@ -15846,6 +15899,7 @@ function DatabasePropertyHeader({
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
+          databaseId={property.definition.databaseId!}
           icon={Icon}
           triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
           onTriggerPointerDown={(event) => {
@@ -16083,6 +16137,7 @@ function ColumnHeaderMenuContent({
 
 function DatabasePropertiesMenu({
   documentId,
+  databaseId,
   properties,
   hiddenCount,
   activeView,
@@ -16091,6 +16146,7 @@ function DatabasePropertiesMenu({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   hiddenCount: number;
   activeView: ContentDatabaseView;
@@ -16225,7 +16281,11 @@ function DatabasePropertiesMenu({
           className="border-t border-border p-2"
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <AddProperty documentId={documentId} label={dbText("newProperty")} />
+          <AddProperty
+            documentId={documentId}
+            databaseId={databaseId}
+            label={dbText("newProperty")}
+          />
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -17205,7 +17265,11 @@ function DatabaseFilterValueControl({
   hideOptionsUntilQuery?: boolean;
   onValueChange: (value: string) => void;
 }) {
-  const configureProperty = useConfigureDocumentProperty(documentId);
+  const configureProperty = useConfigureDocumentProperty(
+    documentId,
+    properties.find((property) => property.definition.id === filter.key)
+      ?.definition.databaseId ?? "",
+  );
   const { session } = useSession();
   const currentUserEmail = session?.email?.trim() ?? "";
   const options = databaseFilterOptionChoices(

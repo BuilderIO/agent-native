@@ -372,6 +372,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         setProperty.run({
           documentId: filesDatabase.documentId,
+          databaseId: filesDatabase.id,
           propertyId: parentProperty.id,
           value: null,
         }),
@@ -382,6 +383,7 @@ describe("Content Files membership reconciliation", () => {
         configureProperty.run({
           id: parentProperty.id,
           documentId: filesDatabase.documentId,
+          databaseId: filesDatabase.id,
           name: "Other",
           type: "select",
         }),
@@ -391,6 +393,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         deleteProperty.run({
           documentId: filesDatabase.documentId,
+          databaseId: filesDatabase.id,
           propertyId: parentProperty.id,
         }),
       ),
@@ -399,6 +402,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         duplicateProperty.run({
           documentId: filesDatabase.documentId,
+          databaseId: filesDatabase.id,
           propertyId: parentProperty.id,
         }),
       ),
@@ -416,6 +420,7 @@ describe("Content Files membership reconciliation", () => {
       inOwnerContext(() =>
         reorderProperty.run({
           documentId: filesDatabase.documentId,
+          databaseId: filesDatabase.id,
           propertyId: parentProperty.id,
           targetPropertyId: contentProperty.id,
           position: "before",

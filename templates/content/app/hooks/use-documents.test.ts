@@ -538,11 +538,71 @@ describe("seedDatabaseItemDocumentCaches", () => {
       properties: item.properties,
     });
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
       properties: item.properties,
+    });
+  });
+
+  it("keeps property caches separate for one page in two databases", () => {
+    const queryClient = new QueryClient();
+    const item = (databaseId: string, propertyId: string, value: string) =>
+      ({
+        id: `item-${databaseId}`,
+        databaseId,
+        position: 0,
+        document: {
+          ...doc("shared-row", `page-${databaseId}`),
+          databaseMembership: {
+            databaseId,
+            databaseDocumentId: `page-${databaseId}`,
+            databaseTitle: databaseId,
+            position: 0,
+          },
+        },
+        properties: [
+          {
+            definition: {
+              id: propertyId,
+              databaseId,
+              name: propertyId,
+              type: "select",
+              visibility: "always_show",
+              options: { options: [] },
+              position: 0,
+              createdAt: "2026-07-24T00:00:00.000Z",
+              updatedAt: "2026-07-24T00:00:00.000Z",
+            },
+            value,
+            editable: true,
+          },
+        ],
+      }) as ContentDatabaseItem;
+
+    const filesItem = item("files-database", "Kind", "Page");
+    const projectItem = item("project-database", "Status", "In progress");
+    seedDatabaseItemDocumentCaches(queryClient, filesItem);
+    seedDatabaseItemDocumentCaches(queryClient, projectItem);
+
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "files-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "files-database",
+      properties: filesItem.properties,
+    });
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "project-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "project-database",
+      properties: projectItem.properties,
     });
   });
 
@@ -585,7 +645,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
@@ -631,7 +693,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",

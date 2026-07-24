@@ -25,13 +25,18 @@ export default defineAction({
     "Duplicate a Notion-style property definition and copy its stored values.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
+    databaseId: z.string().describe("Database ID that owns the property"),
     propertyId: z.string().describe("Property definition ID to duplicate"),
   }),
-  run: async ({ documentId, propertyId }) => {
+  run: async ({ documentId, databaseId, propertyId }) => {
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
-    const database = await resolvePropertyDatabaseForDocument(document);
+    const database = await resolvePropertyDatabaseForDocument(
+      document,
+      databaseId,
+      "editor",
+    );
     if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
@@ -123,7 +128,7 @@ export default defineAction({
     return {
       documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties: await listPropertiesForDocument(document, database.id),
     };
   },
 });

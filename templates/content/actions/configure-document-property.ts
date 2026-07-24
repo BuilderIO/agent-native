@@ -35,6 +35,7 @@ export default defineAction({
     documentId: z
       .string()
       .describe("Document ID used to scope the property workspace"),
+    databaseId: z.string().describe("Database ID that owns the property"),
     name: z.string().min(1).describe("Property name"),
     description: z
       .string()
@@ -96,7 +97,11 @@ export default defineAction({
     const name = args.name.trim();
     const type = args.type as DocumentPropertyType;
     let optionsJson = optionsForNewProperty(type, args.options as any);
-    const database = await resolvePropertyDatabaseForDocument(document);
+    const database = await resolvePropertyDatabaseForDocument(
+      document,
+      args.databaseId,
+      "editor",
+    );
     if (!database) {
       throw new Error(
         "Properties belong to databases. Create or open a database before adding properties.",
@@ -226,7 +231,7 @@ export default defineAction({
     return {
       documentId: args.documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties: await listPropertiesForDocument(document, database.id),
     };
   },
 });

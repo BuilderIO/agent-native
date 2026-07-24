@@ -39,8 +39,15 @@ export function documentQueryKey(documentId: string) {
   return ["action", "get-document", { id: documentId }] as const;
 }
 
-export function documentPropertiesQueryKey(documentId: string) {
-  return ["action", "list-document-properties", { documentId }] as const;
+export function documentPropertiesQueryKey(
+  documentId: string,
+  databaseId: string,
+) {
+  return [
+    "action",
+    "list-document-properties",
+    { documentId, databaseId },
+  ] as const;
 }
 
 // Extends the shared request/response shapes with the optional
@@ -266,11 +273,12 @@ export function seedDatabaseItemDocumentCaches(
     });
   }
   if (
-    queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
-    undefined
+    queryClient.getQueryData(
+      documentPropertiesQueryKey(item.document.id, item.databaseId),
+    ) === undefined
   ) {
     queryClient.setQueryData<DocumentPropertiesResponse>(
-      documentPropertiesQueryKey(item.document.id),
+      documentPropertiesQueryKey(item.document.id, item.databaseId),
       {
         documentId: item.document.id,
         databaseId: item.databaseId,

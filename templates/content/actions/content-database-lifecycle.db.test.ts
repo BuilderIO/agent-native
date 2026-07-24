@@ -26,6 +26,7 @@ let listTrashedContentDatabasesAction: typeof import("./list-trashed-content-dat
 let getDocumentAction: typeof import("./get-document.js").default;
 let pullDocumentAction: typeof import("./pull-document.js").default;
 let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
+let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
@@ -56,6 +57,9 @@ beforeAll(async () => {
   pullDocumentAction = (await import("./pull-document.js")).default;
   listDocumentPropertiesAction = (await import("./list-document-properties.js"))
     .default;
+  configureDocumentPropertyAction = (
+    await import("./configure-document-property.js")
+  ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
   restoreDocumentAction = (await import("./restore-document.js")).default;
@@ -176,6 +180,148 @@ async function databaseRow(databaseId: string) {
     .where(eq(schema.contentDatabases.id, databaseId));
   return database;
 }
+
+describe("database-scoped document properties", () => {
+  it("keeps reads and Add property mutations on the requested membership", async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const rowDocumentId = await createDocument({ title: "Shared row" });
+    const files = await createDatabase({});
+    const project = await createDatabase({});
+    const filesPropertyId = nextId("files_kind");
+    const projectPropertyId = nextId("project_status");
+
+    await db.insert(schema.contentDatabaseItems).values([
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: files.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: nextId("item"),
+        ownerEmail: OWNER,
+        databaseId: project.databaseId,
+        documentId: rowDocumentId,
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.documentPropertyDefinitions).values([
+      {
+        id: filesPropertyId,
+        ownerEmail: OWNER,
+        databaseId: files.databaseId,
+        name: "Kind",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [{ id: "page", name: "Page", color: "gray" }],
+        }),
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: projectPropertyId,
+        ownerEmail: OWNER,
+        databaseId: project.databaseId,
+        name: "Status",
+        type: "select",
+        optionsJson: JSON.stringify({
+          options: [{ id: "progress", name: "In progress", color: "blue" }],
+        }),
+        position: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const [filesResult, projectResult] = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        Promise.all([
+          listDocumentPropertiesAction.run({
+            documentId: rowDocumentId,
+            databaseId: files.databaseId,
+          }),
+          listDocumentPropertiesAction.run({
+            documentId: rowDocumentId,
+            databaseId: project.databaseId,
+          }),
+        ]),
+    );
+
+    expect(
+      filesResult.properties.map((property) => property.definition.name),
+    ).toEqual(["Kind"]);
+    expect(
+      projectResult.properties.map((property) => property.definition.name),
+    ).toEqual(["Status"]);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        configureDocumentPropertyAction.run({
+          id: projectPropertyId,
+          documentId: rowDocumentId,
+          databaseId: files.databaseId,
+          name: "Wrong database rename",
+          type: "select",
+        }),
+      ),
+    ).rejects.toThrow(`Property "${projectPropertyId}" not found`);
+    const [unchangedProjectProperty] = await db
+      .select({ name: schema.documentPropertyDefinitions.name })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, projectPropertyId));
+    expect(unchangedProjectProperty?.name).toBe("Status");
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      configureDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId: project.databaseId,
+        name: "Priority",
+        type: "select",
+        options: {
+          options: [{ id: "high", name: "High", color: "red" }],
+        },
+      }),
+    );
+
+    const definitions = await db
+      .select({
+        databaseId: schema.documentPropertyDefinitions.databaseId,
+        name: schema.documentPropertyDefinitions.name,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.name, "Priority"));
+    expect(definitions).toEqual([
+      { databaseId: project.databaseId, name: "Priority" },
+    ]);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listDocumentPropertiesAction.run({
+          documentId: rowDocumentId,
+          databaseId: nextId("forged_database"),
+        }),
+      ),
+    ).rejects.toThrow(/not found/);
+
+    const inaccessible = await createDatabase({ ownerEmail: COLLABORATOR });
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        listDocumentPropertiesAction.run({
+          documentId: rowDocumentId,
+          databaseId: inaccessible.databaseId,
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+});
 
 describe("document trash lifecycle", () => {
   it("round-trips a page subtree without changing ids, bodies, or hierarchy", async () => {
@@ -695,7 +841,10 @@ describe("content database soft-delete actions and reads", () => {
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
     await expect(
       runWithRequestContext({ userEmail: OWNER }, () =>
-        listDocumentPropertiesAction.run({ documentId: rowDocumentId }),
+        listDocumentPropertiesAction.run({
+          documentId: rowDocumentId,
+          databaseId,
+        }),
       ),
     ).rejects.toThrow(`Document "${rowDocumentId}" not found`);
   });
