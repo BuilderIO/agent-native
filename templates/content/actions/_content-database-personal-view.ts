@@ -64,6 +64,51 @@ const legacyPersonalViewOverridesSchema = z.object({
   ...personalViewOverridesFields,
 });
 
+const storedPersonalViewStateSchema = z.object({
+  storageVersion: z.literal(1),
+  overrides: personalViewOverridesSchema.nullable(),
+  mutationSequences: z.record(z.string(), z.number().int().nonnegative()),
+});
+
+export function normalizeStoredPersonalDatabaseViewState(
+  stored: Record<string, unknown> | null,
+) {
+  const state = storedPersonalViewStateSchema.safeParse(stored);
+  if (state.success) return state.data;
+  const overrides = personalViewOverridesSchema.safeParse(stored);
+  return {
+    storageVersion: 1 as const,
+    overrides: overrides.success ? overrides.data : null,
+    mutationSequences: {} as Record<string, number>,
+  };
+}
+
+export function orderedPersonalDatabaseViewState(args: {
+  current: Record<string, unknown> | null;
+  mutationSource: string;
+  mutationSequence: number;
+  overrides: z.infer<typeof personalViewOverridesSchema> | null;
+}) {
+  const current = normalizeStoredPersonalDatabaseViewState(args.current);
+  if (
+    args.mutationSequence <=
+    (current.mutationSequences[args.mutationSource] ?? -1)
+  ) {
+    return current;
+  }
+  const recentSources = Object.entries(current.mutationSequences)
+    .filter(([source]) => source !== args.mutationSource)
+    .slice(-15);
+  return {
+    storageVersion: 1 as const,
+    overrides: args.overrides,
+    mutationSequences: Object.fromEntries([
+      ...recentSources,
+      [args.mutationSource, args.mutationSequence],
+    ]),
+  };
+}
+
 export async function assertContentDatabaseViewerAccess(databaseId: string) {
   const db = getDb();
   const [database] = await db
@@ -93,10 +138,14 @@ export async function readPersonalDatabaseViewOverrides(
     userEmail,
     personalDatabaseViewSettingKey(databaseId),
   );
-  const parsed = personalViewOverridesSchema.safeParse(stored);
+  const storedState = storedPersonalViewStateSchema.safeParse(stored);
+  const storedOverrides = storedState.success
+    ? storedState.data.overrides
+    : stored;
+  const parsed = personalViewOverridesSchema.safeParse(storedOverrides);
   if (parsed.success) return parsed.data;
 
-  const legacy = legacyPersonalViewOverridesSchema.safeParse(stored);
+  const legacy = legacyPersonalViewOverridesSchema.safeParse(storedOverrides);
   if (!legacy.success) return null;
   const [database] = await getDb()
     .select({ systemRole: schema.contentDatabases.systemRole })

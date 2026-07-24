@@ -344,7 +344,7 @@ export interface ContentDatabaseViewConfig {
 export const CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION = 2;
 
 export interface ContentDatabasePersonalViewOverrides {
-  version: number;
+  version: typeof CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
   activeViewId?: string;
   views: Array<{
     id: string;
@@ -362,6 +362,8 @@ export interface ContentDatabasePersonalViewResponse {
 export interface UpdateContentDatabasePersonalViewRequest {
   databaseId: string;
   overrides: ContentDatabasePersonalViewOverrides | null;
+  mutationSource?: string;
+  mutationSequence?: number;
 }
 
 export interface ContentDatabaseMembership {

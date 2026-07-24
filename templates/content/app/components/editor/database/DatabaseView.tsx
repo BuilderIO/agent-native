@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
+  tryCallActionKeepalive,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -23,6 +24,7 @@ import {
   type ProcessBuilderBodyHydrationResponse,
   type SourceJoinSuggestion,
   type ContentDatabasePersonalViewOverrides,
+  type ContentDatabasePersonalViewResponse,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
   type ContentDatabaseColumnCalculation,
@@ -40,6 +42,7 @@ import {
   type DocumentPropertyOption,
   type DocumentPropertyType,
   type DocumentPropertyValue,
+  type UpdateContentDatabasePersonalViewRequest,
 } from "@shared/api";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
 import {
@@ -103,6 +106,7 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -359,6 +363,8 @@ export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
 export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
+
+let personalViewMutationSequence = Date.now() * 1_000;
 
 export type PersonalDatabaseViewOverrides =
   ContentDatabasePersonalViewOverrides;
@@ -721,12 +727,19 @@ export function DatabaseView({
   isActive,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
+  const personalView = useContentDatabasePersonalView(databaseId);
 
-  if (!document?.database || document.database.id !== databaseId) return null;
+  if (
+    !document?.database ||
+    document.database.id !== databaseId ||
+    personalView.isLoading
+  )
+    return null;
 
   return (
     <DatabaseTable
       document={document}
+      personalView={personalView.data}
       databaseDocumentId={databaseDocumentId}
       databaseId={databaseId}
       hostDocumentId={hostDocumentId}
@@ -739,6 +752,7 @@ export function DatabaseView({
 
 function DatabaseTable({
   document,
+  personalView,
   databaseId: expectedDatabaseId,
   databaseDocumentId,
   hostDocumentId,
@@ -747,6 +761,7 @@ function DatabaseTable({
   isActive,
 }: {
   document: Document;
+  personalView: ContentDatabasePersonalViewResponse | undefined;
   databaseId: string;
   databaseDocumentId: string;
   hostDocumentId: string;
@@ -804,7 +819,6 @@ function DatabaseTable({
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
     : dbText("newPage");
-  const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
   const sources = useMemo(
@@ -862,12 +876,23 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
-  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
-    defaultDatabaseViewConfig(),
+  const initialSavedViewConfig = normalizeClientDatabaseViewConfig(
+    document.database?.viewConfig,
   );
+  const initialViewConfig = applyPersonalDatabaseViewOverrides(
+    initialSavedViewConfig,
+    normalizePersonalDatabaseViewOverrides(personalView?.overrides),
+  );
+  const [viewConfig, setViewConfig] =
+    useState<ContentDatabaseViewConfig>(initialViewConfig);
   const [savedViewConfig, setSavedViewConfig] =
-    useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
-  const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
+    useState<ContentDatabaseViewConfig>(initialSavedViewConfig);
+  const [personalQueryDirty, setPersonalQueryDirty] = useState(() =>
+    databaseViewHasPersonalQueryChanges(
+      initialViewConfig,
+      initialSavedViewConfig,
+    ),
+  );
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
@@ -903,11 +928,18 @@ function DatabaseTable({
     () => databaseDateViewRange(activeView.type, dateViewMonth),
     [activeView.type, dateViewMonth],
   );
-  const hydratedViewRef = useRef("");
+  const hydratedViewRef = useRef(
+    databaseViewStateKey(expectedDatabaseId, initialViewConfig),
+  );
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const pendingPersonalViewSaveRef =
+    useRef<UpdateContentDatabasePersonalViewRequest | null>(null);
+  const unmountingRef = useRef(false);
+  const updatePersonalViewRef = useRef(updatePersonalView);
+  updatePersonalViewRef.current = updatePersonalView;
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
@@ -1620,7 +1652,10 @@ function DatabaseTable({
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
       }
-      updatePersonalView.mutate({ databaseId, overrides: null });
+      pendingPersonalViewSaveRef.current = null;
+      updatePersonalView.mutate(
+        personalDatabaseViewMutationRequest(databaseId, null),
+      );
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
       setPersonalQueryDirty(false);
@@ -1642,15 +1677,15 @@ function DatabaseTable({
       clearTimeout(personalViewSaveTimerRef.current);
       personalViewSaveTimerRef.current = null;
     }
+    pendingPersonalViewSaveRef.current = null;
     setViewConfig((current) => {
       const nextViewConfig = databaseViewConfigWithSavedQueryState(
         current,
         savedViewConfig,
       );
-      updatePersonalView.mutate({
-        databaseId,
-        overrides: null,
-      });
+      updatePersonalView.mutate(
+        personalDatabaseViewMutationRequest(databaseId, null),
+      );
       setPersonalQueryDirty(false);
       hydratedViewRef.current = databaseViewStateKey(
         databaseId,
@@ -1660,6 +1695,56 @@ function DatabaseTable({
     });
   }
 
+  const flushPendingPersonalViewSave: () => void = useCallback(() => {
+    if (unmountingRef.current) return;
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+      personalViewSaveTimerRef.current = null;
+    }
+    if (updatePersonalViewRef.current.isPending) {
+      personalViewSaveTimerRef.current = setTimeout(() => {
+        flushPendingPersonalViewSave();
+      }, 50);
+      return;
+    }
+    const pending = pendingPersonalViewSaveRef.current;
+    if (!pending) return;
+    pendingPersonalViewSaveRef.current = null;
+    updatePersonalViewRef.current.mutate(pending, {
+      onError: (err) => {
+        toast.error(dbText("failedToSaveView"), {
+          description:
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+        });
+      },
+    });
+  }, []);
+
+  const sendPendingPersonalViewSaveKeepalive = useCallback(() => {
+    const pending = pendingPersonalViewSaveRef.current;
+    if (!pending) return;
+    const attempt = tryCallActionKeepalive(
+      "update-content-database-personal-view",
+      pending,
+    );
+    if (!attempt.accepted) {
+      flushPendingPersonalViewSave();
+      return;
+    }
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+      personalViewSaveTimerRef.current = null;
+    }
+    pendingPersonalViewSaveRef.current = null;
+    void attempt.completion.catch(() => {
+      if (pendingPersonalViewSaveRef.current) return;
+      pendingPersonalViewSaveRef.current = pending;
+      personalViewSaveTimerRef.current = setTimeout(() => {
+        flushPendingPersonalViewSave();
+      }, 300);
+    });
+  }, [flushPendingPersonalViewSave]);
+
   function schedulePersonalDatabaseViewOverrideWrite(
     databaseId: string,
     viewConfig: ContentDatabaseViewConfig,
@@ -1668,21 +1753,12 @@ function DatabaseTable({
       clearTimeout(personalViewSaveTimerRef.current);
     }
     const overrides = personalDatabaseViewOverridesFromConfig(viewConfig);
+    pendingPersonalViewSaveRef.current = personalDatabaseViewMutationRequest(
+      databaseId,
+      overrides,
+    );
     personalViewSaveTimerRef.current = setTimeout(() => {
-      personalViewSaveTimerRef.current = null;
-      updatePersonalView.mutate(
-        { databaseId, overrides },
-        {
-          onError: (err) => {
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        },
-      );
+      flushPendingPersonalViewSave();
     }, 300);
   }
 
@@ -2172,13 +2248,14 @@ function DatabaseTable({
   ]);
   useEffect(() => {
     if (!data?.database.id) return;
-    if (personalView.isLoading) return;
+    if (pendingPersonalViewSaveRef.current || updatePersonalView.isPending)
+      return;
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
     const nextViewConfig = applyPersonalDatabaseViewOverrides(
       nextSavedViewConfig,
-      normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
+      normalizePersonalDatabaseViewOverrides(personalView?.overrides),
     );
     const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
     if (hydratedViewRef.current === nextKey) return;
@@ -2195,17 +2272,21 @@ function DatabaseTable({
   }, [
     data?.database.id,
     data?.database.viewConfig,
-    personalView.data?.overrides,
-    personalView.isLoading,
+    personalView?.overrides,
+    updatePersonalView.isPending,
   ]);
 
   useEffect(() => {
-    return () => {
-      if (personalViewSaveTimerRef.current) {
-        clearTimeout(personalViewSaveTimerRef.current);
-      }
+    const handlePageHide = () => {
+      sendPendingPersonalViewSaveKeepalive();
     };
-  }, []);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      sendPendingPersonalViewSaveKeepalive();
+      unmountingRef.current = true;
+    };
+  }, [flushPendingPersonalViewSave, sendPendingPersonalViewSaveKeepalive]);
 
   useEffect(() => {
     if (!databaseId) return;
@@ -2233,7 +2314,7 @@ function DatabaseTable({
                 ? applyPersonalDatabaseViewOverrides(
                     nextViewConfig,
                     normalizePersonalDatabaseViewOverrides(
-                      personalView.data?.overrides,
+                      personalView?.overrides,
                     ),
                   )
                 : nextViewConfig,
@@ -2251,7 +2332,7 @@ function DatabaseTable({
     canEdit,
     databaseId,
     personalQueryDirty,
-    personalView.data?.overrides,
+    personalView?.overrides,
     savedViewConfig,
     updateView,
     viewConfig,
@@ -10884,7 +10965,7 @@ function DatabasePropertyPickerSearch({
         <Input
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
+          onKeyDown={stopDatabasePickerKeydownPropagation}
           placeholder={placeholder}
           aria-label={placeholder}
           className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -10892,6 +10973,13 @@ function DatabasePropertyPickerSearch({
       </div>
     </div>
   );
+}
+
+function stopDatabasePickerKeydownPropagation(
+  event: ReactKeyboardEvent<HTMLElement>,
+) {
+  if (event.key === "Escape" || event.key === "Tab") return;
+  event.stopPropagation();
 }
 
 function DatabasePropertyPickerItem({
@@ -13507,6 +13595,19 @@ function personalDatabaseViewOverridesFromConfig(
       filters: view.filters,
       filterMode: view.filterMode ?? "and",
     })),
+  };
+}
+
+function personalDatabaseViewMutationRequest(
+  databaseId: string,
+  overrides: PersonalDatabaseViewOverrides | null,
+): UpdateContentDatabasePersonalViewRequest {
+  personalViewMutationSequence += 1;
+  return {
+    databaseId,
+    overrides,
+    mutationSource: getBrowserTabId(),
+    mutationSequence: personalViewMutationSequence,
   };
 }
 
@@ -16983,7 +17084,7 @@ function SortMenu({
         className={cn("w-[340px]", sorts.length === 0 && "w-64 p-0")}
       >
         {sorts.length === 0 ? (
-          <div onKeyDown={(event) => event.stopPropagation()}>
+          <div onKeyDown={stopDatabasePickerKeydownPropagation}>
             <DatabasePropertyPickerMenuItems
               properties={properties}
               includeName
@@ -17158,7 +17259,7 @@ function FilterMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <div onKeyDown={(event) => event.stopPropagation()}>
+        <div onKeyDown={stopDatabasePickerKeydownPropagation}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName

@@ -812,19 +812,46 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
 }
 
 export function useUpdateContentDatabasePersonalView(
-  databaseId: string | null,
+  _databaseId: string | null,
 ) {
   const queryClient = useQueryClient();
   return useActionMutation<
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    skipActionQueryInvalidation: true,
+    onMutate: (variables) => {
+      const queryKey = [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId: variables.databaseId },
+      ] as const;
+      queryClient.setQueryData(queryKey, {
+        databaseId: variables.databaseId,
+        overrides: variables.overrides,
+      });
+    },
     onSuccess: (data) => {
-      if (!databaseId) return;
-      queryClient.setQueryData(
-        ["action", "get-content-database-personal-view", { databaseId }],
-        data,
-      );
+      return queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId: data.databaseId },
+        ],
+        exact: true,
+        refetchType: "all",
+      });
+    },
+    onError: (_error, variables) => {
+      return queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId: variables.databaseId },
+        ],
+        exact: true,
+        refetchType: "all",
+      });
     },
   });
 }
