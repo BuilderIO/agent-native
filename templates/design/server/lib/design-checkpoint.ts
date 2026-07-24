@@ -1,9 +1,7 @@
 /**
- * Task 5 — shared design-checkpoint helpers used by create-design-checkpoint
- * and restore-design-version. A checkpoint is a `design_versions` row whose
- * `snapshot` captures the full current file set; restore writes those contents
- * back through the normal file path (SQL + collab re-seed) after first
- * checkpointing the pre-restore state so restore is itself undoable.
+ * Shared design-checkpoint helpers for create-design-checkpoint and
+ * restore-design-version. A checkpoint is a `design_versions` row whose
+ * `snapshot` captures the full current file set.
  */
 
 import { eq, inArray } from "drizzle-orm";
@@ -23,11 +21,9 @@ export interface CheckpointSnapshotFile {
   bytes?: number;
 }
 
-/**
- * Snapshot every file of a design into a new `design_versions` row. When
+/** Snapshot every file of a design into a new `design_versions` row. When
  * `prune` is set, auto-created checkpoints of the same `kind` beyond the newest
- * N are deleted (bounded auto-pruning — see checkpoint-pruning.ts).
- */
+ * N are pruned. */
 export async function writeDesignCheckpoint(opts: {
   designId: string;
   kind: string;

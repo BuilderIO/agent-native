@@ -114,8 +114,8 @@ function loadSnapMath(): {
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
 
-// Task 1a/1b — both functions are self-contained (they read only their
-// arguments), so a single brace-extracted declaration evaluates in isolation.
+// Both functions read only their arguments, so a single brace-extracted
+// declaration evaluates in isolation.
 function loadPureBridgeFn<T>(name: string): T {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
   const src = extractFunction(editorChromeBridgeScript, name);
@@ -148,7 +148,7 @@ const nextStackCandidate =
     "nextStackCandidate",
   );
 
-describe("editor-chrome bridge — dragTargetForPointerDown (Task 1a)", () => {
+describe("editor-chrome bridge — dragTargetForPointerDown", () => {
   const selRect = {
     left: 10,
     top: 10,
@@ -284,7 +284,7 @@ describe("editor-chrome bridge — dragTargetForPointerDown (Task 1a)", () => {
   });
 });
 
-describe("editor-chrome bridge — nextStackCandidate (Task 1b)", () => {
+describe("editor-chrome bridge — nextStackCandidate", () => {
   const stack = ["a:0", "b:1", "c:2", "d:3"];
 
   it("returns the next candidate below the current one", () => {

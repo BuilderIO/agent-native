@@ -109,14 +109,9 @@ export const designVersions = table("design_versions", {
   designId: text("design_id").notNull(),
   label: text("label"),
   snapshot: text("snapshot").notNull(),
-  // Task 5a — attribution + recoverability. All additive/nullable so existing
-  // rows and the framework's additive-only migration contract are honored.
-  /** User id that created the checkpoint, or "agent" for agent-run snapshots. */
+  // Checkpoint attribution and recovery. Additive, nullable.
   createdBy: text("created_by"),
-  /** Checkpoint kind: manual | pre-agent-run | pre-structural | pre-branch |
-   * pre-migration | pre-restore. */
   kind: text("kind"),
-  /** Free-text trigger provenance: originating action name or agent run id. */
   trigger: text("trigger"),
   createdAt: text("created_at").default(now()),
 });

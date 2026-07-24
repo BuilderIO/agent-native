@@ -19,16 +19,10 @@ export interface CanvasAgentStateInputs {
 const DEFAULT_DONE_WINDOW_MS = 4000;
 
 /**
- * Pure reducer for the canvas agent-state badge.
- *
- * Priority (highest wins):
- *   failed > needs-answer > applying > working > warning > done > ready
- *
- * "done" auto-decays without a timer: it is reported only while
- * `now - lastRunCompletedAt < doneWindowMs`. Once that window has elapsed
- * (`now - lastRunCompletedAt >= doneWindowMs`) the reducer returns "ready".
- * The consuming component owns the re-render/decay tick; this reducer holds no
- * timers and touches no DOM.
+ * Pure reducer for the canvas agent-state badge. Priority (highest wins):
+ * failed > needs-answer > applying > working > warning > done > ready.
+ * "done" auto-decays: reported only while now - lastRunCompletedAt <
+ * doneWindowMs, else "ready". The consumer owns the decay tick; no timers here.
  */
 export function deriveCanvasAgentState(
   inputs: CanvasAgentStateInputs,

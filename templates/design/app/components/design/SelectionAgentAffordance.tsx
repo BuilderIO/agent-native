@@ -50,29 +50,41 @@ interface StatusDot {
 function statusDot(state: CanvasAgentState): StatusDot | null {
   switch (state) {
     case "working":
-      return { spinner: true, dotClass: "", title: "Agent is working" };
+      return {
+        spinner: true,
+        dotClass: "",
+        title: "Agent is working" /* i18n-ignore */,
+      };
     case "applying":
-      return { spinner: true, dotClass: "", title: "Applying changes" };
+      return {
+        spinner: true,
+        dotClass: "",
+        title: "Applying changes" /* i18n-ignore */,
+      };
     case "needs-answer":
       return {
         spinner: false,
         dotClass: "bg-amber-500",
-        title: "Agent needs an answer",
+        title: "Agent needs an answer" /* i18n-ignore */,
       };
     case "warning":
       return {
         spinner: false,
         dotClass: "bg-amber-500",
-        title: "Agent is offline",
+        title: "Agent is offline" /* i18n-ignore */,
       };
     case "done":
       return {
         spinner: false,
         dotClass: "bg-emerald-500",
-        title: "Agent finished",
+        title: "Agent finished" /* i18n-ignore */,
       };
     case "failed":
-      return { spinner: false, dotClass: "bg-red-500", title: "Agent failed" };
+      return {
+        spinner: false,
+        dotClass: "bg-red-500",
+        title: "Agent failed" /* i18n-ignore */,
+      };
     default:
       return null;
   }
@@ -197,20 +209,20 @@ export function SelectionAgentAffordance({
           type="button"
           size="sm"
           className="h-6 gap-1 rounded-full px-2.5 text-[11px]"
-          aria-label="Change this element with the agent"
+          aria-label={"Change this element with the agent" /* i18n-ignore */}
           onClick={onChange}
         >
-          Change this…
+          Change this…{/* i18n-ignore */}
         </Button>
         <Button
           type="button"
           size="sm"
           variant="ghost"
           className="h-6 rounded-full px-2 text-[11px]"
-          aria-label="Ask about this element"
+          aria-label={"Ask about this element" /* i18n-ignore */}
           onClick={onAsk}
         >
-          Ask about this
+          Ask about this{/* i18n-ignore */}
         </Button>
         {dot ? (
           <span

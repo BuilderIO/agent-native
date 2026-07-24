@@ -1,15 +1,6 @@
 /**
- * create-design-checkpoint — Task 5a.
- *
  * Creates a durable, attributable `design_versions` snapshot of the full
- * current file set so it can be restored later via `restore-design-version`.
- * Use before risky operations (an agent generation, a screen delete, a bulk
- * import) or as an explicit user checkpoint. Auto-created kinds
- * (`pre-agent-run`, `pre-structural`) are bounded: only the newest N per design
- * are kept and older auto-checkpoints are pruned (a delete of rows this system
- * created automatically — never of manual/user snapshots).
- *
- * Additive only: writes a new versions row; never alters or drops file data.
+ * current file set, restorable later via restore-design-version.
  */
 
 import { defineAction } from "@agent-native/core";

@@ -32,21 +32,21 @@ interface BadgeStyle {
 const BADGE_STYLES: Record<Exclude<CanvasAgentState, "ready">, BadgeStyle> = {
   working: {
     icon: IconLoader2,
-    label: "Working…",
+    label: "Working…" /* i18n-ignore */,
     spin: true,
     className:
       "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-300",
   },
   applying: {
     icon: IconLoader2,
-    label: "Applying…",
+    label: "Applying…" /* i18n-ignore */,
     spin: true,
     className:
       "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-300",
   },
   "needs-answer": {
     icon: IconMessageQuestion,
-    label: "Needs answer",
+    label: "Needs answer" /* i18n-ignore */,
     spin: false,
     className:
       "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-300",

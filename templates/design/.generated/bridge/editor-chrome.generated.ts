@@ -6257,8 +6257,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             height: dragElStartHeight
           },
           snapCandidateRects,
-          // Task 3c — screen-space base converted to content px (1/zoom) so
-          // the snap tolerance feels constant on screen at any zoom.
+          // Convert the screen-space base to content px (1/zoom).
           SNAP_THRESHOLD_PX * chromeLineScale()
         ) : { dx: 0, dy: 0, guideV: null, guideH: null };
         nextLeft += snapResult.dx;

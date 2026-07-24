@@ -1,15 +1,6 @@
 /**
- * restore-design-version — Task 5b.
- *
- * Restores a design to a previously captured checkpoint (design_versions
- * snapshot). Restore is itself undoable: it first writes a fresh `pre-restore`
- * checkpoint of the current state, then writes each snapshot file's content
- * back — updating existing files and recreating any that were since deleted —
- * and re-seeds the live collaboration document so open editors converge on the
- * restored content. Destructive by intent; the UI gates it behind a confirm.
- *
- * Additive to schema: only writes/updates file rows and versions rows; never
- * alters or drops columns.
+ * Restores a design to a previously captured checkpoint. Restore is itself
+ * undoable: it first writes a `pre-restore` checkpoint of the current state.
  */
 
 import { defineAction } from "@agent-native/core";

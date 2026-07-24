@@ -315,16 +315,11 @@ ${editorChromeBridgeScript}
 const LIVE_REFLOW_ENABLED = true;
 
 /**
- * Task 1a rollout gate (Editor Interaction Parity). When on, a pointerdown
- * whose point lands inside the current selection's box keeps the SELECTED
- * element as the drag target even when an overlapping non-descendant sibling
- * wins the hit test — a selected object stays draggable from under another
- * layer (Figma parity). Baked into the bridge as
- * `__SELECTED_LAYER_DRAG_PRIORITY__`, same in-file bridge-flag pattern as
- * `LIVE_REFLOW_ENABLED`; flip to `false` to restore the previous
- * descendant-only behavior without a revert. The pure decision
- * (`dragTargetForPointerDown`) is truth-table tested in
- * editor-chrome-bridge.snap.test.ts regardless of this gate.
+ * Rollout gate: when on, a pointerdown inside the current selection's box keeps
+ * the selected element as the drag target even when an overlapping
+ * non-descendant sibling wins the hit test. Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
+ * behavior.
  */
 const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
 

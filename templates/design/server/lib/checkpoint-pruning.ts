@@ -1,11 +1,7 @@
 /**
- * Task 5a — bounded auto-pruning for automatically-created design checkpoints.
- *
- * `pre-agent-run` and other auto-created checkpoints accumulate one row per
- * trigger. We keep only the newest N per design *of that kind* and delete the
- * rest. Pruning is a delete of rows the framework created automatically
- * (bounded, additive-safe) — never of manual/user snapshots. Pure so the
- * selection rule is unit-tested without a database.
+ * Bounded auto-pruning for auto-created design checkpoints: keep only the
+ * newest N per design of a given kind. Never prunes manual/user snapshots.
+ * Pure so the selection rule is unit-tested without a database.
  */
 
 export interface PrunableCheckpointRow {
@@ -17,12 +13,9 @@ export interface PrunableCheckpointRow {
 /** The default retention for auto-created `pre-agent-run` checkpoints. */
 export const DEFAULT_CHECKPOINT_KEEP = 20;
 
-/**
- * Returns the ids of checkpoints of `kind` that fall outside the newest
- * `keepNewest` (by ISO `createdAt`, newest first). Rows of other kinds and
- * rows with a null kind are never selected. Ties break by id descending so the
- * result is deterministic when timestamps collide.
- */
+/** Returns ids of `kind` checkpoints outside the newest `keepNewest` (by ISO
+ * `createdAt`). Other kinds and null-kind rows are never selected; ties break
+ * by id descending for determinism. */
 export function selectCheckpointsToPrune(
   rows: readonly PrunableCheckpointRow[],
   kind: string,

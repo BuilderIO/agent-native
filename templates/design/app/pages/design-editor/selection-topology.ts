@@ -5,13 +5,8 @@ export interface AlignmentGroup {
   nodeIds: string[];
 }
 
-/**
- * Collapse single-child pass-through wrappers: walk UP from `nodeId` while the
- * parent has exactly one child and no layout role (`!isFlexContainer &&
- * !isGridContainer`), returning the id of the nearest meaningful parent (or the
- * original parentId if none). Returns null when there is no parent or the walk
- * climbs off the top.
- */
+/** Walk up from `nodeId` past single-child, no-layout wrapper parents and
+ * return the nearest meaningful parent id, or null if there is none. */
 export function nearestMeaningfulParentId(
   nodesById: Map<string, CodeLayerNode>,
   nodeId: string,
@@ -22,8 +17,8 @@ export function nearestMeaningfulParentId(
   let currentId: string | undefined = node.parentId;
   while (currentId !== undefined) {
     const parent = nodesById.get(currentId);
-    // An unresolvable parent is an opaque boundary — it can't be collapsed, so
-    // treat its id as the nearest meaningful parent.
+    // An unresolvable parent is an opaque boundary: treat its id as the
+    // nearest meaningful parent.
     if (!parent) return currentId;
 
     const isPassThroughWrapper =

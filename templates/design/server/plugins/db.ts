@@ -387,7 +387,7 @@ CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template
     {
       version: 24,
       name: "design-version-attribution",
-      // Task 5a — attributable, recoverable checkpoints. Additive only.
+      // Attributable, recoverable checkpoints. Additive only.
       sql: `ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS kind TEXT;
 ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS trigger TEXT`,

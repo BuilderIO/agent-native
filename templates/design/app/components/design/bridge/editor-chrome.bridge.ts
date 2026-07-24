@@ -79,11 +79,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       return false;
     }
   })();
-  // Task 1a — selected-layer drag priority. When on, a pointerdown whose point
-  // lands inside the current selection's box keeps the SELECTED element as the
-  // drag target even when an overlapping non-descendant sibling wins the hit
-  // test (Figma: a selected object stays draggable from under another layer).
-  // Same crash-safe single-substitution pattern as liveReflowEnabled above.
+  // Selected-layer drag priority: when on, a pointerdown inside the selection
+  // box keeps the selected element as the drag target even when an overlapping
+  // non-descendant sibling wins the hit test.
   var selectedLayerDragPriorityEnabled = (function () {
     try {
       return !!__SELECTED_LAYER_DRAG_PRIORITY__;
@@ -2243,11 +2241,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   var selectedEl: Element | null = null;
-  // Task 1d — while true, the selection outline + spacing/parent overlays stay
-  // hidden even as async reflows (ResizeObserver/MutationObserver) fire
-  // refreshOverlays. The host sets it during a keyboard-nudge burst so the
-  // moving object isn't chased by flickering chrome, then clears it once the
-  // burst settles. Selection itself is unchanged — only its chrome is hidden.
+  // When true, selection chrome stays hidden through async reflows so a
+  // keyboard-nudge burst does not flicker; selection itself is unchanged.
   var selectionChromeHidden = false;
   var hoveredEl: Element | null = null;
   type NodeHtmlPreviewSession = {
@@ -4890,12 +4885,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
       return;
     }
-    // Task 1b — Cmd/Ctrl+click (without Shift) deep-selects the next layer
-    // below the current selection in the z-stack under the pointer, wrapping at
-    // the bottom (Figma stack cycling). Only activates when the current
-    // selection is actually in that stack; otherwise it falls through so a
-    // Cmd/Ctrl+click elsewhere keeps its existing (additive) meaning, and
-    // Shift-click stays purely additive.
+    // Cmd/Ctrl+click (no Shift) cycles to the next layer below the selection in
+    // the z-stack under the pointer, wrapping at the bottom. Only when the
+    // selection is in that stack; otherwise falls through to additive click.
     if ((e.metaKey || e.ctrlKey) && !e.shiftKey && selectedEl) {
       var stack = collectLayerHitCandidates(e.clientX, e.clientY);
       var currentIdx = stack.elements.indexOf(selectedEl);
@@ -5129,13 +5121,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     document.addEventListener(events.up, onUp, true);
   }
 
-  // Task 1b — shared hit-stack collector. Returns the full z-stack of
-  // selectable layers under a point (topmost first), each element aligned by
-  // index with a { key, label, info } descriptor. Extracted verbatim from the
-  // context-menu path so modifier-click stack cycling and the context menu
-  // resolve the exact same stack (single source of truth for "what's under
-  // this point"). Overlays are momentarily made pointer-transparent so
-  // elementsFromPoint sees through the editor chrome.
+  // Returns the full z-stack of selectable layers under a point (topmost
+  // first), each element index-aligned with a { key, label, info } descriptor.
+  // Overlays are briefly made pointer-transparent so elementsFromPoint sees
+  // through the editor chrome.
   function collectLayerHitCandidates(
     clientX: number,
     clientY: number,
@@ -8272,14 +8261,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Minimal, dependency-free port of the overview canvas's edge/center snap
   // routine (shared/canvas-math.ts computeMoveSnap) for in-iframe element
   // dragging. The bridge's pointer coordinates and getBoundingClientRect()
-  // values are iframe-local content px, but the host CSS-scales the whole
-  // iframe, so a fixed content-px threshold shrinks on SCREEN as the board
-  // zooms out (6 content px is only 3 screen px at 50% zoom) — the snap tolerance
-  // felt tighter and tighter zoomed out. Task 3c: keep SNAP_THRESHOLD_PX as a
-  // screen-space base and convert it to content px at snap time by multiplying
-  // by chromeLineScale() (= 1/zoom, the same constant-size factor the chrome
-  // overlays use), matching getCanvasSnapThreshold's zoom-invariant screen-px
-  // semantics in the overview.
+  // values are iframe-local content px, so SNAP_THRESHOLD_PX is a screen-space
+  // base converted to content px at snap time via chromeLineScale (1/zoom) to
+  // keep the snap tolerance constant on screen at any zoom.
   var SNAP_THRESHOLD_PX = 6;
   var SNAP_CANDIDATE_CAP = 200;
 
@@ -9369,8 +9353,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
                 height: dragElStartHeight,
               },
               snapCandidateRects,
-              // Task 3c — screen-space base converted to content px (1/zoom) so
-              // the snap tolerance feels constant on screen at any zoom.
+              // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
             )
           : { dx: 0, dy: 0, guideV: null, guideH: null };
@@ -10018,16 +10001,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     pendingShieldDrag = null;
   }
 
-  // Task 1a (pure, closure-exported for editor-chrome-bridge.snap.test.ts):
-  // decide the drag target for a pointerdown. Descendant hits always keep the
-  // selected element (legacy rule, preserved via the raw `hitRaw` containment
-  // check). When `preferSelected` is on, a point inside the selected element's
-  // live box also keeps the selected element even over an overlapping
-  // non-descendant sibling — so a selected object stays draggable from under
-  // another layer. Falls through to `hitEl` when the selection is
-  // removed/detached (`selectedAlive` false) or collapsed to a zero-area box
-  // (hidden). Self-contained: no outer-scope reads, so brace-extraction in the
-  // test evaluates it in isolation.
+  // Decides the drag target for a pointerdown. Descendant hits keep the
+  // selected element; with preferSelected on, a point inside the selection box
+  // also keeps it over an overlapping non-descendant sibling. Falls through to
+  // hitEl when the selection is detached or zero-area. Pure and self-contained
+  // so the snap test can brace-extract and evaluate it in isolation.
   function dragTargetForPointerDown(args) {
     var selectedEl = args.selectedEl;
     var hitEl = args.hitEl;
@@ -10060,12 +10038,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return hitEl;
   }
 
-  // Task 1b (pure, closure-exported for tests): given the ordered hit-stack
-  // candidate keys (topmost first, as document.elementsFromPoint returns) and
-  // the key of the current selection, return the key of the next candidate
-  // BELOW it, wrapping from the bottom back to the top. Returns null when the
-  // current selection is not in the stack, so a modifier-click there keeps its
-  // existing meaning instead of hijacking it.
+  // Given the hit-stack candidate keys (topmost first) and the current
+  // selection key, returns the next key below it, wrapping to the top. Returns
+  // null when the selection is not in the stack. Pure, for the snap test.
   function nextStackCandidate(candidateKeys, currentKey) {
     if (!candidateKeys || candidateKeys.length === 0) return null;
     var idx = candidateKeys.indexOf(currentKey);

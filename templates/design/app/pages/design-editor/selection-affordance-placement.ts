@@ -20,22 +20,9 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/**
- * Place a small floating affordance (chip/button of `affordanceSize`) just
- * outside a selection rect, defaulting to the selection's upper-right OUTER
- * corner and flipping/clamping so the whole box stays inside `viewport`. Pure:
- * no DOM, no timers.
- *
- * Order of decisions:
- *   1. Try upper-right: left = anchor.right + gap, top = anchor.top.
- *   2. If that overflows the right edge, flip to the left of the selection:
- *      left = anchor.left - gap - width; horizontal corner becomes "left".
- *   3. Clamp top into [0, viewport.height - height]. If the clamp pushed the
- *      box below the anchor's top, the vertical corner becomes "bottom".
- *   4. Last resort: clamp left into [0, viewport.width - width] so the box is
- *      always fully inside the viewport. `corner` reflects the side of the
- *      selection the box ended up on.
- */
+/** Place a small floating affordance just outside a selection rect, defaulting
+ * to the upper-right outer corner and flipping/clamping so the whole box stays
+ * inside `viewport`. `corner` reflects which side it ended up on. Pure. */
 export function placeAffordance(
   anchorRect: Rect,
   viewport: { width: number; height: number },

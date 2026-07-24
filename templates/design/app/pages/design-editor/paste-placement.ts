@@ -1,21 +1,13 @@
 import type { FrameBounds } from "@shared/canvas-math";
 
 /**
- * Pure decision module for context-aware paste placement (Figma-parity).
+ * Pure decision module for context-aware paste placement: decides where each
+ * pasted entry lands (in-flow "flow-after" or absolute), the next cascade
+ * counter, and whether to recenter the camera.
  *
- * Given the pasted entries, the destination screen/frame, the current
- * selection, the visible viewport, an optional explicit "Paste here" point,
- * and the paste origin, it decides where each entry lands: either as an
- * in-flow sibling after the selection ("flow-after") or at an absolute canvas
- * position. It also reports the next cascade counter and whether the caller
- * should recenter the camera on the result.
- *
- * Module boundary: this resolver owns *placement* for `layer`, `screen`, and
- * `image` paste entries only. It deliberately does NOT own paste-to-replace,
- * duplicate-with-replay, or server-side asset/Figma insertion — those carry
- * non-paste semantics (target replacement, motion-track replay, remote import)
- * and are handled by their own code paths. Keep this file pure: no DOM, no
- * React, no I/O.
+ * Owns placement for layer/screen/image paste entries only — not
+ * paste-to-replace, duplicate-with-replay, or asset/Figma insertion. Keep pure:
+ * no DOM, React, or I/O.
  */
 
 /** Cascade step so repeated keyboard pastes don't stack exactly. */
@@ -91,11 +83,8 @@ function centerOfBounds(bounds: FrameBounds): Point {
   return { x: bounds.centerX, y: bounds.centerY };
 }
 
-/**
- * A flow-after paste applies when a selection exists that represents a valid
- * in-flow target: either the selection is itself a flow container or it is a
- * flow sibling to insert after. Either way we need a concrete anchor selector.
- */
+/** Flow-after applies when the selection is a valid in-flow target with a
+ * concrete anchor selector. */
 function flowAfterApplies(
   input: PastePlacementInput,
 ): input is PastePlacementInput & {
@@ -108,11 +97,8 @@ function flowAfterApplies(
   return selection.isFlowContainer || selection.selector !== null;
 }
 
-/**
- * Fraction of the group's axis-aligned bounding box (built from the placement
- * points) that overlaps the visible viewport. A degenerate group (single point
- * or zero-area line) falls back to a point-in-bounds test.
- */
+/** Fraction of the group's AABB that overlaps the viewport; a degenerate
+ * (zero-area) group falls back to a point-in-bounds test. */
 function groupVisibleFraction(positions: Point[], bounds: FrameBounds): number {
   const xs = positions.map((point) => point.x);
   const ys = positions.map((point) => point.y);
@@ -161,9 +147,8 @@ export function resolvePastePlacement(
   const { entries, target, viewport, explicitPoint, origin, cascadeCount } =
     input;
 
-  // Rule 7: only keyboard pastes (same-screen / cross-screen with no explicit
-  // point) advance the cascade counter. This is independent of which placement
-  // branch fires below.
+  // Only keyboard pastes (same/cross-screen, no explicit point) advance the
+  // cascade counter, independent of which placement branch fires.
   const isKeyboardPaste =
     (origin === "same-screen" || origin === "cross-screen") &&
     explicitPoint === null;
@@ -176,8 +161,8 @@ export function resolvePastePlacement(
     return { placements: [], nextCascadeCount, ensureVisible: false };
   }
 
-  // Rule 5: explicit "Paste here". Group top-left lands at the point, relative
-  // offsets preserved; a group with no source positions staggers by index.
+  // Explicit "Paste here": group top-left lands at the point, relative offsets
+  // preserved; a group with no source positions staggers by index.
   if (explicitPoint !== null) {
     const minSource = minSourceCorner(entries);
     const positioned = everyEntryPositioned(entries);
@@ -196,8 +181,7 @@ export function resolvePastePlacement(
     return { placements, nextCascadeCount, ensureVisible: false };
   }
 
-  // Rule 1: flow-after. Every clone becomes an in-flow sibling after the
-  // selection; no absolute position is emitted.
+  // Flow-after: every clone becomes an in-flow sibling after the selection.
   if (flowAfterApplies(input)) {
     const anchorSelector = input.selection.selector;
     const placements = entries.map(
@@ -206,8 +190,8 @@ export function resolvePastePlacement(
     return { placements, nextCascadeCount, ensureVisible: false };
   }
 
-  // Rule 2: same container, no explicit point. Reuse each entry's own source
-  // coords plus a uniform nudge and cascade offset — already Figma-correct.
+  // Same container, no explicit point: reuse each entry's source coords plus a
+  // uniform nudge and cascade offset.
   if (origin === "same-screen" && everyEntryPositioned(entries)) {
     const placements = entries.map((entry): PastePlacement => {
       const source = entry.sourcePosition as Point;
@@ -219,9 +203,8 @@ export function resolvePastePlacement(
     return { placements, nextCascadeCount, ensureVisible: false };
   }
 
-  // Rule 3: different compatible frame. Preserve the group's relative layout by
-  // anchoring the group's top-left to the destination frame origin; internal
-  // spacing is untouched. Rule 4's visibility check runs on the whole group.
+  // Different compatible frame: anchor the group's top-left to the destination
+  // frame origin, preserving internal spacing.
   if (
     origin === "cross-screen" &&
     target.frameBounds !== null &&
@@ -240,9 +223,8 @@ export function resolvePastePlacement(
       };
     });
 
-    // Rule 4: if the group lands substantially outside the visible viewport
-    // (<50% of its AABB visible), translate the WHOLE group by one vector so
-    // its center matches the viewport center. One translation, never per-index.
+    // If <50% of the group's AABB is visible, translate the whole group by one
+    // vector so its center matches the viewport center (never per-index).
     let ensureVisible = false;
     if (viewport !== null) {
       const fraction = groupVisibleFraction(
@@ -268,8 +250,8 @@ export function resolvePastePlacement(
     };
   }
 
-  // Rule 6: last resort — no explicit point and no usable source positions.
-  // Stagger from the viewport center by index and ask the caller to recenter.
+  // Last resort (no explicit point, no usable source positions): stagger from
+  // the viewport center by index and ask the caller to recenter.
   const center =
     viewport !== null
       ? centerOfBounds(viewport.visibleCanvasBounds)

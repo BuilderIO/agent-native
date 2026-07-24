@@ -132,7 +132,7 @@ export interface UseDesignHotkeysProps {
   onSendToBack?: DesignHotkeyHandler;
   onEscape?: DesignHotkeyHandler;
   onEnter?: DesignHotkeyHandler;
-  /** Task 4b — Cmd/Ctrl+Enter opens the agent chat for the current selection. */
+  /** Cmd/Ctrl+Enter opens the agent chat for the current selection. */
   onOpenAgentForSelection?: DesignHotkeyHandler;
   onSelectParent?: DesignHotkeyHandler;
   onTab?: DesignHotkeyTabHandler;
@@ -457,9 +457,8 @@ export function handleDesignHotkey(
 
   if (event.key === "Escape") return run(props.onEscape);
   if (event.key === "Enter") {
-    // Task 4b — Cmd/Ctrl+Enter opens the agent for the current selection.
-    // Checked before the drill-in/parent traversal so the plain/Shift+Enter
-    // behavior is unchanged when the modifier isn't held.
+    // Cmd/Ctrl+Enter opens the agent for the current selection; checked before
+    // the drill-in/parent traversal so plain/Shift+Enter is unchanged.
     if (primary && !event.shiftKey && props.onOpenAgentForSelection) {
       return run(props.onOpenAgentForSelection);
     }

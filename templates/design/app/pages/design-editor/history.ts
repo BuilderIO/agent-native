@@ -18,8 +18,7 @@ export interface GeometryHistoryEntry {
   selectionAfter?: GeometryHistorySelection;
 }
 
-/** Task 1c — one selection-only undo step: a selection that changed with no
- * accompanying content/geometry edit. `at` is the epoch-ms timestamp used to
+/** One selection-only undo step. `at` is the epoch-ms timestamp used to
  * coalesce a rapid burst of selection changes into a single undo entry. */
 export interface SelectionHistoryEntry {
   before: GeometryHistorySelection;
@@ -27,8 +26,8 @@ export interface SelectionHistoryEntry {
   at: number;
 }
 
-/** Order-sensitive equality between two selection snapshots (selection arrays
- * are maintained in a stable order, so index-wise comparison is exact). */
+/** Order-sensitive equality between two selection snapshots (arrays are in a
+ * stable order, so index-wise comparison is exact). */
 export function selectionSnapshotsEqual(
   a: GeometryHistorySelection,
   b: GeometryHistorySelection,
@@ -46,10 +45,8 @@ export const SELECTION_HISTORY_COALESCE_WINDOW_MS = 800;
 
 export type SelectionHistoryDecision = "skip" | "record" | "coalesce";
 
-/** Pure decision for whether/how a selection change enters the selection-only
- * undo stack. Skips no-ops and gesture temp-selections; collapses a burst of
- * selection changes within the coalesce window into the last entry; otherwise
- * records a fresh entry. The caller applies the decision to its stacks. */
+/** Decides whether a selection change is skipped, coalesced into the last
+ * entry, or recorded as a fresh selection-only undo step. */
 export function shouldRecordSelectionHistory(input: {
   prev: GeometryHistorySelection;
   next: GeometryHistorySelection;

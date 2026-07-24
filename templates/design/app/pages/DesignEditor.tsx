@@ -2949,10 +2949,8 @@ function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
-  // Task 1c — selection-only undo/redo. Entries hold a {before, after}
-  // selection snapshot pair and a timestamp for burst coalescing. Pushed only
-  // from local selection handlers (never from peer/agent awareness), so remote
-  // selections structurally never enter this stack (Task 1e).
+  // Selection-only undo. Pushed only from local selection handlers, so
+  // peer/agent selections never enter the stack.
   const selectionOnlyUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
   const selectionOnlyRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   // Figma-parity undo/redo selection restore (see GeometryHistorySelection):
@@ -3025,12 +3023,9 @@ function DesignEditor() {
         }
         return;
       }
-      // Task 1c — single-screen mode restore: switch to the snapshot's file if
-      // it changed, restore the host-side layer selection, and re-drive the
-      // in-iframe selection overlay for the first restored layer (the common
-      // single-selection case). Iframe is resolved from the DOM here rather
-      // than through canvasIframeRef so this callback stays independent of
-      // that later-declared memo.
+      // Single-screen restore: switch file if needed, restore layer selection,
+      // and re-drive the in-iframe overlay for the first layer. Resolve the
+      // iframe from the DOM so this stays independent of the later canvasIframeRef.
       if (
         selection.activeFileId &&
         selection.activeFileId !== activeFileIdForUndoRef.current
@@ -3082,7 +3077,7 @@ function DesignEditor() {
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
         clipboardPasteUndoStackRef.current.length > 0 ||
-        // Task 1c — selection-only undo is available in both view modes.
+        // Selection-only undo is available in both view modes.
         selectionOnlyUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
@@ -3399,8 +3394,7 @@ function DesignEditor() {
     null,
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
-  // Task 4c — inputs to the canvas agent-state badge. lastRunCompletedAt drives
-  // the transient "done" state; isOffline drives the "warning" state.
+  // Canvas agent-state badge inputs.
   const [lastRunCompletedAt, setLastRunCompletedAt] = useState<number | null>(
     null,
   );
@@ -3525,8 +3519,7 @@ function DesignEditor() {
     }
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationComplete = useCallback(() => {
-    // Task 4c — stamp the completion so the canvas badge shows a transient
-    // "done" state that auto-decays (the badge owns the decay timer).
+    // Stamp completion so the badge can show a transient "done" state.
     setLastRunCompletedAt(Date.now());
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
@@ -7703,13 +7696,9 @@ function DesignEditor() {
     activeEditorDragRef.current = active;
   }, []);
 
-  // Task 1c — selection-only undo/redo. Recorded from the genuine
-  // user-selection funnels only (click/layers-panel/context-menu select,
-  // marquee commit, clear-selection). Edits, paste, and undo/redo change
-  // selection through other paths and never call these, so an edit's
-  // accompanying selection change is not double-counted into this stack.
-  // `suppressSelectionOnlyHistoryRef` blocks any in-flight scheduled record
-  // while undo/redo is applying a restore.
+  // Recorded only from user-selection funnels; edits/paste/undo use other
+  // paths, so an edit's selection change isn't double-counted. The suppress
+  // ref blocks any in-flight scheduled record while undo/redo restores.
   const suppressSelectionOnlyHistoryRef = useRef(false);
   const recordSelectionOnlyHistory = useCallback(
     (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
@@ -8097,9 +8086,8 @@ function DesignEditor() {
     [canvasIframeRef, resolveSelectorRectInIframe],
   );
 
-  // Task 4a — anchor for the SelectionAgentAffordance chip. Recomputed (after
-  // layout) whenever the selection, zoom, or view mode changes. Coordinates are
-  // container-relative (the chip renders absolutely inside canvasContainerRef).
+  // Anchor for the agent affordance chip, recomputed after layout on
+  // selection/zoom/view changes. Coordinates are container-relative.
   const [selectionAffordanceAnchor, setSelectionAffordanceAnchor] = useState<{
     anchor: {
       left: number;
@@ -12105,11 +12093,9 @@ function DesignEditor() {
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
-  // Task 4a/4b — single source of truth for the "design:selected-element" chat
-  // context payload. The R69 mirror effect below and the SelectionAgentAffordance
-  // / Cmd+Enter activation both call this so the staged selection context is
-  // byte-identical no matter how the agent is opened. Returns null when there is
-  // no meaningful selection to attach.
+  // Single source of truth for the "design:selected-element" chat context, so
+  // the R69 mirror, the affordance, and Cmd+Enter stage identical payloads.
+  // Returns null when there is no meaningful selection.
   const buildSelectionContextItem = useCallback((): {
     title: string;
     context: string;
@@ -12208,11 +12194,9 @@ function DesignEditor() {
       composerContextItemsForBookkeeping.some((item) => item.key === key);
   }, [composerContextItemsForBookkeeping]);
 
-  // Task 4a/4b — open the agent chat for the current selection: stage the same
-  // selection context the R69 mirror builds, but this time open the sidebar and
-  // focus the composer. Reuses buildSelectionContextItem so no LLM call or new
-  // payload shape is introduced (the [Reprompt selection]/[Selection question]
-  // prefix contract in the agent still governs read-only vs mutating requests).
+  // Open the agent chat for the current selection: stage the same context the
+  // mirror builds, but open the sidebar and focus the composer. No new payload
+  // or LLM call; the agent's existing prefix contract governs read vs mutate.
   const openAgentForSelection = useCallback(
     (mode?: "ask" | "change") => {
       const item = buildSelectionContextItem();
@@ -12377,8 +12361,7 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
-      // Task 1c — record the selection change this user click produces so it is
-      // undoable on its own (rAF captures the post-select snapshot as "after").
+      // Make this click's selection change undoable on its own.
       scheduleSelectionOnlyHistoryRecord();
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
@@ -17477,13 +17460,10 @@ function DesignEditor() {
       const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
       if (selectedRects.length >= 2) {
-        // Task 3a — partition into the smallest hierarchy-valid groups (by
-        // nearest meaningful parent) so alignment respects nesting: aligning
-        // three cards moves the card boxes, not the titles inside them.
-        // Aligning across different parents is also geometrically wrong — each
-        // node's left/top is relative to its own offset parent — which
-        // per-group alignment avoids by construction (each group shares a
-        // coordinate space). Positions from every group merge into one commit.
+        // Align per hierarchy group so nesting is respected (aligning cards
+        // moves the cards, not their titles). Each group shares one coordinate
+        // space, avoiding the cross-parent left/top mismatch; results merge
+        // into one commit.
         const groups = partitionSelectionForAlignment(
           projection.nodes,
           nodeIds,
@@ -17564,10 +17544,7 @@ function DesignEditor() {
         if (combined.size > 0) commitNodePositions(baseContent, combined);
         if (skippedAutoLayout) {
           toast.info(
-            t("designEditor.toasts.alignAutoLayoutSkipped", {
-              defaultValue:
-                "Auto-layout children follow their container — adjust the layout instead of aligning.",
-            }),
+            "Auto-layout children follow their container — adjust the layout instead of aligning.",
           );
         }
         return;
@@ -19636,13 +19613,10 @@ function DesignEditor() {
     ],
   );
 
-  // Task 1d — hide the in-iframe selection chrome while the selected element is
-  // being nudged by the keyboard, restoring it once the burst settles (Figma
-  // hides the bounds during keyboard moves so the outline doesn't chase the
-  // element frame-by-frame). The settle timer (re-armed on every nudge) is the
-  // authoritative restore and matches the ~800ms keyboard-coalesce window used
-  // by handleGeometryCommit; a window keyup on the arrow keys restores sooner
-  // when the canvas host itself holds focus.
+  // Hide the in-iframe selection outline during keyboard nudges so it doesn't
+  // chase the element, restoring it once the burst settles. The re-armed
+  // settle timer is the authoritative restore (~800ms, matching the nudge
+  // coalesce window); an arrow keyup restores sooner when the host has focus.
   const selectionChromeHiddenRef = useRef(false);
   const selectionChromeSettleTimerRef = useRef<number | undefined>(undefined);
   const restoreSelectionChrome = useCallback(() => {
@@ -20233,9 +20207,8 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionBefore);
       return true;
     };
-    // Task 1c — undo a selection-only change: restore the entry's `before`
-    // snapshot and move it to the redo stack. suppressSelectionOnlyHistoryRef
-    // blocks the scheduled recorder from capturing this restore as a new edit.
+    // Restore the entry's `before` and move it to the redo stack. The suppress
+    // ref stops the recorder from logging this restore as a new change.
     const undoSelection = () => {
       const entry =
         selectionOnlyUndoStackRef.current[
@@ -20413,8 +20386,7 @@ function DesignEditor() {
           (prunedUndoHistory > prunedBefore ? false : undoGeometry())
         );
       }
-      // Task 1c — a selection-only entry; if its stack is empty (desync), fall
-      // through to the ordinary chain so the loop can't dead-end.
+      // Fall through if the selection stack is empty so the loop can't dead-end.
       if (preferred === "selection") {
         return undoSelection() || undoContent() || undoGeometry();
       }
@@ -20917,8 +20889,7 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionAfter);
       return true;
     };
-    // Task 1c — redo a selection-only change: re-apply the entry's `after`
-    // snapshot and move it back to the undo stack.
+    // Re-apply the entry's `after` and move it back to the undo stack.
     const redoSelection = () => {
       const entry =
         selectionOnlyRedoStackRef.current[
@@ -26823,9 +26794,7 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) => {
-      // Task 1c — one selection-only undo entry per completed marquee: the
-      // 800ms coalesce window collapses the per-mousemove-tick reports below
-      // into a single entry whose `before` is the pre-marquee selection.
+      // Coalescing collapses the per-tick marquee reports into one undo entry.
       scheduleSelectionOnlyHistoryRecord();
       // PF10: MultiScreenCanvas reports the marquee hit-set on every
       // mousemove tick during a drag, not just on settle (see
@@ -29702,7 +29671,7 @@ function DesignEditor() {
                       }}
                     />
                   )}
-                  {/* Task 4a — contextual agent affordance near the selection. */}
+                  {/* Contextual agent affordance near the selection. */}
                   {!embedded && isSignedIn && (
                     <SelectionAgentAffordance
                       anchorRect={selectionAffordanceAnchor.anchor}
@@ -29718,7 +29687,7 @@ function DesignEditor() {
                       onAsk={() => openAgentForSelection("ask")}
                     />
                   )}
-                  {/* Task 4c — canvas agent-state badge (Figma-silent when ready). */}
+                  {/* Canvas agent-state badge (silent when ready). */}
                   {!embedded && !uiHidden && (
                     <CanvasAgentStateBadge
                       inputs={{
