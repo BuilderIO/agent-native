@@ -2595,7 +2595,20 @@ function DateValueEditor({
       className="grid gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        void save();
+        const formData = new FormData(event.currentTarget);
+        const submittedStartValue = formData.get("property-start-value");
+        const submittedEndValue = formData.get("property-end-value");
+
+        // Native date controls can update their displayed DOM value before
+        // React receives the corresponding change event. Read the submitted
+        // form so Save never clears a date that is visibly present.
+        void save(
+          buildValue(
+            typeof submittedStartValue === "string" ? submittedStartValue : "",
+            typeof submittedEndValue === "string" ? submittedEndValue : "",
+            formData.has("property-include-time"),
+          ),
+        );
       }}
     >
       <div className="grid grid-cols-2 gap-1">
@@ -2690,6 +2703,7 @@ function DateValueEditor({
       </label>
       <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
         <input
+          name="property-include-time"
           type="checkbox"
           checked={includeTime}
           onChange={(event) => {
