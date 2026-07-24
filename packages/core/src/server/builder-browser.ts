@@ -36,6 +36,10 @@ const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
 const BUILDER_RELAY_TTL_MS = 10 * 60 * 1000;
 const BUILDER_RELAY_REQUEST_SKEW_MS = 2 * 60 * 1000;
+const IMMUTABLE_NETLIFY_RELAY_HOST =
+  /^(?<deploy>[a-f0-9]{24})--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
+const NETLIFY_DEPLOY_PREVIEW_HOST =
+  /^deploy-preview-\d+--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
 
 export interface BuilderPreviewRelayState {
   v: 1;
@@ -164,6 +168,48 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
       hostname.endsWith(suffix),
     )
   );
+}
+
+/**
+ * Netlify's deploy-preview alias is convenient for people but mutable, so it
+ * must never be the signed relay destination. DEPLOY_URL is Netlify's
+ * immutable, deploy-specific URL. Use it only when it identifies the same
+ * site as the visible preview alias; otherwise preserve the visible origin so
+ * the existing fail-closed callback validation rejects the flow.
+ */
+export function resolveBuilderPreviewRelayTargetOrigin(
+  previewOrigin: string,
+): string {
+  let previewUrl: URL;
+  try {
+    previewUrl = new URL(previewOrigin);
+  } catch {
+    return previewOrigin;
+  }
+  const previewMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    previewUrl.hostname.toLowerCase(),
+  );
+  if (!previewMatch?.groups?.site) return previewOrigin;
+
+  const deployUrlRaw = process.env.DEPLOY_URL?.trim();
+  if (!deployUrlRaw) return previewOrigin;
+  try {
+    const deployUrl = new URL(deployUrlRaw);
+    const deployMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
+      deployUrl.hostname.toLowerCase(),
+    );
+    if (
+      deployUrl.protocol !== "https:" ||
+      deployUrl.origin !== deployUrlRaw.replace(/\/+$/, "") ||
+      !deployMatch?.groups?.site ||
+      deployMatch.groups.site !== previewMatch.groups.site
+    ) {
+      return previewOrigin;
+    }
+    return deployUrl.origin;
+  } catch {
+    return previewOrigin;
+  }
 }
 export function signBuilderPreviewRelayState(input: {
   ownerEmail: string;
@@ -1226,6 +1272,19 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
+}
+
+export function resolveBuilderPreviewRelayParentOrigin(options: {
+  openerOrigin?: string | null;
+  targetOrigin: string;
+}): string {
+  if (
+    options.openerOrigin &&
+    isSafeBuilderRelayTargetOrigin(options.openerOrigin)
+  ) {
+    return new URL(options.openerOrigin).origin;
+  }
+  return options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {
