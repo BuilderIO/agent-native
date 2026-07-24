@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.121.1
+
+### Patch Changes
+
+- 99997d8: Recognize Netlify's documented Function runtime marker so opted-in durable background work reaches its generated worker instead of falling back to a short synchronous route.
+
 ## 0.121.0
 
 ### Minor Changes
