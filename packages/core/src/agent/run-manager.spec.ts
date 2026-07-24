@@ -390,6 +390,15 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("lets NETLIFY=false roll back SITE_ID hosted detection", () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    process.env.NETLIFY = "false";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      0,
+    );
+  });
+
   it("treats Netlify local as a local runtime", () => {
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
