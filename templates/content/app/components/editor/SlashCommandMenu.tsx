@@ -1315,29 +1315,13 @@ export function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
-  const executedFromPointerRef = useRef(false);
-
   return (
     <button
       ref={buttonRef}
-      onPointerDown={(event) => {
-        event.preventDefault();
-      }}
-      onPointerUp={(event) => {
-        event.preventDefault();
-        executedFromPointerRef.current = true;
-        onExecute();
-      }}
       onMouseDown={(event) => {
         event.preventDefault();
       }}
-      onClick={() => {
-        if (executedFromPointerRef.current) {
-          executedFromPointerRef.current = false;
-          return;
-        }
-        onExecute();
-      }}
+      onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

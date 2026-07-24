@@ -91,7 +91,7 @@ describe("slash command menu trigger", () => {
 });
 
 describe("slash command pointer activation", () => {
-  it("preserves selection and executes once on pointer release", () => {
+  it("preserves the editor selection on pointer down and executes on click", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
@@ -122,21 +122,13 @@ describe("slash command pointer activation", () => {
       const button = container.querySelector("button");
       expect(button).not.toBeNull();
 
-      const pointerDown = new MouseEvent("pointerdown", {
+      const mouseDown = new MouseEvent("mousedown", {
         bubbles: true,
         cancelable: true,
       });
-      act(() => button?.dispatchEvent(pointerDown));
-      expect(pointerDown.defaultPrevented).toBe(true);
+      act(() => button?.dispatchEvent(mouseDown));
+      expect(mouseDown.defaultPrevented).toBe(true);
       expect(onExecute).not.toHaveBeenCalled();
-
-      const pointerUp = new MouseEvent("pointerup", {
-        bubbles: true,
-        cancelable: true,
-      });
-      act(() => button?.dispatchEvent(pointerUp));
-      expect(pointerUp.defaultPrevented).toBe(true);
-      expect(onExecute).toHaveBeenCalledTimes(1);
 
       act(() =>
         button?.dispatchEvent(
@@ -148,43 +140,6 @@ describe("slash command pointer activation", () => {
       act(() => root.unmount());
       container.remove();
       actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
-    }
-  });
-
-  it("keeps click as a keyboard and assistive-activation fallback", () => {
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const onExecute = vi.fn();
-
-    try {
-      act(() => {
-        root.render(
-          createElement(CommandButton, {
-            cmd: {
-              title: "Code Block",
-              description: "Insert a code block",
-              icon: TestIcon,
-              action: vi.fn(),
-            },
-            isSelected: true,
-            onExecute,
-            onHover: vi.fn(),
-          }),
-        );
-      });
-
-      act(() =>
-        container
-          .querySelector("button")
-          ?.dispatchEvent(
-            new MouseEvent("click", { bubbles: true, cancelable: true }),
-          ),
-      );
-      expect(onExecute).toHaveBeenCalledTimes(1);
-    } finally {
-      act(() => root.unmount());
-      container.remove();
     }
   });
 });
