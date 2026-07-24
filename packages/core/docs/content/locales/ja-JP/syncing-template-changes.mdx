@@ -1,0 +1,159 @@
+---
+title: "テンプレートの変更を同期する"
+description: "agent-native template は、テンプレートから生成されたアプリに、後の upstream ファーストパーティ テンプレートの変更を、手つかずの baseline に対する本物のファイル単位の three-way マージを使って取り込みます。"
+---
+
+# テンプレートの変更を同期する
+
+`agent-native create` は、ファーストパーティ テンプレートをアプリにコピーしてから、それを独自のものにします — アプリ名を置き換え、`_gitignore` の名前を変更し、`package.json` を書き換え、`workspace:*` と `catalog:` の依存関係を具体的なバージョンに固定し、（ワークスペースの場合は）継承された認証とチャット プラグインを差し替えます。その瞬間から、アプリはフォークになります。テンプレートのアップストリームに加えられた修正や改善は、そこには届きません。
+
+`agent-native upgrade` はそのギャップを埋めません。パッケージ バージョンを更新し、import codemods を実行し、skill ディレクトリを更新します — テンプレートからコピーされたファイルには決して触れません。
+
+`agent-native template` は、その欠けている半分です。テンプレートを新しいバージョンで再取得し、`create` が適用したのと同じ変換を再適用し、その結果をファイルごとにアプリにマージします。
+
+## クイックスタート {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync` は、インストールされている `@agent-native/core` に一致するテンプレート バージョンをデフォルトで使用するため、`upgrade` の後に実行すると、コードとパッケージを同じバージョンに保つことができます。
+
+マージする前に確認してください:
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## マージの仕組み {#how-the-merge-works}
+
+役立つマージには、2 つではなく 3 つのツリーが必要です:
+
+- **base** — アプリが生成された時点の、手つかずのテンプレート。
+- **theirs** — 同期先のバージョンの同じテンプレートを、同じ変換パイプラインに通したもの。
+- **ours** — 現状のままのアプリ。
+
+これらがあれば、すべてのファイルは明確なケースに分類されます。アップストリームがそれに触れていなければ、そのままにされます。あなたが一度も触れていなければ、ファストフォワードされます。両方が変更していれば、コンフリクト マーカーが付与されます。単に差異があるという理由だけで上書きされることはありません。
+
+base がなければ、「sync」は上書きしか意味できず、あなたの作業を黙って破棄するか、アップストリームの変更を取り消すことになります。
+
+## ベースライン {#the-baseline}
+
+base ツリーは、あなた自身のリポジトリ内に git ref として保存されます:
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+これは、使い捨ての index ファイルに対して git plumbing を使って書き込まれます。あなたの `HEAD`、ブランチ、index、作業ツリーには一切触れません — 編集途中で `template baseline` を実行しても安全であり、`git status` は前後でまったく同じように読めます。
+
+最初の書き込み時に、`refs/agent-native/*` の fetch と push の refspec がリモートに追加され、baseline がクローンを乗り越えられるようになります。アプリが git リポジトリ内にない場合、baseline は `.agent-native/` 配下の tarball にフォールバックします。
+
+provenance が存在する前に生成されたアプリには baseline がありません。作成してから同期してください:
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## 来歴 {#provenance}
+
+`create` は、後のマージに必要な情報をアプリの `package.json` に記録します:
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef` は、テンプレートが実際に取得された不変のタグであり、これが base を再現可能にしています。`shape` は、マテリアライズ時にワークスペース変換を再生するかどうかを決定します。
+
+## コマンド {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+記録された ref、利用可能な最新の ref、baseline が存在するかどうか、アップストリームが変更したファイル数、そしてローカルで変更したファイル数を報告します。
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+baseline とターゲットの間でアップストリームが変更した内容の、読み取り専用の unified diff です。何も書き込みません。
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+マージを実行します。`--to` は、インストールされている core に一致する ref をデフォルトで使用します。`--dry-run` は、書き込みを行わずに計画を出力します。
+
+`sync` は、アプリ ディレクトリにコミットされていない変更がある場合は実行を拒否するため、悪いマージは常に `git checkout` で復元可能です。`--force` はこれを上書きします。先にコミットすることを推奨します。
+
+マージがクリーンな場合、baseline は自動的に進みます。コンフリクトがある場合は意図的に進みません — `accept` を参照してください。
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+コンフリクト マーカーを解決した後に baseline を進めます。`<<<<<<<` が残っている間は拒否するため、baseline が未解決のマージを通り過ぎて、次の base にコンフリクト マーカーを静かに焼き込んでしまうことはありません。
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+scaffold provenance より前のアプリの baseline を記録します。アプリが実際にどのバージョンから来たか分かっている場合は `--ref` を渡してください。実際に近いほど、最初の sync で生じる幻のコンフリクトは少なくなります。
+
+## マージされないもの {#what-is-never-merged}
+
+一部のファイルは定義上あなたのものであり、一部は意味のあるマージができません:
+
+- シークレットとローカル設定: `.env`, `.env.local`
+- ロックファイル: `pnpm-lock.yaml`
+- 生成された出力: `node_modules`, `.output`, `.react-router`, `dist`, `build`
+- アプリが所有するコンテンツ: `learnings.md`、`changelog/` 配下の保留中のエントリ
+
+バイナリ ファイルは決してマーカー マージされません。両方が変更した場合、あなたのコピーが保持され、そのファイルは手動対応が必要として報告されます。シンボリック リンクは上書きされず、報告されます。
+
+## 変更をアップストリームに還元する {#contributing-changes-back}
+
+同期は設計上、一方向です: アップストリームがテンプレート コンテンツの信頼できる情報源であり、`create` が適用する変換は完全には可逆ではありません。具体的なアプリ名から `{{APP_NAME}}` を復元するのは推測にすぎず、`create` が丸ごと書き換えたファイル — `package.json`、`netlify.toml`、`app/root.tsx`、`server/plugins/auth.ts` — には忠実な逆変換がまったく存在しません。
+
+フレームワーク モノレポ内で作業していて、アプリ側の改善をテンプレートに押し戻したい場合、`contribute:template` スクリプトが、これらの制限を明示した上で逆方向のパスを実行します:
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+あなたのアプリを baseline に対して diff し、あなた自身の変更だけを候補とし、それらのファイルだけでプレースホルダーの置換を逆転させ、現在のブランチ上の unstaged な編集として `templates/<name>/` に three-way マージし、触れることを拒否したものすべてを出力するので、意図を手動で移植できます。
+
+## 他のコマンドとの関係 {#relationship-to-other-commands}
+
+| コマンド                     | 移動対象                                                               |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` パッケージ バージョン、import、skill ディレクトリ    |
+| `agent-native template sync` | scaffold 時にテンプレートからコピーされたファイル                      |
+| `agent-native eject`         | フレームワーク コンポーネントを、provenance 付きでアプリ所有のソースへ |
+
+`upgrade` と `template sync` は互いに補完し合うものであり、一緒に実行しても安全です。`eject` は逆の動きです — ファイルの所有権を意図的に取得するものであり、eject されたファイルは `agent-native.ejections.json` で個別に追跡されます。

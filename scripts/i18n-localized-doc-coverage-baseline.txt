@@ -102,7 +102,6 @@ ja-JP|generative-ui
 ja-JP|http-api
 ja-JP|integrations
 ja-JP|organizations-teams-permissions
-ja-JP|syncing-template-changes
 ja-JP|toolkit-agent-ux
 ja-JP|toolkit-collaboration
 ja-JP|toolkit-command-navigation
