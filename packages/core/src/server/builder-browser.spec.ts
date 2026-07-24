@@ -588,8 +588,8 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("uses the immutable Netlify deploy URL as the relay destination", () => {
-      process.env.DEPLOY_URL =
-        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
 
       expect(
         resolveBuilderPreviewRelayTargetOrigin(
@@ -601,8 +601,8 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("rejects an immutable Netlify deploy URL for a different site", () => {
-      process.env.DEPLOY_URL =
-        "https://6a62ed72f518f00008436fa3--different-site.netlify.app";
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "different-site";
       const previewOrigin =
         "https://deploy-preview-2382--agent-native-content.netlify.app";
 
@@ -612,8 +612,8 @@ describe("Builder callback CSRF state", () => {
     });
 
     it("leaves non-Netlify preview origins unchanged", () => {
-      process.env.DEPLOY_URL =
-        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
       const previewOrigin = "https://preview-example.builderio.xyz";
 
       expect(resolveBuilderPreviewRelayTargetOrigin(previewOrigin)).toBe(
