@@ -2350,6 +2350,19 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
+  // `.generated/bridge` is committed source, not a build artifact: the design
+  // app imports it at module load, so skipping it yields a workspace that 500s
+  // on every page. Everything else under `.generated` is regenerated at dev time.
+  if (pathParts?.at(-2) === ".generated") {
+    return name !== "bridge";
+  }
+  if (
+    name === ".generated" &&
+    srcPath &&
+    fs.existsSync(path.join(srcPath, "bridge"))
+  ) {
+    return false;
+  }
   if (
     name === "node_modules" ||
     name === ".agent-native" ||
