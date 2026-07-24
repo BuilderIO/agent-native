@@ -101,12 +101,9 @@ document operations. `.env` is loaded automatically — never manually set
 `view-screen`, `navigate`, and `refresh-list` handle context and UI control.
 `list-documents`, `search-documents`, `get-document`, `pull-document`,
 `create-document`, `edit-document`, `update-document`, and `delete-document`
-cover the core document workflow. Every action carries its own tool schema
-and description, so this file does not restate args. Roughly 60 more actions
- (databases, properties, views, forms, sharing, Notion sync, local-file
-  sources, including `remove-local-file-source`, Builder CMS sync, comments,
-  versions) are registered tools; use
-`tool-search` to find the right one instead of scanning a table here.
+cover the core document workflow. Every action carries its own schema. Other
+app-specific tools, including `remove-local-file-source`, are registered; use
+`tool-search` instead of scanning a table here.
 
 ### Cross-App A2A / Slack Artifact Rule
 

@@ -5,17 +5,13 @@ queries, dashboards, charts, and warehouse integrations through actions and
 SQL-backed state. Dashboards are the canonical user-facing artifact; legacy
 analyses remain readable only for compatibility.
 
-**This agent IS Claude with provider access** — the same reasoning as a
-standalone AI conversation, plus BigQuery/Gong/HubSpot/Prometheus access. Never
-suggest a separate AI tool for reasoning or synthesis over data already fetched
-here; do that work in chat.
+**This agent is Claude with BigQuery/Gong/HubSpot/Prometheus access.** Reason
+over fetched data here; do not suggest another AI tool.
 
-This file is injected truncated past ~6,000 characters. Keep it short and put
-detail in `.agents/skills/*`.
+Prompt cap: ~6,000 characters; put detail in `.agents/skills/*`.
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
+Before building common workspace or agent UI, read `agent-native-toolkit`; use
+`customizing-agent-native` for the configure → compose → eject → propose
 ladder.
 
 ## How To Answer A Data Question

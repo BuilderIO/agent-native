@@ -60,11 +60,9 @@ ladder.
   present; explicit user instructions in the current turn still win. Before
   generation, follow the `creative-context` reuse ladder and respect
   `contextMode: "off"` without silently restoring a pack.
- - When the user references a template, prior design, or past work, call both
-   `list-design-templates` and `list-designs` before generating; use
-   `create-design-from-template` to copy a match and `get-design-snapshot` to
-   inspect prior work before `edit-design` — see `design-templates` for the
-   copy/adaptation workflow.
+- When the user references a template or prior design, call
+  `list-design-templates`/`list-designs`; use `create-design-from-template` and
+  `get-design-snapshot` before `edit-design`.
 - Design source modes are `inline` (current SQL-backed default), `localhost`
   (`visual-edit`), and `fusion` (flag-gated, `full-app-build`). Preserve a
   design's `fusionApp`/localhost connection data verbatim; never invent it.
