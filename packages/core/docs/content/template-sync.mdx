@@ -1,0 +1,159 @@
+---
+title: "Syncing Template Changes"
+description: "agent-native template pulls later upstream first-party template changes into an app that was generated from a template, using a real per-file three-way merge against a pristine baseline."
+---
+
+# Syncing Template Changes
+
+`agent-native create` copies a first-party template into your app and then makes it yours — substituting the app name, renaming `_gitignore`, rewriting `package.json`, pinning `workspace:*` and `catalog:` dependencies to concrete versions, and (in a workspace) swapping in inherited auth and chat plugins. From that moment the app is a fork. Fixes and improvements that land in the template upstream do not reach it.
+
+`agent-native upgrade` does not close that gap. It moves package versions, runs import codemods, and refreshes skill directories — it never touches a file that was copied out of a template.
+
+`agent-native template` is the missing half. It re-fetches the template at a newer version, re-applies the exact transforms `create` applied, and merges the result into your app file by file.
+
+## Quick start {#quick-start}
+
+```bash
+agent-native upgrade
+agent-native template sync
+```
+
+`sync` defaults to the template version matching your installed `@agent-native/core`, so running it after `upgrade` keeps code and packages on the same version.
+
+Look before you merge:
+
+```bash
+agent-native template status
+agent-native template diff
+```
+
+## How the merge works {#how-the-merge-works}
+
+A useful merge needs three trees, not two:
+
+- **base** — the pristine template as it was when your app was generated.
+- **theirs** — the same template at the version you are syncing to, put through the same transform pipeline.
+- **ours** — your app as it stands now.
+
+With those, every file falls into a clear case. Upstream did not touch it, so it is left alone. You never touched it, so it fast-forwards. Both of you changed it, so it gets conflict markers. Nothing is overwritten just because it differs.
+
+Without a base, "sync" can only mean overwrite, which silently discards your work or reverts upstream's.
+
+## The baseline {#the-baseline}
+
+The base tree is stored as a git ref in your own repo:
+
+```txt
+refs/agent-native/template-baseline/apps/slides
+```
+
+It is written with git plumbing against a throwaway index file. Your `HEAD`, your branch, your index, and your working tree are never touched — running `template baseline` mid-edit is safe, and `git status` reads identically before and after.
+
+On first write, the fetch and push refspecs for `refs/agent-native/*` are added to your remote so the baseline survives a clone. If the app is not in a git repo, the baseline falls back to a tarball under `.agent-native/`.
+
+Apps generated before provenance existed have no baseline. Create one, then sync:
+
+```bash
+agent-native template baseline
+agent-native template sync
+```
+
+## Provenance {#provenance}
+
+`create` records what a later merge needs in the app's `package.json`:
+
+```json
+{
+  "agent-native": {
+    "scaffold": {
+      "template": "slides",
+      "frameworkSkills": "default",
+      "templateRef": "@agent-native/core@0.120.3",
+      "templateSource": "github",
+      "coreVersion": "0.120.3",
+      "shape": "workspace"
+    }
+  }
+}
+```
+
+`templateRef` is the immutable tag the template was actually fetched from, which is what makes the base reproducible. `shape` decides whether the workspace transforms are replayed during materialization.
+
+## Commands {#commands}
+
+### status {#status}
+
+```bash
+agent-native template status [app]
+```
+
+Reports the recorded ref, the latest available ref, whether a baseline exists, how many files upstream changed, and how many you have modified locally.
+
+### diff {#diff}
+
+```bash
+agent-native template diff [app] [--to <ref>]
+```
+
+A read-only unified diff of what changed upstream between your baseline and the target. Writes nothing.
+
+### sync {#sync}
+
+```bash
+agent-native template sync [app] [--to <ref>] [--dry-run] [--force]
+```
+
+Performs the merge. `--to` defaults to the ref matching the installed core. `--dry-run` prints the plan without writing.
+
+`sync` refuses to run when the app directory has uncommitted changes, so a bad merge is always recoverable with `git checkout`. `--force` overrides this; prefer committing first.
+
+When the merge is clean, the baseline advances automatically. When there are conflicts it deliberately does not — see `accept`.
+
+### accept {#accept}
+
+```bash
+agent-native template accept [app]
+```
+
+Advances the baseline after you resolve conflict markers. It refuses while any `<<<<<<<` remains, so the baseline can never move past an unresolved merge and quietly bake conflict markers into your next base.
+
+### baseline {#baseline}
+
+```bash
+agent-native template baseline [app] [--ref <ref>] [--template <name>]
+```
+
+Records a baseline for an app that predates scaffold provenance. Pass `--ref` when you know which version the app actually came from; the closer it is to the truth, the fewer phantom conflicts the first sync produces.
+
+## What is never merged {#what-is-never-merged}
+
+Some files are yours by definition, and some cannot be merged meaningfully:
+
+- Secrets and local config: `.env`, `.env.local`
+- Lockfiles: `pnpm-lock.yaml`
+- Generated output: `node_modules`, `.output`, `.react-router`, `dist`, `build`
+- App-owned content: `learnings.md`, pending entries under `changelog/`
+
+Binary files are never marker-merged. If both sides changed one, your copy is kept and the file is reported for manual handling. Symlinks are reported rather than clobbered.
+
+## Contributing changes back {#contributing-changes-back}
+
+Syncing is one-directional by design: upstream is the source of truth for template content, and the transforms `create` applies are not perfectly reversible. Recovering `{{APP_NAME}}` from a concrete app name is a guess, and files that `create` rewrote wholesale — `package.json`, `netlify.toml`, `app/root.tsx`, `server/plugins/auth.ts` — have no faithful inverse at all.
+
+If you are working inside the framework monorepo and want to push an app-side improvement back into a template, the `contribute:template` script does the reverse pass with those limits made explicit:
+
+```bash
+pnpm contribute:template --app <path-to-app> --dry-run
+```
+
+It diffs your app against its baseline so only your own changes are candidates, inverts the placeholder substitution on just those files, three-way merges them into `templates/<name>/` as unstaged edits on the current branch, and prints everything it refused to touch so you can port the intent by hand.
+
+## Relationship to other commands {#relationship-to-other-commands}
+
+| Command | Moves |
+| --- | --- |
+| `agent-native upgrade` | `@agent-native/*` package versions, imports, skill directories |
+| `agent-native template sync` | files copied out of a template at scaffold time |
+| `agent-native eject` | a framework component into app-owned source, with provenance |
+
+`upgrade` and `template sync` are complementary and safe to run together. `eject` is the opposite move — it takes ownership of a file deliberately, and ejected files are tracked separately in `agent-native.ejections.json`.
