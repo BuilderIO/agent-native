@@ -44,4 +44,32 @@ describe("agent-native shell surface tokens", () => {
       /\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\],\s*\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\] \* \{[^}]*transition: none !important;/s,
     );
   });
+
+  it("keeps the active tool shine clipped to its label text", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain("background-clip: text;");
+    expect(css).not.toContain(
+      '.agent-tool-call[data-active-tail="true"]::after',
+    );
+  });
+
+  it("uses a surface-independent mask for the scrolled chat fade", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const source = readFileSync(
+      new URL("../client/components/ui/message-scroller.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).toContain(".message-scroller-viewport--top-fade");
+    expect(css).toContain("-webkit-mask-image: linear-gradient(");
+    expect(css).toContain("black var(--message-scroller-top-fade-size)");
+    expect(source).toContain("message-scroller-viewport--top-fade");
+    expect(source).not.toContain("bg-gradient-to-b from-background");
+  });
 });

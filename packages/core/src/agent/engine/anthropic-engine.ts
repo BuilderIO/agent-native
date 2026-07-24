@@ -24,6 +24,10 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import {
+  createFirstEventAbortController,
+  FIRST_STREAM_EVENT_TIMEOUT_MS,
+} from "./first-event-timeout.js";
+import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
@@ -186,8 +190,9 @@ class AnthropicEngine implements AgentEngine {
     // Remove undefined tools to avoid Anthropic API validation errors
     if (!requestParams.tools) delete requestParams.tools;
 
+    const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const apiStream = client.messages.stream(requestParams, {
-      signal: opts.abortSignal,
+      signal: firstEventAbort.signal,
     });
 
     // Per-stream state lets the translator carry each tool-call's id/name from
@@ -198,6 +203,9 @@ class AnthropicEngine implements AgentEngine {
 
     try {
       for await (const chunk of apiStream) {
+        // The SDK's SSE parsing already drops `ping` keepalives before they
+        // reach this loop, so any chunk here is real provider progress.
+        firstEventAbort.markFirstEvent();
         const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
           yield event;
@@ -238,17 +246,24 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      const timedOut = firstEventAbort.didTimeout();
       const statusCode: number | undefined =
         typeof err?.status === "number"
           ? err.status
           : typeof err?.statusCode === "number"
             ? err.statusCode
             : undefined;
-      const errorMessage = err?.message ?? String(err);
+      // A first-event abort surfaces from the SDK as a generic
+      // APIUserAbortError ("Request was aborted.") — replace it with a
+      // message that actually explains what happened.
+      const errorMessage = timedOut
+        ? `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`
+        : (err?.message ?? String(err));
       // Anthropic SDK APIConnectionError defaults to "Connection error." with
       // no HTTP status. Tag it so in-run retries and run-level resume treat
       // the failure as a transient network interruption.
       const isConnectionError =
+        !timedOut &&
         statusCode === undefined &&
         String(errorMessage).trim().toLowerCase() === "connection error.";
       if (statusCode === 401) {
@@ -274,7 +289,7 @@ class AnthropicEngine implements AgentEngine {
         // continuation logic auto-resume a rate-limited turn.
         ...(statusCode !== undefined
           ? { errorCode: `http_${statusCode}`, statusCode }
-          : isConnectionError
+          : isConnectionError || timedOut
             ? {
                 errorCode: "provider_network_error",
                 providerRetryable: true,
@@ -282,6 +297,8 @@ class AnthropicEngine implements AgentEngine {
             : {}),
       };
       throw err;
+    } finally {
+      firstEventAbort.cleanup();
     }
   }
 }

@@ -564,6 +564,10 @@ const messages = {
           label: "UI flow",
           description: "UI flow - wireframes and states",
         },
+        design: {
+          label: "High-fidelity design",
+          description: "High-fidelity design - polished branded screens",
+        },
         questions: {
           label: "Visual questions",
           description: "Visual questions - explicit intake",
@@ -587,6 +591,8 @@ const messages = {
           "# Implementation plan\n\nPaste the existing Codex or Claude Code plan here and turn it into a visual review document.",
       },
       assessment: {
+        design:
+          "Auto detected a high-fidelity request; the agent will create polished branded screens.",
         ui: "Auto detected UI states or flows; the agent will make a wireframe-first plan.",
         visual:
           "Auto will ask the agent for a rich technical plan with diagrams and implementation detail.",

@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import {
   compareAndSetAppState,
+  compareAndSetManyAppState,
   listAppState,
   readAppState,
 } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,6 +24,7 @@ import {
   isPendingDesignReprompt,
   spliceNodeRewriteVariant,
   type NodeHtmlPreviewBridgeMessage,
+  type NodeRewriteResolutionClaim,
   type NodeRewriteProposal,
 } from "../shared/node-rewrite.js";
 import { designSourceTypeFromData } from "../shared/source-mode.js";
@@ -142,22 +145,19 @@ async function clearProposalState(
   proposalKey: string,
   proposal: NodeRewriteProposal,
   pending: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   const pendingKey = designRepromptPendingStateKey(
     proposal.designId,
     proposal.fileId,
   );
-  const [proposalCleared] = await Promise.all([
-    compareAndSetAppState(
-      proposalKey,
-      proposal as unknown as Record<string, unknown>,
-      null,
-    ),
-    compareAndSetAppState(pendingKey, pending, null),
+  return compareAndSetManyAppState([
+    {
+      key: proposalKey,
+      expectedValue: proposal as unknown as Record<string, unknown>,
+      nextValue: null,
+    },
+    { key: pendingKey, expectedValue: pending, nextValue: null },
   ]);
-  if (!proposalCleared) {
-    throw new Error("Node rewrite proposal changed while it was resolving.");
-  }
 }
 
 export default defineAction({
@@ -195,7 +195,16 @@ export default defineAction({
 
     if (resolution === "reject") {
       await assertAccess("design", proposal.designId, "editor");
-      await clearProposalState(proposalKey, proposal, pending);
+      const cleanupComplete = await clearProposalState(
+        proposalKey,
+        proposal,
+        pending,
+      );
+      if (!cleanupComplete) {
+        throw new Error(
+          "The proposal changed while it was being rejected. Review the latest candidates instead.",
+        );
+      }
       return {
         proposalId,
         repromptId: proposal.repromptId,
@@ -234,13 +243,51 @@ export default defineAction({
       source,
       fileType: file.fileType,
     });
-    const write = await writeInlineSourceFile({
-      designId: file.designId,
-      file,
-      content: rewrite.content,
-      expectedVersionHash: proposal.baseVersionHash,
-    });
-    await clearProposalState(proposalKey, proposal, pending);
+    const claim: NodeRewriteResolutionClaim = {
+      ...pending,
+      status: "resolving",
+      claimId: `node-rewrite-claim-${nanoid()}`,
+      proposalId,
+      resolution: "accept",
+    };
+    const claimValue = claim as unknown as Record<string, unknown>;
+    const claimed = await compareAndSetAppState(
+      pendingKey,
+      pending,
+      claimValue,
+    );
+    if (!claimed) {
+      throw new Error(
+        "A newer regeneration request replaced this proposal before it could be accepted.",
+      );
+    }
+
+    let write;
+    try {
+      write = await writeInlineSourceFile({
+        designId: file.designId,
+        file,
+        content: rewrite.content,
+        expectedVersionHash: proposal.baseVersionHash,
+      });
+    } catch (error) {
+      const released = await compareAndSetAppState(
+        pendingKey,
+        claimValue,
+        pending,
+      );
+      if (!released) {
+        throw new Error(
+          "The design write failed and its regeneration reservation could not be restored.",
+        );
+      }
+      throw error;
+    }
+    const cleanupComplete = await clearProposalState(
+      proposalKey,
+      proposal,
+      claimValue,
+    );
 
     return {
       proposalId,
@@ -252,6 +299,7 @@ export default defineAction({
       designId: file.designId,
       fileId: file.id,
       versionHash: write.versionHash,
+      cleanupComplete,
     };
   },
 });

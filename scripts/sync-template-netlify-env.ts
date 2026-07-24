@@ -9,6 +9,7 @@ import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 type TemplateSite = {
   name: string;
   siteId: string;
+  sourceTemplate: string;
 };
 
 type Options = {
@@ -32,6 +33,7 @@ type TemplateEnvPlan = {
   normalizedKeys: string[];
   skippedKeys: string[];
   sourcesByKey: Map<string, string[]>;
+  siteName: string;
   template: string;
 };
 
@@ -44,9 +46,20 @@ const NETLIFY_SITES = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "scripts/netlify-sites.json"), "utf8"),
 ) as Record<string, string>;
 
+const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
+const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
+const NETLIFY_SITE_PRODUCTION_URLS = new Map([
+  ["starter", "https://starter.agent-native.com"],
+]);
+
 const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
+  // fw is the public framework site, not a template environment target.
   .filter(([name]) => name !== "fw")
-  .map(([name, siteId]) => ({ name, siteId }));
+  .map(([name, siteId]) => ({
+    name,
+    siteId,
+    sourceTemplate: NETLIFY_SITE_SOURCE_TEMPLATES.get(name) ?? name,
+  }));
 
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
@@ -54,6 +67,11 @@ const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
+  ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
+  [
+    "VITE_AGENT_NATIVE_FEEDBACK_URL",
+    "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+  ],
   ["VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED", "true"],
   ["VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1"],
 ]);
@@ -73,6 +91,7 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "ENABLE_BUILDER",
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
+  "GTM_CONTAINER_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_LEGACY_CLIENT_ID",
@@ -87,6 +106,8 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
   "SENDGRID_API_KEY",
+  "SENTRY_DSN",
+  "SENTRY_SERVER_DSN",
   "SUPABASE_URL",
   "ZOOM_CLIENT_ID",
 ]);
@@ -101,6 +122,8 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "SENDGRID_API_KEY",
+  "SENTRY_DSN",
+  "SENTRY_SERVER_DSN",
 ]);
 const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
@@ -118,6 +141,7 @@ const PUBLIC_KEY_EXACT = new Set([
   "ENABLE_BUILDER",
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
+  "GTM_CONTAINER_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_SIGN_IN_CLIENT_ID",
@@ -129,11 +153,16 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
-const TEMPLATE_PROD_URL_BY_NAME = new Map(
-  TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
+const TEMPLATE_PROD_URL_BY_NAME = new Map([
+  ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
     (entry): entry is [string, string] => Boolean(entry[1]),
   ),
-);
+  ...NETLIFY_SITE_PRODUCTION_URLS,
+]);
+
+export function resolveNetlifyTemplateName(name: string): string {
+  return NETLIFY_TEMPLATE_ALIASES.get(name) ?? name;
+}
 
 function usage(): string {
   const names = TEMPLATE_SITES.map((site) => site.name).join(", ");
@@ -151,8 +180,9 @@ Options:
   --scope <scope>         Scope to set. Can be repeated. Defaults to ${DEFAULT_SCOPES.join(",")}.
   --source <file>         Env file inside each template. Can be repeated.
                            Defaults to ${DEFAULT_SOURCES.join(", ")}.
-                           GA_MEASUREMENT_ID defaults to the hosted Agent-Native
-                           GA4 property unless an env source overrides it.
+                           GA_MEASUREMENT_ID and GTM_CONTAINER_ID default to the
+                           hosted Agent-Native analytics configuration unless an
+                           env source overrides them.
   --help                  Show this help.
 
 Known templates:
@@ -208,7 +238,9 @@ function parseArgs(argv: string[]): Options {
     }
   }
 
-  const selected = all ? TEMPLATE_SITES.map((site) => site.name) : templates;
+  const selected = all
+    ? TEMPLATE_SITES.map((site) => site.name)
+    : templates.map(resolveNetlifyTemplateName);
   const uniqueTemplates = [...new Set(selected.map((name) => name.trim()))]
     .filter(Boolean)
     .sort();
@@ -362,12 +394,12 @@ function formatKeySources(
 }
 
 function buildTemplateEnvPlan(
-  template: string,
+  site: TemplateSite,
   context: string,
   sources: string[],
 ): TemplateEnvPlan {
   const { foundSources, sourcesByKey, values } = loadTemplateEnv(
-    template,
+    site.sourceTemplate,
     sources,
   );
   const forbiddenKeys = [...values.keys()]
@@ -386,7 +418,7 @@ function buildTemplateEnvPlan(
     }
 
     const normalized = normalizeProductionUrlEntry(
-      template,
+      site.name,
       context,
       key,
       value,
@@ -402,7 +434,8 @@ function buildTemplateEnvPlan(
     normalizedKeys,
     skippedKeys: [...new Set(skippedKeys)].sort(),
     sourcesByKey,
-    template,
+    siteName: site.name,
+    template: site.sourceTemplate,
   };
 }
 
@@ -579,9 +612,11 @@ async function main() {
     );
   }
 
-  const plans = options.templates.map((template) =>
-    buildTemplateEnvPlan(template, options.context, options.sources),
-  );
+  const plans = options.templates.map((siteName) => {
+    const site = SITE_BY_NAME.get(siteName);
+    if (!site) throw new Error(`Missing site mapping for ${siteName}.`);
+    return buildTemplateEnvPlan(site, options.context, options.sources);
+  });
   const forbidden = plans.flatMap((plan) =>
     plan.forbiddenKeys.map((key) => ({
       key,
@@ -609,14 +644,16 @@ async function main() {
   );
 
   for (const plan of plans) {
-    const site = SITE_BY_NAME.get(plan.template);
+    const site = SITE_BY_NAME.get(plan.siteName);
     if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
 
     const entries = plan.entries;
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
-    console.log(`[${plan.template}] site=${site.siteId}`);
+    console.log(
+      `[${plan.siteName}] template=${plan.template} site=${site.siteId}`,
+    );
     console.log(
       `  sources: ${plan.foundSources.length > 0 ? plan.foundSources.join(", ") : "(none)"}`,
     );

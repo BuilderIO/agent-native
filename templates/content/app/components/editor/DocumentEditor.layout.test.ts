@@ -87,6 +87,11 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "await createDatabase.mutateAsync({ documentId })",
     );
+    expect(source).toContain("isDatabaseChoicePending(");
+    expect(source).toContain("document,\n    createDatabase.isPending");
+    expect(source).toContain(
+      "disabled={!editorCanEdit || databaseChoicePending}",
+    );
     expect(source).toContain('{t("sidebar.page")}');
     expect(source).toContain('{t("sidebar.database")}');
     expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
@@ -174,6 +179,12 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toMatch(
+      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");
   });
@@ -194,8 +205,11 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain('utilityPanel === "info" ? null : "info"');
+    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
+    expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
+    expect(source).not.toContain('aria-pressed={utilityPanel === "comments"}');
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");

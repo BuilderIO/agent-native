@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.114.3",
+  "version": "0.120.2",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -68,6 +68,9 @@
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
+    "./server/poll": "./dist/server/poll.js",
+    "./server/sse": "./dist/server/sse.js",
+    "./server/short-lived-token": "./dist/server/short-lived-token.js",
     "./integrations": "./dist/integrations/index.js",
     "./integrations/runtime": "./dist/integrations/runtime.js",
     "./ingestion": "./dist/ingestion/index.js",
@@ -150,6 +153,7 @@
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
+    "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./guards": {
@@ -158,6 +162,7 @@
     },
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
+    "./user-profile": "./dist/user-profile/index.js",
     "./feature-flags": "./dist/feature-flags/index.js",
     "./feature-flags/registry": "./dist/feature-flags/registry.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
@@ -275,6 +280,10 @@
       "types": "./dist/data-programs/index.d.ts",
       "default": "./dist/data-programs/index.js"
     },
+    "./dashboard-storage": {
+      "types": "./dist/dashboard-storage/index.d.ts",
+      "default": "./dist/dashboard-storage/index.js"
+    },
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"
@@ -364,7 +373,7 @@
     "highlight.js": "catalog:",
     "i18next": "26.3.1",
     "isbot": "^5",
-    "jiti": "^2.6.1",
+    "jiti": "^2.7.0",
     "jose": "^6.2.2",
     "linkedom": "0.18.12",
     "lowlight": "catalog:",
@@ -372,7 +381,7 @@
     "nanoid": "^5.1.9",
     "next-themes": "catalog:",
     "nf3": "0.3.17",
-    "nitro": "3.0.260415-beta",
+    "nitro": "3.0.260610-beta",
     "p-limit": "^7.3.0",
     "prettier": "^3.8.3",
     "react-i18next": "17.0.8",

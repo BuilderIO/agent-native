@@ -203,12 +203,12 @@ function parseScaffoldArgs(argv: string[]): {
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    import("../tracking/registry.js").then((m) => {
-      m.track(event, { command, ...props });
-    });
-    import("../tracking/providers.js").then((m) =>
-      m.registerBuiltinProviders(),
-    );
+    void import("../tracking/registry.js")
+      .then((m) => m.track(event, { command, ...props }))
+      .catch(() => undefined);
+    void import("../tracking/providers.js")
+      .then((m) => m.registerBuiltinProviders())
+      .catch(() => undefined);
   } catch {}
 }
 
@@ -219,7 +219,9 @@ process.on("uncaughtException", (err) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
   Sentry.captureException(err);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -228,7 +230,9 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
   Sentry.captureException(reason);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
@@ -270,6 +274,22 @@ function findBinUpwards(binName: string): string | undefined {
 
 function findViteBin(): string {
   return findBinUpwards("vite") ?? "vite";
+}
+
+function findViteJsEntry(): string | null {
+  try {
+    const require = createRequire(path.join(process.cwd(), "package.json"));
+    const pkgJsonPath = require.resolve("vite/package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {
+      bin?: string | Record<string, string>;
+    };
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.vite;
+    if (!rel) return null;
+    const entry = path.join(path.dirname(pkgJsonPath), rel);
+    return fs.existsSync(entry) ? entry : null;
+  } catch {
+    return null;
+  }
 }
 
 function findTsxBin(): string {
@@ -382,15 +402,31 @@ function isWorkspaceRoot(): boolean {
   }
 }
 
+function extractNodeInspectFlag(args: string[]): {
+  inspectFlag: string | null;
+  rest: string[];
+} {
+  const rest: string[] = [];
+  let inspectFlag: string | null = null;
+  for (const arg of args) {
+    if (/^--inspect(-brk)?(=.+)?$/.test(arg)) {
+      inspectFlag = arg;
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { inspectFlag, rest };
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
-  opts?: { stdio?: "inherit" | "pipe" },
+  opts?: { stdio?: "inherit" | "pipe"; env?: NodeJS.ProcessEnv },
 ) {
   const child = spawn(cmd, cmdArgs, {
     stdio: opts?.stdio ?? "inherit",
     shell: process.platform === "win32",
-    env: process.env,
+    env: opts?.env ?? process.env,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
   // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
@@ -541,7 +577,36 @@ switch (command) {
       break;
     }
     const vite = findViteBin();
-    run(vite, args);
+    const { inspectFlag, rest } = extractNodeInspectFlag(args);
+    if (!inspectFlag) {
+      run(vite, rest);
+      break;
+    }
+    const viteJsEntry = findViteJsEntry();
+    if (!viteJsEntry) {
+      console.warn(
+        "[agent-native] Could not resolve Vite's JS entry; starting dev " +
+          "server without the debugger.",
+      );
+      run(vite, rest);
+      break;
+    }
+    // Attach inspect flag to server process (not Vite or Nitro process)
+    const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
+    const kind = parsed?.[1] ?? "inspect";
+    const target = parsed?.[2] ?? "9229";
+    const directive = `--${kind}=${target}`;
+    const preload =
+      "data:text/javascript," +
+      encodeURIComponent(
+        `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
+      );
+    const env = {
+      ...process.env,
+      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+    };
+    console.log(`[agent-native] API server debugger listening on ${target}`);
+    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
     break;
   }
 
@@ -961,14 +1026,18 @@ switch (command) {
   }
 
   case "setup-agents": {
-    import("./setup-agents.js").then((m) => m.runSetupAgents());
+    import("./setup-agents.js")
+      .then((m) => m.runSetupAgents())
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "info": {
     // Print read-only info about an installable package (e.g. @agent-native/scheduling).
     // Lists subpath exports, source paths in node_modules, and docs pointers.
-    import("./info.js").then((m) => m.runInfo(args[0]));
+    import("./info.js")
+      .then((m) => m.runInfo(args[0]))
+      .catch(handleScaffoldImportError);
     break;
   }
 

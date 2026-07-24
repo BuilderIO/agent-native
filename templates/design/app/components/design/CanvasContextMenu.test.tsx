@@ -9,9 +9,13 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 vi.mock("@/components/ui/context-menu", () => {
-  const Container = ({ children }: { children?: React.ReactNode }) => (
-    <div>{children}</div>
-  );
+  const Container = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <div className={className}>{children}</div>;
   const Item = ({
     children,
     disabled,
@@ -224,6 +228,41 @@ describe("CanvasContextMenu regenerate", () => {
       parent,
       expect.objectContaining({ action: "reprompt" }),
     );
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu rotation", () => {
+  it("moves the visible rotation affordance into the context menu", async () => {
+    const onRotateClockwise = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canRotateClockwise: true,
+      onRotateClockwise,
+    });
+
+    const rotate = view.findButton("Rotate 90° clockwise");
+    expect(rotate).toBeDefined();
+    await act(async () => rotate?.click());
+    expect(onRotateClockwise).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "rotate-clockwise",
+        selectedCount: 1,
+      }),
+    );
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu motion", () => {
+  it("disables the Radix entrance and exit animation", async () => {
+    const view = await renderContextMenu({ selectedCount: 0 });
+    const menu = Array.from(view.container.querySelectorAll("div")).find(
+      (element) =>
+        element.className.includes("data-[state=open]:!animate-none") &&
+        element.className.includes("data-[state=closed]:!animate-none"),
+    );
+    expect(menu).toBeDefined();
     await view.cleanup();
   });
 });

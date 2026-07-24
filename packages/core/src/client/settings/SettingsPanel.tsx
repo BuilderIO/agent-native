@@ -1,4 +1,9 @@
-import * as SelectPrimitive from "@radix-ui/react-select";
+import {
+  Checkbox,
+  Picker,
+  TextField,
+} from "@agent-native/toolkit/design-system";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -22,9 +27,9 @@ import {
   IconEyeOff,
   IconBolt,
   IconGauge,
-  IconUserCircle,
   IconApps,
   IconUsersGroup,
+  IconTool,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -35,6 +40,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { Link, Navigate } from "react-router";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
@@ -45,18 +51,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
   ALL_SETTINGS_SECTIONS,
   CONNECTION_SETTINGS_SECTIONS,
-  SETTINGS_SECTION_IDS,
   WORKSPACE_SETTINGS_SECTIONS,
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
@@ -64,6 +68,7 @@ import {
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
+import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { SecretsSection } from "./SecretsSection.js";
 import {
   SettingsSection,
@@ -78,7 +83,27 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "./useBuilderStatus.js";
+import {
+  settingsSectionDomId,
+  useSettingsPanelController,
+} from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "SettingsPrimitiveButton";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -183,7 +208,6 @@ function SettingsSelect({
 }) {
   const isPage = useSettingsSurface() === "page";
   const controlStyle = isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE;
-  const selected = options.find((option) => option.value === value);
 
   return (
     <div className="space-y-1.5">
@@ -191,69 +215,27 @@ function SettingsSelect({
         <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
-      <SelectPrimitive.Root
+      <Picker
+        mode="select"
+        options={options.map((option) => ({
+          value: option.value,
+          label: option.label,
+          description: option.description,
+          textValue: option.label,
+        }))}
         value={value}
-        onValueChange={onValueChange}
+        onChange={(next) => {
+          if (next != null) onValueChange(String(next));
+        }}
         disabled={disabled}
-      >
-        <SelectPrimitive.Trigger
-          className={cn(
-            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60",
-            isPage ? "h-10 text-sm" : "h-9 text-[12px]",
-          )}
-          aria-label={label}
-          style={controlStyle}
-        >
-          <SelectPrimitive.Value>
-            {selected?.label ?? value}
-          </SelectPrimitive.Value>
-          <SelectPrimitive.Icon asChild>
-            <IconChevronDown size={16} className="text-muted-foreground" />
-          </SelectPrimitive.Icon>
-        </SelectPrimitive.Trigger>
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-          >
-            <SelectPrimitive.Viewport className="p-1">
-              {options.map((option) => (
-                <SelectPrimitive.Item
-                  key={option.value}
-                  value={option.value}
-                  className={cn(
-                    "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40",
-                    isPage ? "py-2.5 text-sm" : "py-2.5 text-[12px]",
-                  )}
-                  style={controlStyle}
-                >
-                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
-                    <SelectPrimitive.ItemIndicator>
-                      <IconCheck size={14} />
-                    </SelectPrimitive.ItemIndicator>
-                  </span>
-                  <div className="flex min-w-0 flex-col">
-                    <SelectPrimitive.ItemText>
-                      <span className="text-foreground">{option.label}</span>
-                    </SelectPrimitive.ItemText>
-                    {option.description ? (
-                      <span
-                        className={cn(
-                          "mt-0.5 leading-relaxed text-muted-foreground",
-                          isPage ? "text-xs" : "text-[11px]",
-                        )}
-                      >
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
+        aria-label={label}
+        placeholder={value}
+        style={controlStyle}
+        className={cn(
+          "w-full text-start text-foreground",
+          isPage ? "text-sm" : "text-[12px]",
+        )}
+      />
     </div>
   );
 }
@@ -369,28 +351,34 @@ function DisconnectBuilderButton() {
   if (phase === "armed") {
     return (
       <>
-        <button
+        <Button
           type="button"
+          intent="danger"
+          emphasis="solid"
           onClick={handleDisconnectClick}
           className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
         >
           Confirm disconnect
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={handleCancel}
           className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
           Cancel
-        </button>
+        </Button>
       </>
     );
   }
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        intent="danger"
+        emphasis="outline"
         onClick={handleDisconnectClick}
         disabled={phase === "busy"}
         className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
@@ -404,7 +392,7 @@ function DisconnectBuilderButton() {
         ) : (
           "Disconnect"
         )}
-      </button>
+      </Button>
       {err && <span className="text-[10px] text-destructive">{err}</span>}
     </>
   );
@@ -479,8 +467,10 @@ function UseBuilderCard({
         {connectUrl || credentialSource !== "env" ? (
           <div className="flex items-center gap-2 mt-2.5">
             {connectUrl && (
-              <button
+              <Button
                 type="button"
+                intent="neutral"
+                emphasis="ghost"
                 onClick={() =>
                   builderFlow.start({ trackingSource, trackingFlow })
                 }
@@ -493,7 +483,7 @@ function UseBuilderCard({
                     ? "Connect account"
                     : "Reconnect"}
                 <IconExternalLink size={isPage ? 14 : 10} />
-              </button>
+              </Button>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
@@ -505,13 +495,14 @@ function UseBuilderCard({
   if (!connectUrl) return null;
 
   return (
-    <button
+    <Button
       type="button"
       onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
       className={cn(
         "block w-full rounded-md border border-border text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70",
         isPage ? "px-4 py-3.5" : "px-3 py-3",
+        isPage ? "[&_svg]:!size-4" : "[&_svg]:!size-3.5",
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -559,13 +550,14 @@ function UseBuilderCard({
           className="shrink-0 text-muted-foreground mt-0.5"
         />
       </div>
-    </button>
+    </Button>
   );
 }
 
 // ─── Manual setup card ──────────────────────────────────────────────────────
 
 function ManualSetupCard({
+  id,
   hint,
   docsUrl,
   docsLabel = "Read the docs",
@@ -573,6 +565,7 @@ function ManualSetupCard({
   dim,
   sourceBadge,
 }: {
+  id?: string;
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
@@ -586,6 +579,7 @@ function ManualSetupCard({
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
   return (
     <div
+      id={id}
       className={cn(
         "rounded-md border border-border",
         isPage ? "px-3.5 py-3" : "px-2.5 py-2",
@@ -760,19 +754,21 @@ export function AppDefaultModelField({
   return (
     <div className="space-y-1.5">
       <p className={fieldLabelClass(isPage)}>Model</p>
-      <input
-        type="text"
-        list={`app-model-suggestions-${engine}`}
+      <TextField
         value={value}
+        onChange={onValueChange}
         disabled={disabled}
-        onChange={(event) => onValueChange(event.target.value)}
+        list={`app-model-suggestions-${engine}`}
         onKeyDown={(event) => {
           if (event.key === "Enter") onEnter?.();
         }}
         placeholder={defaultModel ?? "model-id"}
-        spellCheck={false}
         autoComplete="off"
-        className={cn(textInputClass(isPage), "disabled:opacity-60")}
+        aria-label="Model"
+        className={cn(
+          "w-full disabled:opacity-60",
+          isPage ? "text-sm" : "text-[12px]",
+        )}
         style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
       />
       {modelOptions.length > 0 && (
@@ -836,6 +832,7 @@ function LLMSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
+  const t = useT();
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -851,6 +848,7 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -1119,12 +1117,36 @@ function LLMSectionInner({
             trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
-          {!builderConnected && (
+          {builderConnected && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="ghost"
+              aria-expanded={manualSetupOpen}
+              aria-controls="llm-manual-setup"
+              onClick={() => setManualSetupOpen((open) => !open)}
+              className={cn(
+                "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
+                isPage ? "text-xs" : "text-[10px]",
+              )}
+            >
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+              <IconChevronDown
+                size={isPage ? 14 : 11}
+                className={cn(
+                  "transition-transform",
+                  manualSetupOpen && "rotate-180",
+                )}
+              />
+            </Button>
+          )}
+          {(!builderConnected || manualSetupOpen) && (
             <ManualSetupCard
+              id="llm-manual-setup"
               hint={manualSetupHint}
-              docsUrl={PROVIDER_DOCS[selectedEngine]}
-              sourceBadge={sourceBadge}
-              docsLabel="Get an API key"
+              sourceBadge={builderConnected ? undefined : sourceBadge}
             >
               <div className="space-y-2 mb-1">
                 <SettingsSelect
@@ -1174,7 +1196,7 @@ function LLMSectionInner({
 
                 {isOpenAiEngine && (
                   <div className="border-t border-border/70 pt-2">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => setAdvancedOpen((v) => !v)}
                       className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
@@ -1193,7 +1215,7 @@ function LLMSectionInner({
                       <span className="truncate text-[10px] text-muted-foreground">
                         OpenAI-compatible endpoint
                       </span>
-                    </button>
+                    </Button>
 
                     {advancedOpen && (
                       <div className="mt-1.5 space-y-1.5">
@@ -1232,21 +1254,23 @@ function LLMSectionInner({
                         </p>
                         {baseUrlConfigured && (
                           <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={clearBaseUrl}
-                              onChange={(e) => {
-                                setClearBaseUrl(e.target.checked);
-                                if (e.target.checked) setBaseUrl("");
+                              onChange={(checked) => {
+                                setClearBaseUrl(checked);
+                                if (checked) setBaseUrl("");
                               }}
-                              className="h-3 w-3 accent-current"
+                              aria-label="Clear saved endpoint override"
+                              className="shrink-0"
                             />
                             Clear saved endpoint override
                           </label>
                         )}
                         {envVar && envConfigured && endpointChanged && (
-                          <button
+                          <Button
                             type="button"
+                            intent="neutral"
+                            emphasis="solid"
                             onClick={handleSave}
                             disabled={saving}
                             className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
@@ -1258,7 +1282,7 @@ function LLMSectionInner({
                             ) : (
                               "Save endpoint"
                             )}
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}
@@ -1288,7 +1312,9 @@ function LLMSectionInner({
                       className={cn(textInputClass(isPage), "flex-1")}
                       style={isPage ? CONTROL_STYLE_PAGE : undefined}
                     />
-                    <button
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={handleSave}
                       disabled={!providerSettingsChanged || saving}
                       className={pillButtonClass(isPage, "solid")}
@@ -1303,12 +1329,14 @@ function LLMSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
 
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button
+                    intent="neutral"
+                    emphasis="outline"
                     onClick={handleTest}
                     disabled={testing}
                     className={pillButtonClass(isPage, "outline")}
@@ -1324,19 +1352,37 @@ function LLMSectionInner({
                     ) : (
                       "Test"
                     )}
-                  </button>
+                  </Button>
+                  {PROVIDER_DOCS[selectedEngine] ? (
+                    <a
+                      href={PROVIDER_DOCS[selectedEngine]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        pillButtonClass(isPage, "outline"),
+                        "no-underline",
+                      )}
+                    >
+                      Get an API key
+                      <IconExternalLink size={isPage ? 14 : 10} />
+                    </a>
+                  ) : null}
                   {engineChanged && (
-                    <button
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={handleApply}
                       className={pillButtonClass(isPage, "solid")}
                     >
                       Apply
-                    </button>
+                    </Button>
                   )}
                   {settingsStatus != null && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
+                        <Button
+                          intent="danger"
+                          emphasis="outline"
                           onClick={handleDisconnect}
                           className={cn(
                             pillButtonClass(isPage, "outline"),
@@ -1344,7 +1390,7 @@ function LLMSectionInner({
                           )}
                         >
                           Disconnect
-                        </button>
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent>
                         Clear the saved engine — the app will fall back to the
@@ -1657,8 +1703,10 @@ function AppModelDefaultsSectionInner({
               />
 
               <div className="flex items-center gap-1.5">
-                <button
+                <Button
                   type="button"
+                  intent="primary"
+                  emphasis="solid"
                   onClick={save}
                   disabled={!hasPendingChange || saving}
                   className={pillButtonClass(isPage, "solid")}
@@ -1673,15 +1721,17 @@ function AppModelDefaultsSectionInner({
                   ) : (
                     "Save"
                   )}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  intent="neutral"
+                  emphasis="outline"
                   onClick={reset}
                   disabled={!settings.canUpdate || !hasAppDefault || saving}
                   className={pillButtonClass(isPage, "outline")}
                 >
                   Reset
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -1833,27 +1883,17 @@ function EmailSectionInner({
         <SettingsSkeleton lines={2} />
       ) : (
         <div className="space-y-2">
-          <label className="block space-y-1">
-            <span
-              className={cn(
-                "uppercase tracking-wide text-muted-foreground",
-                noteTextClass(isPage),
-              )}
-            >
-              Provider
-            </span>
-            <select
-              value={emailProvider}
-              onChange={(e) =>
-                setEmailProvider(e.target.value as "resend" | "sendgrid")
-              }
-              className={cn(textInputClass(isPage), "w-full")}
-              style={isPage ? CONTROL_STYLE_PAGE : undefined}
-            >
-              <option value="resend">Resend</option>
-              <option value="sendgrid">SendGrid</option>
-            </select>
-          </label>
+          <SettingsSelect
+            label="Provider"
+            value={emailProvider}
+            options={[
+              { value: "resend", label: "Resend" },
+              { value: "sendgrid", label: "SendGrid" },
+            ]}
+            onValueChange={(value) =>
+              setEmailProvider(value as "resend" | "sendgrid")
+            }
+          />
 
           {emailProvider === "resend" ? (
             <ManualSetupCard
@@ -1883,7 +1923,9 @@ function EmailSectionInner({
                     placeholder="re_..."
                     className={emailInputCls}
                   />
-                  <button
+                  <Button
+                    intent="primary"
+                    emphasis="solid"
                     onClick={saveResend}
                     disabled={!resendKey.trim() || saving}
                     className={emailBtnCls}
@@ -1895,7 +1937,7 @@ function EmailSectionInner({
                     ) : (
                       "Save"
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
               {fromConfigured ? (
@@ -1921,7 +1963,9 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   {!resendConfigured ? null : (
-                    <button
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={saveResend}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -1933,7 +1977,7 @@ function EmailSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -1966,7 +2010,9 @@ function EmailSectionInner({
                     placeholder="SG...."
                     className={emailInputCls}
                   />
-                  <button
+                  <Button
+                    intent="primary"
+                    emphasis="solid"
                     onClick={saveSendgrid}
                     disabled={!sendgridKey.trim() || saving}
                     className={emailBtnCls}
@@ -1978,7 +2024,7 @@ function EmailSectionInner({
                     ) : (
                       "Save"
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
               {fromConfigured ? (
@@ -2004,7 +2050,9 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   {!sendgridConfigured ? null : (
-                    <button
+                    <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={saveSendgrid}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -2016,7 +2064,7 @@ function EmailSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -2240,8 +2288,10 @@ function AgentLimitsSectionInner({
                 )}
                 style={isPage ? CONTROL_STYLE_PAGE : undefined}
               />
-              <button
+              <Button
                 type="button"
+                intent="primary"
+                emphasis="solid"
                 onClick={save}
                 disabled={!hasPendingChange || saving}
                 className={pillButtonClass(isPage, "solid")}
@@ -2256,9 +2306,11 @@ function AgentLimitsSectionInner({
                 ) : (
                   "Save"
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={reset}
                 disabled={
                   !settings.canUpdate ||
@@ -2268,7 +2320,7 @@ function AgentLimitsSectionInner({
                 className={pillButtonClass(isPage, "outline")}
               >
                 Reset
-              </button>
+              </Button>
             </div>
             {!settings.canUpdate && (
               <p
@@ -2305,51 +2357,6 @@ export interface SettingsPanelProps {
   devAppUrl?: string;
   initialSection?: string | null;
   sectionRequestKey?: number;
-}
-
-function normalizeSettingsSection(
-  value?: string | null,
-): SettingsSectionId | null {
-  const normalized = value?.replace(/^#/, "").toLowerCase() ?? "";
-  if (!normalized) return null;
-  if (normalized.startsWith("secrets")) return "secrets";
-  if (
-    normalized === "workspace" ||
-    normalized === "workspace-settings" ||
-    normalized === "organization" ||
-    normalized === "org"
-  ) {
-    return "secrets";
-  }
-  if (normalized === "agent-engine") return "llm";
-  if (
-    normalized === "agent-model-defaults" ||
-    normalized === "app-model-defaults" ||
-    normalized === "models"
-  ) {
-    return "app-models";
-  }
-  if (normalized === "agent-limits" || normalized === "loop-settings") {
-    return "limits";
-  }
-  return SETTINGS_SECTION_IDS.has(normalized as SettingsSectionId)
-    ? (normalized as SettingsSectionId)
-    : null;
-}
-
-function settingsSectionDomId(section: SettingsSectionId): string {
-  return `agent-settings-section-${section}`;
-}
-
-function initialOpenSection(): SettingsSectionId {
-  if (typeof window === "undefined") return "llm";
-  return normalizeSettingsSection(window.location.hash) ?? "llm";
-}
-
-function firstVisibleSection(
-  sections: readonly SettingsSectionId[],
-): SettingsSectionId {
-  return sections[0] ?? "llm";
 }
 
 // Agent capability modes. The internal values ("production"/"development") are
@@ -2435,143 +2442,20 @@ function CapabilityStatusStrip({
             ) : builderConnected ? (
               "Connected"
             ) : (
-              <button
+              <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={onOpenLlm}
                 className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
               >
                 Connect
-              </button>
+              </Button>
             )
           }
         />
       </div>
     </div>
-  );
-}
-
-function AccountSectionInner({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const isPage = useSettingsSurface() === "page";
-  const { session, isLoading } = useSession();
-  const email = session?.email;
-  const avatarUrl = useAvatarUrl(email);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
-
-  const displayName = session?.name || email || "Signed out";
-  const initials = (session?.name || email || "?")
-    .split(/[ @._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-
-  const handleAvatarChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || !email) return;
-    setUploading(true);
-    setStatus("idle");
-    try {
-      await uploadAvatar(file, email);
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <SettingsSection
-      id={settingsSectionDomId("account")}
-      icon={<IconUserCircle size={14} />}
-      title="Account"
-      subtitle="Your profile photo and signed-in identity."
-      open={open}
-      onToggle={onToggle}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent font-semibold text-muted-foreground",
-            isPage ? "h-14 w-14 text-[15px]" : "h-12 w-12 text-[13px]",
-          )}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate font-medium text-foreground",
-              isPage ? "text-sm" : "text-[12px]",
-            )}
-          >
-            {isLoading ? "Loading..." : displayName}
-          </p>
-          {email && (
-            <p
-              className={cn(
-                "truncate text-muted-foreground",
-                subTextClass(isPage),
-              )}
-            >
-              {email}
-            </p>
-          )}
-          {status === "saved" && (
-            <p
-              className={cn(
-                "mt-1 text-green-600 dark:text-green-400",
-                subTextClass(isPage),
-              )}
-            >
-              Photo updated
-            </p>
-          )}
-          {status === "error" && (
-            <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
-              Could not update photo
-            </p>
-          )}
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleAvatarChange}
-        />
-        <button
-          type="button"
-          disabled={!email || uploading}
-          onClick={() => fileInputRef.current?.click()}
-          className={cn(
-            pillButtonClass(isPage, "outline"),
-            "shrink-0 justify-center",
-          )}
-        >
-          {uploading ? "Uploading..." : "Change photo"}
-        </button>
-      </div>
-    </SettingsSection>
   );
 }
 
@@ -2611,27 +2495,6 @@ function SettingsPanelContent({
     trackingSource: "settings_panel_builder_card",
   });
 
-  // When opened via a `#secrets:<KEY>` hash, focus that specific secret input
-  // inside the "API Keys & Connections" section.
-  const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
-    undefined,
-  );
-  const visibleSections = useMemo(() => new Set(sections), [sections]);
-  const shouldShowSection = useCallback(
-    (section: SettingsSectionId) => visibleSections.has(section),
-    [visibleSections],
-  );
-
-  // Accordion: only one section open at a time (null = all closed)
-  const [openSection, setOpenSection] = useState<string | null>(() => {
-    const initial = initialOpenSection();
-    return visibleSections.has(initial)
-      ? initial
-      : firstVisibleSection(sections);
-  });
-  const toggle = (id: string) =>
-    setOpenSection((prev) => (prev === id ? null : id));
-
   const scrollSectionIntoView = useCallback((section: SettingsSectionId) => {
     window.requestAnimationFrame(() => {
       document.getElementById(settingsSectionDomId(section))?.scrollIntoView({
@@ -2640,47 +2503,23 @@ function SettingsPanelContent({
       });
     });
   }, []);
-
-  const openSettingsSection = useCallback(
-    (section: SettingsSectionId, scroll = false) => {
-      setOpenSection(section);
-      if (scroll) scrollSectionIntoView(section);
-    },
-    [scrollSectionIntoView],
-  );
-
-  useEffect(() => {
-    const section = normalizeSettingsSection(initialSection);
-    if (!section || !shouldShowSection(section)) return;
-    if (section !== "secrets") setFocusSecretKey(undefined);
-    openSettingsSection(section, true);
-  }, [
+  const {
+    focusSecretKey,
+    isSectionVisible: shouldShowSection,
+    openSection,
+    toggleSection: toggle,
+    openSettingsSection: openControllerSection,
+  } = useSettingsPanelController({
+    sections,
     initialSection,
     sectionRequestKey,
-    openSettingsSection,
-    shouldShowSection,
-  ]);
-
-  // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
-  // the section and focuses the matching input.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleHash = () => {
-      const hash = window.location.hash?.replace(/^#/, "") ?? "";
-      const section = normalizeSettingsSection(hash);
-      if (!section || !shouldShowSection(section)) return;
-      if (hash.startsWith("secrets:") || hash === "secrets") {
-        const key = hash.slice("secrets:".length);
-        setFocusSecretKey(key || undefined);
-      } else {
-        setFocusSecretKey(undefined);
-      }
-      openSettingsSection(section, true);
-    };
-    handleHash();
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
-  }, [openSettingsSection, shouldShowSection]);
+    onScrollToSection: scrollSectionIntoView,
+  });
+  const openSettingsSection = useCallback(
+    (section: SettingsSectionId, scroll = false) =>
+      openControllerSection(section, { scroll }),
+    [openControllerSection],
+  );
 
   const isPage = surface === "page";
 
@@ -2735,14 +2574,6 @@ function SettingsPanelContent({
             builderLoading={builderLoading}
             builderBranchesAvailable={builderBranchesAvailable}
             onOpenLlm={() => openSettingsSection("llm", true)}
-          />
-        )}
-
-        {/* Account */}
-        {shouldShowSection("account") && (
-          <AccountSectionInner
-            open={openSection === "account"}
-            onToggle={() => toggle("account")}
           />
         )}
 
@@ -2857,7 +2688,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Deploy manually to Netlify, Vercel, Cloudflare, or any Nitro-supported target."
-                docsUrl="https://www.builder.io/c/docs/agent-native-deployment"
+                docsUrl="https://www.builder.io/c/docs/agent-native-deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings"
                 dim={connected}
               />
             </div>
@@ -2888,7 +2719,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
-                docsUrl="https://www.builder.io/c/docs/agent-native-database"
+                docsUrl="https://www.builder.io/c/docs/agent-native-database?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=database_settings"
                 dim={connected}
               />
             </div>
@@ -2919,7 +2750,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Without a provider, files are stored as base64 in your database. Fine for dev, not recommended for production."
-                docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads"
+                docsUrl="https://www.builder.io/c/docs/agent-native-file-uploads?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=file_upload_settings"
                 dim={connected}
               />
             </div>
@@ -2950,7 +2781,7 @@ function SettingsPanelContent({
               />
               <ManualSetupCard
                 hint="Configure Better Auth with BETTER_AUTH_SECRET and optional Google/GitHub OAuth providers."
-                docsUrl="https://www.builder.io/c/docs/agent-native-authentication"
+                docsUrl="https://www.builder.io/c/docs/agent-native-authentication?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=authentication_settings"
                 dim={connected}
               />
             </div>
@@ -3066,6 +2897,36 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return <SettingsPanelContent {...props} />;
 }
 
+function McpConnectionsCard() {
+  const t = useT();
+
+  return (
+    <section className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex items-start gap-2.5">
+        <IconPlugConnected
+          size={16}
+          className="mt-0.5 shrink-0 text-muted-foreground"
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("settings.mcpConnectionsTitle")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("settings.mcpConnectionsDescription")}
+          </p>
+          <Link
+            to="/agent#connections"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {t("settings.openMcpConnections")}
+            <IconExternalLink size={13} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ConnectionsSettingsContent({
   settingsPanelProps,
 }: {
@@ -3074,6 +2935,7 @@ export function ConnectionsSettingsContent({
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4">
       <BuilderConnectCard trackingSource="settings_connections" />
+      <McpConnectionsCard />
       <SettingsPanelContent
         {...settingsPanelProps}
         surface="page"
@@ -3083,6 +2945,32 @@ export function ConnectionsSettingsContent({
         builderConnectionOwnedExternally
       />
     </div>
+  );
+}
+
+export function AgentSettingsContent({
+  className,
+}: { className?: string } = {}) {
+  const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const settingsPanelProps = useMemo<SettingsPanelProps>(
+    () => ({
+      isDevMode,
+      onToggleDevMode: () => {
+        void setDevMode(!isDevMode);
+      },
+      showDevToggle: canToggle,
+    }),
+    [canToggle, isDevMode, setDevMode],
+  );
+
+  return (
+    <SettingsPanelContent
+      {...settingsPanelProps}
+      surface="page"
+      sections={AGENT_SETTINGS_SECTIONS}
+      showCapabilityStrip={false}
+      className={cn("mx-auto w-full max-w-2xl", className)}
+    />
   );
 }
 
@@ -3117,15 +3005,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ...agent,
         icon: IconHierarchy2,
         group: "agent",
-        content: (
-          <SettingsPanelContent
-            {...baseProps}
-            surface="page"
-            sections={AGENT_SETTINGS_SECTIONS}
-            showCapabilityStrip={false}
-            className="mx-auto w-full max-w-2xl"
-          />
-        ),
+        href: "/agent#settings",
+        searchEntries: undefined,
+        content: <Navigate to="/agent#settings" replace />,
       },
       {
         ...connections,
@@ -3156,6 +3038,14 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
             className="mx-auto w-full max-w-2xl"
           />
         ),
+      },
+      {
+        id: "extensions",
+        label: "Extensions",
+        icon: IconTool,
+        group: "workspace",
+        keywords: "extensions widgets mini apps tools sandboxed apps",
+        content: <ExtensionsSettingsContent />,
       },
     ];
   }, [baseProps]);

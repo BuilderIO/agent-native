@@ -23,6 +23,18 @@ async function fetchWithAuth(url: string, options?: RequestInit) {
   });
 }
 
+async function responseError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string" && body.error.trim()) {
+      return new Error(body.error.trim());
+    }
+  } catch {
+    // Keep the status fallback when the server did not return JSON.
+  }
+  return new Error(`${fallback}: ${res.status}`);
+}
+
 export function useDashboardViews(dashboardId: string | undefined) {
   const queryClient = useQueryClient();
   const queryKey = ["dashboard-views", dashboardId];
@@ -53,7 +65,7 @@ export function useDashboardViews(dashboardId: string | undefined) {
           body: JSON.stringify(view),
         },
       );
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+      if (!res.ok) throw await responseError(res, "Save failed");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });

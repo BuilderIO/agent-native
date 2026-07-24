@@ -38,7 +38,15 @@ function SectionHeader({
 
 function CommandPanel() {
   const t = useT();
-  const { selectedModel } = useChatModels();
+  const {
+    availableModels,
+    isLoading: modelListLoading,
+    onEffortChange,
+    onModelChange,
+    selectedEffort,
+    selectedEngine,
+    selectedModel,
+  } = useChatModels({ storageKey: "dispatch" });
   const navigate = useNavigate();
   const promptSuggestions = [
     t("dispatch.pages.suggestionWorkspaceHealth", {
@@ -67,6 +75,8 @@ function CommandPanel() {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           message: trimmed,
           selectedModel,
+          selectedEngine,
+          selectedEffort,
         },
       },
     });
@@ -89,9 +99,16 @@ function CommandPanel() {
           </p>
         </div>
         <PromptComposer
+          availableModels={availableModels}
+          modelListLoading={modelListLoading}
           placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
             defaultValue: "Ask Dispatch anything...",
           })}
+          selectedEffort={selectedEffort}
+          selectedEngine={selectedEngine}
+          selectedModel={selectedModel}
+          onEffortChange={onEffortChange}
+          onModelChange={onModelChange}
           onSubmit={(text) => send(text)}
         />
         <div className="mt-3 flex flex-wrap justify-center gap-2">

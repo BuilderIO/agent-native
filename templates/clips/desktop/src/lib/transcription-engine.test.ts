@@ -179,7 +179,33 @@ describe("meeting microphone capture", () => {
     });
   });
 
-  it("surfaces the native fallback error when both local engines fail", async () => {
+  it("retries the macOS default input when a saved microphone is gone", async () => {
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+
+    const engine = await startTranscriptionEngine({
+      mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+    });
+
+    expect(engine).toBe("whisper");
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "audio_transcription_start", {
+      meetingId: null,
+      locale: null,
+      micDeviceId: null,
+      micDeviceLabel: null,
+      captureSystem: true,
+      voiceProcessing: false,
+      emitPartials: true,
+      owner: "meeting",
+    });
+  });
+
+  it("explains how to recover when local capture cannot start", async () => {
     invokeMock
       .mockRejectedValueOnce(new Error("local Whisper capture unavailable"))
       .mockRejectedValueOnce(
@@ -190,7 +216,36 @@ describe("meeting microphone capture", () => {
       startTranscriptionEngine({
         mic: { deviceId: "mic-1", label: "Built-in Microphone" },
       }),
-    ).rejects.toThrow("VoiceProcessingIO enable failed: unavailable");
+    ).rejects.toThrow(
+      "Clips could not start local audio capture. Check that Clips has Microphone and Screen Recording access in System Settings, then try again.",
+    );
     expect(invokeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains how to recover when a saved microphone is stale", async () => {
+    invokeMock
+      .mockRejectedValueOnce(
+        new Error(
+          "Selected microphone 'old-device-id' is not available to ScreenCaptureKit.",
+        ),
+      )
+      .mockRejectedValueOnce(new Error("local meeting capture unavailable"))
+      .mockRejectedValueOnce(
+        new Error("VoiceProcessingIO enable failed: unavailable"),
+      );
+
+    await expect(
+      startTranscriptionEngine({
+        mic: { deviceId: "old-device-id", label: "Disconnected headset" },
+      }),
+    ).rejects.toThrow(
+      "Your selected microphone is no longer available. Clips tried your Mac's default microphone, but notes still could not start. Choose an available microphone in Clips settings, then try again.",
+    );
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "native_speech_start", {
+      locale: "en-US",
+      micDeviceId: null,
+      micDeviceLabel: null,
+      owner: "meeting",
+    });
   });
 });

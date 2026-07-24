@@ -125,6 +125,7 @@ export default defineAction({
 
     const appName = getAppName();
     const { html, text } = renderEmail({
+      brandName: appName,
       preheader: `${inviter} invited you to ${orgName} on ${appName}.`,
       heading: `You're invited to join ${orgName}`,
       paragraphs: [

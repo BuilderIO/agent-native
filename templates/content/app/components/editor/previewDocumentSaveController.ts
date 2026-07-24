@@ -67,6 +67,19 @@ export interface PreviewDocumentSaveDeferred {
   conflictSnapshot?: PreviewDocumentDraftSnapshot;
 }
 
+/**
+ * A successful save can report the server's fresh `updatedAt`/emptiness back
+ * to the controller so its baseline stops looking stale. Without this, a
+ * baseline seeded as empty (a brand-new page) stays flagged empty forever, so
+ * a later poll of content the user just saved themselves gets mistaken for a
+ * non-empty body arriving externally over an empty one.
+ */
+export interface PreviewDocumentSaveSuccess {
+  outcome: "saved";
+  loadedUpdatedAt?: string;
+  loadedContentWasEmpty?: boolean;
+}
+
 export interface PreviewDocumentSaveAdapter {
   save: (
     documentId: string,
@@ -117,8 +130,8 @@ export interface PreviewDocumentSaveController {
   /** Adopt `payload` as the confirmed-saved baseline (no save scheduled). */
   mark(payload: PreviewDocumentPayload): void;
   /**
-   * Adopt a fresher server baseline while retaining the user's pending title
-   * and content. Used only after an explicit "keep local draft" choice.
+   * Adopt a fresher server baseline while retaining only fields the user
+   * changed locally. Used only after an explicit "keep local draft" choice.
    */
   rebasePending(payload: PreviewDocumentPayload): void;
   /** Replace callbacks captured by an older preview mount. */
@@ -149,6 +162,18 @@ export interface PreviewDocumentSaveController {
 
 function payloadsEqual(a: PreviewDocumentPayload, b: PreviewDocumentPayload) {
   return a.title === b.title && a.content === b.content;
+}
+
+function asSaveSuccess(result: unknown): PreviewDocumentSaveSuccess | null {
+  if (
+    result &&
+    typeof result === "object" &&
+    "outcome" in result &&
+    (result as { outcome?: unknown }).outcome === "saved"
+  ) {
+    return result as PreviewDocumentSaveSuccess;
+  }
+  return null;
 }
 
 export function createPreviewDocumentSaveController(
@@ -230,7 +255,29 @@ export function createPreviewDocumentSaveController(
           }
           return;
         }
-        lastSaved = attempted;
+        // Adopt the server's fresh metadata (if the adapter reported it) into
+        // the confirmed baseline. Otherwise `loadedUpdatedAt`/
+        // `loadedContentWasEmpty` would keep carrying whatever was true when
+        // the controller was created/last marked — e.g. "empty" for a
+        // brand-new page — forever, even after real content has been saved.
+        const success = asSaveSuccess(result);
+        const savedMetadata = {
+          ...(success?.loadedUpdatedAt !== undefined
+            ? { loadedUpdatedAt: success.loadedUpdatedAt }
+            : {}),
+          ...(success?.loadedContentWasEmpty !== undefined
+            ? { loadedContentWasEmpty: success.loadedContentWasEmpty }
+            : {}),
+        };
+        lastSaved = {
+          ...attempted,
+          ...savedMetadata,
+        };
+        // A later keystroke starts from `pending`, including while this save is
+        // in flight. Rebase that trailing payload onto our own successful write
+        // so its next CAS does not mistake the preceding save for an external
+        // change.
+        pending = { ...pending, ...savedMetadata };
         hasSavedLocally = true;
         deferredReason = null;
         inFlight = null;
@@ -297,9 +344,13 @@ export function createPreviewDocumentSaveController(
     },
     rebasePending(payload: PreviewDocumentPayload) {
       clearTimer();
+      const titleChangedLocally = pending.title !== lastSaved.title;
+      const contentChangedLocally = pending.content !== lastSaved.content;
       lastSaved = { ...payload };
       pending = {
         ...pending,
+        title: titleChangedLocally ? pending.title : payload.title,
+        content: contentChangedLocally ? pending.content : payload.content,
         loadedUpdatedAt: payload.loadedUpdatedAt,
         loadedContentWasEmpty: payload.loadedContentWasEmpty,
       };

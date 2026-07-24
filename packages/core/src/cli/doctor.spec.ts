@@ -121,6 +121,28 @@ describe("runDoctorScan", () => {
     );
   });
 
+  it("reports implicit collab access while accepting legacy resourceType", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/implicit.ts":
+        'export default createCollabPlugin({ table: "todos" });\n',
+      "server/plugins/legacy.ts":
+        'export default createCollabPlugin({ table: "docs", resourceType: "document" });\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["explicit-collab-access"],
+    });
+
+    expect(report.guardsRun).toEqual(["explicit-collab-access"]);
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        guard: "explicit-collab-access",
+        file: "server/plugins/implicit.ts",
+      }),
+    ]);
+  });
+
   it("warns before an import listed in the migration manifest breaks", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
@@ -277,6 +299,26 @@ describe("runDoctor (CLI)", () => {
     const parsed = JSON.parse(out.join(""));
     expect(parsed.ok).toBe(true);
     expect(parsed.guardsRun).toEqual(["no-env-mutation"]);
+  });
+
+  it("supports explicit-collab-access through --only", async () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/collab.ts":
+        'export default createCollabPlugin({ table: "todos" });\n',
+    });
+    const { io, out } = captureIo();
+    const code = await runDoctor(
+      ["--cwd", root, "--json", "--only", "explicit-collab-access"],
+      io,
+    );
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(out.join(""));
+    expect(parsed.guardsRun).toEqual(["explicit-collab-access"]);
+    expect(parsed.findings).toEqual([
+      expect.objectContaining({ guard: "explicit-collab-access" }),
+    ]);
   });
 });
 

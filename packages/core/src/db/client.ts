@@ -24,11 +24,29 @@ const loggedNeonPools = new WeakSet<object>();
 
 export type Dialect = "sqlite" | "postgres" | "d1";
 
+export interface DbExecQuery {
+  sql: string;
+  args?: unknown[];
+  /**
+   * Client-side wall-clock budget for this statement. Use only for idempotent
+   * reads unless the caller can safely tolerate a late write completing.
+   */
+  timeoutMs?: number;
+  /** Maximum connection-level attempts for this statement, including the first. */
+  maxAttempts?: number;
+}
+
+export type DbExecStatement = string | DbExecQuery;
+
 export interface DbExec {
-  execute(
-    sql: string | { sql: string; args?: unknown[] },
-  ): Promise<{ rows: any[]; rowsAffected: number }>;
+  execute(sql: DbExecStatement): Promise<{
+    rows: any[];
+    rowsAffected: number;
+  }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  atomicBatch?(
+    statements: readonly DbExecStatement[],
+  ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
    * Only non-singleton execs created via `createDbExec()` (e.g. the migration
@@ -610,13 +628,34 @@ export function sqliteToPostgresParams(sql: string): string {
   return out;
 }
 
-function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
+function sqlAndArgs(sql: DbExecStatement): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+export function dbExecQueryBudget(statement: DbExecStatement): {
+  timeoutMs: number;
+  maxAttempts: number;
+} {
+  if (typeof statement === "string") {
+    return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
+  }
+  const timeoutMs = Number(statement.timeoutMs);
+  const maxAttempts = Number(statement.maxAttempts);
+  return {
+    timeoutMs:
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.floor(timeoutMs)
+        : dbOpTimeoutMs(),
+    maxAttempts:
+      Number.isFinite(maxAttempts) && maxAttempts > 0
+        ? Math.floor(maxAttempts)
+        : 3,
+  };
 }
 
 function explicitTransaction(
@@ -646,6 +685,8 @@ const CONNECTION_ERROR_CODES = new Set([
   "ETIMEDOUT",
   "EPIPE",
   "ENOTFOUND",
+  "EMAXCONN",
+  "53300",
   "CONNECT_TIMEOUT",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
@@ -669,7 +710,7 @@ export function isConnectionError(err: any): boolean {
     return true;
   }
   const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
+  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
     msg,
   );
 }
@@ -696,6 +737,7 @@ export function isTransientDatabaseError(err: unknown): boolean {
   const code = String(error?.code ?? error?.cause?.code ?? "");
   if (
     code === "ECHECKOUTTIMEOUT" ||
+    code === "EMAXCONN" ||
     code === "53300" ||
     code === "57014" ||
     /^08/.test(code) ||
@@ -877,10 +919,10 @@ export function isServerlessRuntime(): boolean {
 
 /**
  * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
- * so a single slow query or open transaction can't serialize every other
- * query in the same request. Total connections stay bounded to ≈ 2×
- * concurrent-instance count instead of 10×. idle_timeout is shortened on
+ * one request at a time, so a single connection is enough. Keeping the
+ * foreground pool at 1 is important because each instance can also open an
+ * app and Better Auth pool; a max of 2 on each pool still exhausted Neon
+ * under a burst of warm instances. idle_timeout is shortened on
  * serverless so a thawed-but-idle instance releases its connections quickly.
  * Long-lived Node servers keep the normal pool for throughput.
  */
@@ -888,7 +930,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 2 : 10,
+    max: serverless ? 1 : 10,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -900,9 +942,9 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 
 /**
  * Connection cap for the @neondatabase/serverless `Pool`. Same instance
- * accumulation risk as postgres.js — a small pool (2) is enough on serverless
- * and keeps total connections bounded while still letting a second query
- * proceed when one connection is busy.
+ * accumulation risk as postgres.js — one connection is enough for a
+ * foreground serverless invocation and keeps the aggregate app/framework/auth
+ * budget bounded.
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 10;
@@ -918,7 +960,7 @@ export function neonPoolMax(): number {
   // burst; keep the foreground serverless pool tiny to avoid "Max client
   // connections reached" across many warm instances.
   if (isBackgroundFunctionPoolContext()) return 8;
-  return 2;
+  return 1;
 }
 
 /**
@@ -1100,7 +1142,17 @@ async function createDbExecInternal(
     };
     return {
       execute,
-      transaction: explicitTransaction(execute),
+      async atomicBatch(statements) {
+        const prepared = statements.map((statement) => {
+          if (typeof statement === "string") return d1.prepare(statement);
+          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
+        });
+        const results = await d1.batch(prepared);
+        return results.map((result: any) => ({
+          rows: result.results || [],
+          rowsAffected: result.meta?.changes ?? 0,
+        }));
+      },
     };
   }
 
@@ -1157,8 +1209,10 @@ async function createDbExecInternal(
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
+        timeoutOverrideMs?: number,
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
         const pgSql = sqliteToPostgresParams(rawSql);
         const result = await withDbTimeout(
           "query",
@@ -1167,7 +1221,7 @@ async function createDbExecInternal(
               rows: unknown[];
               rowCount?: number;
             }>,
-          dbOpTimeoutMs(),
+          timeoutOverrideMs ?? timeoutMs,
         );
         return {
           rows: result.rows,
@@ -1176,6 +1230,7 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
             // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
             // persistent socket to stall. queryNeonClient calls pool.query(),
@@ -1183,12 +1238,15 @@ async function createDbExecInternal(
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() => queryNeonClient(pool, sql));
+            }>(() => queryNeonClient(pool, sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
             rowsAffected: number;
           }>(async () => {
+            const attemptStartedAt = Date.now();
+            const remainingAttemptMs = () =>
+              Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
             // Bound the pooled-connection ACQUIRE, not just the query below.
             // Neon's pooler can stall on `connect()` when cold or exhausted,
             // and that happens BEFORE `client.query`, so the query-level
@@ -1206,7 +1264,7 @@ async function createDbExecInternal(
                   if (acquireTimedOut) c.release();
                   return c;
                 }),
-              dbOpTimeoutMs(),
+              remainingAttemptMs(),
               () => {
                 acquireTimedOut = true;
               },
@@ -1219,14 +1277,18 @@ async function createDbExecInternal(
             };
 
             try {
-              const result = await queryNeonClient(client, sql);
+              const result = await queryNeonClient(
+                client,
+                sql,
+                remainingAttemptMs(),
+              );
               releaseClient();
               return result;
             } catch (err) {
               releaseClient(isConnectionError(err) ? true : undefined);
               throw err;
             }
-          });
+          }, maxAttempts);
           return {
             rows: result.rows,
             rowsAffected: result.rowsAffected,
@@ -1294,6 +1356,7 @@ async function createDbExecInternal(
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
+            const { timeoutMs } = dbExecQueryBudget(sql);
             const pgSql = sqliteToPostgresParams(rawSql);
             const result = await withDbTimeout<
               ArrayLike<unknown> & { count?: number }
@@ -1303,7 +1366,7 @@ async function createDbExecInternal(
                 conn.unsafe(pgSql, args as any[]) as Promise<
                   ArrayLike<unknown> & { count?: number }
                 >,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => {
                 timedOut = true;
                 disposePostgresPoolEventually(conn, "timed-out worker query");
@@ -1335,6 +1398,7 @@ async function createDbExecInternal(
               const tx: DbExec = {
                 async execute(sql) {
                   const { rawSql, args } = sqlAndArgs(sql);
+                  const { timeoutMs } = dbExecQueryBudget(sql);
                   const pgSql = sqliteToPostgresParams(rawSql);
                   const result = await withDbTimeout<
                     ArrayLike<unknown> & { count?: number }
@@ -1344,7 +1408,7 @@ async function createDbExecInternal(
                       txSql.unsafe(pgSql, args as any[]) as Promise<
                         ArrayLike<unknown> & { count?: number }
                       >,
-                    dbOpTimeoutMs(),
+                    timeoutMs,
                   );
                   return {
                     rows: Array.from(result),
@@ -1386,6 +1450,7 @@ async function createDbExecInternal(
       return {
         async execute(sql) {
           const { rawSql, args } = sqlAndArgs(sql);
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
@@ -1395,10 +1460,10 @@ async function createDbExecInternal(
             return withDbTimeout(
               "query",
               () => query,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => recyclePool(queryPool),
             );
-          });
+          }, maxAttempts);
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -1409,6 +1474,7 @@ async function createDbExecInternal(
             const tx: DbExec = {
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
+                const { timeoutMs } = dbExecQueryBudget(sql);
                 const pgSql = sqliteToPostgresParams(rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
@@ -1418,7 +1484,7 @@ async function createDbExecInternal(
                     txSql.unsafe(pgSql, args as any[]) as Promise<
                       ArrayLike<unknown> & { count?: number }
                     >,
-                  dbOpTimeoutMs(),
+                  timeoutMs,
                 );
                 return {
                   rows: Array.from(result),
@@ -1558,6 +1624,10 @@ export function getDbExec(): DbExec {
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
@@ -1582,6 +1652,10 @@ export function getDbExec(): DbExec {
       }
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
@@ -1601,7 +1675,29 @@ export function getDbExec(): DbExec {
           }),
         );
       }
+      if (_exec!.atomicBatch) {
+        throw new Error(
+          "This database supports atomic batches, not interactive transactions.",
+        );
+      }
       return explicitTransaction(wrapper.execute)(fn);
+    },
+    async atomicBatch(statements) {
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      if (!_exec!.atomicBatch) {
+        throw new Error("This database does not support atomic batches.");
+      }
+      const batch = (items: typeof statements) =>
+        _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      Object.assign(proxy, { atomicBatch: batch });
+      return batch(statements);
     },
   };
   return proxy;

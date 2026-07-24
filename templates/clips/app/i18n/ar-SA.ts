@@ -486,6 +486,7 @@ const messages = {
     makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
+    invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
     peopleWithAccess: "الأشخاص الذين لديهم وصول",
     ownerRole: "المالك",
@@ -839,6 +840,10 @@ const messages = {
     loadFailedBody:
       "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
     retry: "إعادة المحاولة",
+    paginationRange: "{{start}}–{{end}} من {{total}}",
+    paginationPrevious: "السابق",
+    paginationNext: "التالي",
+    paginationPage: "صفحة {{page}} من {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",
@@ -932,6 +937,17 @@ const messages = {
     summary: "الملخص",
     keyPoints: "النقاط الرئيسية",
     actionItems: "عناصر العمل",
+    sharedContent: "المحتوى المشترك",
+    summaryIncluded: "الملخص والنقاط الرئيسية وعناصر العمل",
+    includeTranscript: "تضمين النص الكامل",
+    includeTranscriptDescription:
+      "يمكن لأي شخص لديه حق الوصول إلى هذا الاجتماع قراءة النص الكامل.",
+    transcriptUnavailable: "النص ليس جاهزًا بعد.",
+    transcript: "النص",
+    copyTranscript: "نسخ النص",
+    transcriptCopied: "تم نسخ النص",
+    copyTranscriptFailed: "تعذر نسخ النص",
+    updateTranscriptSharingFailed: "تعذر تحديث مشاركة النص",
   },
   deleteRecordingMenu: {
     movedToTrash: "تم نقل المقطع إلى المهملات",
@@ -1370,6 +1386,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
+    selectAll: "تحديد الكل",
+    deselectAll: "إلغاء تحديد الكل",
     move: "نقل",
     moveSelected: "نقل {{count}} عناصر محددة",
     current: "الحالي",
@@ -1493,6 +1511,21 @@ const messages = {
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (مترجم)",
   },
+  rewindExtension: {
+    title: "إضافة ما حدث قبل التسجيل",
+    description:
+      "اختر فترة محددة من Rewind المحلي وأضفها إلى بداية هذا المقطع. لن تتم إضافة أي شيء تلقائيًا.",
+    progressLabel: "تقدم معالجة سجل Rewind",
+    privateFirstTitle: "اجعل هذا المقطع خاصًا أولًا",
+    privateFirstDescription:
+      "قد يتضمن سجل Rewind المحلي سياقًا من قبل بدء التسجيل. سيؤدي هذا إلى جعل المقطع خاصًا. إذا كان لدى أي شخص وصول مباشر، فسيتوقف Clips لتتمكن من إزالته أولًا من المشاركة.",
+    makePrivateContinue: "اجعله خاصًا وتابع",
+    add30Seconds: "إضافة الثلاثين ثانية السابقة",
+    add5Minutes: "إضافة الدقائق الخمس السابقة",
+    add5MinutesDescription: "مفيد لاستعادة بداية شرح أطول.",
+    privateReady: "أصبح هذا المقطع خاصًا. يمكنك الآن إضافة سجل Rewind المحلي.",
+  },
+  timeline: { clipStartedHere: "بدأ المقطع هنا" },
 };
 
 export default messages;

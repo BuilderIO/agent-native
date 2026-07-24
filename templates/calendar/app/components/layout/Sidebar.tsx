@@ -1,11 +1,10 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconCalendar,
   IconSettings,
   IconLink,
@@ -96,7 +95,14 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-  { path: "/agent", labelKey: "settings.agentTitle", icon: IconBrain },
+];
+
+const bottomNavItems = [
+  {
+    path: "/agent",
+    labelKey: "settings.agentTitle",
+    icon: IconHierarchy2,
+  },
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 
@@ -1119,12 +1125,48 @@ export function Sidebar({
           )}
         </div>
 
+        <nav
+          className={cn(
+            "shrink-0",
+            collapsed
+              ? "flex flex-col items-center gap-1 px-1 py-2"
+              : "space-y-0.5 border-t border-border p-2.5",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const isActive = location.pathname.startsWith(item.path);
+            const link = (
+              <Link
+                to={item.path}
+                onClick={onClose}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+                className={cn(
+                  "flex items-center rounded-lg font-medium transition-colors",
+                  collapsed
+                    ? "h-10 w-10 justify-center"
+                    : "gap-3 px-3 py-2 text-sm",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {!collapsed && t(item.labelKey)}
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.path}>{link}</div>
+            );
+          })}
+        </nav>
+
         {!collapsed ? (
           <div className="shrink-0">
-            <div className="px-2.5 py-1.5">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher reserveSpace />
             </div>

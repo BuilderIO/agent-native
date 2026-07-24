@@ -231,13 +231,9 @@ describe("NodeRewriteProposal overview positioning", () => {
       await Promise.resolve();
     });
 
-    expect(mocks.setClientAppState).toHaveBeenCalledWith(
-      "design-reprompt-pending:design-1:screen-1",
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "begin-node-rewrite-request",
       expect.objectContaining({ instruction: "Make it warmer" }),
-    );
-    expect(mocks.setClientAppState).not.toHaveBeenCalledWith(
-      "design-reprompt-pending:design-1:screen-1",
-      null,
     );
     expect(mocks.callAction).toHaveBeenCalledWith(
       "cancel-node-rewrite-request",

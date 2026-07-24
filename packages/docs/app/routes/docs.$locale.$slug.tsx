@@ -21,8 +21,9 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 const SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   "database-adapters": "deployment",
-  resources: "workspace",
+  resources: "agent-resources",
   secrets: "security",
+  workspace: "agent-resources",
   "visual-plans": "template-plan",
   // Toolkit -ui pages merged into their parent kit doc.
   "toolkit-app-adapters": "toolkit-ui",

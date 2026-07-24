@@ -22,8 +22,13 @@ export function getViteDevRecoveryScript(): string {
     if (params.has(${embedTokenParam}) || embedded === "1" || embedded === "true") return;
   } catch (e) {}
 
+  var INSTALL_KEY = "__agentNativeViteDevRecoveryInstalled";
+  if (window[INSTALL_KEY]) return;
+  window[INSTALL_KEY] = true;
+
   var RELOAD_KEY = "__an_optimize_reload";
   var MAX_RELOADS = 3;
+  var MIN_RELOAD_INTERVAL_MS = 2000;
   var RESET_AFTER_MS = 8000;
 
   var reloadTimer = null;
@@ -100,8 +105,20 @@ export function getViteDevRecoveryScript(): string {
     if (history.length >= 1) {
       showOverlay("Updating dev server\\u2026", "Reloading the page");
     }
-    reloadTimer = setTimeout(function() { window.location.reload(); }, 300);
+    var lastReloadAt = history.length ? history[history.length - 1] : 0;
+    var delay = Math.max(
+      300,
+      MIN_RELOAD_INTERVAL_MS - Math.max(0, Date.now() - lastReloadAt),
+    );
+    reloadTimer = setTimeout(function() { window.location.reload(); }, delay);
   }
+
+  window.addEventListener("vite:beforeFullReload", function() {
+    if (reloadTimer) {
+      clearTimeout(reloadTimer);
+      reloadTimer = null;
+    }
+  });
 
   function looksLikeViteFailureMessage(message) {
     if (!message) return false;

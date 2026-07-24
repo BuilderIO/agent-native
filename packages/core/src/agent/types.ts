@@ -1,3 +1,4 @@
+import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
@@ -166,6 +167,7 @@ export interface AgentChatRequest {
     continuationReason?:
       | "run_timeout"
       | "loop_limit"
+      | "max_tokens"
       | "no_progress"
       | "stream_ended"
       | "gateway_timeout"
@@ -273,6 +275,8 @@ export type AgentChatEvent =
       type: "agent_call";
       agent: string;
       status: "start" | "done" | "error";
+      agentCallId?: string;
+      durationMs?: number;
     }
   | {
       /**
@@ -290,14 +294,26 @@ export type AgentChatEvent =
        */
       type: "agent_call_progress";
       agent: string;
-      /** Remote A2A task state for this poll, e.g. "working" | "submitted". */
+      /** Remote A2A task state for this poll, e.g. "working" | "processing". */
       state: string;
       /** Elapsed wall-clock seconds since the cross-app call began. */
       elapsedSeconds: number;
       /** Optional short text surfaced from the remote poll, when present. */
       detail?: string;
+      agentCallId?: string;
     }
-  | { type: "agent_call_text"; agent: string; text: string }
+  | {
+      type: "agent_call_text";
+      agent: string;
+      text: string;
+      agentCallId?: string;
+    }
+  | {
+      type: "agent_call_activity";
+      agent: string;
+      snapshot: A2AAgentActivitySnapshot;
+      agentCallId?: string;
+    }
   | {
       type: "agent_task";
       taskId: string;
@@ -356,6 +372,7 @@ export type AgentChatEvent =
       reason:
         | "run_timeout"
         | "loop_limit"
+        | "max_tokens"
         | "no_progress"
         | "stream_ended"
         | "gateway_timeout"

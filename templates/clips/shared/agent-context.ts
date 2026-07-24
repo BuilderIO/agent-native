@@ -13,6 +13,66 @@ export const AGENT_FRAME_ENDPOINT = "/api/agent-frame.jpg";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 
+export type AgentClipReadiness = {
+  state: "preparing" | "ready" | "failed";
+  retryAfterSeconds: number | null;
+  instruction: string | null;
+};
+
+export function getAgentClipReadiness(
+  status: string | null | undefined,
+): AgentClipReadiness {
+  if (status === "uploading") {
+    return {
+      state: "preparing",
+      retryAfterSeconds: 15,
+      instruction:
+        "This clip is still uploading and is not ready to inspect. Wait 15 seconds, then fetch agentContextUrl again. Do not open the share page, request frames, or draw conclusions until clip.status is ready.",
+    };
+  }
+
+  if (status === "processing") {
+    return {
+      state: "preparing",
+      retryAfterSeconds: 15,
+      instruction:
+        "This clip is still processing and may still be transcoding or transcribing. Wait 15 seconds, then fetch agentContextUrl again. Do not open the share page, request frames, or draw conclusions until clip.status is ready.",
+    };
+  }
+
+  return {
+    state: status === "failed" ? "failed" : "ready",
+    retryAfterSeconds: null,
+    instruction: null,
+  };
+}
+
+export function buildAgentDiscoveryPayload({
+  recordingId,
+  title,
+  status,
+  agentContextUrl,
+}: {
+  recordingId: string;
+  title: string;
+  status: string | null | undefined;
+  agentContextUrl: string;
+}) {
+  const readiness = getAgentClipReadiness(status);
+  return {
+    type: "agent-native.clip.discovery",
+    version: CLIP_AGENT_CONTEXT_VERSION,
+    clipId: recordingId,
+    title,
+    recordingStatus: status ?? "unknown",
+    agentReadiness: readiness,
+    agentContextUrl,
+    instructions:
+      readiness.instruction ??
+      "Fetch agentContextUrl for the transcript and JPEG frame URLs. Fetch the frame URLs to SEE the screen, not just read the transcript.",
+  };
+}
+
 export function agentAccessTokenResourceId(recordingId: string): string {
   if (typeof scopedAgentAccessResourceId !== "function") {
     return `${CLIP_AGENT_ACCESS_TOKEN_PREFIX}:${recordingId}`;

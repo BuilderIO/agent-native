@@ -25,6 +25,11 @@ export interface TriggerFrontmatter {
   mode: "agentic" | "deterministic";
   /** Domain tag for filtering in per-template UIs. */
   domain?: string;
+  /**
+   * Optional application-owned policy id carried into actions by the trusted
+   * trigger dispatcher. It is not model-supplied action input.
+   */
+  delegatedPolicyId?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";

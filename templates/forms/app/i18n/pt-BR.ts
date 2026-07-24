@@ -88,6 +88,16 @@ const messages = {
     addOption: "Adicionar opção",
     min: "Mínimo",
     max: "Máx.",
+    conditionalVisibility: "Visibilidade condicional",
+    conditionalVisibilityDescription:
+      "Mostre este campo somente quando uma resposta anterior corresponder.",
+    conditionField: "Resposta anterior",
+    conditionOperator: "Condição",
+    conditionEquals: "é",
+    conditionNotEquals: "não é",
+    conditionContains: "contém",
+    conditionValue: "Resposta",
+    conditionValuePlaceholder: "Digite uma resposta...",
     fieldTypes: {
       text: "Texto curto",
       email: "E-mail",
@@ -145,6 +155,7 @@ const messages = {
     integrationsTab: "Integrações",
     settingsSaved: "Configurações salvas",
     integrationsSaved: "Integrações salvas",
+    saveFailed: "Falha ao salvar alterações",
     formTitlePlaceholder: "Título do formulário",
     addDescriptionPlaceholder: "Adicionar uma descrição...",
     dragToReorder: "Arraste para reordenar",
@@ -215,7 +226,8 @@ const messages = {
         "Envia um POST JSON com dados da resposta. Funciona com Zapier, Make, n8n etc.",
       googleSheetsBlurb:
         "Espelhe cada resposta em uma planilha que sua equipe pode compartilhar.",
-      googleSheetsHelp: "Implante um app web Apps Script que receba dados POST",
+      googleSheetsHelp:
+        "Use uma URL /exec do Apps Script implantada que leia o JSON de e.postData.contents e adicione a linha.",
       googleSheetsLabel: "Planilhas Google",
       webhookLabel: "Webhook",
       discordLabel: "Discord",
@@ -268,6 +280,8 @@ const messages = {
     duplicated: "Formulário duplicado",
     duplicateFailed: "Falha ao duplicar o formulário",
     movedToArchive: "Formulário movido para arquivo",
+    movingToArchive: "Movendo formulário para o arquivo…",
+    archiveFailed: "Falha ao mover o formulário para o arquivo",
     restored: "Formulário restaurado",
     permanentlyDeleted: "Formulário excluído permanentemente",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

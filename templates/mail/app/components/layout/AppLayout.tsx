@@ -5,7 +5,6 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -13,7 +12,7 @@ import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconSearch,
   IconCheck,
@@ -1740,15 +1739,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                   </div>
 
                   <div className="shrink-0">
-                    <div className="px-2 py-1">
-                      <ExtensionsSidebarSection />
-                    </div>
-
                     <div className="px-3 py-2">
                       <OrgSwitcher />
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 py-2">
+                    <div className="flex items-center justify-end gap-1 px-2 py-2">
                       <DevDatabaseLink />
                       <FeedbackButton className="min-w-0 flex-1" />
                       <Tooltip>
@@ -1763,7 +1758,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                 "bg-accent/60 text-foreground",
                             )}
                           >
-                            <IconBrain className="h-4 w-4" />
+                            <IconHierarchy2 className="h-4 w-4" />
                           </Link>
                         </TooltipTrigger>
                         <TooltipContent>
@@ -2112,15 +2107,11 @@ function StandardLayout({ children }: AppLayoutProps) {
           </div>
 
           <div className="shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-2 py-2">
+            <div className="flex items-center justify-end gap-1 px-2 py-2">
               <DevDatabaseLink />
               <FeedbackButton className="min-w-0 flex-1" />
               <div className="flex shrink-0 items-center gap-0.5">
@@ -2136,7 +2127,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                           "bg-accent/60 text-foreground",
                       )}
                     >
-                      <IconBrain className="h-4 w-4" />
+                      <IconHierarchy2 className="h-4 w-4" />
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent>

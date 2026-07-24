@@ -1,8 +1,9 @@
 # Analytics — Agent Guide
 
 Analytics is an agent-native BI workspace. The agent manages data sources,
-queries, dashboards, charts, analyses, and connected warehouse integrations
-through actions and SQL-backed state.
+queries, dashboards, charts, and connected warehouse integrations through
+actions and SQL-backed state. Dashboards are the canonical user-facing
+analytics artifact; legacy analyses remain readable only for compatibility.
 
 Keep this file essential. Querying, dashboard, warehouse, and implementation
 details live in `.agents/skills/`.
@@ -26,23 +27,31 @@ membership id when its native update status reports `update-available`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
-- Catalog-first: before querying, consult known data sources (data-source
-  status) and call `list-data-dictionary` with a focused search to learn what
-  exists and which table/columns/join paths to use. Don't fan out blind queries
-  when the catalog already answers where a fact lives.
+- Existing-work-first: treat analytics definitions like code. For a bounded
+  metric lookup, call `search-analytics-query-catalog` once with focused
+  metric/entity terms before writing a new query. It searches accessible
+  dashboard/chart SQL and data-dictionary definitions together. Prefer the
+  strongest approved definition or saved chart, preserve its source and
+  business logic, adapt only the requested filters/time window, then run one
+  bounded query and stop.
+- Use `list-data-dictionary` separately only when the user asks to browse
+  definitions or filter them by department. Use `data-source-status`, schema
+  discovery, or provider catalogs only when the combined catalog search does
+  not establish a source/query shape.
 - `data-source-status` always includes the built-in first-party Analytics source
   and returns `hasConnectedExternalDataSources`,
   `dataSourcesSetupLink` (a real deep link to `/data-sources`). Chat stays
   available when no external provider is connected; for a request that needs
   one, explain the missing source in context and include that returned link so
   the user can connect it. Do not replace this with a generic canned response.
-- Simple time-bounded metric fast path: when the data dictionary or a known
-  canonical source already identifies the metric, run one bounded aggregate.
-  Once that query returns a valid result, answer immediately with the source,
-  time window, row count, and only necessary caveats. Do not schema-discover,
-  retry, enrich, or add breakdowns unless the query fails or its result
-  conflicts with the known metric definition. This never waives the real-data
-  requirement: do not answer from a guess, stale value, or unverified result.
+- Bounded structured lookup fast path: after the one catalog search, run one
+  query against the matched authoritative source. That source may be first-party
+  Analytics, BigQuery, HubSpot, Gong, or another connected provider. Once it
+  succeeds, answer immediately. Do not schema-discover, cross-check, enrich,
+  retry, or add breakdowns unless the user requested them, the first query
+  failed, or its result conflicts with the known definition. `all`, `total`,
+  and `exact` in a structured aggregate do not by themselves require a corpus
+  workflow.
 - Clarify-first for ambiguous ad-hoc work: when the metric definition, date
   range, or grain is ambiguous and a wrong guess would change the numbers, use
   the `ask-question` clarifying tool (multiple-choice) before computing. Ask at
@@ -167,13 +176,22 @@ membership id when its native update status reports `update-available`.
   `/agents?view=dashboards` shows the
   admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
   admins ask about dashboard created/modified dates, owners, last tracked
-  modifier, views, engagements, saved views, or cleanup candidates. The
+  modifier, views, edits, engagements, saved views, or cleanup candidates. The
+  dashboard overflow menu shows created/updated timestamps and their tracked
+  actors for both SQL and Explorer dashboards. The
   Advanced menu opens `/agents?view=database`, where organization owners/admins
   can connect other agent-native app databases and use the shared database admin
   tool for table browsing, row editing, and SQL inspection. This database
   surface is for connected target app databases, not broad access to all
   Analytics data. Keep future admin additions inside this route instead of
   adding many top-level sidebar tabs.
+- The `migrate-analytics-artifacts` action is the organization-scoped
+  consolidation path. Run it first with `dryRun: true`, then use the exact
+  `confirm: "MIGRATE_ANALYTICS_ARTIFACTS"` token for an owner/admin-approved
+  write. It materializes legacy settings, turns saved analyses and standalone
+  extensions into dashboard blocks, archives exact duplicates, copies shares,
+  and keeps source rows recoverable. It intentionally covers organization-
+  scoped rows, not private member-only rows.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one
@@ -204,33 +222,49 @@ membership id when its native update status reports `update-available`.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
   summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
   proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
-- Native dashboards and saved analyses are constrained artifacts. If a requested
-  dashboard, analysis surface, visualization, interaction model, custom layout,
-  or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
-  config/components or saved-analysis markdown/chart format, automatically build
-  it as an extension instead and tell the user why.
+- Native dashboards are constrained artifacts. If a requested dashboard,
+  analysis/report surface, visualization, interaction model, custom layout, or
+  bespoke workflow cannot be done faithfully with the built-in dashboard JSON
+  config/components, automatically create an extension and embed it as one or
+  more `chartType: "extension"` panels using `config.extensionId`. Never leave
+  the extension standalone or direct the user to an Extensions page from
+  Analytics.
 - For an existing extension-backed dashboard or migrated surface such as Risk
   Meeting, separate data repair from visual redesign. Inspect the dashboard and
-  extension first, then use `update-extension` `patches`/`edits` that touch only
-  the data-loading seam. Preserve the existing layout, CSS, copy, and
-  interactions; never reconstruct the full HTML body for a data-only fix.
-  `update-extension` blocks full-body replacement unless
-  `allowFullReplacement: true` is explicit, and that flag is reserved for a
-  user-requested broad rewrite or a complete replacement body supplied by the
-  user. A request that combines a visual rewrite (for example compacting,
-  removing sections, renaming, or changing padding) with a data repair is still
-  a broad rewrite; after inspecting the current extension, set
-  `allowFullReplacement: true` for the complete replacement. If a focused edit
-  fails, do not retry unchanged arguments.
+  extension first, then call `update-extension` with exactly `id`,
+  `operation: "edit"`, and a `payloadJson` string containing focused
+  `patches`/`edits` that touch only the data-loading seam. Never send empty
+  placeholder fields. Preserve the existing layout, CSS, copy, and interactions;
+  never reconstruct the full HTML body for a data-only fix. A request that
+  combines a visual rewrite (for example compacting, removing sections,
+  renaming, or changing padding) with a data repair is still a broad rewrite;
+  after inspecting the current extension, use `operation: "replace"` with the
+  complete replacement body inside `payloadJson`. Use
+  `set-resource-visibility` for sharing changes. If a focused edit fails, do not
+  retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the
   `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
   the exact user/org context that created the subscription with saved URL
   filters; do not hand-wire custom email routes around that action surface.
+- Table panels can be exported with `export-dashboard-panel-to-google-sheet`.
+  The action re-runs the accessible panel query with the dashboard's current
+  filter variables, creates a new Sheet through the connected Google Drive
+  workspace connection, and returns its URL plus bounded export metadata.
   Report PNGs are Playwright captures of the real dashboard route in
   `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
-  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  and embedded inline in email as ordered CID images. Complete dashboards are
+  captured sequentially in four-panel windows matching the browser's four-query
+  concurrency limit; every window must match the panel ids snapshotted at the
+  start, and a failed or mismatched window
+  invalidates the entire image set so the scheduler can retry instead of
+  sending a partial report. Capture is capped at 10 windows and 14 MiB of raw
+  PNG data, and subscriptions are capped at five distinct recipients; use a
+  mailing-list address for larger audiences. The serverless capture deadline
+  reserves 90 seconds of the 300-second worker budget for cleanup and delivery.
+  The ten-minute retry delay is an eligibility floor; the \*/15 sweep runs the
+  retry on its first tick after that floor. Netlify builds emit a scheduled
   trigger plus a background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
   token and disabling the in-process interval scheduler on Netlify to avoid

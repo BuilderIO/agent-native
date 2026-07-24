@@ -4,20 +4,9 @@ import type {
 } from "@shared/api";
 // @vitest-environment happy-dom
 //
-// Narrow regression test for the create-row and Builder-attach error toasts
-// added on top of DatabaseView's `createRow` and the source Attach handler.
-// Both used to swallow mutation rejections silently; they now show
-// `toast.error(...)`. This test mounts the real, unmodified `DatabaseView`
-// (the smallest exported surface that contains both handlers — the inner
-// `DatabaseTable`/`DatabaseSettingsSourcePanel` components are not exported)
-// with every hook mocked to keep the database "empty" (no items, no
-// properties, no attached source) so none of the heavier row/property
-// subtrees mount. It only exercises two flows:
-//   1. Clicking "New" when `addItem.mutateAsync` rejects.
-//   2. Drilling into Settings -> Sources -> Builder -> a space -> a model and
-//      clicking "Attach" when `attachSource.mutateAsync` rejects, and
-//      confirming the success-only `onNavReplace([])` did not also run (the
-//      model leaf must still be showing, not the Sources root).
+// Mount the real DatabaseView with an empty mocked database so UI regressions
+// can cover its composed controls and mutation error paths without heavier row
+// and property subtrees.
 import type { QueryClient as QueryClientType } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -167,6 +156,7 @@ vi.mock("@/hooks/use-documents", () => ({
   useUpdateDocument: () => benignMutation,
 }));
 
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { messagesByLocale } from "@/i18n-data";
 
 import { DatabaseView, defaultDatabaseViewConfig } from "./DatabaseView";
@@ -227,7 +217,7 @@ function findButtonByText(container: HTMLElement, text: string) {
   );
 }
 
-describe("DatabaseView error toasts", () => {
+describe("DatabaseView UI regressions", () => {
   let container: HTMLDivElement;
   let root: Root;
   let queryClient: QueryClientType;
@@ -279,16 +269,67 @@ describe("DatabaseView error toasts", () => {
     act(() => {
       root.render(
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter>
-            <DatabaseView
-              databaseId="database-1"
-              databaseDocumentId="document-1"
-            />
-          </MemoryRouter>
+          <AppToolkitProvider>
+            <MemoryRouter>
+              <DatabaseView
+                databaseId="database-1"
+                databaseDocumentId="document-1"
+              />
+            </MemoryRouter>
+          </AppToolkitProvider>
         </QueryClientProvider>,
       );
     });
   }
+
+  it("opens the main toolbar Sort and Filter menus with pointer and keyboard activation", async () => {
+    await renderDatabaseView();
+
+    const sortButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Sort"]',
+    );
+    const filterButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter"]',
+    );
+    expect(sortButton).toBeTruthy();
+    expect(filterButton).toBeTruthy();
+    expect(sortButton?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(filterButton?.getAttribute("aria-haspopup")).toBe("menu");
+
+    await act(async () => {
+      sortButton?.focus();
+      sortButton?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(sortButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[role=menu]")).toBeTruthy();
+
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(sortButton?.getAttribute("aria-expanded")).toBe("false");
+
+    await act(async () => {
+      filterButton?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector("[role=menu]")).toBeTruthy();
+  });
 
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {
     addItemMutation.mutateAsync.mockRejectedValue(new Error("network down"));

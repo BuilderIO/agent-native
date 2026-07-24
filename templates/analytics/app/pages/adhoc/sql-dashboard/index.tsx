@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -33,7 +33,6 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
-  IconClock,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
@@ -45,7 +44,6 @@ import {
   IconPencil,
   IconPlus,
   IconTrash,
-  IconUser,
   IconUsersGroup,
   IconWorld,
   IconX,
@@ -64,6 +62,7 @@ import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -148,6 +147,11 @@ import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
+import {
+  listReportablePanelIds,
+  parseReportPanelWindow,
+  windowReportPanels,
+} from "./report-panel-window";
 import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
@@ -186,31 +190,6 @@ function groupDashboardTabs(tabs: string[]): {
   }
 
   return { groups, hasNestedTabs };
-}
-
-function parseReportPanelLimit(raw: string | null): number | null {
-  if (!raw) return null;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.min(50, parsed);
-}
-
-function limitReportPanels(panels: SqlPanel[], limit: number | null) {
-  if (!limit) return panels;
-  const limited: SqlPanel[] = [];
-  let chartCount = 0;
-
-  for (const panel of panels) {
-    if (panel.chartType === "section") {
-      if (chartCount < limit) limited.push(panel);
-      continue;
-    }
-    if (chartCount >= limit) continue;
-    chartCount++;
-    limited.push(panel);
-  }
-
-  return limited;
 }
 
 function DashboardDropLine({
@@ -268,6 +247,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor,
   editable,
   eagerLoad,
+  reportScreenshot,
   isDragSource,
   selectedForChat,
   selectPanelForChat,
@@ -281,6 +261,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
+  reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
   selectPanelForChat: (
@@ -368,9 +349,12 @@ const PanelCell = memo(function PanelCell({
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
         editable={editable}
         eagerLoad={eagerLoad}
+        reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
+        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        filters={vars}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -401,7 +385,9 @@ type FetchedDashboard = {
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
+  updatedBy: string | null;
 } & ResourceAccess;
 
 function parseDashboardDemoMetadata(
@@ -469,7 +455,9 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
           ? data.visibility
           : "private",
       ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
@@ -504,8 +492,11 @@ export default function SqlDashboardPage() {
   const dashboardId = searchParams.get("id") || routeId;
   const reportScreenshot = searchParams.get("reportScreenshot") === "1";
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
-  const reportPanelLimit = reportScreenshot
-    ? parseReportPanelLimit(searchParams.get("reportPanelLimit"))
+  const reportPanelWindow = reportScreenshot
+    ? parseReportPanelWindow(
+        searchParams.get("reportPanelOffset"),
+        searchParams.get("reportPanelLimit"),
+      )
     : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
@@ -515,7 +506,13 @@ export default function SqlDashboardPage() {
     "private" | "org" | "public" | null
   >(null);
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
   const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
     null,
   );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
@@ -735,7 +732,9 @@ export default function SqlDashboardPage() {
     setHiddenAt(null);
     setDashboardVisibility(null);
     setDashboardOwner(null);
+    setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
@@ -768,7 +767,9 @@ export default function SqlDashboardPage() {
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
+    setDashboardUpdatedBy(fetched?.updatedBy ?? null);
     setResourceAccess(
       fetched
         ? {
@@ -1180,9 +1181,9 @@ export default function SqlDashboardPage() {
         ? requestedTab
         : tabs[0]
       : null;
-  // Report captures need the complete dashboard in one image. The report
-  // URL intentionally has no `tab` parameter, so do not apply the normal
-  // first-tab selection while rendering the screenshot surface.
+  // Report captures cover the complete dashboard across ordered windows. The
+  // report URL intentionally has no `tab` parameter, so do not apply the
+  // normal first-tab selection while rendering the screenshot surface.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1221,8 +1222,8 @@ export default function SqlDashboardPage() {
     const tabPanels = activeTab
       ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
       : dashboard.panels;
-    return limitReportPanels(tabPanels, reportPanelLimit);
-  }, [dashboard, activeTab, reportPanelLimit]);
+    return windowReportPanels(tabPanels, reportPanelWindow);
+  }, [dashboard, activeTab, reportPanelWindow]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
@@ -1399,6 +1400,11 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardShareUrl = useMemo(() => {
+    if (!dashboardId || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/dashboards/" + dashboardId);
+  }, [dashboardId]);
+
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
@@ -1451,6 +1457,7 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareUrl={dashboardShareUrl}
             shareTabs={{
               tabs: [
                 {
@@ -1508,30 +1515,15 @@ export default function SqlDashboardPage() {
             </TooltipTrigger>
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {dashboardUpdatedAt && (
-                  <span className="flex items-center gap-1.5">
-                    <IconClock className="h-3 w-3" />
-                    {t("sqlDashboard.updated", {
-                      date: new Date(dashboardUpdatedAt).toLocaleDateString(
-                        "en-US",
-                        {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        },
-                      ),
-                    })}
-                  </span>
-                )}
-                {dashboardOwner && (
-                  <span className="flex items-center gap-1.5">
-                    <IconUser className="h-3 w-3" />
-                    {dashboardOwner.split("@")[0]}
-                  </span>
-                )}
+              <DashboardMetadata
+                createdAt={dashboardCreatedAt}
+                createdBy={dashboardOwner}
+                updatedAt={dashboardUpdatedAt}
+                updatedBy={dashboardUpdatedBy}
+              />
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
                 {dashboardVisibility ? (
                   <span className="flex items-center gap-1.5">
                     {dashboardVisibility === "public" ? (
@@ -1713,6 +1705,11 @@ export default function SqlDashboardPage() {
       className="space-y-4"
       data-dashboard-report-capture
       data-dashboard-report-ready={loaded && dashboard ? "true" : "false"}
+      data-dashboard-report-panel-ids={
+        reportScreenshot
+          ? JSON.stringify(listReportablePanelIds(visiblePanels))
+          : undefined
+      }
     >
       {hiddenAt ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
@@ -1982,6 +1979,7 @@ export default function SqlDashboardPage() {
                                 }
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
+                                reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
                                 selectPanelForChat={selectPanelForChat}

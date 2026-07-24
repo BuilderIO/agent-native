@@ -1,7 +1,6 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -10,7 +9,7 @@ import {
   IconFlame,
   IconLoader2,
   IconChartBar,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -39,7 +38,10 @@ import { Header } from "./Header";
 const navItems = [
   { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+];
+
+const bottomNavItems = [
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -287,12 +289,41 @@ function SidebarContent({
         })}
       </nav>
 
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label = t(item.labelKey);
+          const isActive = pathname.startsWith(item.href);
+          const link = (
+            <Link
+              key={item.href}
+              to={item.href}
+              aria-label={collapsed ? label : undefined}
+              className={cn(
+                "flex h-9 items-center rounded-lg text-sm transition-colors",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && label}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            link
+          );
+        })}
+      </nav>
+
       {!collapsed && (
         <>
-          <div className="px-2 py-2">
-            <ExtensionsSidebarSection />
-          </div>
-
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />

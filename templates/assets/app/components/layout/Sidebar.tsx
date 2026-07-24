@@ -6,23 +6,21 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconClipboardList,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLayoutGrid,
   IconPhotoPlus,
-  IconPlus,
   IconSettings,
   IconShare3,
 } from "@tabler/icons-react";
@@ -41,7 +39,10 @@ import { cn } from "@/lib/utils";
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+];
+
+const bottomNavItems = [
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -96,6 +97,12 @@ function persistedActiveThreadId() {
   }
 }
 
+function persistActiveThreadId(threadId: string) {
+  try {
+    localStorage.setItem(ASSETS_ACTIVE_THREAD_KEY, threadId);
+  } catch {}
+}
+
 function threadIdFromPath(pathname: string) {
   const match = pathname.match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -134,8 +141,7 @@ function AssetsChatsSection() {
     () =>
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads)
-        .slice(0, 10),
+        .sort(compareThreads),
     [threads],
   );
   const displayedActiveThreadId =
@@ -177,6 +183,7 @@ function AssetsChatsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
+    persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
       options?.isNew ? "/" : chatThreadPath(threadId),
@@ -235,64 +242,51 @@ function AssetsChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newAssetsChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={displayedActiveThreadId}
-          onSelect={openThread}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
-          renameMaxLength={160}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
-          renderAdditionalRowActions={(item, closeMenu) => (
-            <button
-              type="button"
-              role="menuitem"
-              className="an-chat-history-row__menu-item"
-              onClick={() => {
-                closeMenu();
-                void handleCopyShareLink(item.id);
-              }}
-            >
-              <IconShare3 size={13} strokeWidth={1.8} />
-              <span>{t("chat.copyShareLink")}</span>
-            </button>
-          )}
-          labels={{
-            options: (item) =>
-              t("chat.optionsFor", { title: item.titleText ?? "" }),
-            renameInput: (item) => `Rename ${item.titleText ?? ""}`,
-            rename: t("chat.renameChat"),
-            pin: t("chat.pinChat"),
-            unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
+    <div className="mt-2 ms-4">
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={openThread}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("chat.newChat"),
+          showMore: t("chat.chats"),
+          showLess: t("chat.chats"),
+        }}
+        previewCount={5}
+        expandedCount={15}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        renameMaxLength={160}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        renderAdditionalRowActions={(item, closeMenu) => (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              void handleCopyShareLink(item.id);
+            }}
+          >
+            <IconShare3 size={13} strokeWidth={1.8} />
+            <span>{t("chat.copyShareLink")}</span>
+          </button>
+        )}
+        labels={{
+          options: (item) =>
+            t("chat.optionsFor", { title: item.titleText ?? "" }),
+          renameInput: (item) => `Rename ${item.titleText ?? ""}`,
+          rename: t("chat.renameChat"),
+          pin: t("chat.pinChat"),
+          unpin: t("chat.unpinChat"),
+          delete: t("chat.archiveChat"),
+        }}
+        className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+      />
     </div>
   );
 }
@@ -456,22 +450,58 @@ export function Sidebar() {
           })}
         </nav>
 
-        {!collapsed && (
-          <div className="mt-auto shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
+        <div className="mt-auto shrink-0">
+          <nav
+            className={cn(
+              "grid gap-1",
+              collapsed ? "justify-items-center px-1.5 py-1" : "px-2 py-1",
+            )}
+          >
+            {bottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname.startsWith(item.href);
+              const link = (
+                <Link
+                  to={item.href}
+                  className={cn(
+                    "flex items-center rounded-lg text-sm",
+                    collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                  aria-label={collapsed ? t(item.labelKey) : undefined}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && t(item.labelKey)}
+                </Link>
+              );
+              return collapsed ? (
+                <Tooltip key={item.href} delayDuration={0}>
+                  <TooltipTrigger asChild>{link}</TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <div key={item.href}>{link}</div>
+              );
+            })}
+          </nav>
 
+          {!collapsed && (
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
+          )}
 
-            <div className="px-3 py-2">
+          {!collapsed && (
+            <div className="px-3 py-2 empty:hidden">
               <DevDatabaseLink />
               <FeedbackButton />
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );

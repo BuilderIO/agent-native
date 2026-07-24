@@ -88,6 +88,16 @@ const messages = {
     addOption: "Option hinzufügen",
     min: "Min",
     max: "Max",
+    conditionalVisibility: "Bedingte Sichtbarkeit",
+    conditionalVisibilityDescription:
+      "Dieses Feld nur anzeigen, wenn eine frühere Antwort passt.",
+    conditionField: "Frühere Antwort",
+    conditionOperator: "Bedingung",
+    conditionEquals: "ist",
+    conditionNotEquals: "ist nicht",
+    conditionContains: "enthält",
+    conditionValue: "Antwort",
+    conditionValuePlaceholder: "Antwort eingeben...",
     fieldTypes: {
       text: "Kurzer Text",
       email: "E-Mail",
@@ -146,6 +156,7 @@ const messages = {
     integrationsTab: "Integrationen",
     settingsSaved: "Einstellungen gespeichert",
     integrationsSaved: "Integrationen gespeichert",
+    saveFailed: "Änderungen konnten nicht gespeichert werden",
     formTitlePlaceholder: "Formulartitel",
     addDescriptionPlaceholder: "Beschreibung hinzufügen...",
     dragToReorder: "Zum Sortieren ziehen",
@@ -216,7 +227,7 @@ const messages = {
       googleSheetsBlurb:
         "Jede Antwort in eine Tabelle spiegeln, die dein Team teilen kann.",
       googleSheetsHelp:
-        "Stelle eine Apps Script-Web-App bereit, die POST-Daten empfängt",
+        "Verwende eine bereitgestellte Apps-Script-/exec-URL, die JSON aus e.postData.contents liest und Zeilen anhängt.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -268,6 +279,8 @@ const messages = {
     duplicated: "Formular dupliziert",
     duplicateFailed: "Formular konnte nicht dupliziert werden",
     movedToArchive: "Formular ins Archiv verschoben",
+    movingToArchive: "Formular wird ins Archiv verschoben …",
+    archiveFailed: "Formular konnte nicht ins Archiv verschoben werden",
     restored: "Form wiederhergestellt",
     permanentlyDeleted: "Formular endgültig gelöscht",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

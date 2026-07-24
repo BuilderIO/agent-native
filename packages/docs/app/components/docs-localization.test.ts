@@ -91,6 +91,23 @@ describe("localized docs fallback", () => {
     expect(loaderDoc?.slug).toBe("internationalization");
   });
 
+  it("loads the renamed Agent Resources source for localized routes", async () => {
+    expect(hasLocalizedDoc("fr-FR", "agent-resources")).toBe(true);
+    expect(hasLocalizedDoc("fr-FR", "workspace")).toBe(false);
+
+    const doc = await loadDoc("agent-resources", "fr-FR");
+    expect(doc?.slug).toBe("agent-resources");
+    expect(doc?.title).toBe("Ressources de l'agent");
+
+    const loaderDoc = await localizedDocLoader(
+      loaderArgs(
+        { locale: "fr-FR", slug: "agent-resources" },
+        "https://docs.test/fr-FR/docs/agent-resources",
+      ),
+    );
+    expect(loaderDoc?.slug).toBe("agent-resources");
+  });
+
   it("redirects localized docs index to the canonical route for the target doc", async () => {
     let response: Response | undefined;
     try {
@@ -107,6 +124,44 @@ describe("localized docs fallback", () => {
     const doc = await defaultDocLoader(loaderArgs({ slug: "agent-surfaces" }));
 
     expect(doc?.slug).toBe("agent-surfaces");
+  });
+
+  it.each(["workspace", "resources"])(
+    "redirects the legacy %s slug to Agent Resources",
+    async (slug) => {
+      let response: Response | undefined;
+      try {
+        await defaultDocLoader(loaderArgs({ slug }));
+      } catch (error) {
+        response = error as Response;
+      }
+
+      expect(response?.status).toBe(301);
+      expect(response?.headers.get("Location")).toBe("/docs/agent-resources");
+    },
+  );
+
+  it.each([
+    "/fr-FR/docs/workspace",
+    "/docs/fr-FR/workspace",
+    "/fr-FR/docs/resources",
+  ])("preserves the locale when redirecting %s", async (url) => {
+    let response: Response | undefined;
+    try {
+      await localizedDocLoader(
+        loaderArgs(
+          { locale: "fr-FR", slug: url.split("/").at(-1)! },
+          `https://docs.test${url}`,
+        ),
+      );
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(301);
+    expect(response?.headers.get("Location")).toBe(
+      "/fr-FR/docs/agent-resources",
+    );
   });
 
   it("uses localized nav links for the active docs locale", () => {
@@ -127,6 +182,11 @@ describe("localized docs fallback", () => {
     expect(
       toolkitSection?.items.find((item) => item.id === "toolkit-ui")?.to,
     ).toBe("/fr-FR/docs/toolkit-ui");
+    const resourcesSection = getDocsNavSections("fr-FR").find(
+      (section) => section.id === "agent-resources",
+    );
+    expect(resourcesSection?.title).toBe("Agent Resources");
+    expect(resourcesSection?.items[0]?.to).toBe("/fr-FR/docs/agent-resources");
   });
 
   it("indexes translated docs at localized canonical paths", async () => {

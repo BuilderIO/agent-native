@@ -1,5 +1,6 @@
 /** Browser-local presentation toggle. Backend and agent results stay real. */
 
+import { Switch } from "@agent-native/toolkit/design-system";
 import { IconEyeOff } from "@tabler/icons-react";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
@@ -20,25 +21,12 @@ export function DemoModeSection() {
           stay real and access-scoped.
         </p>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
+      <Switch
+        checked={enabled}
+        onChange={(checked) => setBrowserDemoModeEnabled(checked)}
         aria-label="Enable demo mode"
-        onClick={() => setBrowserDemoModeEnabled(!enabled)}
-        // Theme tokens; streaming agent owns layout.
-        className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-          enabled
-            ? "bg-primary"
-            : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
-        }`}
-      >
-        <span
-          className={`inline-block h-3 w-3 transform rounded-full bg-background transition-transform ${
-            enabled ? "translate-x-3.5" : "translate-x-0.5"
-          }`}
-        />
-      </button>
+        className="shrink-0"
+      />
     </div>
   );
 }

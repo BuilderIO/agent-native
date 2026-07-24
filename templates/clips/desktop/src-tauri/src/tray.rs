@@ -11,6 +11,24 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
+pub fn refresh_tray_anchor(app: &tauri::AppHandle) -> bool {
+    let Some(rect) = app
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten())
+    else {
+        return false;
+    };
+
+    let Some(anchor) = app.try_state::<TrayAnchor>() else {
+        return false;
+    };
+    let Ok(mut guard) = anchor.0.lock() else {
+        return false;
+    };
+    *guard = Some(rect);
+    true
+}
+
 /// Build the full tray menu with the given upcoming-meetings list. Used both
 /// at startup (with `Vec::new()`) and at refresh time when the meetings
 /// watcher pushes a new snapshot — `TrayIcon::set_menu(Some(...))` swaps the
@@ -227,7 +245,10 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     meeting_active
                 );
                 if active && !meeting_active {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    // Opening Clips must never double as an implicit Stop.
+                    // Keep the recording alive and restore the parked popover;
+                    // its active-recording view exposes an explicit Stop button.
+                    force_show_popover(app);
                 } else {
                     toggle_popover(app);
                 }

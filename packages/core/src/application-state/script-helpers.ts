@@ -18,8 +18,10 @@ import {
   appStatePut,
   appStateDelete,
   appStateCompareAndSet,
+  appStateCompareAndSetMany,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateCompareAndSetOperation,
 } from "./store.js";
 
 /**
@@ -74,11 +76,20 @@ export async function deleteAppState(key: string): Promise<boolean> {
 
 export async function compareAndSetAppState(
   key: string,
-  expectedValue: Record<string, unknown>,
+  expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
   return appStateCompareAndSet(sessionId, key, expectedValue, nextValue, {
+    requestSource: "agent",
+  });
+}
+
+export async function compareAndSetManyAppState(
+  operations: readonly AppStateCompareAndSetOperation[],
+): Promise<boolean> {
+  const sessionId = await resolveSessionId();
+  return appStateCompareAndSetMany(sessionId, operations, {
     requestSource: "agent",
   });
 }

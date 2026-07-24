@@ -80,6 +80,7 @@ import {
   canWriteLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
+import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1519,6 +1520,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const databaseChoicePending = isDatabaseChoicePending(
+    document,
+    createDatabase.isPending,
+  );
   const showNewDocumentTypeChooser =
     canEdit &&
     !isLocalFileDocument &&
@@ -1791,12 +1796,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               type="button"
                               variant="outline"
                               className="justify-start gap-2"
-                              disabled={
-                                !editorCanEdit || createDatabase.isPending
-                              }
+                              disabled={!editorCanEdit || databaseChoicePending}
                               onClick={() => void handleChooseDatabase()}
                             >
-                              {createDatabase.isPending ? (
+                              {databaseChoicePending ? (
                                 <IconLoader2 className="animate-spin" />
                               ) : (
                                 <IconDatabase />
@@ -1867,6 +1870,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseDocumentId={
+                              document.databaseMembership.databaseDocumentId
+                            }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
                           />

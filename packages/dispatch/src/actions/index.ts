@@ -70,6 +70,7 @@ import rejectDreamProposal from "./reject-dream-proposal.js";
 import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
+import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
 import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
@@ -167,6 +168,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
+  "resolve-integration-source-context": resolveIntegrationSourceContext,
   "remix-workspace-template": remixWorkspaceTemplate,
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,

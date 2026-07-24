@@ -88,7 +88,7 @@ export function sampleLevels(
   const levels: number[] = [];
   for (let i = 0; i < barCount; i++) {
     const idx = Math.min(usable - 1, Math.floor((i / barCount) * usable));
-    levels.push(data[idx] / 255);
+    levels.push(Math.min(1, (data[idx] / 255) * 1.65));
   }
   return levels;
 }

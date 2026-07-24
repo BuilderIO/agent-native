@@ -13,7 +13,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -138,7 +138,7 @@ function DesignCommandMenu({
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
         <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => {}}>

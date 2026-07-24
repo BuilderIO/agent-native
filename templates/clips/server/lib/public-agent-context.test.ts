@@ -371,6 +371,38 @@ describe("buildPublicAgentContext", () => {
     );
   });
 
+  it("does not advertise frames while the clip itself is still processing", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({ status: "processing" }) as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      ctas: [],
+    });
+
+    expect(context.clip.status).toBe("processing");
+    expect(context.clip.agentReadiness).toMatchObject({
+      state: "preparing",
+      retryAfterSeconds: 15,
+    });
+    expect(context.instructions.join(" ")).toMatch(/still processing/i);
+    expect(context.instructions.join(" ")).toMatch(/wait 15 seconds/i);
+    expect(context.apis).not.toHaveProperty("frame");
+    expect(context.recommendedFrames).toEqual([]);
+  });
+
   it("tells agents how to explain exhausted Builder transcription credits", () => {
     const context = buildPublicAgentContext({
       event: {
@@ -404,10 +436,10 @@ describe("buildPublicAgentContext", () => {
       /Builder transcription credits are exhausted/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /Groq key for backup speech-to-text/i,
+      /Builder transcription on the original recording/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /OpenAI or Anthropic chat keys do not transcribe/i,
+      /browser\/macOS native transcript first/i,
     );
   });
 

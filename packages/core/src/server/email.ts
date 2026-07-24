@@ -10,7 +10,10 @@
  * so the reset-password flow still works end-to-end for local development.
  */
 
+import { readFileSync } from "node:fs";
+
 import { resolveSecret } from "./credential-provider.js";
+import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
@@ -33,6 +36,39 @@ export interface SendEmailArgs {
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
+  timeoutMs?: number;
+}
+
+let cachedAgentNativeLogo: Buffer | undefined;
+
+function getAgentNativeLogoAttachment(): EmailAttachment {
+  cachedAgentNativeLogo ??= readFileSync(
+    new URL("../../src/assets/branding/favicon.png", import.meta.url),
+  );
+  return {
+    filename: "agent-native-logo.png",
+    content: cachedAgentNativeLogo,
+    contentType: "image/png",
+    contentId: AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID,
+    disposition: "inline",
+  };
+}
+
+function resolveAttachments(
+  args: SendEmailArgs,
+): EmailAttachment[] | undefined {
+  if (!args.html.includes(`cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`)) {
+    return args.attachments;
+  }
+  if (
+    args.attachments?.some(
+      (attachment) =>
+        attachment.contentId === AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID,
+    )
+  ) {
+    return args.attachments;
+  }
+  return [...(args.attachments ?? []), getAgentNativeLogoAttachment()];
 }
 
 interface EmailTransportConfig {
@@ -90,10 +126,15 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<void> {
+async function sendEmailWithSignal(
+  args: SendEmailArgs,
+  signal?: AbortSignal,
+): Promise<void> {
   const config = await resolveEmailTransport();
+  signal?.throwIfAborted();
   const provider = config.provider;
   const from = getFromAddress(config, args.from);
+  const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
     const payload: Record<string, unknown> = {
@@ -105,8 +146,8 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     };
     if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
     if (args.replyTo) payload.reply_to = args.replyTo;
-    if (args.attachments?.length) {
-      payload.attachments = args.attachments.map((a) => ({
+    if (attachments?.length) {
+      payload.attachments = attachments.map((a) => ({
         filename: a.filename,
         content:
           typeof a.content === "string"
@@ -128,6 +169,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -159,8 +201,8 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
     if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;
-    if (args.attachments?.length) {
-      sgPayload.attachments = args.attachments.map((a) => ({
+    if (attachments?.length) {
+      sgPayload.attachments = attachments.map((a) => ({
         filename: a.filename,
         content:
           typeof a.content === "string"
@@ -179,6 +221,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(sgPayload),
+      signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -201,6 +244,31 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
       `---\nTo: ${args.to}\nFrom: ${from}\nSubject: ${args.subject}\n\n` +
       `${args.text || stripHtml(args.html)}\n---\n`,
   );
+}
+
+export async function sendEmail(args: SendEmailArgs): Promise<void> {
+  const requestedTimeoutMs = Number(args.timeoutMs);
+  if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
+    return sendEmailWithSignal(args);
+  }
+
+  const timeoutMs = Math.floor(requestedTimeoutMs);
+  const controller = new AbortController();
+  const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sendEmailWithSignal(args, controller.signal),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort(timeoutError);
+          reject(timeoutError);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function parseSendGridFrom(from: string): { email: string; name?: string } {

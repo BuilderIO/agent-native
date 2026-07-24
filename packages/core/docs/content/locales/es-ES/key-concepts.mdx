@@ -420,7 +420,7 @@ Dos reglas arquitectónicas mantienen las aplicaciones portátiles entre bases d
 
 ## Espacio de trabajo {#workspace}
 
-Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Workspace](/docs/workspace).
+Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Recursos del Agente](/docs/agent-resources).
 
 ## Bloques de construcción relacionados {#building-blocks}
 
@@ -436,7 +436,7 @@ Estos se encuentran en la parte superior del mismo contrato y tienen sus propios
 Adoptar el marco es valioso principalmente por lo que deja de tener que construir. En el momento en que tu aplicación sigue las seis reglas, heredas:
 
 - **Una acción = cada superficie.** Cada acción definida con `defineAction()` es simultáneamente una herramienta de agente, un enlace frontal con seguridad de tipos (`useActionQuery` / `useActionMutation`), un transporte HTTP propiedad del marco, un comando CLI, una herramienta MCP para clientes externos y una herramienta A2A para otras aplicaciones nativas del agente. Los metadatos opcionales de `link` y `mcpApp` agregan enlaces profundos y aplicaciones MCP UI sin una segunda implementación.
-- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Workspace](/docs/workspace).
+- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Recursos del Agente](/docs/agent-resources).
 - **Componentes React integrados.** `<AgentPanel />` y `<AgentSidebar />` representan el chat y el espacio de trabajo en cualquier lugar de su aplicación. Ver [Drop-in Agent](/docs/drop-in-agent).
 - **Tiempos de ejecución del chat del agente BYO.** El mismo chat UI puede ubicarse encima de los agentes OpenAI, las respuestas de OpenAI, el agente Claude SDK, Vercel AI SDK, AG-UI o su propio flujo normalizado de HTTP. Ver [Native Interfaz de chat](/docs/native-chat-ui#byo-agent-runtimes).
 - **Sincronización en vivo entre el agente y UI.** Las escrituras del mismo proceso se transmiten inmediatamente sobre `/_agent-native/events`; una encuesta ligera mantiene convergentes las escrituras sin servidor, cron y entre procesos. La mutación de actions invalida automáticamente las consultas respaldadas por acciones, por lo que los registros creados por el agente aparecen sin una actualización manual. Consulte [Live Sync](#polling-sync) a continuación.

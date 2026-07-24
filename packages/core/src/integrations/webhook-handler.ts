@@ -1,9 +1,9 @@
 import type { H3Event } from "h3";
 
 import {
-  appendA2AArtifactLinks,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
   type A2AArtifactIdentity,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -46,7 +46,6 @@ import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getOrgA2ASecret, resolveOrgIdForEmail } from "../org/context.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -58,8 +57,11 @@ import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
 } from "./awaiting-input-store.js";
+import {
+  dispatchPendingIntegrationTask,
+  integrationDispatchScopeValue,
+} from "./integration-durable-dispatch.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
-import { signInternalToken } from "./internal-token.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
@@ -307,7 +309,7 @@ export async function resolveIntegrationApiKey(
  * 2. Verify webhook signature
  * 3. Parse incoming message (null = ignored event)
  * 4. Persist task to SQL
- * 5. Fire-and-forget POST to /_agent-native/integrations/process-task
+ * 5. Dispatch the queued task through the configured processor handoff
  *    (a fresh function execution with its own timeout budget)
  * 6. Return HTTP 200 immediately (within Slack's 3s SLA)
  *
@@ -429,7 +431,7 @@ async function enqueueAndDispatch(
   options: WebhookHandlerOptions,
   handlerStartedAt = Date.now(),
 ): Promise<void> {
-  const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const taskId = crypto.randomUUID();
 
   // Resolve the org id once at enqueue-time so the processor doesn't have to
   // re-derive it (and so we can drop it on the row for observability).
@@ -477,48 +479,14 @@ async function enqueueAndDispatch(
     // platform produce the same key, so the unique index rejects the
     // second insert (H3 in the webhook security audit).
     externalEventKey: buildEventDedupKey(incoming),
+    dispatchScope: integrationDispatchScopeValue({
+      platform: incoming.platform,
+      externalThreadId: incoming.externalThreadId,
+      platformContext: incoming.platformContext,
+    }),
   });
 
   const baseUrl = resolveBaseUrl(event);
-  const processUrl = `${baseUrl}${FRAMEWORK_ROUTE_PREFIX}/integrations/process-task`;
-
-  // Sign the dispatch with an HMAC token so the processor endpoint can
-  // verify the request came from us and not the public internet. The
-  // processor refuses unsigned requests in production (C3 in the webhook
-  // security audit). In dev, dispatching unsigned is allowed and falls
-  // through to the SQL atomic claim for double-processing protection.
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  try {
-    headers["Authorization"] = `Bearer ${signInternalToken(taskId)}`;
-  } catch (err) {
-    // Distinguish "secret not configured" (the documented dev path) from
-    // a real signing failure — silently swallowing both made malformed
-    // secrets fail invisibly (L5 in the audit).
-    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
-      console.error(
-        `[integrations] signInternalToken failed unexpectedly for ${taskId}:`,
-        err,
-      );
-    }
-  }
-
-  // Fire-and-forget: do NOT await the full response (the processor's run
-  // takes minutes — we don't want to block the caller). BUT on Netlify
-  // Lambda, when we return immediately, the runtime can freeze the function
-  // before the outbound TCP handshake even starts, which leaves the dispatch
-  // request stuck waiting for the 60s retry-sweep job. Race the fetch
-  // against a short timer so the request gets a reasonable chance to leave
-  // the box; the trade-off is at most a couple seconds of added webhook
-  // latency, still inside Slack's timeout window.
-  const dispatchPromise = fetch(processUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ taskId }),
-  }).catch((err) => {
-    console.error("[integrations] Failed to dispatch processor request:", err);
-  });
   const settleWaitMs = options.adapter.capabilities?.deferredWebhookResponse
     ? Math.min(
         DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS,
@@ -528,10 +496,17 @@ async function enqueueAndDispatch(
         ),
       )
     : PROCESSOR_DISPATCH_SETTLE_WAIT_MS;
-  await Promise.race([
-    dispatchPromise,
-    new Promise<void>((resolve) => setTimeout(resolve, settleWaitMs)),
-  ]);
+  await dispatchPendingIntegrationTask({
+    taskId,
+    task: {
+      platform: incoming.platform,
+      externalThreadId: incoming.externalThreadId,
+      platformContext: incoming.platformContext,
+    },
+    event,
+    baseUrl,
+    portableSettleMs: settleWaitMs,
+  });
 }
 
 /**
@@ -1029,7 +1004,7 @@ async function processIncomingMessage(
             }
           }
 
-          const suppressPlatformReply =
+          let suppressPlatformReply =
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
 
@@ -1088,10 +1063,20 @@ async function processIncomingMessage(
           // platforms with rich blocks (Slack) can render a button instead
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
-          if (!suppressPlatformReply) {
-            responseText = appendA2AArtifactLinks(responseText, toolResults, {
-              baseUrl: appBaseUrl || undefined,
-            });
+          const guardedResponse = guardA2AArtifactResponse(
+            responseText,
+            toolResults,
+            { baseUrl: appBaseUrl || undefined },
+          );
+          const queuedArtifactRejection =
+            queuedA2AContinuation &&
+            guardedResponse.rejectedUnverifiedArtifactReferences;
+          if (queuedArtifactRejection && verifiedMutationReceipt) {
+            responseText = verifiedMutationReceipt;
+            suppressPlatformReply = false;
+          } else {
+            responseText = guardedResponse.text;
+            suppressPlatformReply ||= queuedArtifactRejection;
           }
           const threadDeepLinkUrl =
             appBaseUrl && threadId

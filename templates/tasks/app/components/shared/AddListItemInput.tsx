@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 
@@ -16,11 +17,16 @@ interface AddListItemInputProps {
 export function AddListItemInput({
   disabled = false,
   onCreate,
-  placeholder = "Add a task...",
-  buttonLabel = "Add task",
-  inputAriaLabel = "New task title",
-  errorMessage = "Failed to create task. Please try again.",
+  placeholder,
+  buttonLabel,
+  inputAriaLabel,
+  errorMessage,
 }: AddListItemInputProps) {
+  const t = useT();
+  const resolvedPlaceholder = placeholder ?? t("tasks.addPlaceholder");
+  const resolvedButtonLabel = buttonLabel ?? t("tasks.addButtonLabel");
+  const resolvedInputAriaLabel = inputAriaLabel ?? t("tasks.addInputAriaLabel");
+  const resolvedErrorMessage = errorMessage ?? t("tasks.addErrorMessage");
   const [title, setTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -32,7 +38,7 @@ export function AddListItemInput({
     void onCreate(trimmed)
       .catch(() => {
         setTitle(trimmed);
-        toast.error(errorMessage);
+        toast.error(resolvedErrorMessage);
       })
       .finally(() => {
         inputRef.current?.focus();
@@ -45,12 +51,12 @@ export function AddListItemInput({
         ref={inputRef}
         value={title}
         onChange={(event) => setTitle(event.target.value)}
-        placeholder={placeholder}
-        aria-label={inputAriaLabel}
+        placeholder={resolvedPlaceholder}
+        aria-label={resolvedInputAriaLabel}
         disabled={disabled}
       />
       <Button type="submit" disabled={disabled || !title.trim()}>
-        {buttonLabel}
+        {resolvedButtonLabel}
       </Button>
     </form>
   );

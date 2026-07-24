@@ -21,10 +21,16 @@ import path from "path";
 import {
   AGENT_BACKGROUND_PROCESSOR_A2A,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "../agent/durable-background.js";
+import {
+  INTEGRATION_RETRY_SWEEP_PATH,
+  INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isIntegrationDurableDispatchConfigured,
+} from "../integrations/integration-durable-dispatch-config.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -677,8 +683,18 @@ function copyNetlifyFunctionIntoWorkspace(
   // Durable background agent runs (default-ON; opt out with a falsy
   // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: when explicitly opted out
   // this emits nothing and the single-function deploy is unchanged.
-  if (isDurableBackgroundDeployEnabled()) {
+  const integrationDurableDispatch =
+    app === "dispatch" && isIntegrationDurableDispatchConfigured();
+  if (isDurableBackgroundDeployEnabled() || integrationDurableDispatch) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
+  }
+  if (integrationDurableDispatch) {
+    emitNetlifyIntegrationRecoveryFunction(
+      workspaceRoot,
+      app,
+      src,
+      workspaceApps,
+    );
   }
 }
 
@@ -753,6 +769,7 @@ function emitNetlifyBackgroundFunction(
   // incoming pathname to `/<app>/_agent-native/agent-chat/_process-run`.
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
   const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
+  const integrationProcessTaskPath = `${basePath}/_agent-native/integrations/process-task`;
   const server = `// Mark this isolate as the durable background runtime BEFORE the handler bundle
 // is imported, so isInBackgroundFunctionRuntime() reliably returns true in this
 // function (the deployed Lambda name is not guaranteed to end in -background). A
@@ -764,8 +781,10 @@ const basePath = ${JSON.stringify(basePath)};
 // The base-path-prefixed framework route the Nitro router dispatches to.
 const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
 const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
+const INTEGRATION_PROCESS_TASK_PATH = ${JSON.stringify(integrationProcessTaskPath)};
 const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+const BACKGROUND_PROCESSOR_INTEGRATION = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_INTEGRATION)};
 const BACKGROUND_PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
 const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
 
@@ -775,6 +794,12 @@ function processorPathFromBody(body) {
     const parsed = JSON.parse(body);
     if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
       return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
+      BACKGROUND_PROCESSOR_INTEGRATION
+    ) {
+      return INTEGRATION_PROCESS_TASK_PATH;
     }
     const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
     if (
@@ -860,6 +885,103 @@ export const config = {
       `(rewrites to ${processRunPath}). REQUIRES real-deploy verification of ` +
       `Netlify async (202) invocation — see docs/design/durable-agent-runs.md.`,
   );
+}
+
+function emitNetlifyIntegrationRecoveryFunction(
+  workspaceRoot: string,
+  app: string,
+  srcServerDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const functionName = `${app}-integration-recovery`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(srcServerDir, dest);
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+
+  const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
+  const sweepPath = `${basePath}${INTEGRATION_RETRY_SWEEP_PATH}`;
+  const entry = `import { createHmac } from "node:crypto";
+
+const basePath = ${JSON.stringify(basePath)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+function enabled() {
+  const raw = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  if (!raw) return false;
+  return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`${INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+setBasePathEnv();
+let cachedHandler;
+
+export default async function handler(request, context) {
+  setBasePathEnv();
+  if (!enabled()) return new Response(null, { status: 204 });
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    console.error("[integration-recovery] A2A_SECRET is required; sweep skipped");
+    return new Response(null, { status: 204 });
+  }
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  url.pathname = SWEEP_PATH;
+  const rewritten = new Request(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ taskId: SWEEP_SUBJECT }),
+  });
+  return cachedHandler(rewritten, context);
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} integration pending-task recovery`)},
+  generator: "agent-native workspace deploy",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
 }
 
 function patchNetlifyFunctionEntry(
@@ -1020,10 +1142,20 @@ setBasePathEnv();
 
 let cachedHandler;
 
-export default async function handler(...args) {
-  setBasePathEnv();
-  cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(...normalizeBasePathArgs(args));
+export default {
+  async fetch(...args) {
+    setBasePathEnv();
+    cachedHandler ??= (await import("./main.mjs")).default;
+    // Vercel invokes this { fetch } export web-style with a Web Request, and
+    // Nitro's Vercel entry is itself a web fetch handler ({ fetch }). Require that
+    // shape rather than forwarding a Web Request to a Node-style (req, res) handler.
+    if (typeof cachedHandler?.fetch !== "function") {
+      throw new Error(
+        "agent-native: Vercel workspace function expected a Web fetch handler ({ fetch }) from ./main.mjs",
+      );
+    }
+    return cachedHandler.fetch(...normalizeBasePathArgs(args));
+  },
 }
 `;
   fs.writeFileSync(entryPath, entry);

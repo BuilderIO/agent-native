@@ -12,13 +12,10 @@ import {
   IconShare3,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  useCallback,
   type ComponentPropsWithoutRef,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -28,7 +25,6 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -36,8 +32,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
+import {
+  useShareButtonController,
+  type ShareButtonController,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonShare,
+  type ShareButtonRole,
+  type ShareButtonVisibility,
+} from "./useShareButtonController.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -46,11 +50,10 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label
-   *  with a leading visibility icon. "label-icon" is kept for callsites that
-   *  want to explicitly opt into icon+label parity; "icon" is icon-only. */
+  /** Optional trigger style. Defaults to a text-only "Share" label.
+   *  "label-icon" opts into an icon plus label; "icon" is icon-only. */
   trigger?: "label" | "icon" | "label-icon";
-  /** @deprecated No longer affects rendering — triggers show visibility state. */
+  /** @deprecated No longer affects rendering — kept for callsite compatibility. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -74,7 +77,7 @@ export interface ShareButtonProps {
   shareUrlPlacement?: "top" | "bottom";
   /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
-  /** Whether to render the bottom Done button. Defaults to true. */
+  /** @deprecated The Done action was removed; share popovers dismiss directly. */
   showDoneButton?: boolean;
   /** Optional placeholder shown in the share-URL slot when `shareUrl` is
    *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
@@ -134,34 +137,13 @@ export interface ShareButtonProps {
   popoverClassName?: string;
 }
 
-type Visibility = "private" | "org" | "public";
-type Role = "viewer" | "editor" | "admin";
+type Visibility = ShareButtonVisibility;
+type Role = ShareButtonRole;
 type HideInSearchControl = NonNullable<ShareButtonProps["hideInSearchControl"]>;
+type OrgMember = ShareButtonOrgMember;
+type OrgMemberSearch = ShareButtonOrgMemberSearch;
 
-interface Share {
-  id: string;
-  principalType: "user" | "org";
-  principalId: string;
-  displayName?: string | null;
-  role: Role;
-}
-
-interface SharesPolicy {
-  /** When false, the visibility picker hides "Public". Default: true. */
-  allowPublic: boolean;
-  /** When true, individual user shares must target an org member or pending invitee. Default: false. */
-  requireOrgMemberForUserShares: boolean;
-}
-
-interface SharesResponse {
-  ownerEmail: string | null;
-  orgId: string | null;
-  visibility: Visibility | null;
-  role?: "owner" | Role;
-  shares: Share[];
-  /** Server-declared policy for what visibilities and share targets are allowed. */
-  policy?: SharesPolicy;
-}
+type Share = ShareButtonShare;
 
 // Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
 // sits flush next to other controls while staying transparent at rest.
@@ -183,9 +165,6 @@ const SHARE_POPOVER_SURFACE =
   "border border-border bg-popover text-popover-foreground";
 const SHARE_NESTED_OVERLAY_ATTR = "data-agent-native-share-overlay";
 const SHARE_NESTED_OVERLAY_Z = "z-[100020]";
-const MEMBER_SUGGESTION_LIMIT = 25;
-const MEMBER_SEARCH_DEBOUNCE_MS = 140;
-
 const VIS_META: Record<
   Visibility,
   { label: string; description: string; Icon: typeof IconLock }
@@ -260,122 +239,27 @@ function handleSharePopoverInteractOutside(
  * dark mode in any shadcn template.
  */
 export function ShareButton(props: ShareButtonProps) {
-  const [open, setOpen] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState("");
-  const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
-  const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
-  const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
-    null,
-  );
-  const appliedDefaultOpenRef = useRef(false);
-  const visibilityRequestId = useRef(0);
-  const queryClient = useQueryClient();
-  const shareQueryParams = useMemo(
-    () => ({
-      resourceType: props.resourceType,
-      resourceId: props.resourceId,
-    }),
-    [props.resourceType, props.resourceId],
-  );
-  const shareQueryKey = useMemo(
-    () => ["action", "list-resource-shares", shareQueryParams] as const,
-    [shareQueryParams],
-  );
-  const setVisibility = useActionMutation("set-resource-visibility");
-  const sharesQuery = useActionQuery<SharesResponse>(
-    "list-resource-shares",
-    shareQueryParams,
-  );
-  const handleOpenChange = (v: boolean) => {
-    setOpen(v);
-    props.onOpenChange?.(v);
-    if (v) {
-      setActiveShareTab(shareTabDefaultValue);
-      props.shareTabs?.onValueChange?.(shareTabDefaultValue);
-      if (pendingVisibility === null) sharesQuery.refetch();
-    }
-  };
-
-  useEffect(() => {
-    setInviteEmail("");
-  }, [props.resourceType, props.resourceId]);
-
-  const handleShareTabChange = (value: string) => {
-    setActiveShareTab(value);
-    props.shareTabs?.onValueChange?.(value);
-  };
-
-  useEffect(() => {
-    if (!props.defaultOpen || appliedDefaultOpenRef.current) return;
-    appliedDefaultOpenRef.current = true;
-    handleOpenChange(true);
+  const controller = useShareButtonController({
+    resourceType: props.resourceType,
+    resourceId: props.resourceId,
+    defaultOpen: props.defaultOpen,
+    onOpenChange: props.onOpenChange,
+    shareTabs: props.shareTabs,
+    shareUrl: props.shareUrl,
+    hideInSearchControl: props.hideInSearchControl,
   });
-
-  const updateCachedVisibility = (visibility: Visibility) => {
-    queryClient.setQueryData<SharesResponse>(shareQueryKey, (prev) =>
-      prev ? { ...prev, visibility } : prev,
-    );
-  };
-
-  const handleVisibilityChange = (next: Visibility): Promise<void> => {
-    const requestId = ++visibilityRequestId.current;
-    const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
-    setPendingVisibility(next);
-    updateCachedVisibility(next);
-    return new Promise((resolve, reject) => {
-      setVisibility.mutate(
-        {
-          resourceType: props.resourceType,
-          resourceId: props.resourceId,
-          visibility: next,
-        } as any,
-        {
-          onSuccess: (result: any) => {
-            if (requestId === visibilityRequestId.current) {
-              updateCachedVisibility(
-                (result?.visibility as Visibility | undefined) ?? next,
-              );
-            }
-            sharesQuery
-              .refetch()
-              .then(() => resolve())
-              .catch(reject)
-              .finally(() => {
-                if (requestId === visibilityRequestId.current) {
-                  setPendingVisibility(null);
-                }
-              });
-          },
-          onError: (error) => {
-            if (requestId === visibilityRequestId.current) {
-              setPendingVisibility(null);
-              if (previous) {
-                queryClient.setQueryData(shareQueryKey, previous);
-              } else {
-                queryClient.invalidateQueries({ queryKey: shareQueryKey });
-              }
-            }
-            reject(error);
-          },
-        },
-      );
-    });
-  };
-
-  const triggerVisibility =
-    pendingVisibility ??
-    (sharesQuery.data
-      ? ((sharesQuery.data.visibility as Visibility | null) ?? "private")
-      : null);
+  const triggerVisibility = controller.triggerVisibility;
   const triggerMeta = triggerVisibility
     ? visibilityMeta(triggerVisibility, props.visibilityCopy)
     : null;
   const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
-  const triggerLabel = triggerMeta ? `Share (${triggerMeta.label})` : "Share";
   const iconOnly = props.trigger === "icon";
+  const showTriggerIcon = iconOnly || props.trigger === "label-icon";
+  const triggerLabel =
+    iconOnly && triggerMeta ? `Share (${triggerMeta.label})` : "Share";
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -386,7 +270,7 @@ export function ShareButton(props: ShareButtonProps) {
           aria-label={triggerLabel}
           title={triggerLabel}
         >
-          <TriggerIcon size={16} strokeWidth={1.75} />
+          {showTriggerIcon && <TriggerIcon size={16} strokeWidth={1.75} />}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -402,250 +286,49 @@ export function ShareButton(props: ShareButtonProps) {
         onOpenAutoFocus={(e) => e.preventDefault()}
         onInteractOutside={handleSharePopoverInteractOutside}
       >
-        <SharePanel
-          {...props}
-          inviteEmail={inviteEmail}
-          onInviteEmailChange={setInviteEmail}
-          sharesQuery={sharesQuery}
-          visibilityOverride={pendingVisibility}
-          onVisibilityChange={handleVisibilityChange}
-          onClose={() => handleOpenChange(false)}
-          activeTab={activeShareTab}
-          onTabChange={handleShareTabChange}
-        />
+        <SharePanel {...props} controller={controller} />
       </PopoverContent>
     </Popover>
   );
 }
 
-interface OrgMember {
-  email: string;
-  name?: string | null;
-  role?: string | null;
-  joinedAt?: number | null;
-}
-
-interface OrgMembersResponse {
-  members: OrgMember[];
-  hasMore?: boolean;
-  nextOffset?: number | null;
-}
-
-interface OrgMemberSearch {
-  members: OrgMember[];
-  isLoading: boolean;
-  isLoadingMore: boolean;
-  hasMore: boolean;
-  error: boolean;
-  loadMore: () => void;
-}
-
-function useOrgMemberSearch(query: string, enabled: boolean): OrgMemberSearch {
-  const search = query.trim();
-  const [members, setMembers] = useState<OrgMember[]>([]);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState(false);
-  const requestIdRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const fetchPage = useCallback(
-    (offset: number, append: boolean) => {
-      if (!enabled) return;
-      const requestId = ++requestIdRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      if (append) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoading(true);
-        setMembers([]);
-        setNextOffset(null);
-        setHasMore(false);
-      }
-      setError(false);
-
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      params.set("limit", String(MEMBER_SUGGESTION_LIMIT));
-      params.set("offset", String(offset));
-
-      fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
-        credentials: "include",
-        signal: controller.signal,
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("Could not load people");
-          return response.json() as Promise<OrgMembersResponse>;
-        })
-        .then((data) => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          const nextMembers = normalizeMembers(data?.members);
-          setMembers((prev) =>
-            append ? mergeMembers(prev, nextMembers) : nextMembers,
-          );
-          setHasMore(data?.hasMore === true);
-          setNextOffset(
-            typeof data?.nextOffset === "number" ? data.nextOffset : null,
-          );
-        })
-        .catch((err) => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          setError(true);
-          setHasMore(false);
-          setNextOffset(null);
-          if (!append) setMembers([]);
-          if (process.env.NODE_ENV === "development") {
-            console.warn("[ShareButton] org member search failed", err);
-          }
-        })
-        .finally(() => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          if (append) setIsLoadingMore(false);
-          else setIsLoading(false);
-        });
-    },
-    [enabled, search],
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      abortRef.current?.abort();
-      setMembers([]);
-      setNextOffset(null);
-      setHasMore(false);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setError(false);
-      return;
-    }
-    const timeout = setTimeout(
-      () => fetchPage(0, false),
-      search ? MEMBER_SEARCH_DEBOUNCE_MS : 0,
-    );
-    return () => {
-      clearTimeout(timeout);
-      abortRef.current?.abort();
-    };
-  }, [enabled, fetchPage, search]);
-
-  const loadMore = useCallback(() => {
-    if (!enabled || !hasMore || nextOffset === null) return;
-    if (isLoading || isLoadingMore) return;
-    fetchPage(nextOffset, true);
-  }, [enabled, fetchPage, hasMore, isLoading, isLoadingMore, nextOffset]);
-
-  return {
-    members,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    loadMore,
-  };
-}
-
-function normalizeMembers(value: unknown): OrgMember[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((m: any) => ({
-      email: typeof m?.email === "string" ? m.email : "",
-      name: typeof m?.name === "string" ? m.name : null,
-      role: typeof m?.role === "string" ? m.role : null,
-      joinedAt:
-        typeof m?.joinedAt === "number"
-          ? m.joinedAt
-          : typeof m?.joined_at === "number"
-            ? m.joined_at
-            : null,
-    }))
-    .filter((m) => m.email);
-}
-
-function mergeMembers(existing: OrgMember[], next: OrgMember[]): OrgMember[] {
-  const seen = new Set(existing.map((m) => m.email.toLowerCase()));
-  const merged = [...existing];
-  for (const member of next) {
-    const key = member.email.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(member);
-  }
-  return merged;
-}
-
 function SharePanel(
   props: ShareButtonProps & {
-    inviteEmail: string;
-    onInviteEmailChange: (email: string) => void;
-    sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
-    visibilityOverride: Visibility | null;
-    onVisibilityChange: (visibility: Visibility) => Promise<void>;
-    onClose: () => void;
-    activeTab: string;
-    onTabChange: (value: string) => void;
+    controller: ShareButtonController;
   },
 ) {
+  const { resourceTitle, controller } = props;
   const {
-    resourceType,
-    resourceId,
-    resourceTitle,
-    sharesQuery,
-    visibilityOverride,
-    onVisibilityChange,
-    onClose,
     inviteEmail,
-    onInviteEmailChange,
-  } = props;
-
-  const share = useActionMutation("share-resource");
-  const unshare = useActionMutation("unshare-resource");
-
-  const [role, setRole] = useState<Role>("viewer");
-  const [notifyPeople, setNotifyPeople] = useState(true);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+    setInviteEmail: onInviteEmailChange,
+    activeShareTab,
+    handleShareTabChange,
+    data,
+    policy,
+    visibility,
+    canManage,
+    role,
+    setRole,
+    notifyPeople,
+    setNotifyPeople,
+    shareError,
+    setShareError,
+    suggestionsOpen,
+    setSuggestionsOpen,
+    inFlight,
+    memberSearch,
+    memberSuggestions,
+    knownMembers,
+    shares,
+    handleVisibility,
+    handleHideInSearch,
+    handleAdd,
+    handleChangeRole,
+    handleRemove,
+  } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
 
-  // Optimistic overlays so clicks feel instant.
-  const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
-  const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
-  const [roleOverrides, setRoleOverrides] = useState<Record<string, Role>>({});
-  // Principals with an in-flight share/unshare mutation. We disable the
-  // role dropdown and the trash button for any share in this set so a
-  // user can't race a role-change against a remove (which would otherwise
-  // let the upsert silently re-grant access after the delete landed), and
-  // can't rapid-fire two creates for the same pending add.
-  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
-  const addInFlight = (k: string) =>
-    setInFlight((prev) => new Set(prev).add(k));
-  const clearInFlight = (k: string) =>
-    setInFlight((prev) => {
-      const next = new Set(prev);
-      next.delete(k);
-      return next;
-    });
-
-  useEffect(() => {
-    sharesQuery.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const data = sharesQuery.data;
   const isLoading = data === undefined;
-  const policy: SharesPolicy = data?.policy ?? {
-    allowPublic: true,
-    requireOrgMemberForUserShares: false,
-  };
-  const visibility: Visibility =
-    visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
-  const canManage = data?.role === "owner" || data?.role === "admin";
   const meta = visibilityMeta(visibility, props.visibilityCopy);
   const peopleAccessLabel = props.peopleAccessLabel ?? "People with access";
   const generalAccessLabel = props.generalAccessLabel ?? "General access";
@@ -682,194 +365,14 @@ function SharePanel(
     (Boolean(props.shareUrl) ||
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
-  const showDoneButton = props.showDoneButton ?? true;
   const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
   const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
   const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
 
-  const serverShares = data?.shares ?? [];
-  const shares: Share[] = [
-    ...serverShares
-      .filter((s) => !pendingRemoves.has(keyOf(s)))
-      .map((s) => ({ ...s, role: roleOverrides[keyOf(s)] ?? s.role })),
-    ...pendingAdds,
-  ];
-  const memberSearch = useOrgMemberSearch(
-    inviteEmail,
-    canManage && suggestionsOpen,
-  );
-  const excludedMemberEmails = new Set<string>();
-  if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
-  for (const s of shares) {
-    if (s.principalType === "user") {
-      excludedMemberEmails.add(s.principalId.toLowerCase());
-    }
-  }
-  const memberSuggestions = memberSearch.members.filter(
-    (m) => !excludedMemberEmails.has(m.email.toLowerCase()),
-  );
-  const knownMembers = memberSearch.members;
-
-  const handleVisibility = (next: Visibility) => {
-    if (next === visibility) return;
-    if (!canManage) {
-      setShareError("Only owners and admins can change access.");
-      return;
-    }
-    setShareError(null);
-    void onVisibilityChange(next).catch((err) => {
-      setShareError(extractShareErrorMessage(err));
-    });
-  };
-
-  const handleHideInSearch = () => {
-    const control = props.hideInSearchControl;
-    if (!control || control.pending || !canManage) return;
-    setShareError(null);
-    try {
-      Promise.resolve(control.onCheckedChange(!control.checked)).catch(
-        (err) => {
-          setShareError(extractShareErrorMessage(err));
-        },
-      );
-    } catch (err) {
-      setShareError(extractShareErrorMessage(err));
-    }
-  };
-
-  const handleAdd = () => {
-    const trimmed = inviteEmail.trim();
-    if (!trimmed) return;
-    const optimistic: Share = {
-      id: `pending-${trimmed}`,
-      principalType: "user",
-      principalId: trimmed,
-      role,
-    };
-    const k = keyOf(optimistic);
-    // Ignore duplicate submits while an add for the same principal is in flight.
-    if (inFlight.has(k)) return;
-    setShareError(null);
-    setPendingAdds((p) => [...p, optimistic]);
-    onInviteEmailChange("");
-    setSuggestionsOpen(false);
-    addInFlight(k);
-    share.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: "user",
-        principalId: trimmed,
-        role,
-        notify: notifyPeople,
-        resourceUrl: getNotificationUrl(props.shareUrl),
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
-            clearInFlight(k);
-          });
-        },
-        onError: (err: any) => {
-          setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
-          clearInFlight(k);
-          onInviteEmailChange(trimmed);
-          setShareError(extractShareErrorMessage(err));
-        },
-      },
-    );
-  };
-
-  const handleChangeRole = (s: Share, next: Role) => {
-    if (s.role === next) return;
-    const k = keyOf(s);
-    // Don't stack a role change on top of an in-flight add/remove/role
-    // change for the same principal — it can race with unshare and end up
-    // re-granting access after a delete. UI already disables the control,
-    // but belt-and-suspenders here too.
-    if (inFlight.has(k)) return;
-    setRoleOverrides((prev) => ({ ...prev, [k]: next }));
-    addInFlight(k);
-    // share-resource is upsert: calling with same principal + new role
-    // updates the existing share row. See sharing/actions/share-resource.ts.
-    share.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: s.principalType,
-        principalId: s.principalId,
-        role: next,
-        notify: false,
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setRoleOverrides((prev) => {
-              const { [k]: _, ...rest } = prev;
-              return rest;
-            });
-            clearInFlight(k);
-          });
-        },
-        onError: () => {
-          setRoleOverrides((prev) => {
-            const { [k]: _, ...rest } = prev;
-            return rest;
-          });
-          clearInFlight(k);
-        },
-      },
-    );
-  };
-
-  const handleRemove = (s: Share) => {
-    const k = keyOf(s);
-    // If any other mutation is in flight for this principal, don't start a
-    // remove — it can interleave with an upsert and leave the row in place.
-    // The UI already disables the trash button when inFlight.has(k).
-    if (inFlight.has(k)) return;
-    setPendingRemoves((prev) => new Set(prev).add(k));
-    addInFlight(k);
-    unshare.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: s.principalType,
-        principalId: s.principalId,
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setPendingRemoves((prev) => {
-              const next = new Set(prev);
-              next.delete(k);
-              return next;
-            });
-            clearInFlight(k);
-          });
-        },
-        onError: () => {
-          setPendingRemoves((prev) => {
-            const next = new Set(prev);
-            next.delete(k);
-            return next;
-          });
-          clearInFlight(k);
-        },
-      },
-    );
-  };
-
-  const handleDone = () => {
-    if (canManage && hasInviteEmail) handleAdd();
-    onClose();
-  };
-
   const titleText = resourceTitle
     ? `Share "${resourceTitle}"`
-    : `Share ${resourceType}`;
+    : `Share ${props.resourceType}`;
 
   const sharePanel = isLoading ? (
     <div>
@@ -886,13 +389,6 @@ function SharePanel(
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
       <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   ) : (
     <div>
@@ -1069,18 +565,6 @@ function SharePanel(
       {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
 
       {props.shareFooterContent}
-
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={handleDone}
-            className={BUTTON_PRIMARY_SM}
-          >
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 
@@ -1095,8 +579,8 @@ function SharePanel(
     },
     ...extraTabs,
   ];
-  const activeTab = tabs.some((tab) => tab.value === props.activeTab)
-    ? props.activeTab
+  const activeTab = tabs.some((tab) => tab.value === activeShareTab)
+    ? activeShareTab
     : "share";
 
   return (
@@ -1115,7 +599,7 @@ function SharePanel(
               role="tab"
               aria-selected={active}
               disabled={tab.disabled}
-              onClick={() => props.onTabChange(tab.value)}
+              onClick={() => handleShareTabChange(tab.value)}
               className={cn(
                 "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
                 active &&
@@ -1694,37 +1178,6 @@ function keyOf(s: Share): string {
   return `${s.principalType}:${s.principalId}`;
 }
 
-/**
- * Pull a user-readable error message out of a failed action call. Action
- * routes surface server-side errors as a JSON `{ error: string }` body that
- * the `useActionMutation` wrapper re-throws as
- * `Error("Action <name> failed: <message>")`. Strip the framework prefix so
- * what reaches the user is the underlying server message.
- */
-function extractShareErrorMessage(err: unknown): string {
-  const fallback = "Could not update sharing — please try again.";
-  const pickRaw = (): string | null => {
-    if (!err) return null;
-    if (err instanceof Error) return err.message?.trim() || null;
-    if (typeof err === "string") return err.trim() || null;
-    if (typeof err === "object") {
-      const any = err as { error?: unknown; message?: unknown };
-      if (typeof any.error === "string" && any.error.trim()) return any.error;
-      if (typeof any.message === "string" && any.message.trim())
-        return any.message;
-    }
-    return null;
-  };
-  const raw = pickRaw();
-  if (!raw || raw.toLowerCase() === "failed to fetch") return fallback;
-  const stripped = raw.replace(/^Action\s+[\w-]+\s+failed:\s*/i, "");
-  return stripped || fallback;
-}
-function getNotificationUrl(explicit?: string): string | undefined {
-  if (explicit) return explicit;
-  if (typeof window === "undefined") return undefined;
-  return window.location.href;
-}
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }

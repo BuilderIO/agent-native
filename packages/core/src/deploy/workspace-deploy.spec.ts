@@ -19,6 +19,7 @@ let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
 let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
+let previousIntegrationDurableDispatch: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -59,6 +60,8 @@ beforeEach(() => {
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   previousNetlify = process.env.NETLIFY;
   previousNetlifyLocal = process.env.NETLIFY_LOCAL;
+  previousIntegrationDurableDispatch =
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -90,6 +93,7 @@ beforeEach(() => {
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
+  delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -117,6 +121,10 @@ afterEach(() => {
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
   restoreEnv("NETLIFY", previousNetlify);
   restoreEnv("NETLIFY_LOCAL", previousNetlifyLocal);
+  restoreEnv(
+    "AGENT_INTEGRATION_DURABLE_DISPATCH",
+    previousIntegrationDurableDispatch,
+  );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
   restoreEnv(
@@ -724,8 +732,10 @@ describe("workspace deploy", () => {
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
     );
-    const req = { url: "/starter" };
-    await expect(starterModule.default(req, {})).resolves.toBe("/starter//");
+    const req = new Request("https://example.test/starter");
+    await expect(starterModule.default.fetch(req, {})).resolves.toBe(
+      "/starter//",
+    );
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -1189,6 +1199,70 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
 
+  it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const backgroundEntry = fs.readFileSync(
+      path.join(backgroundFuncDir("dispatch"), "dispatch-agent-background.mjs"),
+      "utf8",
+    );
+    expect(backgroundEntry).toContain(
+      'const BACKGROUND_PROCESSOR_INTEGRATION = "integration"',
+    );
+    expect(backgroundEntry).toContain(
+      'const INTEGRATION_PROCESS_TASK_PATH = "/dispatch/_agent-native/integrations/process-task"',
+    );
+
+    const recoveryDir = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-integration-recovery",
+    );
+    const recoveryEntry = fs.readFileSync(
+      path.join(recoveryDir, "dispatch-integration-recovery.mjs"),
+      "utf8",
+    );
+    expect(recoveryEntry).toContain('schedule: "* * * * *"');
+    expect(recoveryEntry).toContain(
+      'const SWEEP_PATH = "/dispatch/_agent-native/integrations/retry-stuck-tasks"',
+    );
+    const generated = await import(
+      `${pathToFileURL(path.join(recoveryDir, "dispatch-integration-recovery.mjs")).href}?t=${Date.now()}`
+    );
+    expect(generated.config.schedule).toBe("* * * * *");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await generated.default(
+      new Request("https://app.test/.netlify/functions/recovery"),
+      {},
+    );
+    expect(response.status).toBe(204);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "[integration-recovery] A2A_SECRET is required; sweep skipped",
+    );
+    consoleSpy.mockRestore();
+    expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "starter-integration-recovery",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   it("emits a per-app -background function BY DEFAULT (flag unset) at its DEFAULT url (no custom path)", async () => {
     // Default-on: the flag is unset (deleted in beforeEach) and the 15-min
     // `-background` function MUST still be emitted so the worker gets the real
@@ -1392,7 +1466,7 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
   );
   fs.writeFileSync(
     path.join(functionDir, "index.mjs"),
-    "export default async function handler(req) { return req?.url ?? 'ok'; }\n",
+    "export default { async fetch(request) { return new URL(request.url).pathname; } };\n",
   );
   fs.writeFileSync(
     path.join(functionDir, ".vc-config.json"),

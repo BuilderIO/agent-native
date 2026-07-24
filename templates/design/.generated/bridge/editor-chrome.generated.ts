@@ -1377,17 +1377,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) handle.style.right = "-34px";
         selectionOverlay.appendChild(handle);
       });
-      var button = document.createElement("span");
-      button.setAttribute("data-agent-native-rotate-handle", "top-center");
-      button.style.cssText = "position:absolute;left:50%;transform:translateX(-50%);top:-22px;width:16px;height:16px;pointer-events:auto;display:flex;align-items:center;justify-content:center;border-radius:999px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);cursor:grab;user-select:none;font-size:10px;line-height:1;color:#333;";
-      button.textContent = "\\u21BB";
-      selectionOverlay.appendChild(button);
     })();
     var spacingOverlay = document.createElement("div");
     spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
     spacingOverlay.style.cssText = "position:absolute;inset:0;display:none;pointer-events:none;";
     selectionOverlay.appendChild(spacingOverlay);
     document.body.appendChild(selectionOverlay);
+    if (readOnly) setSelectionOverlayResizeChromeVisible(false);
     var gradientOverlay = document.createElement("div");
     gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
     gradientOverlay.style.cssText = "position:fixed;z-index:99998;pointer-events:none;display:none;box-sizing:border-box;";
@@ -1551,7 +1547,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     function applyElementOverlayChrome(overlay, el) {
       var color = chromeColorForElement(el);
       var contrast = chromeContrastColorForElement(el);
-      overlay.style.borderColor = color;
+      var softChrome = overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+      overlay.style.borderColor = softChrome ? "color-mix(in srgb," + color + " 64%,transparent)" : color;
+      if (softChrome) {
+        overlay.style.background = "color-mix(in srgb," + color + " 5%,transparent)";
+      } else if (overlay === highlightOverlay || overlay.getAttribute("data-agent-native-edit-overlay") === "multi-selection") {
+        overlay.style.background = "transparent";
+      }
       overlay.querySelectorAll(
         "[data-agent-native-edit-handle],[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(node) {
@@ -1559,6 +1561,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.style.borderColor = color;
         node.style.background = contrast;
       });
+    }
+    function setHighlightOverlayStyle(style) {
+      highlightOverlayStyle = style;
+      if (style === "soft") {
+        highlightOverlay.setAttribute("data-agent-native-soft-chrome", "true");
+      } else {
+        highlightOverlay.removeAttribute("data-agent-native-soft-chrome");
+      }
+      if (hoveredEl && hoveredEl !== selectedEl) {
+        applyElementOverlayChrome(highlightOverlay, hoveredEl);
+      }
+      applyEditorChromeScale();
     }
     function applySelectionChrome(el) {
       applyElementOverlayChrome(selectionOverlay, el);
@@ -1591,6 +1605,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var selectedEl = null;
     var selectionChromeHidden = false;
     var hoveredEl = null;
+    var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
     function clearHoverGate() {
@@ -1723,11 +1738,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       scalePassiveSelectionOverlay(overlay);
     }
-    function makePassiveSelectionOverlay() {
+    function makePassiveSelectionOverlay(style) {
       var overlay = document.createElement("div");
       overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
-      overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-      appendPassiveSelectionHandles(overlay);
+      if (style === "soft") {
+        overlay.setAttribute("data-agent-native-soft-chrome", "true");
+      }
+      overlay.style.cssText = style === "soft" ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;" : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+      if (style !== "soft") appendPassiveSelectionHandles(overlay);
       document.body.appendChild(overlay);
       return overlay;
     }
@@ -1735,7 +1753,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      overlay.style.borderWidth = 1.5 * line + "px";
+      var softChrome = overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+      overlay.style.borderWidth = (softChrome ? 1 : 1.5) * line + "px";
       overlay.querySelectorAll(
         "[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(handle) {
@@ -1749,13 +1768,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (pos.indexOf("e") !== -1) handle.style.right = -4 * sx + "px";
       });
     }
-    function setPassiveSelectionElements(elements) {
+    function setPassiveSelectionElements(elements, style = "default") {
       passiveSelectionEls = elements.filter(function(el, index, all) {
         return el && el !== selectedEl && document.documentElement.contains(el) && all.indexOf(el) === index;
       });
       removePassiveSelectionOverlays();
       passiveSelectionEls.forEach(function(el) {
-        var overlay = makePassiveSelectionOverlay();
+        var overlay = makePassiveSelectionOverlay(style);
         passiveSelectionOverlays.push(overlay);
         positionOverlay(overlay, el);
       });
@@ -2671,7 +2690,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      highlightOverlay.style.borderWidth = 1 * line + "px";
+      highlightOverlay.style.borderWidth = (highlightOverlayStyle === "soft" ? 1 : 1.5) * line + "px";
       parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
       selectionOverlay.style.borderWidth = 1.5 * line + "px";
       marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
@@ -4213,6 +4232,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function startSpacingDrag(key, e) {
+      if (readOnly) return;
       if (spacingDrag) {
         stopNativeInteraction(e);
         return;
@@ -5615,6 +5635,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideH.style.display = "none";
     }
     function startMove(e, gestureElParam, pointerStartParam) {
+      if (readOnly) return;
       var gestureEl = gestureElParam || selectedEl;
       if (!gestureEl) return;
       if (isLayerInteractionBlocked(gestureEl)) return;
@@ -6454,6 +6475,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       setActiveDragCancel(cancelMoveDrag);
     }
     function startResize(handle, e) {
+      if (readOnly) return;
       if (!selectedEl) return;
       if (isLayerInteractionBlocked(selectedEl)) return;
       e.preventDefault();
@@ -6654,6 +6676,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       setActiveDragCancel(cancelResizeDrag);
     }
     function startRotate(e) {
+      if (readOnly) return;
       if (!selectedEl) return;
       if (isLayerInteractionBlocked(selectedEl)) return;
       e.preventDefault();
@@ -6799,7 +6822,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
-      if (!e.altKey) {
+      if (!readOnly && !e.altKey) {
         postCrossScreenDrag("start", dragTarget, e);
       }
       var startX = e.clientX;
@@ -6820,6 +6843,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         postElementSelect(selectedEl, ev);
       }
       function onMove(ev) {
+        if (readOnly) return;
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
         clearPendingShieldDrag();
         didStartDrag = true;
@@ -6839,7 +6863,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp(ev) {
         clearPendingShieldDrag();
         if (didStartDrag) return;
-        if (!e.altKey) {
+        if (!readOnly && !e.altKey) {
           postCrossScreenDrag("cancel");
         }
         if (ev) stopNativeInteraction(ev);
@@ -6860,6 +6884,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     selectionOverlay.addEventListener(
       "mousedown",
       function(e) {
+        if (readOnly) return;
         var spacingKey = e.target && e.target.getAttribute && e.target.getAttribute("data-spacing-key");
         if (spacingKey) {
           startSpacingDrag(spacingKey, e);
@@ -7112,15 +7137,51 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var content = getFigmaClipboardContent(e.clipboardData);
         clearPendingPlainPasteHotkey();
-        if (!content) return;
-        stopNativeInteraction(e);
-        window.parent.postMessage(
-          {
-            type: "figma-clipboard-paste",
-            content
-          },
-          "*"
-        );
+        if (content) {
+          stopNativeInteraction(e);
+          window.parent.postMessage(
+            { type: "figma-clipboard-paste", content },
+            "*"
+          );
+          return;
+        }
+        var imageFiles = Array.from(e.clipboardData?.items ?? []).filter(function(item) {
+          return item.kind === "file" && item.type.startsWith("image/");
+        }).map(function(item) {
+          return item.getAsFile();
+        }).filter(function(f) {
+          return Boolean(f);
+        });
+        if (imageFiles.length > 0) {
+          stopNativeInteraction(e);
+          var readPromises = imageFiles.map(function(file) {
+            return new Promise(function(resolve) {
+              var reader = new FileReader();
+              reader.onload = function() {
+                resolve({
+                  dataUrl: typeof reader.result === "string" ? reader.result : "",
+                  type: file.type,
+                  name: file.name
+                });
+              };
+              reader.onerror = function() {
+                resolve(null);
+              };
+              reader.readAsDataURL(file);
+            });
+          });
+          void Promise.all(readPromises).then(function(results) {
+            var valid = results.filter(function(r) {
+              return r && r.dataUrl;
+            });
+            if (valid.length > 0) {
+              window.parent.postMessage(
+                { type: "canvas-image-paste", files: valid },
+                "*"
+              );
+            }
+          });
+        }
       },
       true
     );
@@ -7637,9 +7698,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
-          clearRuntimeSelection();
-          shieldOverlay.style.pointerEvents = "none";
+          clearPendingShieldDrag();
+          cancelActiveBridgeDrag();
+          setSelectionOverlayResizeChromeVisible(false);
+          shieldOverlay.style.pointerEvents = "auto";
         } else {
+          setSelectionOverlayResizeChromeVisible(true);
           shieldOverlay.style.pointerEvents = "auto";
         }
         return;
@@ -7877,7 +7941,13 @@ export const editorChromeBridgeScript: string = `"use strict";
             }
           }
         });
-        setPassiveSelectionElements(passiveTargets);
+        setPassiveSelectionElements(
+          passiveTargets,
+          e.data.passiveSelectionStyle === "soft" ? "soft" : "default"
+        );
+        setHighlightOverlayStyle(
+          e.data.passiveSelectionStyle === "soft" ? "soft" : "default"
+        );
         return;
       }
       if (e.data.type === "set-selection-chrome-hidden") {
@@ -7931,6 +8001,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "hover-element") {
+        if (e.data.hoverStyle === "soft" || e.data.hoverStyle === "default") {
+          setHighlightOverlayStyle(e.data.hoverStyle);
+        }
         var hoverCandidates = [];
         if (Array.isArray(e.data.selectorCandidates)) {
           e.data.selectorCandidates.forEach(function(selector) {

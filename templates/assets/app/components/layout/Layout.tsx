@@ -68,10 +68,9 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
-    // A direct /chat/:id link already names the thread and must preserve the
-    // normal chat-to-sidebar transition. Only the empty home chat needs the
-    // recent marker that proves an agent handoff is in flight.
-    requireActiveHandoff: location.pathname === "/",
+    // Only preserve the transition when chat activity has recorded an active
+    // handoff; an empty home chat should keep the destination sidebar closed.
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {

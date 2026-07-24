@@ -50,6 +50,13 @@ declare global {
     __AGENT_NATIVE_CONFIG__?: {
       sentryDsn?: string;
       sentryEnvironment?: string;
+      /**
+       * Hosted Realtime Gateway config. Impersonal (same for every visitor),
+       * so it is safe inside the CDN-cached SSR shell — unlike the per-user
+       * subscribe token, which is minted client-side after load. Absent when
+       * the app uses the in-process (local) transport.
+       */
+      realtime?: { transport?: string; gatewayBaseUrl?: string };
     };
   }
 }

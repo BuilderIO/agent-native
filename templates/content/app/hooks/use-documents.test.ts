@@ -361,11 +361,17 @@ describe("optimistic document titles", () => {
       ],
     });
 
-    patchDocumentCaches(queryClient, "a", { title: "Page one" });
+    patchDocumentCaches(queryClient, "a", {
+      title: "Page one",
+      content: "Saved body",
+    });
 
     expect(
       queryClient.getQueryData<Document>(documentQueryKey("a"))?.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<Document>(documentQueryKey("a"))?.content,
+    ).toBe("Saved body");
     expect(
       queryClient.getQueryData<Document[]>([
         "action",
@@ -376,6 +382,9 @@ describe("optimistic document titles", () => {
     expect(
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.title,
     ).toBe("Page one");
+    expect(
+      queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
+    ).toBe("Saved body");
   });
 });
 
@@ -437,6 +446,7 @@ describe("documentUpdateSuccessPatch", () => {
     const response = {
       ...doc("page", null),
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
       urlPath: "/page/page",
       softDeletedDatabaseIds: [],
@@ -446,9 +456,11 @@ describe("documentUpdateSuccessPatch", () => {
       documentUpdateSuccessPatch(response, {
         id: "page",
         title: "Renamed",
+        content: "Saved body",
       }),
     ).toEqual({
       title: "Renamed",
+      content: "Saved body",
       updatedAt: "2026-05-12T00:00:01.000Z",
     });
   });

@@ -5,18 +5,16 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPlus,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
@@ -29,6 +27,13 @@ import {
 } from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
 import { cn } from "@/lib/utils";
+
+const primaryNavItems = navItems.filter(
+  (item) => item.view !== "agent" && item.view !== "settings",
+);
+const bottomNavItems = navItems.filter(
+  (item) => item.view === "agent" || item.view === "settings",
+);
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -102,8 +107,7 @@ function BrainChatsSection() {
     () =>
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
-        .sort(compareThreads)
-        .slice(0, 8),
+        .sort(compareThreads),
     [threads],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
@@ -177,51 +181,38 @@ function BrainChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newBrainChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={activeThreadId}
-          onSelect={openThread}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
-          renameMaxLength={160}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
-          labels={{
-            options: (item) =>
-              t("chat.optionsFor", { title: item.titleText ?? "" }),
-            renameInput: (item) =>
-              t("chat.renameThread", { title: item.titleText ?? "" }),
-            rename: t("chat.renameChat"),
-            pin: t("chat.pinChat"),
-            unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
+    <div className="mt-2 ms-4">
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={activeThreadId}
+        onSelect={openThread}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("chat.newChat"),
+          showMore: t("chat.chats"),
+          showLess: t("chat.chats"),
+        }}
+        previewCount={5}
+        expandedCount={15}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        renameMaxLength={160}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        labels={{
+          options: (item) =>
+            t("chat.optionsFor", { title: item.titleText ?? "" }),
+          renameInput: (item) =>
+            t("chat.renameThread", { title: item.titleText ?? "" }),
+          rename: t("chat.renameChat"),
+          pin: t("chat.pinChat"),
+          unpin: t("chat.unpinChat"),
+          delete: t("chat.archiveChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -312,7 +303,6 @@ export function Sidebar({
             </p>
           </div>
         </Link>
-        {!collapsed ? collapseButton : null}
       </div>
 
       <nav
@@ -327,7 +317,7 @@ export function Sidebar({
             collapsed ? "justify-items-center gap-1" : "gap-1",
           )}
         >
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const label =
               item.view === "agent"
@@ -378,13 +368,37 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="mt-auto shrink-0">
-        {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label =
+            item.view === "agent"
+              ? t("settings.agentTitle")
+              : t(`navigation.${item.view}`);
+          const link = (
+            <NavLink
+              to={item.href}
+              className={navClass}
+              aria-label={collapsed ? label : undefined}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
 
+      <div className="mt-auto shrink-0">
         {!collapsed ? (
           <div className="px-3 py-2">
             <OrgSwitcher reserveSpace />
@@ -394,11 +408,14 @@ export function Sidebar({
         {!collapsed ? (
           <div className="px-3 py-2">
             <DevDatabaseLink />
-            <FeedbackButton />
+            <div className="flex items-center justify-end gap-1">
+              <FeedbackButton className="min-w-0 flex-1" side="right" />
+              {collapseButton}
+            </div>
           </div>
         ) : null}
 
-        {collapseButton ? (
+        {collapsed && collapseButton ? (
           <div className="flex justify-center px-2 py-2">{collapseButton}</div>
         ) : null}
       </div>

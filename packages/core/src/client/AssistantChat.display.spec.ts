@@ -25,6 +25,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
   assistantMessageRunId,
+  assistantChatAutoscrollStatusKey,
   assistantUiRecoverableRenderErrorKind,
   dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
@@ -1230,6 +1231,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("missingKeySetupOpen");
     expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
+    expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
     expect(source).toContain("collisionPadding={12}");
@@ -1240,6 +1242,9 @@ describe("missing agent engine setup", () => {
     );
     expect(css).toMatch(
       /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
     );
   });
 });
@@ -1534,6 +1539,20 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
+  it("hides a generic activity status while reasoning is visibly streaming", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Thinking",
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
   it("keeps a specific tool activity ahead of visible reasoning", () => {
     expect(
       shouldShowGlobalRunningStatus({
@@ -1585,6 +1604,47 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
+  it("lets a resolved final tool carry the active state without duplicate Thinking", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
+              result: "done",
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("shows Thinking after completed reasoning when no tool carries the active state", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            { type: "text", text: "Interim update." },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
   it("keeps a specific activity status when only a different tool card is visible", () => {
     expect(
       shouldShowGlobalRunningStatus({
@@ -1633,6 +1693,26 @@ describe("shouldShowGlobalRunningStatus", () => {
   });
 });
 
+describe("assistantChatAutoscrollStatusKey", () => {
+  it("ignores activity labels that are not rendered", () => {
+    expect(
+      assistantChatAutoscrollStatusKey({
+        showGlobalRunningStatus: false,
+        runningStatusLabel: "Thinking",
+      }),
+    ).toBe("idle");
+  });
+
+  it("tracks a visible activity label", () => {
+    expect(
+      assistantChatAutoscrollStatusKey({
+        showGlobalRunningStatus: true,
+        runningStatusLabel: "Querying submissions",
+      }),
+    ).toBe("Querying submissions");
+  });
+});
+
 describe("chat submit and stop hardening", () => {
   it("wires reconnect ownership into the inner chat and rejects stale callbacks", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
@@ -1648,7 +1728,7 @@ describe("chat submit and stop hardening", () => {
     );
   });
 
-  it("does not block chat composer submit on the async readiness hook", () => {
+  it("keeps chat composer readiness passive and eager", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -1656,20 +1736,22 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain(
       "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
     );
+    expect(source).not.toContain("fetchAgentEngineConfiguredState(");
+    expect(source).not.toContain("ensureAgentEngineReadyForSubmit");
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+    expect(source).not.toContain("isProviderStatusChecking");
+    expect(source).not.toContain("checkingAiConnection");
   });
 
-  it("keeps the chat composer editable while provider readiness is loading", () => {
+  it("makes the chat composer retryable when provider readiness is unavailable", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain(
-      "const isComposerDisabled = missingApiKey || composerDisabled;",
+      "missingApiKey || isProviderStatusUnavailable || composerDisabled",
     );
-    expect(source).not.toContain(
-      "missingApiKey || isProviderStatusChecking || composerDisabled",
-    );
+    expect(source).not.toContain("UNKNOWN_STATUS_RETRY_MS");
   });
 
   it("clears queued follow-ups and settles stopped tool calls by default", () => {
@@ -1690,6 +1772,9 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("resetRunningActivity()");
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
+    expect(
+      helperSource.indexOf("settleVisibleInterruptedTools()"),
+    ).toBeLessThan(helperSource.indexOf("threadRuntime.cancelRun()"));
     expect(helperSource).toContain("getPendingTurn(threadId)");
     expect(helperSource).toContain("clearPendingTurnIfMatches(");
     expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
@@ -1900,6 +1985,7 @@ describe("waitForThreadRunToClear", () => {
       }),
     ]);
     expect(reconnectActivityFallbackContent("")).toEqual([]);
+    expect(reconnectActivityFallbackContent("call-agent")).toEqual([]);
   });
 
   it("rehydrates reconnect activity from active-run state", () => {

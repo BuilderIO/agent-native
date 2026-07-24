@@ -39,6 +39,7 @@ import { setMobileCaptureStateBestEffort } from "@/lib/mobile-state-api";
 import { persistCaptureFile } from "@/lib/persist-capture";
 import {
   saveMobileDictation,
+  setLastDictatedText,
   transcribeMobileAudio,
   updateMobileDictation,
 } from "@/lib/voice-api";
@@ -111,6 +112,7 @@ export default function DictationCaptureScreen() {
         );
         if (!mountedRef.current || controller.signal.aborted) return;
         setText(transcript);
+        setLastDictatedText(transcript);
         publishKeyboardDictation(transcript, keyboardRequestId);
         await Clipboard.setStringAsync(transcript);
         await releaseCaptureJobLocalFile(boundJob.id).catch(() => null);
@@ -198,6 +200,7 @@ export default function DictationCaptureScreen() {
     setSaving(true);
     try {
       await Clipboard.setStringAsync(value);
+      setLastDictatedText(value);
       publishKeyboardDictation(value, keyboardRequestId);
       if (!mountedRef.current) return;
       if (dictationId) {
