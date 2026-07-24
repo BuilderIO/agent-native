@@ -1,5 +1,16 @@
 # @agent-native/dispatch
 
+## 0.15.19
+
+### Patch Changes
+
+- 0e2c19d: Use quieter borderless styling for Dispatch secondary controls and surfaces.
+- 0e2c19d: Standardize Dispatch sidebar utility controls with the shared footer layout.
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+  - @agent-native/toolkit@0.10.5
+
 ## 0.15.18
 
 ### Patch Changes
