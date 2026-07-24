@@ -724,9 +724,16 @@ export async function migrateAnalyticsArtifacts(
   const publicAnalyses = state.analyses.filter(
     (analysis) => analysis.visibility === "public",
   );
-  if (publicAnalyses.length > 0) {
+  const publicExtensions = state.extensions.filter(
+    (extension) => extension.visibility === "public",
+  );
+  if (publicAnalyses.length > 0 || publicExtensions.length > 0) {
+    const blocked = [
+      ...publicAnalyses.map((analysis) => `analysis:${analysis.id}`),
+      ...publicExtensions.map((extension) => `extension:${extension.id}`),
+    ];
     throw new Error(
-      `Refusing to migrate public analyses because embedded extensions cannot be public: ${publicAnalyses.map((analysis) => analysis.id).join(", ")}. Make those analyses organization-visible first, then retry.`,
+      `Refusing to migrate public analytics artifacts because embedded extensions cannot be public: ${blocked.join(", ")}. Make those artifacts organization-visible first, then retry.`,
     );
   }
   await db.transaction(async (tx: any) => {
