@@ -5,9 +5,11 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -15,6 +17,7 @@ import {
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
@@ -268,6 +271,31 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("navigation.search")}
+          className="flex size-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconSearch className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("navigation.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -414,16 +442,15 @@ export function Sidebar({
         {!collapsed ? (
           <div className="px-3 py-2">
             <DevDatabaseLink />
-            <div className="flex items-center justify-end gap-1">
-              <FeedbackButton className="min-w-0 flex-1" side="right" />
-              {collapseButton}
-            </div>
           </div>
         ) : null}
-
-        {collapsed && collapseButton ? (
-          <div className="flex justify-center px-2 py-2">{collapseButton}</div>
-        ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );
