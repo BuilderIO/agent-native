@@ -79,7 +79,6 @@ hi-IN|generative-ui
 hi-IN|http-api
 hi-IN|integrations
 hi-IN|organizations-teams-permissions
-hi-IN|syncing-template-changes
 hi-IN|toolkit-agent-ux
 hi-IN|toolkit-collaboration
 hi-IN|toolkit-command-navigation
