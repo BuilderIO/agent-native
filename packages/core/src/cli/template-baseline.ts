@@ -22,6 +22,8 @@ export interface BaselineStore {
   appDir: string;
   /** Absolute `.git` directory, or null when the app is not in a repo. */
   gitDir: string | null;
+  /** Absolute work-tree root, or null when the app is not in a repo. */
+  repoRoot: string | null;
   /** Repo-relative posix prefix the app lives at ("" when app === repo root). */
   prefix: string;
   /** Stable id used in ref names and tarball filenames. */
@@ -64,6 +66,7 @@ export function resolveBaselineStore(appDir: string): BaselineStore {
   return {
     appDir: resolved,
     gitDir,
+    repoRoot,
     prefix,
     slug: sanitizeRefPath(prefix || path.basename(resolved)),
   };
@@ -309,7 +312,9 @@ function git(
   options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): string {
   return execFileSync("git", ["--git-dir", store.gitDir!, ...args], {
-    cwd: options.cwd ?? store.appDir,
+    // Without an explicit work tree, `--git-dir` makes git treat cwd as the
+    // work-tree root, which turns every sibling path into a phantom deletion.
+    cwd: options.cwd ?? store.repoRoot ?? store.appDir,
     encoding: "utf-8",
     env: options.env ?? { ...process.env, ...GIT_IDENTITY },
     stdio: ["ignore", "pipe", "pipe"],
