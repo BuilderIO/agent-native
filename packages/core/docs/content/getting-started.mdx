@@ -134,7 +134,9 @@ Or open your app at `http://localhost:8080` and ask the agent in the chat there:
 
 Replace the starter action with the first real operation in your domain. This example
 counts words, sentences, and paragraphs in any text you pass it. It computes
-everything locally, so there's nothing to configure and no external service to connect:
+everything locally, so there's nothing to configure and no external service to connect.
+
+Create a new file called `analyze-text.ts` in your `actions/` directory:
 
 ```ts filename="actions/analyze-text.ts"
 import { defineAction } from "@agent-native/core/action";
@@ -421,7 +423,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -601,27 +602,39 @@ with a few saved rows:
 
 ## 7. Extend the navigation {#extend-navigation}
 
-When the agent opened `/text-analyses` in the previous step, it used two
-built-in actions that ship with the Chat template:
+The sidebar is configured in `app/config/nav.ts`. Open it and add an entry for
+the Text analyses page:
+
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
+
+Save the file. The dev server picks up the change automatically and the sidebar
+updates without a restart.
+
+### Agent navigation
+
+The sidebar link lets users navigate manually. The agent can also open pages on
+its own using two built-in actions that ship with the Chat template:
 
 - **`view-screen`** reads the current route and returns a compact summary of
-  what the user is looking at. The agent calls this when it needs UI context
-  before deciding what to do next.
-- **`navigate`** writes a same-origin path to the browser's history. The
-  agent calls this when a visual page is the right response to what the user
-  asked.
+  what the user is looking at.
+- **`navigate`** writes a same-origin path to the browser's history.
 
-You didn't write either of these; they're included in the template. As you add
-more pages, keep them updated so the agent stays aware of what's in the app:
-
-- `view-screen` should return the current route, any selected item or active
-  filters, and enough page context for the agent to answer follow-up questions
-  without the user describing the screen.
-- `navigate` should handle every route in your app. Document available paths in
-  `AGENTS.md` so the agent knows what destinations exist.
-- Action results can include `href: "/text-analyses"` so a chat reply renders
-  an explicit button rather than relying on the agent to call `navigate`
-  automatically.
+As you add more pages, keep `navigate` updated so the agent knows what
+destinations exist. Document available paths in `AGENTS.md` so the model can
+reason about them.
 
 When the app has both a full-page chat route and an app page, use the shared chat
 handoff helpers described in [Agent Surfaces](/docs/agent-surfaces#rich-chat):

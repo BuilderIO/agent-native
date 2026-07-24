@@ -410,7 +410,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -577,27 +576,40 @@ Se você receber um 404, tente reiniciar seu servidor de desenvolvimento.
 
 ## 7. Estender a navegação {#extend-navigation}
 
-Quando o agente abriu `/text-analyses` no passo anterior, ele usou duas
-ações embutidas que vêm com o template Chat:
+A barra lateral é configurada em `app/config/nav.ts`. Abra o arquivo e adicione
+uma entrada para a página de análise de texto:
+
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
+
+Salve o arquivo. O servidor de desenvolvimento detecta a alteração automaticamente e
+a barra lateral é atualizada sem precisar reiniciá-lo.
+
+### Navegação do agente
+
+O link da barra lateral permite que os usuários naveguem manualmente. O agente também
+pode abrir páginas por conta própria usando duas ações integradas que vêm com o
+template Chat:
 
 - **`view-screen`** lê a rota atual e retorna um resumo compacto do
-  que o usuário está vendo. O agente chama isso quando precisa de contexto da UI
-  antes de decidir o que fazer a seguir.
-- **`navigate`** grava um caminho de mesma origem no histórico do navegador. O
-  agente chama isso quando uma página visual é a resposta certa para o que o usuário
-  perguntou.
+  que o usuário está vendo.
+- **`navigate`** grava um caminho de mesma origem no histórico do navegador.
 
-Você não escreveu nenhuma dessas; elas estão incluídas no template. Conforme você adicionar
-mais páginas, mantenha-as atualizadas para que o agente fique ciente do que há no app:
-
-- `view-screen` deve retornar a rota atual, qualquer item selecionado ou filtros ativos,
-  e contexto de página suficiente para o agente responder perguntas de acompanhamento
-  sem o usuário descrever a tela.
-- `navigate` deve lidar com todas as rotas do seu app. Documente os caminhos disponíveis em
-  `AGENTS.md` para que o agente saiba quais destinos existem.
-- Os resultados das ações podem incluir `href: "/text-analyses"` para que uma resposta no chat renderize
-  um botão explícito em vez de depender do agente para chamar `navigate`
-  automaticamente.
+Conforme você adicionar mais páginas, mantenha `navigate` atualizado para que o agente
+saiba quais destinos existem. Documente os caminhos disponíveis em `AGENTS.md` para
+que o modelo possa raciocinar sobre eles.
 
 Quando o app tiver tanto uma rota de chat completo quanto uma página do app, use os helpers de
 handoff de chat compartilhado descritos em [Agent Surfaces](/docs/agent-surfaces#rich-chat):

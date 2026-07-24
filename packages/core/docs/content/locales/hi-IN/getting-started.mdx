@@ -343,7 +343,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -493,16 +492,33 @@ export default function TextAnalysesRoute() {
 
 ## 7. Navigation extend करें {#extend-navigation}
 
-जब agent ने पिछले step में `/text-analyses` खोला, तो उसने दो built-in actions का उपयोग किया जो Chat template के साथ आते हैं:
+Sidebar `app/config/nav.ts` में configure होता है। इसे खोलें और Text analyses page के लिए एक entry जोड़ें:
 
-- **`view-screen`** current route read करता है और एक compact summary return करता है कि user क्या देख रहा है। Agent इसे तब call करता है जब उसे यह decide करने से पहले UI context चाहिए कि आगे क्या करना है।
-- **`navigate`** browser के history में एक same-origin path लिखता है। Agent इसे तब call करता है जब user ने जो पूछा उसका सही जवाब एक visual page हो।
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
 
-आपने इनमें से कोई भी नहीं लिखा; वे template में शामिल हैं। जैसे-जैसे आप अधिक pages जोड़ते हैं, उन्हें updated रखें ताकि agent को पता रहे कि ऐप में क्या है:
+File save करें। Dev server automatically change pick up करता है और sidebar बिना restart के update हो जाता है।
 
-- `view-screen` को current route, कोई selected item या active filters, और agent के follow-up questions का जवाब देने के लिए पर्याप्त page context return करना चाहिए बिना user को screen describe किए।
-- `navigate` को आपके ऐप के हर route को handle करना चाहिए। `AGENTS.md` में available paths document करें ताकि agent को पता हो कि कौन से destinations exist करते हैं।
-- Action results में `href: "/text-analyses"` शामिल हो सकता है ताकि chat reply एक explicit button render करे बजाय agent के automatically `navigate` call करने पर निर्भर होने के।
+### Agent navigation
+
+Sidebar link users को manually navigate करने देता है। Agent भी Chat template के साथ आने वाले दो built-in actions का उपयोग करके अपने आप pages खोल सकता है:
+
+- **`view-screen`** current route read करता है और एक compact summary return करता है कि user क्या देख रहा है।
+- **`navigate`** browser के history में एक same-origin path लिखता है।
+
+जैसे-जैसे आप अधिक pages जोड़ते हैं, `navigate` को updated रखें ताकि agent को पता रहे कि कौन से destinations exist करते हैं। Model को उनके बारे में reason करने के लिए `AGENTS.md` में available paths document करें।
 
 जब ऐप में full-page chat route और एक app page दोनों हों, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) में described shared chat handoff helpers का उपयोग करें: `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks`, और `chatViewTransition`। यह full chat को side panel में slide करने देता है जैसे page खुलती है, user के durable data inspect करते समय वही thread बनाए रखता है।
 

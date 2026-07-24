@@ -406,7 +406,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -572,30 +571,44 @@ Wenn Sie einen 404-Fehler erhalten, starten Sie Ihren Entwicklungsserver neu.
 
 ## 7. Die Navigation erweitern {#extend-navigation}
 
-Als der Agent im vorherigen Schritt `/text-analyses` öffnete, verwendete er zwei
-eingebaute Aktionen, die mit dem Chat-Template geliefert werden:
+Die Seitenleiste wird in `app/config/nav.ts` konfiguriert. Öffnen Sie die Datei und fügen Sie
+einen Eintrag für die Seite Textanalysen hinzu:
+
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
+
+Speichern Sie die Datei. Der Entwicklungsserver übernimmt die Änderung automatisch und die
+Seitenleiste aktualisiert sich ohne Neustart.
+
+### Agenten-Navigation
+
+Der Seitenleisten-Link ermöglicht es Benutzern, manuell zu navigieren. Der Agent kann Seiten auch
+eigenständig öffnen, mithilfe von zwei integrierten Aktionen, die mit dem Chat-Template geliefert
+werden:
 
 - **`view-screen`** liest die aktuelle Route und gibt eine kompakte Zusammenfassung zurück,
-  was der Benutzer gerade sieht. Der Agent ruft dies auf, wenn er UI-Kontext benötigt,
-  bevor er entscheidet, was als nächstes zu tun ist.
-- **`navigate`** schreibt einen gleichrangigen Pfad in den Browserverlauf. Der
-  Agent ruft dies auf, wenn eine visuelle Seite die richtige Antwort auf das ist, was der Benutzer
-  gefragt hat.
+  was der Benutzer gerade sieht.
+- **`navigate`** schreibt einen gleichrangigen Pfad in den Browserverlauf.
 
-Sie haben keines davon geschrieben; sie sind im Template enthalten. Wenn Sie
-weitere Seiten hinzufügen, halten Sie sie aktuell, damit der Agent weiß, was in der App vorhanden ist:
+Wenn Sie weitere Seiten hinzufügen, halten Sie `navigate` aktuell, damit der Agent weiß, welche
+Ziele verfügbar sind. Dokumentieren Sie verfügbare Pfade in `AGENTS.md`, damit das Modell über
+sie nachdenken kann.
 
-- `view-screen` sollte die aktuelle Route, alle ausgewählten Elemente oder aktive
-  Filter sowie genug Seitenkontext zurückgeben, damit der Agent Folgefragen beantworten kann,
-  ohne dass der Benutzer den Bildschirm beschreiben muss.
-- `navigate` sollte jede Route in Ihrer App verarbeiten. Dokumentieren Sie verfügbare Pfade in
-  `AGENTS.md`, damit der Agent weiß, welche Ziele vorhanden sind.
-- Aktionsergebnisse können `href: "/text-analyses"` enthalten, sodass eine Chat-Antwort
-  eine explizite Schaltfläche rendert, anstatt sich darauf zu verlassen, dass der Agent `navigate`
-  automatisch aufruft.
-
-Wenn die App sowohl eine vollständige Chat-Route als auch eine App-Seite hat, verwenden Sie die gemeinsamen Chat-
-Übergabe-Hilfsfunktionen, die in [Agent Surfaces](/docs/agent-surfaces#rich-chat) beschrieben sind:
+Wenn die App sowohl eine vollständige Chat-Route als auch eine App-Seite hat, verwenden Sie die
+gemeinsamen Chat-Übergabe-Hilfsfunktionen, die in
+[Agent Surfaces](/docs/agent-surfaces#rich-chat) beschrieben sind:
 `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`,
 `useAgentChatHomeHandoffLinks` und `chatViewTransition`. Dadurch gleitet der vollständige
 Chat in das Seitenpanel, wenn die Seite geöffnet wird, und behält denselben Thread bei,

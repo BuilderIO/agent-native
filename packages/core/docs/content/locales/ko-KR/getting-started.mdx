@@ -398,7 +398,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -561,23 +560,38 @@ export default function TextAnalysesRoute() {
 
 ## 7. 내비게이션 확장하기 {#extend-navigation}
 
-이전 단계에서 에이전트가 `/text-analyses`를 열었을 때, Chat 템플릿에 포함된 두 가지
-내장 액션을 사용했습니다:
+사이드바는 `app/config/nav.ts`에서 구성됩니다. 파일을 열고 Text analyses
+페이지의 항목을 추가하세요:
+
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
+
+파일을 저장하세요. 개발 서버가 변경 사항을 자동으로 감지하고 재시작 없이
+사이드바가 업데이트됩니다.
+
+### 에이전트 내비게이션
+
+사이드바 링크를 통해 사용자가 수동으로 탐색할 수 있습니다. 에이전트는 Chat
+템플릿에 포함된 두 가지 내장 액션을 사용하여 스스로 페이지를 열 수도 있습니다:
 
 - **`view-screen`**은 현재 라우트를 읽고 사용자가 보고 있는 것의 간결한 요약을 반환합니다.
-  에이전트는 다음에 무엇을 할지 결정하기 전에 UI 컨텍스트가 필요할 때 이를 호출합니다.
-- **`navigate`**는 브라우저 히스토리에 동일 출처 경로를 씁니다. 에이전트는 시각적
-  페이지가 사용자의 요청에 대한 올바른 응답일 때 이를 호출합니다.
+- **`navigate`**는 브라우저 히스토리에 동일 출처 경로를 씁니다.
 
-이 두 가지 중 어느 것도 직접 작성하지 않았습니다. 템플릿에 포함되어 있습니다. 더 많은
-페이지를 추가할수록 에이전트가 앱에 무엇이 있는지 알 수 있도록 업데이트하세요:
-
-- `view-screen`은 현재 라우트, 선택된 항목이나 활성 필터, 그리고 사용자가 화면을
-  설명하지 않아도 에이전트가 후속 질문에 답할 수 있는 충분한 페이지 컨텍스트를 반환해야 합니다.
-- `navigate`는 앱의 모든 라우트를 처리해야 합니다. `AGENTS.md`에 사용 가능한 경로를
-  문서화하여 에이전트가 어떤 목적지가 있는지 알 수 있도록 하세요.
-- 액션 결과에는 `href: "/text-analyses"`를 포함할 수 있으므로 채팅 응답이 에이전트가
-  `navigate`를 자동으로 호출하는 것에 의존하는 대신 명시적인 버튼을 렌더링합니다.
+더 많은 페이지를 추가할수록 에이전트가 어떤 목적지가 있는지 알 수 있도록 `navigate`를
+업데이트하세요. `AGENTS.md`에 사용 가능한 경로를 문서화하여 모델이 이에 대해
+추론할 수 있도록 하세요.
 
 앱에 전체 페이지 채팅 라우트와 앱 페이지가 모두 있을 때, [Agent Surfaces](/docs/agent-surfaces#rich-chat)에
 설명된 공유 채팅 핸드오프 헬퍼를 사용하세요:

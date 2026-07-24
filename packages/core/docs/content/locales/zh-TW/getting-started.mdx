@@ -358,7 +358,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -510,16 +509,33 @@ export default function TextAnalysesRoute() {
 
 ## 7. 擴展導覽 {#extend-navigation}
 
-當代理在前一步驟中開啟 `/text-analyses` 時，它使用了 Chat 模板內建的兩個動作：
+側邊欄在 `app/config/nav.ts` 中設定。開啟該檔案並為文字分析頁面新增一個項目：
 
-- **`view-screen`** 讀取當前路由並返回使用者正在查看內容的簡潔摘要。代理在需要 UI 上下文以決定下一步操作時會呼叫此動作。
-- **`navigate`** 將同源路徑寫入瀏覽器的歷史記錄。當視覺頁面是回應使用者請求的正確方式時，代理會呼叫此動作。
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
 
-您無需撰寫這兩個動作；它們已包含在模板中。隨著您新增更多頁面，請持續更新它們，以使代理了解應用程式中的內容：
+儲存檔案。開發伺服器會自動偵測到變更，側邊欄無需重新啟動即可更新。
 
-- `view-screen` 應返回當前路由、任何已選取的項目或啟用的篩選條件，以及足夠的頁面上下文，讓代理能在不需要使用者描述畫面的情況下回答後續問題。
-- `navigate` 應處理應用程式中的每個路由。在 `AGENTS.md` 中記錄可用路徑，讓代理知道有哪些目的地存在。
-- 動作結果可以包含 `href: "/text-analyses"`，使對話回覆渲染出明確的按鈕，而不是依賴代理自動呼叫 `navigate`。
+### 代理導覽
+
+側邊欄連結讓使用者可以手動導覽。代理也可以使用 Chat 模板內建的兩個動作自行開啟頁面：
+
+- **`view-screen`** 讀取當前路由並返回使用者正在查看內容的簡潔摘要。
+- **`navigate`** 將同源路徑寫入瀏覽器的歷史記錄。
+
+隨著您新增更多頁面，請持續更新 `navigate`，讓代理了解有哪些可用目的地。在 `AGENTS.md` 中記錄可用路徑，以便模型對其進行推理。
 
 當應用程式同時擁有全頁對話路由和應用程式頁面時，請使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中描述的共享對話交接輔助函式：
 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、

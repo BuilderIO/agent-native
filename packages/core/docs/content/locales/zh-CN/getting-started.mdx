@@ -385,7 +385,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -545,22 +544,33 @@ export default function TextAnalysesRoute() {
 
 ## 7. 扩展导航 {#extend-navigation}
 
-当智能体在上一步打开 `/text-analyses` 时，它使用了 Chat 模板自带的两个内置动作：
+侧边栏在 `app/config/nav.ts` 中配置。打开该文件并为文本分析页面添加一个条目：
 
-- **`view-screen`** 读取当前路由，返回用户正在查看内容的简洁摘要。智能体在决定下一步操作前
-  需要 UI 上下文时会调用此动作。
-- **`navigate`** 将同源路径写入浏览器历史记录。当视觉页面是用户提问的最佳响应时，
-  智能体会调用此动作。
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
 
-这两个动作都不需要你编写；它们已包含在模板中。随着你添加更多页面，
-请保持更新，让智能体了解应用中的内容：
+保存文件。开发服务器会自动检测到更改，侧边栏无需重启即可更新。
 
-- `view-screen` 应返回当前路由、所有选中的条目或激活的过滤器，
-  以及足够的页面上下文，使智能体能够回答后续问题，而不需要用户描述屏幕。
-- `navigate` 应处理应用中的每个路由。在 `AGENTS.md` 中记录可用路径，
-  让智能体知道有哪些目标可以导航。
-- 动作结果可以包含 `href: "/text-analyses"`，这样聊天回复会渲染一个明确的按钮，
-  而不是依赖智能体自动调用 `navigate`。
+### 智能体导航
+
+侧边栏链接允许用户手动导航。智能体也可以使用 Chat 模板内置的两个动作自行打开页面：
+
+- **`view-screen`** 读取当前路由，返回用户正在查看内容的简洁摘要。
+- **`navigate`** 将同源路径写入浏览器历史记录。
+
+随着你添加更多页面，请保持 `navigate` 的更新，让智能体了解有哪些可用目标。在 `AGENTS.md` 中记录可用路径，以便模型对其进行推理。
 
 当应用同时拥有完整页面聊天路由和应用页面时，请使用
 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中描述的共享聊天切换辅助函数：

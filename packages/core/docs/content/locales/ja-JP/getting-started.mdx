@@ -343,7 +343,6 @@ import { z } from "zod";
 export default defineAction({
   description: "List all saved text analyses, newest first.",
   schema: z.object({}),
-  readOnly: true,
   run: async () => {
     const result = await getDbExec().execute(
       `SELECT id, input, char_count, word_count, sentence_count, created_at
@@ -493,16 +492,33 @@ export default function TextAnalysesRoute() {
 
 ## 7. ナビゲーションを拡張する {#extend-navigation}
 
-前のステップでエージェントが`/text-analyses`を開いたとき、Chatテンプレートに付属する2つの組み込みアクションを使用しました：
+サイドバーは`app/config/nav.ts`で設定されています。開いて、テキスト分析ページのエントリを追加してください：
 
-- **`view-screen`**は現在のルートを読み取り、ユーザーが見ているもののコンパクトなサマリーを返します。エージェントは次のアクションを決める前にUIコンテキストが必要なときにこれを呼び出します。
-- **`navigate`**はブラウザの履歴に同一オリジンのパスを書き込みます。エージェントはユーザーが尋ねたことへの適切な応答として視覚的なページが必要なときにこれを呼び出します。
+```ts filename="app/config/nav.ts"
+export const navConfig = [
+  {
+    label: "Chat",
+    href: "/",
+    icon: "chat",
+  },
+  {
+    label: "Text analyses",
+    href: "/text-analyses",
+    icon: "list",
+  },
+];
+```
 
-これらはどちらも自分で書く必要はありません。テンプレートに含まれています。ページを追加していくにつれて、エージェントがアプリ内の内容を把握し続けられるよう、これらを更新し続けてください：
+ファイルを保存してください。開発サーバーは自動的に変更を検知し、再起動なしでサイドバーが更新されます。
 
-- `view-screen`は現在のルート、選択されたアイテムやアクティブなフィルター、そしてユーザーが画面を説明しなくてもエージェントがフォローアップの質問に答えられるだけのページコンテキストを返す必要があります。
-- `navigate`はアプリのすべてのルートを処理する必要があります。エージェントが利用可能な目的地を把握できるよう、`AGENTS.md`に利用可能なパスを文書化してください。
-- アクションの結果に`href: "/text-analyses"`を含めることで、エージェントが自動的に`navigate`を呼び出すことに依存するのではなく、チャットの返答で明示的なボタンをレンダリングできます。
+### エージェントナビゲーション
+
+サイドバーリンクにより、ユーザーは手動でナビゲートできます。エージェントはChatテンプレートに付属する2つの組み込みアクションを使用して、自分でページを開くこともできます：
+
+- **`view-screen`**は現在のルートを読み取り、ユーザーが見ているもののコンパクトなサマリーを返します。
+- **`navigate`**はブラウザの履歴に同一オリジンのパスを書き込みます。
+
+ページを追加していくにつれて、エージェントが利用可能な目的地を把握できるよう、`navigate`を更新し続けてください。モデルがそれらについて推論できるよう、`AGENTS.md`に利用可能なパスを文書化してください。
 
 アプリにフルページのチャットルートとアプリページの両方がある場合は、[Agent Surfaces](/docs/agent-surfaces#rich-chat)で説明されている共有チャットハンドオフヘルパー（`AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks`、`chatViewTransition`）を使用してください。これにより、ユーザーが永続的なデータを確認する際に、同じスレッドを維持したままフルチャットがサイドパネルにスライドインします。
 
