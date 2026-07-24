@@ -29,7 +29,13 @@ import { TableRow } from "@tiptap/extension-table-row";
 import TaskItem from "@tiptap/extension-task-item";
 import TaskList from "@tiptap/extension-task-list";
 import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
-import { Plugin, PluginKey, AllSelection, Selection } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  AllSelection,
+  NodeSelection,
+  Selection,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -999,6 +1005,39 @@ export function hasAncestorType(
 }
 
 type MediaNodeType = "image" | "video" | "audio";
+
+const MEDIA_NODE_TYPES = new Set<MediaNodeType>(["image", "video", "audio"]);
+
+/**
+ * Empty media nodes are transient editor UI, not durable document content.
+ *
+ * Persisting the placeholder before its async upload/link enrichment finishes
+ * lets the SQL echo reconcile the empty `src` back into the live Y.Doc. That
+ * can erase a successfully uploaded image or embedded video. Keep the local
+ * draft out of autosave until it has a source; uploads inserted by drop/paste
+ * are covered by their `uploadId` even when the selection is elsewhere.
+ */
+export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
+  let hasPendingUpload = false;
+  editor.state.doc.descendants((node) => {
+    if (
+      MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType) &&
+      Boolean(node.attrs.uploadId)
+    ) {
+      hasPendingUpload = true;
+      return false;
+    }
+    return !hasPendingUpload;
+  });
+  if (hasPendingUpload) return true;
+
+  const { selection } = editor.state;
+  if (!(selection instanceof NodeSelection)) return false;
+  return (
+    MEDIA_NODE_TYPES.has(selection.node.type.name as MediaNodeType) &&
+    !selection.node.attrs.src
+  );
+}
 
 function mediaNodeLabel(typeName: MediaNodeType) {
   if (typeName === "image") return "Image";
@@ -1972,6 +2011,7 @@ export function VisualEditor({
         return;
       }
       if (isActiveSlashCommandDraft(editor)) return;
+      if (shouldSkipMediaDraftPersistence(editor)) return;
       persistEditorContent(editor, {
         userInitiated:
           transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||

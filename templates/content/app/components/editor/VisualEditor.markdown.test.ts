@@ -34,6 +34,7 @@ import {
   shouldApplyExternalContentSync,
   shouldPersistEffectivelyEmptyEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
+  shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
   VisualEditor,
 } from "./VisualEditor";
@@ -81,6 +82,58 @@ describe("placeholder ancestry", () => {
       expect(() => hasAncestorType(editor, 180, "blockquote")).not.toThrow();
       expect(hasAncestorType(editor, 180, "blockquote")).toBe(false);
       expect(() => hasAncestorType(editor, -180, "blockquote")).not.toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
+describe("media draft persistence", () => {
+  it("holds a selected empty media placeholder until it has a source", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: { src: null, alt: "" } }],
+      });
+      editor.commands.setNodeSelection(0);
+
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(true);
+
+      editor.commands.updateAttributes("image", {
+        src: "https://cdn.example.com/diagram.png",
+      });
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("holds pending drop and paste uploads even when selection moved", () => {
+    const editor = createFullEditor();
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "video",
+            attrs: { src: null, uploadId: "video-upload-test" },
+          },
+          { type: "paragraph", content: [{ type: "text", text: "After" }] },
+        ],
+      });
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(true);
+
+      editor.commands.setNodeSelection(0);
+      editor.commands.updateAttributes("video", {
+        src: "https://cdn.example.com/demo.mp4",
+        uploadId: null,
+      });
+      expect(shouldSkipMediaDraftPersistence(editor)).toBe(false);
     } finally {
       editor.destroy();
     }
