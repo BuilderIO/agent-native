@@ -35,6 +35,7 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_X__: number;
 declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
+declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -74,6 +75,16 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   var liveReflowEnabled = (function () {
     try {
       return !!__LIVE_REFLOW_ENABLED__;
+    } catch (_e) {
+      return false;
+    }
+  })();
+  // Selected-layer drag priority: when on, a pointerdown inside the selection
+  // box keeps the selected element as the drag target even when an overlapping
+  // non-descendant sibling wins the hit test.
+  var selectedLayerDragPriorityEnabled = (function () {
+    try {
+      return !!__SELECTED_LAYER_DRAG_PRIORITY__;
     } catch (_e) {
       return false;
     }
@@ -2248,6 +2259,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   var selectedEl: Element | null = null;
+  // When true, selection chrome stays hidden through async reflows so a
+  // keyboard-nudge burst does not flicker; selection itself is unchanged.
+  var selectionChromeHidden = false;
   var hoveredEl: Element | null = null;
   var highlightOverlayStyle: "default" | "soft" = "default";
   type NodeHtmlPreviewSession = {
@@ -4080,7 +4094,11 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         hideSelectionOverlay();
       }
     } else if (selectedEl) {
-      positionOverlay(selectionOverlay, selectedEl);
+      if (selectionChromeHidden) {
+        hideSelectionOverlay();
+      } else {
+        positionOverlay(selectionOverlay, selectedEl);
+      }
     } else {
       hideParentAutoLayoutOverlay();
     }
@@ -4895,6 +4913,34 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
       return;
     }
+    // Cmd/Ctrl+click (no Shift) cycles to the next layer below the selection in
+    // the z-stack under the pointer, wrapping at the bottom. Only when the
+    // selection is in that stack; otherwise falls through to additive click.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && selectedEl) {
+      var stack = collectLayerHitCandidates(e.clientX, e.clientY);
+      var currentIdx = stack.elements.indexOf(selectedEl);
+      if (currentIdx !== -1) {
+        var stackKeys = stack.layerCandidates.map(function (candidate) {
+          return candidate.key;
+        });
+        var nextKey = nextStackCandidate(
+          stackKeys,
+          stack.layerCandidates[currentIdx].key,
+        );
+        var nextEl =
+          nextKey === null ? null : stack.elements[stackKeys.indexOf(nextKey)];
+        if (nextEl && !isLayerInteractionBlocked(nextEl)) {
+          selectedSpacingHovered = false;
+          hoveredSpacingHandleKey = "";
+          selectedEl = nextEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          // Plain (no-intent) select so the host replaces the selection with
+          // the cycled layer instead of treating Cmd/Ctrl as additive.
+          postElementSelect(selectedEl);
+          return;
+        }
+      }
+    }
     selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
     var previousSelectedEl = selectedEl;
@@ -5103,9 +5149,17 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     document.addEventListener(events.up, onUp, true);
   }
 
-  function openContextMenuAtEvent(e) {
-    stopNativeInteraction(e);
-    blurActiveTextEditor();
+  // Returns the full z-stack of selectable layers under a point (topmost
+  // first), each element index-aligned with a { key, label, info } descriptor.
+  // Overlays are briefly made pointer-transparent so elementsFromPoint sees
+  // through the editor chrome.
+  function collectLayerHitCandidates(
+    clientX: number,
+    clientY: number,
+  ): {
+    elements: Element[];
+    layerCandidates: Array<{ key: string; label: string; info: unknown }>;
+  } {
     var shieldPointerEvents = shieldOverlay.style.pointerEvents;
     var selectionPointerEvents = selectionOverlay.style.pointerEvents;
     var highlightPointerEvents = highlightOverlay.style.pointerEvents;
@@ -5113,13 +5167,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     selectionOverlay.style.pointerEvents = "none";
     highlightOverlay.style.pointerEvents = "none";
     var pointTargets = document.elementsFromPoint
-      ? document.elementsFromPoint(e.clientX, e.clientY)
-      : [document.elementFromPoint(e.clientX, e.clientY)];
+      ? document.elementsFromPoint(clientX, clientY)
+      : [document.elementFromPoint(clientX, clientY)];
     shieldOverlay.style.pointerEvents = shieldPointerEvents;
     selectionOverlay.style.pointerEvents = selectionPointerEvents;
     highlightOverlay.style.pointerEvents = highlightPointerEvents;
 
-    var candidateElements: Element[] = [];
+    var elements: Element[] = [];
     var layerCandidates: Array<{
       key: string;
       label: string;
@@ -5135,11 +5189,11 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         isOverlayElement(candidate) ||
         isLayerInteractionBlocked(candidate) ||
         isTemplateCloneElement(candidate) ||
-        candidateElements.indexOf(candidate) !== -1
+        elements.indexOf(candidate) !== -1
       ) {
         return;
       }
-      candidateElements.push(candidate);
+      elements.push(candidate);
       var candidateInfo = getElementInfo(candidate);
       var explicitLabel =
         (candidate.getAttribute &&
@@ -5162,6 +5216,15 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         info: candidateInfo,
       });
     });
+    return { elements: elements, layerCandidates: layerCandidates };
+  }
+
+  function openContextMenuAtEvent(e) {
+    stopNativeInteraction(e);
+    blurActiveTextEditor();
+    var collected = collectLayerHitCandidates(e.clientX, e.clientY);
+    var candidateElements = collected.elements;
+    var layerCandidates = collected.layerCandidates;
 
     var target = candidateElements[0] || null;
     var info = null;
@@ -8227,10 +8290,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   // Minimal, dependency-free port of the overview canvas's edge/center snap
   // routine (shared/canvas-math.ts computeMoveSnap) for in-iframe element
   // dragging. The bridge's pointer coordinates and getBoundingClientRect()
-  // values are already in the same iframe-local, zoom-normalized coordinate
-  // space (the host CSS-scales the whole iframe, not individual elements),
-  // so — unlike the overview canvas, which divides a screen-px threshold by
-  // its own camera zoom — no extra scale correction is needed here.
+  // values are iframe-local content px, so SNAP_THRESHOLD_PX is a screen-space
+  // base converted to content px at snap time via chromeLineScale (1/zoom) to
+  // keep the snap tolerance constant on screen at any zoom.
   var SNAP_THRESHOLD_PX = 6;
   var SNAP_CANDIDATE_CAP = 200;
 
@@ -9321,7 +9383,8 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
                 height: dragElStartHeight,
               },
               snapCandidateRects,
-              SNAP_THRESHOLD_PX,
+              // Convert the screen-space base to content px (1/zoom).
+              SNAP_THRESHOLD_PX * chromeLineScale(),
             )
           : { dx: 0, dy: 0, guideV: null, guideH: null };
       nextLeft += snapResult.dx;
@@ -9970,6 +10033,53 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     pendingShieldDrag = null;
   }
 
+  // Decides the drag target for a pointerdown. Descendant hits keep the
+  // selected element; with preferSelected on, a point inside the selection box
+  // also keeps it over an overlapping non-descendant sibling. Falls through to
+  // hitEl when the selection is detached or zero-area. Pure and self-contained
+  // so the snap test can brace-extract and evaluate it in isolation.
+  function dragTargetForPointerDown(args) {
+    var selectedEl = args.selectedEl;
+    var hitEl = args.hitEl;
+    var hitRaw = args.hitRaw || hitEl;
+    var selectedAlive = !!args.selectedAlive;
+    if (
+      selectedEl &&
+      selectedAlive &&
+      selectedEl.contains &&
+      selectedEl.contains(hitRaw)
+    ) {
+      return selectedEl;
+    }
+    if (args.preferSelected && selectedEl && selectedAlive) {
+      var r = args.selectedRect;
+      var p = args.point;
+      if (
+        r &&
+        p &&
+        r.width > 0 &&
+        r.height > 0 &&
+        p.x >= r.left &&
+        p.x <= r.right &&
+        p.y >= r.top &&
+        p.y <= r.bottom
+      ) {
+        return selectedEl;
+      }
+    }
+    return hitEl;
+  }
+
+  // Given the hit-stack candidate keys (topmost first) and the current
+  // selection key, returns the next key below it, wrapping to the top. Returns
+  // null when the selection is not in the stack. Pure, for the snap test.
+  function nextStackCandidate(candidateKeys, currentKey) {
+    if (!candidateKeys || candidateKeys.length === 0) return null;
+    var idx = candidateKeys.indexOf(currentKey);
+    if (idx === -1) return null;
+    return candidateKeys[(idx + 1) % candidateKeys.length];
+  }
+
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
     if (e.button !== 0) return;
@@ -9988,12 +10098,21 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       beginMarqueeSelection(e);
       return;
     }
-    var dragTarget =
-      selectedEl &&
-      document.documentElement.contains(selectedEl) &&
-      selectedEl.contains(hit)
-        ? selectedEl
-        : hitTarget;
+    var selectedAlive =
+      !!selectedEl && document.documentElement.contains(selectedEl);
+    var selectedRect =
+      selectedAlive && selectedEl.getBoundingClientRect
+        ? selectedEl.getBoundingClientRect()
+        : null;
+    var dragTarget = dragTargetForPointerDown({
+      selectedEl: selectedEl,
+      selectedAlive: selectedAlive,
+      selectedRect: selectedRect,
+      hitEl: hitTarget,
+      hitRaw: hit,
+      point: { x: e.clientX, y: e.clientY },
+      preferSelected: selectedLayerDragPriorityEnabled,
+    });
     var clickTarget = hitTarget;
     if (
       !dragTarget ||
@@ -11597,6 +11716,17 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       setHighlightOverlayStyle(
         e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
       );
+      return;
+    }
+    if (e.data.type === "set-selection-chrome-hidden") {
+      selectionChromeHidden = !!e.data.hidden;
+      if (selectionChromeHidden) {
+        hideSelectionOverlay();
+      } else if (selectedEl) {
+        positionOverlay(selectionOverlay, selectedEl);
+        updateParentAutoLayoutOverlay(selectedEl);
+        refreshOverlays();
+      }
       return;
     }
     if (e.data.type === "select-element") {

@@ -659,6 +659,9 @@ import {
   pruneGeometryHistoryEntryForDeletedFiles,
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
+  type SelectionHistoryEntry,
+  selectionSnapshotsEqual,
+  shouldRecordSelectionHistory,
 } from "./design-editor/history";
 import {
   getAbsolutePositioningForNodeInHtml,
@@ -806,6 +809,10 @@ import {
   shouldIncludeScreenRenameContentOverride,
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
+import {
+  type AlignmentGroup,
+  partitionSelectionForAlignment,
+} from "./design-editor/selection-topology";
 import {
   postShaderFillPreviewClearToPreviewIframes,
   removeElementFromHtml,
@@ -2947,6 +2954,10 @@ function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
+  // Selection-only undo. Pushed only from local selection handlers, so
+  // peer/agent selections never enter the stack.
+  const selectionOnlyUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
+  const selectionOnlyRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   // Figma-parity undo/redo selection restore (see GeometryHistorySelection):
   // synchronous mirrors of the selection state, kept current every render
   // (like activeFileIdForUndoRef just above) so a commit/undo/redo handler
@@ -2975,6 +2986,7 @@ function DesignEditor() {
     contentRedoSelectionStackRef.current = [];
     localContentRedoStackRef.current = [];
     geometryRedoStackRef.current = [];
+    selectionOnlyRedoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -3008,11 +3020,37 @@ function DesignEditor() {
   const restoreSelectionSnapshot = useCallback(
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
-      if (viewModeRef.current !== "overview") return;
-      setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
-      setSelectedLayerIdsState(selection.selectedLayerIds);
-      if (selection.activeFileId) {
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
+        setSelectedLayerIdsState(selection.selectedLayerIds);
+        if (selection.activeFileId) {
+          setActiveFileId(selection.activeFileId);
+        }
+        return;
+      }
+      // Single-screen restore: switch file if needed, restore layer selection,
+      // and re-drive the in-iframe overlay for the first layer. Resolve the
+      // iframe from the DOM so this stays independent of the later canvasIframeRef.
+      if (
+        selection.activeFileId &&
+        selection.activeFileId !== activeFileIdForUndoRef.current
+      ) {
         setActiveFileId(selection.activeFileId);
+      }
+      setSelectedLayerIdsState(selection.selectedLayerIds);
+      const firstLayerId = selection.selectedLayerIds[0];
+      if (firstLayerId && typeof document !== "undefined") {
+        const iframe = document.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        iframe?.contentWindow?.postMessage(
+          {
+            type: "select-element",
+            nodeId: firstLayerId,
+            selector: `[data-agent-native-node-id="${firstLayerId.replace(/"/g, '\\"')}"]`,
+          },
+          "*",
+        );
       }
     },
     [],
@@ -3044,6 +3082,8 @@ function DesignEditor() {
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
         clipboardPasteUndoStackRef.current.length > 0 ||
+        // Selection-only undo is available in both view modes.
+        selectionOnlyUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
@@ -3056,6 +3096,7 @@ function DesignEditor() {
         Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
         clipboardPasteRedoStackRef.current.length > 0 ||
+        selectionOnlyRedoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
@@ -3221,6 +3262,8 @@ function DesignEditor() {
     localContentRedoStackRef.current = [];
     geometryUndoStackRef.current = [];
     geometryRedoStackRef.current = [];
+    selectionOnlyUndoStackRef.current = [];
+    selectionOnlyRedoStackRef.current = [];
     fileCreationUndoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
     fileDeletionUndoStackRef.current = [];
@@ -7644,6 +7687,63 @@ function DesignEditor() {
   const handleEditorDragStateChange = useCallback((active: boolean) => {
     activeEditorDragRef.current = active;
   }, []);
+
+  // Recorded only from user-selection funnels; edits/paste/undo use other
+  // paths, so an edit's selection change isn't double-counted. The suppress
+  // ref blocks any in-flight scheduled record while undo/redo restores.
+  const suppressSelectionOnlyHistoryRef = useRef(false);
+  const recordSelectionOnlyHistory = useCallback(
+    (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
+      if (suppressSelectionOnlyHistoryRef.current) return;
+      const stack = selectionOnlyUndoStackRef.current;
+      const lastEntry = stack.length > 0 ? stack[stack.length - 1] : null;
+      const now = Date.now();
+      const decision = shouldRecordSelectionHistory({
+        prev: before,
+        next: after,
+        lastEntry,
+        now,
+        gestureActive: activeEditorDragRef.current,
+      });
+      if (decision === "skip") return;
+      if (decision === "record") {
+        selectionOnlyUndoStackRef.current = [
+          ...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+          { before, after, at: now },
+        ];
+        clearRedoStacks();
+        historyOrderRef.current = [
+          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+          "selection",
+        ];
+      } else {
+        const top = stack[stack.length - 1];
+        const merged = { before: top.before, after, at: now };
+        if (selectionSnapshotsEqual(merged.before, merged.after)) {
+          // The burst returned to its origin — drop the now-empty entry and
+          // its order token so Cmd+Z doesn't stop on a no-op.
+          selectionOnlyUndoStackRef.current = stack.slice(0, -1);
+          historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+            historyOrderRef.current,
+            "selection",
+            1,
+          );
+        } else {
+          selectionOnlyUndoStackRef.current = [...stack.slice(0, -1), merged];
+        }
+      }
+      syncUndoRedoState();
+    },
+    [clearRedoStacks, syncUndoRedoState],
+  );
+  const scheduleSelectionOnlyHistoryRecord = useCallback(() => {
+    if (suppressSelectionOnlyHistoryRef.current) return;
+    if (activeEditorDragRef.current) return;
+    const before = captureCurrentSelection();
+    requestAnimationFrame(() => {
+      recordSelectionOnlyHistory(before, captureCurrentSelection());
+    });
+  }, [recordSelectionOnlyHistory]);
 
   const cancelActiveEditorDrag = useCallback(() => {
     if (!activeEditorDragRef.current) return false;
@@ -12186,6 +12286,8 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
+      // Make this click's selection change undoable on its own.
+      scheduleSelectionOnlyHistoryRecord();
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
       const projection = getCodeLayerProjectionForScreen(screenId);
@@ -12362,6 +12464,7 @@ function DesignEditor() {
       getScreenContent,
       handleBreakpointBarSelect,
       id,
+      scheduleSelectionOnlyHistoryRecord,
       selectedLayerIdsState,
       t,
     ],
@@ -17318,21 +17421,93 @@ function DesignEditor() {
       const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
       if (selectedRects.length >= 2) {
-        // Multi-selection: align to the selection's own combined bbox.
-        const bounds = getFrameGroupBounds(selectedRects);
-        if (!bounds) return;
-        const positions = computeAlignedPositions(
-          selectedRects,
-          {
-            x: bounds.left,
-            y: bounds.top,
-            width: bounds.width,
-            height: bounds.height,
-          },
-          edge,
+        // Align per hierarchy group so nesting is respected (aligning cards
+        // moves the cards, not their titles). Each group shares one coordinate
+        // space, avoiding the cross-parent left/top mismatch; results merge
+        // into one commit.
+        const groups = partitionSelectionForAlignment(
+          projection.nodes,
+          nodeIds,
         );
-        if (positions.size === 0) return;
-        commitNodePositions(baseContent, positions);
+        const rectById = new Map(
+          selectedNodes.map((node) => [node.id, rectFromCodeLayerNode(node)]),
+        );
+        const combined = new Map<string, { x: number; y: number }>();
+        let skippedAutoLayout = false;
+        for (const group of groups) {
+          const groupRects = group.nodeIds
+            .map((nodeId) => rectById.get(nodeId))
+            .filter((rect): rect is AlignableRect => Boolean(rect));
+          if (groupRects.length === 0) continue;
+          if (groupRects.length === 1) {
+            // A lone group member aligns within its own (direct) parent's
+            // content box, matching the single-selection branch below.
+            const node = nodesById.get(group.nodeIds[0]!);
+            const directParent = node?.parentId
+              ? nodesById.get(node.parentId)
+              : null;
+            if (!directParent) continue;
+            if (
+              (directParent.layout.isFlexContainer ||
+                directParent.layout.isGridContainer) &&
+              node &&
+              !isAbsoluteCodeLayerNode(node)
+            ) {
+              skippedAutoLayout = true;
+              continue;
+            }
+            const parentRect = rectFromCodeLayerNode(directParent);
+            const positions = computeAlignedPositions(
+              groupRects,
+              {
+                x: 0,
+                y: 0,
+                width: parentRect.width,
+                height: parentRect.height,
+              },
+              edge,
+            );
+            positions.forEach((position, id) => combined.set(id, position));
+            continue;
+          }
+          // Multi-member group: if these are in-flow children of an auto-layout
+          // container, aligning would absolutize and fight the layout — honest
+          // no-op + toast instead of a silent absolutize.
+          const parentNode = group.parentId
+            ? nodesById.get(group.parentId)
+            : null;
+          if (
+            parentNode &&
+            (parentNode.layout.isFlexContainer ||
+              parentNode.layout.isGridContainer) &&
+            group.nodeIds.some((nodeId) => {
+              const node = nodesById.get(nodeId);
+              return node ? !isAbsoluteCodeLayerNode(node) : false;
+            })
+          ) {
+            skippedAutoLayout = true;
+            continue;
+          }
+          const bounds = getFrameGroupBounds(groupRects);
+          if (!bounds) continue;
+          const positions = computeAlignedPositions(
+            groupRects,
+            {
+              x: bounds.left,
+              y: bounds.top,
+              width: bounds.width,
+              height: bounds.height,
+            },
+            edge,
+          );
+          positions.forEach((position, id) => combined.set(id, position));
+        }
+        if (combined.size > 0) commitNodePositions(baseContent, combined);
+        if (skippedAutoLayout) {
+          toast.info(
+            "Auto-layout children follow their container — adjust the layout instead of aligning.",
+          );
+        }
         return;
       }
 
@@ -19408,6 +19583,60 @@ function DesignEditor() {
     ],
   );
 
+  // Hide the in-iframe selection outline during keyboard nudges so it doesn't
+  // chase the element, restoring it once the burst settles. The re-armed
+  // settle timer is the authoritative restore (~800ms, matching the nudge
+  // coalesce window); an arrow keyup restores sooner when the host has focus.
+  const selectionChromeHiddenRef = useRef(false);
+  const selectionChromeSettleTimerRef = useRef<number | undefined>(undefined);
+  const restoreSelectionChrome = useCallback(() => {
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+      selectionChromeSettleTimerRef.current = undefined;
+    }
+    if (!selectionChromeHiddenRef.current) return;
+    selectionChromeHiddenRef.current = false;
+    canvasIframeRef.current?.contentWindow?.postMessage(
+      { type: "set-selection-chrome-hidden", hidden: false },
+      "*",
+    );
+  }, [canvasIframeRef]);
+  const hideSelectionChromeForNudge = useCallback(() => {
+    if (!selectionChromeHiddenRef.current) {
+      selectionChromeHiddenRef.current = true;
+      canvasIframeRef.current?.contentWindow?.postMessage(
+        { type: "set-selection-chrome-hidden", hidden: true },
+        "*",
+      );
+    }
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+    }
+    selectionChromeSettleTimerRef.current = window.setTimeout(() => {
+      selectionChromeSettleTimerRef.current = undefined;
+      restoreSelectionChrome();
+    }, 800);
+  }, [canvasIframeRef, restoreSelectionChrome]);
+  useEffect(() => {
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        restoreSelectionChrome();
+      }
+    };
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp);
+      if (selectionChromeSettleTimerRef.current !== undefined) {
+        window.clearTimeout(selectionChromeSettleTimerRef.current);
+      }
+    };
+  }, [restoreSelectionChrome]);
+
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
       if (!canEditDesign) return;
@@ -19460,6 +19689,7 @@ function DesignEditor() {
       }
 
       if (!selectedElement?.selector) return;
+      hideSelectionChromeForNudge();
       const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
       const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
       commitVisualStyles(selectedElement.selector, {
@@ -19477,6 +19707,7 @@ function DesignEditor() {
       canEditDesign,
       commitVisualStyles,
       handleGeometryCommit,
+      hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,
@@ -19946,6 +20177,33 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionBefore);
       return true;
     };
+    // Restore the entry's `before` and move it to the redo stack. The suppress
+    // ref stops the recorder from logging this restore as a new change.
+    const undoSelection = () => {
+      const entry =
+        selectionOnlyUndoStackRef.current[
+          selectionOnlyUndoStackRef.current.length - 1
+        ];
+      if (!entry) return false;
+      selectionOnlyUndoStackRef.current =
+        selectionOnlyUndoStackRef.current.slice(0, -1);
+      selectionOnlyRedoStackRef.current = [
+        ...selectionOnlyRedoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        entry,
+      ];
+      redoOrderRef.current = [
+        ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "selection",
+      ];
+      suppressSelectionOnlyHistoryRef.current = true;
+      restoreSelectionSnapshot(entry.before);
+      requestAnimationFrame(() => {
+        suppressSelectionOnlyHistoryRef.current = false;
+      });
+      return true;
+    };
     // U12: undo a screen create/duplicate by soft-deleting the file it
     // created (performDeleteFiles already prunes any content/geometry undo
     // entries for that file, mirroring U2's screen-deletion cleanup).
@@ -20098,6 +20356,10 @@ function DesignEditor() {
           (prunedUndoHistory > prunedBefore ? false : undoGeometry())
         );
       }
+      // Fall through if the selection stack is empty so the loop can't dead-end.
+      if (preferred === "selection") {
+        return undoSelection() || undoContent() || undoGeometry();
+      }
       return undoFileDeletion() || undoContent() || undoGeometry();
     };
     let didUndo = false;
@@ -20108,7 +20370,9 @@ function DesignEditor() {
         if (didUndo || preferred === undefined) break;
       }
     } else {
-      didUndo = undoContent("local");
+      // Single-screen mode has no chronological order list; undo local content
+      // first, then fall back to selection-only entries.
+      didUndo = undoContent("local") || undoSelection();
     }
     if (didUndo || prunedUndoHistory > 0) {
       syncUndoRedoState();
@@ -20595,6 +20859,32 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionAfter);
       return true;
     };
+    // Re-apply the entry's `after` and move it back to the undo stack.
+    const redoSelection = () => {
+      const entry =
+        selectionOnlyRedoStackRef.current[
+          selectionOnlyRedoStackRef.current.length - 1
+        ];
+      if (!entry) return false;
+      selectionOnlyRedoStackRef.current =
+        selectionOnlyRedoStackRef.current.slice(0, -1);
+      selectionOnlyUndoStackRef.current = [
+        ...selectionOnlyUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        entry,
+      ];
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "selection",
+      ];
+      suppressSelectionOnlyHistoryRef.current = true;
+      restoreSelectionSnapshot(entry.after);
+      requestAnimationFrame(() => {
+        suppressSelectionOnlyHistoryRef.current = false;
+      });
+      return true;
+    };
     // U12: redo a screen create/duplicate by recreating the file with the
     // same filename/content/fileType and restoring its recorded geometry.
     // This is async (createFileMutation), unlike every other redo path here,
@@ -20765,6 +21055,9 @@ function DesignEditor() {
           (prunedRedoHistory > prunedBefore ? false : redoGeometry())
         );
       }
+      if (preferred === "selection") {
+        return redoSelection() || redoContent() || redoGeometry();
+      }
       return redoFileDeletion() || redoContent() || redoGeometry();
     };
     let didRedo = false;
@@ -20775,7 +21068,7 @@ function DesignEditor() {
         if (didRedo || preferred === undefined) break;
       }
     } else {
-      didRedo = redoContent("local");
+      didRedo = redoContent("local") || redoSelection();
     }
     if (didRedo || prunedRedoHistory > 0) {
       syncUndoRedoState();
@@ -26469,6 +26762,8 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) => {
+      // Coalescing collapses the per-tick marquee reports into one undo entry.
+      scheduleSelectionOnlyHistoryRecord();
       // PF10: MultiScreenCanvas reports the marquee hit-set on every
       // mousemove tick during a drag, not just on settle (see
       // reportLayerSelection in MultiScreenCanvas.tsx). Bail before any
@@ -26575,6 +26870,7 @@ function DesignEditor() {
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
+      scheduleSelectionOnlyHistoryRecord,
     ],
   );
 

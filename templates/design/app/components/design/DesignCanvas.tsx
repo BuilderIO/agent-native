@@ -315,6 +315,15 @@ ${editorChromeBridgeScript}
  */
 const LIVE_REFLOW_ENABLED = true;
 
+/**
+ * Rollout gate: when on, a pointerdown inside the current selection's box keeps
+ * the selected element as the drag target even when an overlapping
+ * non-descendant sibling wins the hit test. Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
+ * behavior.
+ */
+const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -948,6 +957,10 @@ function buildEditorChromeBridgeScript(args: {
       .replace(
         "__LIVE_REFLOW_ENABLED__",
         LIVE_REFLOW_ENABLED ? "true" : "false",
+      )
+      .replace(
+        "__SELECTED_LAYER_DRAG_PRIORITY__",
+        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
   );
 }
@@ -2130,6 +2143,10 @@ export function DesignCanvas({
           .replace(
             "__LIVE_REFLOW_ENABLED__",
             LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing

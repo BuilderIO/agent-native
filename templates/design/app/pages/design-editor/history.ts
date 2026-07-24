@@ -18,6 +18,52 @@ export interface GeometryHistoryEntry {
   selectionAfter?: GeometryHistorySelection;
 }
 
+/** One selection-only undo step. `at` is the epoch-ms timestamp used to
+ * coalesce a rapid burst of selection changes into a single undo entry. */
+export interface SelectionHistoryEntry {
+  before: GeometryHistorySelection;
+  after: GeometryHistorySelection;
+  at: number;
+}
+
+/** Order-sensitive equality between two selection snapshots (arrays are in a
+ * stable order, so index-wise comparison is exact). */
+export function selectionSnapshotsEqual(
+  a: GeometryHistorySelection,
+  b: GeometryHistorySelection,
+): boolean {
+  const sameIds = (x: string[], y: string[]) =>
+    x.length === y.length && x.every((value, index) => value === y[index]);
+  return (
+    a.activeFileId === b.activeFileId &&
+    sameIds(a.overviewSelectedScreenIds, b.overviewSelectedScreenIds) &&
+    sameIds(a.selectedLayerIds, b.selectedLayerIds)
+  );
+}
+
+export const SELECTION_HISTORY_COALESCE_WINDOW_MS = 800;
+
+export type SelectionHistoryDecision = "skip" | "record" | "coalesce";
+
+/** Decides whether a selection change is skipped, coalesced into the last
+ * entry, or recorded as a fresh selection-only undo step. */
+export function shouldRecordSelectionHistory(input: {
+  prev: GeometryHistorySelection;
+  next: GeometryHistorySelection;
+  lastEntry: SelectionHistoryEntry | null;
+  now: number;
+  gestureActive: boolean;
+  coalesceWindowMs?: number;
+}): SelectionHistoryDecision {
+  if (input.gestureActive) return "skip";
+  if (selectionSnapshotsEqual(input.prev, input.next)) return "skip";
+  const window = input.coalesceWindowMs ?? SELECTION_HISTORY_COALESCE_WINDOW_MS;
+  if (input.lastEntry && input.now - input.lastEntry.at <= window) {
+    return "coalesce";
+  }
+  return "record";
+}
+
 export interface FileCreationHistoryEntry {
   filename: string;
   content: string;

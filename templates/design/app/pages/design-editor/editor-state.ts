@@ -359,7 +359,10 @@ export type UndoRedoOrderKind =
   | "file-content"
   | "geometry"
   | "file-created"
-  | "file-deleted";
+  | "file-deleted"
+  // A selection-only change, interleaved chronologically so Cmd+Z walks
+  // selection changes and edits in the order they happened.
+  | "selection";
 
 export function getUndoRedoPriorityOrder(
   preferred: UndoRedoOrderKind | undefined,
