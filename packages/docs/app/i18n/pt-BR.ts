@@ -1550,6 +1550,7 @@ const ptBR = {
     automationConnectors: "Conectores de fluxo de trabalho",
     workspaceConnections: "Conexões do workspace",
     creatingTemplates: "Criar templates",
+    syncingTemplateChanges: "Sincronizar alterações de templates",
     writingAgentInstructions: "Escrever instruções de Agent",
     embeddingSdk: "SDK de incorporação",
     frames: "Frames",

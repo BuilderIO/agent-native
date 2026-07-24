@@ -1544,6 +1544,7 @@ const hiIN = {
     automationConnectors: "वर्कफ़्लो कनेक्टर",
     workspaceConnections: "Workspace connections",
     creatingTemplates: "Templates बनाना",
+    syncingTemplateChanges: "Template बदलाव सिंक करना",
     writingAgentInstructions: "Agent instructions लिखना",
     embeddingSdk: "Embedding SDK गाइड",
     frames: "Frames",

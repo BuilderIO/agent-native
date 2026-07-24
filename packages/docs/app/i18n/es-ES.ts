@@ -1552,6 +1552,7 @@ const esES = {
     automationConnectors: "Conectores de flujo de trabajo",
     workspaceConnections: "Conexiones del workspace",
     creatingTemplates: "Crear plantillas",
+    syncingTemplateChanges: "Sincronizar cambios de plantillas",
     writingAgentInstructions: "Escribir instrucciones de Agent",
     embeddingSdk: "SDK de incrustación",
     frames: "Frames",

@@ -1527,6 +1527,7 @@ const zhCN = {
     automationConnectors: "工作流连接器",
     workspaceConnections: "工作区连接",
     creatingTemplates: "创建模板",
+    syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
     frames: "Frames",

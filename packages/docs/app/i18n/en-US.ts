@@ -1544,6 +1544,7 @@ const enUS = {
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
     creatingTemplates: "Creating Apps",
+    syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
     frames: "Frames",

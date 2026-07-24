@@ -1525,6 +1525,7 @@ const messages = {
     automationConnectors: "工作流程連接器",
     workspaceConnections: "工作區連線",
     creatingTemplates: "建立範本",
+    syncingTemplateChanges: "同步範本變更",
     writingAgentInstructions: "編寫 Agent 指令",
     embeddingSdk: "嵌入 SDK",
     frames: "Frames",

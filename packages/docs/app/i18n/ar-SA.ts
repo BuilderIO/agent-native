@@ -1542,6 +1542,7 @@ const arSA = {
     automationConnectors: "موصلات سير العمل",
     workspaceConnections: "اتصالات مساحة العمل",
     creatingTemplates: "إنشاء القوالب",
+    syncingTemplateChanges: "مزامنة تغييرات القوالب",
     writingAgentInstructions: "كتابة تعليمات Agent",
     embeddingSdk: "SDK للتضمين",
     frames: "Frames",

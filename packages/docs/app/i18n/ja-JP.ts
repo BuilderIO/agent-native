@@ -1551,6 +1551,7 @@ const jaJP = {
     automationConnectors: "ワークフローコネクタ",
     workspaceConnections: "Workspace 接続",
     creatingTemplates: "テンプレート作成",
+    syncingTemplateChanges: "テンプレート変更の同期",
     writingAgentInstructions: "Agent 指示を書く",
     embeddingSdk: "埋め込み SDK",
     frames: "Frames",

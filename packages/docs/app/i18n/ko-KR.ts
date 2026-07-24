@@ -1547,6 +1547,7 @@ const koKR = {
     automationConnectors: "워크플로 커넥터",
     workspaceConnections: "Workspace 연결",
     creatingTemplates: "템플릿 만들기",
+    syncingTemplateChanges: "템플릿 변경 사항 동기화",
     writingAgentInstructions: "Agent 지침 작성",
     embeddingSdk: "임베딩 SDK",
     frames: "Frames",

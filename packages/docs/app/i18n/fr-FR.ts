@@ -1554,6 +1554,7 @@ const frFR = {
     automationConnectors: "Connecteurs de workflow",
     workspaceConnections: "Connexions du workspace",
     creatingTemplates: "Créer des modèles",
+    syncingTemplateChanges: "Synchroniser les modifications des modèles",
     writingAgentInstructions: "Écrire des instructions d'Agent",
     embeddingSdk: "SDK d'intégration",
     frames: "Frames",

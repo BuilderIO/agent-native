@@ -1554,6 +1554,7 @@ const deDE = {
     automationConnectors: "Workflow-Connectors",
     workspaceConnections: "Workspace-Verbindungen",
     creatingTemplates: "Templates erstellen",
+    syncingTemplateChanges: "Template-Änderungen synchronisieren",
     writingAgentInstructions: "Agent-Anweisungen schreiben",
     embeddingSdk: "Einbettungs-SDK",
     frames: "Frames",
