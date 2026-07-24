@@ -1,7 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { getAuthSecret } from "./better-auth-instance.js";
+import { configureLocalSqlite, getAuthSecret } from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
+
+describe("configureLocalSqlite", () => {
+  it("waits for competing app writes before giving up", () => {
+    const pragma = vi.fn();
+
+    configureLocalSqlite({ pragma });
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+    ]);
+  });
+});
 
 describe("resolveAuthSecret", () => {
   const originalEnv = { ...process.env };

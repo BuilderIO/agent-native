@@ -1,5 +1,51 @@
 # @agent-native/core
 
+## 0.120.1
+
+### Patch Changes
+
+- 5477352: Keep Dispatch's overview composer, full-page chat, and side chat on the same selected model.
+- 5477352: Inject the configured Google Analytics tag into framework-owned login and signup pages.
+
+## 0.120.0
+
+### Minor Changes
+
+- 20ebb96: `agent-native dev --inspect` (and `--inspect-brk`, optionally `=<port>`) now
+  attaches the Node inspector to **only** the Nitro API-server process, on a
+  single known port (default 9229). It selects Nitro's `node-process` dev runner
+  so the server is a real, attachable process, and injects `NODE_OPTIONS` through
+  a Vite preload that runs before Vite's own startup — so Vite, pnpm, and the CLI
+  are never inspected and there is exactly one debugger target. Set
+  `NITRO_DEV_RUNNER` yourself to override the runner.
+
+## 0.119.6
+
+### Patch Changes
+
+- f3c3523: Add an opt-in, scoped Netlify background handoff and scheduled recovery sweep for durable messaging-integration tasks.
+
+## 0.119.5
+
+### Patch Changes
+
+- 13eb9f7: Fix AI SDK provider engines being unusable on bundled serverless deploys, and stop rewriting custom model IDs on save/read.
+  - **Serverless package detection.** `isAgentEnginePackageInstalled` relied on `require.resolve`, which fails on bundled serverless runtimes (Vercel/Netlify via Nitro) where optional provider packages (`ai`, `@ai-sdk/*`) are inlined into the function bundle. Every engine-usability gate then rejected the AI SDK engines and the agent silently fell back to the native Anthropic engine. Package resolution now treats a resolve miss as available only when there is real evidence of a bundled runtime (Vercel/Netlify markers, or a bundle-output module path), and defers to the engine's own dynamic `import()` as the real gate. Generic container/Lambda/Cloud Run deploys that ship a real `node_modules` still surface genuine "package not installed" misses.
+  - **Custom model preservation.** `normalizeModelForEngine` replaced any unrecognized model ID with the engine default when the settings actions passed a static registry entry, so a custom OpenAI-compatible gateway model (e.g. an Ollama model) reverted to the OpenAI default on save and read. The set/list/app-default actions now resolve the OpenAI-compatible-endpoint capability (`resolveEnginePreservesCustomModels`) and pass it through, preserving custom IDs verbatim — including version-shaped IDs — while first-party OpenAI still normalizes unknown IDs to a supported model.
+
+## 0.119.4
+
+### Patch Changes
+
+- 4b734be: Preserve completed agent chat work durations when threads reload.
+- 4b734be: Keep durable background agent workers alive until terminal run events and status are persisted.
+- 4b734be: Keep delegated agent tool summaries non-expandable when their private details are unavailable, and prevent missing-response text from flashing between a completed tool and its follow-up answer.
+- 4b734be: Keep transient Nitro environment startup failures as HTTP responses instead of printing benign unhandled rejection errors.
+- 4b734be: Remove the redundant long-running hint from delegated agent chats now that they show live remote tool activity.
+- 4b734be: Persist stopped nested agent activity as terminal so canceled chats do not resume showing a false Thinking state after refresh.
+- Updated dependencies [4b734be]
+  - @agent-native/toolkit@0.10.4
+
 ## 0.119.3
 
 ### Patch Changes

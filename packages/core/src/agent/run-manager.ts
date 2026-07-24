@@ -44,6 +44,15 @@ export interface ActiveRun {
   startedAt: number;
 }
 
+export interface StartedRun extends ActiveRun {
+  /**
+   * Resolves after the terminal event and final SQL status have been persisted.
+   * Serverless workers must await this before returning or the runtime can
+   * freeze the isolate between onComplete and terminalization.
+   */
+  finalized: Promise<void>;
+}
+
 const activeRuns = new Map<string, ActiveRun>();
 const threadToRun = new Map<string, string>();
 
@@ -447,7 +456,7 @@ export function startRun(
   ) => Promise<void>,
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
-): ActiveRun {
+): StartedRun {
   // If there's already a run for this thread, abort it
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
@@ -456,7 +465,17 @@ export function startRun(
 
   const abort = new AbortController();
   let softTimedOut = false;
-  const run: ActiveRun = {
+  let resolveFinalized: () => void = () => {};
+  let rejectFinalized: (reason?: unknown) => void = () => {};
+  const finalized = new Promise<void>((resolve, reject) => {
+    resolveFinalized = resolve;
+    rejectFinalized = reject;
+  });
+  // Foreground callers do not await this promise, but terminal persistence
+  // failures must still be observable to background workers without creating
+  // an unhandled rejection in the foreground path.
+  void finalized.catch(() => {});
+  const run: StartedRun = {
     runId,
     threadId,
     turnId: options?.turnId ?? runId,
@@ -465,6 +484,7 @@ export function startRun(
     subscribers: new Set(),
     abort,
     startedAt: Date.now(),
+    finalized,
   };
 
   activeRuns.set(runId, run);
@@ -1039,6 +1059,21 @@ export function startRun(
               "[run-manager] terminal event persistence error:",
               err instanceof Error ? err.message : err,
             );
+            try {
+              await insertRunEvent(
+                runId,
+                terminal.seq,
+                JSON.stringify(terminal.event),
+              );
+              terminalPersistenceError = null;
+            } catch (retryError) {
+              terminalPersistenceError = retryError;
+              captureRunError(retryError, "completion");
+              console.error(
+                "[run-manager] terminal event retry persistence error:",
+                retryError instanceof Error ? retryError.message : retryError,
+              );
+            }
           }
         }
       }
@@ -1112,6 +1147,13 @@ export function startRun(
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
+      if (terminalPersistenceError) {
+        const reconciled = await reconcileTerminalRunFromEvents(runId).catch(
+          () => false,
+        );
+        if (!reconciled) throw terminalPersistenceError;
+      }
+
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
@@ -1124,6 +1166,7 @@ export function startRun(
         resolveErroredRunRetentionMs(),
       ).catch(() => {});
     });
+  runPromise.then(resolveFinalized, rejectFinalized);
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {

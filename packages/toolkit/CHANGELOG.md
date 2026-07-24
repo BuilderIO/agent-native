@@ -1,5 +1,18 @@
 # @agent-native/toolkit
 
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
+## 0.10.3
+
+### Patch Changes
+
+- 180b41d: Preserve native pointer, keyboard, accessibility, and ref props when legacy Toolkit buttons are composed as menu triggers.
+
 ## 0.10.2
 
 ### Patch Changes

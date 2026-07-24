@@ -1,6 +1,14 @@
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
-export default runMigrations(
+import * as schema from "../db/schema.js";
+
+// Keep historical entries unnamed for legacy-ledger compatibility; every new
+// migration must add a stable, unique `name` slug.
+const runTasksMigrations = runMigrations(
   [
     {
       version: 1,
@@ -77,14 +85,39 @@ export default runMigrations(
       CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
         ON custom_field_values (owner_email, field_id)`,
     },
-    {
-      version: 8,
-      sql: `CREATE TABLE IF NOT EXISTS user_config (
-        owner_email TEXT PRIMARY KEY,
-        task_card_field_ids_json TEXT NOT NULL DEFAULT '[]',
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-    },
   ],
   { table: "tasks_migrations" },
 );
+
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
+
+export default async (nitroApp: any): Promise<void> => {
+  await runTasksMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+};
