@@ -16,10 +16,10 @@ metadata:
 
 Integration webhooks (Slack, Telegram, WhatsApp, email, Google Docs, etc.) must
 **enqueue work to SQL and return 200 immediately**, then process the work in a
-**separate fresh function execution** kicked off by a self-fired HTTP POST. A
-recurring retry job sweeps anything that gets stuck. This pattern works on every
-serverless host (Netlify, Vercel, Cloudflare Workers, Fly, Render, Node) without
-relying on platform-specific background-execution features.
+**separate fresh function execution** kicked off by a self-fired HTTP POST. SQL
+is always the source of truth. Long-lived hosts use an in-process retry loop as
+a best-effort safety net; serverless deployments must use an external durable
+sweep when recovery cannot depend on a process staying alive.
 
 Do not run agent loops inside the webhook handler itself. Do not rely on
 fire-and-forget `Promise`s after `return`ing from a serverless handler — they get
@@ -38,8 +38,9 @@ Past attempts that don't work cross-host:
   freeze the execution context the moment the response goes out. The promise
   is silently killed, the user gets no reply, and there's no error in the
   logs.
-- **Netlify Background Functions** — Netlify-only, requires a `-background`
-  filename suffix, breaks on every other host.
+- **A platform background function as the queue** — host-specific execution is
+  useful as a delivery mechanism, but it cannot replace the SQL row or atomic
+  claim shared by every host.
 - **Cloudflare `event.waitUntil()`** — CF Workers only, not portable.
 - **Vercel Fluid / `after()`** — Vercel-only, gated behind specific runtimes.
 - **A long-lived in-process queue** — fine on a single Node box, but on
@@ -62,8 +63,9 @@ and a recurring job is the safety net.
                             2. INSERT INTO integration_pending_tasks
                                  (status='pending', payload=...)
                                                                   │
-                            3. fetch(POST /integrations/_process-task)
-                                 — fire-and-forget, NO await on body
+                            3. dispatch POST /integrations/process-task
+                                 — portable self-fire by default
+                                 — acknowledged background handoff when enabled
                                                                   │
                             4. return 200 to platform ◄───────────┘
 
@@ -79,7 +81,7 @@ and a recurring job is the safety net.
 
 
                           ┌──────────────────────────────────────────────┐
-                          │  Recurring job (every 60s) — safety net      │
+                          │  Recovery sweep (every 60s) — safety net    │
                           │  Re-fires processor for tasks stuck in       │
                           │  'pending' or 'processing' beyond timeout.   │
                           │  Caps retries at 3 then marks 'failed'.      │
@@ -98,6 +100,7 @@ loop.
 | `packages/core/src/integrations/webhook-handler.ts`                     | Verifies signature, parses, enqueues task, fires processor             |
 | `packages/core/src/integrations/pending-tasks-store.ts`                 | SQL queue: `insertPendingTask`, `claimPendingTask`, `markTaskCompleted`, `markTaskFailed` |
 | `packages/core/src/integrations/pending-tasks-retry-job.ts`             | Recurring retry sweep (`startPendingTasksRetryJob`, `retryStuckPendingTasks`) |
+| `packages/core/src/integrations/integration-durable-dispatch.ts`        | Default-off acknowledged dispatch, scoped rollout, and outcome recording |
 | `packages/core/src/integrations/types.ts`                               | `PlatformAdapter`, `IncomingMessage`, `OutgoingMessage`                |
 | `packages/core/src/integrations/adapters/{slack,telegram,whatsapp,email,google-docs}.ts` | One adapter per platform                                               |
 
@@ -108,7 +111,8 @@ All under `/_agent-native/integrations/`:
 | Method | Path                       | Purpose                                                       |
 | ------ | -------------------------- | ------------------------------------------------------------- |
 | POST   | `/:platform/webhook`       | Platform pings this. Verifies, enqueues, returns 200 quickly. |
-| POST   | `/_process-task`           | Self-webhook target. Claims a task and runs the agent loop.   |
+| POST   | `/process-task`            | Processor target. Claims a task and runs the agent loop.      |
+| POST   | `/retry-stuck-tasks`       | Signed, bounded recovery sweep for durable schedulers.        |
 | GET    | `/status`                  | All integrations status (settings UI).                        |
 | GET    | `/:platform/status`        | One platform's status.                                        |
 | POST   | `/:platform/enable`        | Enable an integration.                                        |
@@ -129,6 +133,10 @@ CREATE TABLE IF NOT EXISTS integration_pending_tasks (
   org_id             TEXT,
   status             TEXT    NOT NULL,   -- pending | processing | completed | failed
   attempts           INTEGER NOT NULL DEFAULT 0,
+  dispatch_attempts  INTEGER NOT NULL DEFAULT 0,
+  last_dispatch_at   INTEGER,
+  last_dispatch_outcome TEXT,
+  dispatch_scope     TEXT,             -- persisted channel scope for recovery
   error_message      TEXT,
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL,
@@ -136,6 +144,8 @@ CREATE TABLE IF NOT EXISTS integration_pending_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created
   ON integration_pending_tasks(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope
+  ON integration_pending_tasks(platform, dispatch_scope);
 ```
 
 The store layer creates this lazily on first use via `ensureTable()` and uses
@@ -143,9 +153,37 @@ The store layer creates this lazily on first use via `ensureTable()` and uses
 
 `claimPendingTask` is the critical concurrency primitive: it atomically flips
 `pending` → `processing` and increments `attempts`, returning `null` if another
-worker beat us to it. Both the initial fire-and-forget call and the retry job
+worker beat us to it. Both the initial dispatch and every recovery sweep
 funnel through the same processor endpoint, and `claimPendingTask` is what
 prevents the same task from being processed twice.
+
+### Netlify durable recovery
+
+The portable self-dispatch remains the default. To emit and use Netlify's
+acknowledged background worker plus a one-minute scheduled recovery function,
+set `AGENT_INTEGRATION_DURABLE_DISPATCH=true` at build and runtime. A production
+rollout can be narrowed with the comma-separated
+`AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES` allowlist. Supported values are
+`<platform>:*`, `<platform>:<external-thread-id>`, and, for adapters that expose
+one, `<platform>:<channel-id>` (for example `slack:C123`).
+Channel-scoped handoffs persist that scope separately from the provider thread
+identity so a later bounded recovery sweep applies the same allowlist decision.
+
+Workspace deploys emit this pair only for the Dispatch control-plane app, which
+owns workspace messaging integrations. Standalone templates emit their own
+pair when the same flag is enabled.
+
+The background handoff waits only for Netlify's enqueue acknowledgement, not
+for the agent loop. A failed or non-2xx acknowledgement falls back to the
+portable processor. The scheduled function calls the HMAC-authenticated,
+bounded `/retry-stuck-tasks` route; its atomic compare-and-set update prevents
+overlapping sweeps from dispatching the same stale row twice.
+Rows acknowledged by the 15-minute background worker use a 16-minute stale
+cutoff, while portable synchronous dispatches retain the shorter serverless
+cutoff. Apply that lease predicate before `LIMIT` so healthy long runs cannot
+hide recoverable work. The background processor writes its lease marker in the
+same atomic update that claims the row; best-effort dispatch telemetry is not
+trusted for replay safety.
 
 ## Adding a New Platform Adapter
 
@@ -245,9 +283,10 @@ so a normal long-running reply is safe.
 
 ## Cross-Platform Considerations
 
-- **No platform-specific background APIs.** No `waitUntil`, no
-  `-background.ts` filenames, no Vercel `after()`. The pattern works
-  identically on every host because it only uses `fetch()` and SQL.
+- **Portable correctness, optional host acceleration.** Every host uses SQL,
+  HMAC-authenticated processor routes, and atomic claims. A host-specific
+  background function or scheduler may provide a more reliable wake-up, but
+  disabling it must preserve the portable path.
 - **No assumed runtime.** The processor endpoint is a normal H3 handler under
   `/_agent-native/`. It runs wherever the rest of the framework runs.
 - **No persistent in-memory state.** The dedup map in the webhook handler is
@@ -262,11 +301,12 @@ so a normal long-running reply is safe.
 
 ## Why Fire-and-Forget on Serverless Is Unreliable
 
-Even though the webhook handler does `fetch(processorUrl, ...)` without
-awaiting the response body, that initial dispatch is **not** guaranteed to
-complete before the function freezes. In practice it usually does — the TCP
-connect + write happens quickly — but the recurring retry job is the safety
-net for the cases where:
+The portable webhook path gives the outbound processor request a short head
+start but does not wait for the response body, so that initial dispatch is
+**not** guaranteed to complete before the function freezes. On a long-lived
+host, the in-process retry loop is a best-effort safety net. On Netlify with
+durable dispatch enabled, the initial handoff is acknowledged and the external
+scheduled function supplies the recovery wake-up for cases where:
 
 - The serverless platform froze the handler before the outbound `fetch`
   flushed its bytes.
@@ -278,8 +318,9 @@ Tasks stuck in `pending` for >90s or `processing` for >5min get re-fired up to
 3 times. After 3 attempts they're marked `failed` permanently so we stop
 spamming the processor.
 
-**Never assume the initial fire-and-forget succeeded.** Always rely on the
-queue + retry job for at-least-once delivery.
+**Never assume the initial dispatch succeeded.** Rely on the SQL queue, atomic
+claim, and a recovery mechanism whose lifetime is independent of the original
+request. An in-process timer alone is not that mechanism on serverless.
 
 ## Debugging Checklist
 
@@ -292,7 +333,7 @@ queue + retry job for at-least-once delivery.
 4. **Status?** `pending` means the processor never picked it up — check that
    `_process-task` is reachable from the box itself (the self-fetch must work
    over the public URL). `processing` for over 5 minutes means the processor
-   died mid-run — the retry job will pick it up.
+   died mid-run — a live recovery sweep will pick it up.
 5. **Failed?** Check `error_message` and `attempts`. After 3 attempts the row
    is parked at `failed` and won't be retried.
 6. **Reply not delivered?** The processor likely succeeded but

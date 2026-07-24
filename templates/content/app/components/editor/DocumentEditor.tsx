@@ -80,6 +80,7 @@ import {
   canWriteLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
+import { isDatabaseChoicePending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -643,16 +644,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     : undefined;
 
-  // Live collaboration for everyone who can open the doc — editors and viewers
-  // alike. Viewers join the shared Y.Doc read-only: they see live keystrokes,
-  // cursors, and presence (Google-Docs style) instead of a lagging SQL snapshot.
-  // The server enforces the split — collab READ routes (state / awareness GET /
-  // users) require viewer access, WRITE routes (update) require editor — so a
-  // viewer's client can subscribe but never push. The editor stays non-editable
-  // for viewers (see `editable={canEdit}` below), and VisualEditor additionally
-  // neutralizes every local Y.Doc mutation for viewers (no seed, no reconcile
-  // apply) so a read-only client can never originate a rejected `/update` POST.
-  // Local-file documents are still excluded (they have no SQL-backed collab doc).
+  // All SQL-backed readers subscribe for presence. Only editors bind the body
+  // to Yjs; viewers render canonical SQL so missing collab state cannot hide it.
   const collabEnabled = !isLocalFileDocument;
   const {
     ydoc,
@@ -670,6 +663,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
     canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+  // Bind an editor's stable Y.Doc on its first mount, even while the initial
+  // state is loading. Editability remains gated by `editorCanEdit`, and the
+  // reconcile hook remains gated by `collabSynced`; keeping the Y.Doc binding
+  // stable avoids a snapshot -> collab remount that can seed the same SQL body
+  // beside freshly projected persisted CRDT content.
+  const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but
@@ -899,6 +898,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     },
     [document, documentId, queryClient, updateDocument],
   );
+  // The document query can refresh its object identity without changing the
+  // flush request itself. Keep the latest save function behind a ref so those
+  // routine refreshes do not restart the one-shot flush reader and flood the
+  // browser with duplicate application-state requests.
+  const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
+  persistDocumentUpdatesRef.current = persistDocumentUpdates;
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -1215,7 +1220,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             try {
               if (Object.keys(updates).length > 0) {
-                const saved = await persistDocumentUpdates(updates);
+                const saved = await persistDocumentUpdatesRef.current(updates);
                 if (isDocumentUpdateConflict(saved)) {
                   // Do not acknowledge a CAS loss as a successful flush. The
                   // requester must stop instead of pushing/replacing stale SQL.
@@ -1289,7 +1294,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     flushRequestKey,
     flushRequestWake,
     isLocalFileDocument,
-    persistDocumentUpdates,
     t,
   ]);
 
@@ -1370,6 +1374,24 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     setSelectedThreadId(null);
     setHoveredThreadId(null);
   }, []);
+
+  const activateCommentThread = useCallback((threadId: string) => {
+    setPendingComment(null);
+    setHoveredThreadId(null);
+    setSelectedThreadId(threadId);
+    setUtilityPanel("comments");
+  }, []);
+
+  const handleUtilityPanelChange = useCallback(
+    (nextPanel: DocumentUtilityPanel) => {
+      setUtilityPanel(nextPanel);
+      if (nextPanel !== "comments") {
+        setPendingComment(null);
+        clearCommentFocus();
+      }
+    },
+    [clearCommentFocus],
+  );
 
   useEffect(() => {
     setPendingComment(null);
@@ -1511,14 +1533,20 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       scrollContainerRef={scrollContainerRef}
       activeThreadId={activeThreadId}
       selectedThreadId={selectedThreadId}
+      onActivateThread={activateCommentThread}
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      alignToAnchors={hasUtilityRailSpace}
       forceVisible
     />
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const databaseChoicePending = isDatabaseChoicePending(
+    document,
+    createDatabase.isPending,
+  );
   const showNewDocumentTypeChooser =
     canEdit &&
     !isLocalFileDocument &&
@@ -1561,7 +1589,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             type="button"
             className="ms-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={t("editor.toolbar.closeUtilityPanel")}
-            onClick={() => setUtilityPanel(null)}
+            onClick={() => handleUtilityPanelChange(null)}
           >
             <IconX size={16} />
           </button>
@@ -1589,7 +1617,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
-        onPointerDownCapture={(event) => {
+        onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
           if (
             target?.closest("[data-comments-sidebar], [data-comment-thread]")
@@ -1621,7 +1649,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             }
             onDelete={handleDeleteDocument}
             utilityPanel={utilityPanel}
-            onUtilityPanelChange={setUtilityPanel}
+            onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={editorCanEdit && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
           />
@@ -1791,12 +1819,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               type="button"
                               variant="outline"
                               className="justify-start gap-2"
-                              disabled={
-                                !editorCanEdit || createDatabase.isPending
-                              }
+                              disabled={!editorCanEdit || databaseChoicePending}
                               onClick={() => void handleChooseDatabase()}
                             >
-                              {createDatabase.isPending ? (
+                              {databaseChoicePending ? (
                                 <IconLoader2 className="animate-spin" />
                               ) : (
                                 <IconDatabase />
@@ -1814,7 +1840,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       // fields.
                       const primaryEditor = (
                         <VisualEditor
-                          key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
+                          key={`${documentId}:${collabEditorEnabled && ydoc ? "live-ready" : canEdit && !isLocalFileDocument ? "live-pending" : `snapshot:${document.updatedAt}`}`}
                           documentId={documentId}
                           content={
                             isLocalFileDocument
@@ -1828,13 +1854,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           }
                           onChange={handleContentChange}
                           onSaveContent={handleContentSaveNow}
-                          // Bind the shared Y.Doc/awareness for viewers too — the
-                          // editor is non-editable for them and VisualEditor blocks
-                          // any local Y.Doc mutation, so they get live edits +
-                          // cursors without ever writing. Excludes local-file docs.
-                          ydoc={collabEnabled ? ydoc : null}
-                          collabSynced={collabEnabled ? collabSynced : true}
-                          awareness={collabEnabled ? awareness : null}
+                          ydoc={collabEditorEnabled ? ydoc : null}
+                          collabSynced={
+                            collabEditorEnabled ? collabSynced : true
+                          }
+                          awareness={collabEditorEnabled ? awareness : null}
                           user={currentUser}
                           editable={editorCanEdit}
                           localFileMode={isLocalFileDocument}
@@ -1851,7 +1875,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           pendingHighlight={pendingComment?.range ?? null}
                           onActivateThread={
                             editorCanEdit && !isLocalFileDocument
-                              ? setSelectedThreadId
+                              ? activateCommentThread
                               : undefined
                           }
                           onJoinTitle={joinFirstBodyBlockToTitle}
@@ -1867,6 +1891,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseDocumentId={
+                              document.databaseMembership.databaseDocumentId
+                            }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
                           />
@@ -1877,6 +1904,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     })()}
                     {!bodyHydrationPending &&
                     !isLocalFileDocument &&
+                    canEdit &&
                     collabLoading ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -1904,20 +1932,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             open={utilityPanel !== null}
             onOpenChange={(open) => {
               if (!open) {
-                setUtilityPanel(null);
-                setPendingComment(null);
+                handleUtilityPanelChange(null);
               }
             }}
           >
             <SheetContent
               side="right"
-              className="w-[85vw] max-w-sm p-0"
+              className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>{utilityPanelTitle}</SheetTitle>
               </SheetHeader>
-              {utilityPanelContent}
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {utilityPanelContent}
+              </div>
             </SheetContent>
           </Sheet>
         ) : null}

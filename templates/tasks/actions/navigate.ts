@@ -21,22 +21,24 @@ import { optionalBooleanQueryParam } from "./lib/boolean-query-param.js";
 
 const viewSchema = z.enum(NAV_VIEW_INPUTS);
 
+export const navigateSchema = z.object({
+  view: viewSchema.describe(
+    "View name to navigate to; home and ask are aliases for tasks",
+  ),
+  taskId: z.string().optional().describe("Selected task id on /tasks"),
+  fieldId: z
+    .string()
+    .optional()
+    .describe("Selected custom field id on /fields"),
+  includeDone: optionalBooleanQueryParam().describe(
+    "When true, show completed tasks on /tasks",
+  ),
+});
+
 export default defineAction({
   description:
-    "Navigate the UI to a specific view. Writes a navigate command to application state which the UI reads and auto-deletes.",
-  schema: z.object({
-    view: viewSchema.describe(
-      "View name to navigate to; home and ask are aliases for tasks",
-    ),
-    taskId: z.string().optional().describe("Selected task id on /tasks"),
-    fieldId: z
-      .string()
-      .optional()
-      .describe("Selected custom field id on /fields"),
-    includeDone: optionalBooleanQueryParam().describe(
-      "When true, show completed tasks on /tasks",
-    ),
-  }),
+    "Navigate the Tasks UI to a view, optionally selecting a task or custom field.",
+  schema: navigateSchema,
   http: false,
   run: async (args) => {
     const view = resolveNavView(args.view);

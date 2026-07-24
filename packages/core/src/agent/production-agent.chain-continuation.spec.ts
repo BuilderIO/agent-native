@@ -171,7 +171,8 @@ async function runChain(
 describe("chainServerDrivenContinuation — transactional handoff (foreground self-chain)", () => {
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
-    await runChain(h);
+    const run = timeoutBoundaryRun();
+    await runChain(h, { run });
 
     // Ordering: insert BEFORE dispatch BEFORE terminal-marking. The pre-insert
     // is what keeps /runs/active gap-free and lets a racing client
@@ -202,6 +203,10 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     );
     // No failure path was taken.
     expect(h.deps.updateRunStatusIfRunning).not.toHaveBeenCalled();
+    expect(run.continuationTerminalEvent).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
   });
 
   it("passes a recoverable error boundary to the chunk terminal marker", async () => {

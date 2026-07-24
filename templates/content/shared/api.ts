@@ -749,6 +749,7 @@ export interface ContentDatabaseResponse {
   };
   createdItemId?: string;
   createdDocumentId?: string;
+  createdDocumentUpdatedAt?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
   duplicatedItemIds?: string[];

@@ -80,7 +80,7 @@ export function KpiChart({
     });
 
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="bg-card">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">

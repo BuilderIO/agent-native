@@ -9,11 +9,12 @@ import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useSession } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -28,6 +29,7 @@ import {
   IconPlus,
   IconRefresh,
   IconSettings,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -73,6 +75,9 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
+];
+
+const bottomNavItems = [
   { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -144,7 +149,13 @@ function persistedActiveThreadId() {
   }
 }
 
-function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
+function PlanChatsSection({
+  collapsed,
+  open,
+}: {
+  collapsed: boolean;
+  open: boolean;
+}) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -242,35 +253,41 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={activeThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("sidebar.newChat"),
-          showMore: t("sidebar.chats"),
-          showLess: t("sidebar.chats"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
-          renameInput: (item) =>
-            `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
-          rename: t("sidebar.renameChat"),
-          pin: t("sidebar.pinChat"),
-          unpin: t("sidebar.unpinChat"),
-          delete: t("sidebar.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={activeThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("sidebar.newChat"),
+            showMore: t("sidebar.chats"),
+            showLess: t("sidebar.chats"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
+            renameInput: (item) =>
+              `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
+            rename: t("sidebar.renameChat"),
+            pin: t("sidebar.pinChat"),
+            unpin: t("sidebar.unpinChat"),
+            delete: t("sidebar.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -552,6 +569,35 @@ export function Sidebar({
       </TooltipContent>
     </Tooltip>
   ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="size-8 shrink-0 text-muted-foreground"
+          onClick={openCommandMenu}
+          aria-label={t("plansPage.overview.searchPlaceholder")}
+        >
+          <IconSearch className="size-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {t("plansPage.overview.searchPlaceholder")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
 
   return (
     <aside
@@ -628,7 +674,7 @@ export function Sidebar({
             <div key={item.href}>
               {link}
               {item.href === "/" && isActive ? (
-                <PlanChatsSection collapsed={collapsed} />
+                <PlanChatsSection collapsed={collapsed} open />
               ) : null}
               {item.href === "/plans" && isActive ? (
                 <PlansSidebarSection collapsed={collapsed} />
@@ -638,30 +684,51 @@ export function Sidebar({
         })}
       </nav>
 
-      {!collapsed && session ? (
-        <>
-          <div className="px-2 py-2">
-            <ExtensionsSidebarSection />
-          </div>
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname.startsWith(item.href);
+          const link = (
+            <Link
+              to={item.href}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                collapsed && "justify-center gap-0 px-0",
+              )}
+              aria-label={collapsed ? t(item.labelKey) : undefined}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {collapsed ? (
+                <span className="sr-only">{t(item.labelKey)}</span>
+              ) : (
+                t(item.labelKey)
+              )}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
 
-          <div className="space-y-2 px-3 py-2">
-            <DevDatabaseLink />
-            <div className="flex items-center justify-end gap-1">
-              <FeedbackButton className="min-w-0 flex-1" side="right" />
-              {collapseButton}
-            </div>
-            <OrgSwitcher />
-          </div>
-        </>
+      {!collapsed && session ? (
+        <div className="space-y-2 px-3 py-2">
+          <DevDatabaseLink />
+          <OrgSwitcher />
+        </div>
       ) : null}
 
       {!collapsed && !sessionLoading && !session ? (
         <div className="space-y-2 px-3 py-2">
           <DevDatabaseLink />
-          <div className="flex items-center justify-end gap-1">
-            <FeedbackButton className="min-w-0 flex-1" side="right" />
-            {collapseButton}
-          </div>
           <Button
             type="button"
             size="sm"
@@ -674,23 +741,19 @@ export function Sidebar({
         </div>
       ) : null}
 
-      {collapsed && collapsible ? (
-        <div
-          className={cn(
-            "px-2 py-2",
-            collapsed ? "flex justify-center" : "flex justify-end",
-          )}
-        >
-          {collapseButton}
+      {!collapsed && sessionLoading ? (
+        <div className="px-3 py-2">
+          <DevDatabaseLink />
         </div>
       ) : null}
 
-      {!collapsed && sessionLoading && collapsible ? (
-        <div className="flex items-center justify-end gap-1 px-3 py-2">
-          <FeedbackButton className="min-w-0 flex-1" side="right" />
-          {collapseButton}
-        </div>
-      ) : null}
+      <SidebarFooterActions
+        collapsed={collapsed}
+        feedback={feedbackButton}
+        translate={translateButton}
+        search={searchButton}
+        collapse={collapseButton}
+      />
     </aside>
   );
 }

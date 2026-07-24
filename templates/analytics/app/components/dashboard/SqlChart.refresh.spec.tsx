@@ -12,7 +12,8 @@ const mocks = vi.hoisted(() => ({
     },
     isLoading: false,
     isFetching: false,
-    error: null,
+    error: null as Error | null,
+    refetch: vi.fn(),
   },
   createDemoChartTrendRows: vi.fn((rows: Record<string, unknown>[]) => rows),
   embeddedExtensionProps: null as Record<string, unknown> | null,
@@ -61,6 +62,8 @@ describe("SqlChart refresh feedback", () => {
     mocks.query.data = { rows: [{ value: 42 }] };
     mocks.query.isLoading = false;
     mocks.query.isFetching = false;
+    mocks.query.error = null;
+    mocks.query.refetch = vi.fn();
     mocks.embeddedExtensionProps = null;
   });
 
@@ -99,7 +102,8 @@ describe("SqlChart refresh feedback", () => {
       '[data-dashboard-report-loading="true"]',
     );
     expect(loadingSkeleton).not.toBeNull();
-    expect(loadingSkeleton?.className).toContain("bg-muted-foreground/20");
+    expect(loadingSkeleton?.className).toContain("dashboard-panel-skeleton");
+    expect(loadingSkeleton?.className).toContain("bg-muted-foreground/18");
     expect(container.textContent).not.toContain("42");
 
     mocks.query.isFetching = false;
@@ -180,5 +184,35 @@ describe("SqlChart refresh feedback", () => {
     expect(
       container.querySelector('[data-dashboard-report-loading="true"]'),
     ).toBeNull();
+  });
+
+  it("shows a readable retry action when a chart query fails", async () => {
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "first-party" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    mocks.query.data = { rows: [] };
+    mocks.query.error = new Error(
+      "Action query-dashboard-panel failed: <HTML><TITLE>Inactivity Timeout</TITLE><BODY>Description: Too much time has passed</BODY>",
+    );
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} />);
+    });
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "This chart took too long to load. Try again.",
+    );
+    const retryButton = container.querySelector("button");
+    expect(retryButton?.textContent).toContain("sqlDashboard.refresh");
+
+    await act(async () => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.query.refetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -87,6 +87,11 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "await createDatabase.mutateAsync({ documentId })",
     );
+    expect(source).toContain("isDatabaseChoicePending(");
+    expect(source).toContain("document,\n    createDatabase.isPending");
+    expect(source).toContain(
+      "disabled={!editorCanEdit || databaseChoicePending}",
+    );
     expect(source).toContain('{t("sidebar.page")}');
     expect(source).toContain('{t("sidebar.database")}');
     expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
@@ -174,6 +179,12 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toMatch(
+      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");
   });
@@ -231,22 +242,16 @@ describe("document editor layout", () => {
     expect(source).toContain("if (!canEditRef.current) return");
   });
 
-  it("gives viewers live collab while keeping write-only surfaces editor-gated", () => {
+  it("renders viewers from SQL while retaining scoped presence", () => {
     const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
         encoding: "utf8",
       },
     );
-    const visualEditorSource = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
 
-    // Viewers join the shared Y.Doc read-only: collab is enabled whenever the
-    // doc is not a local-file doc, regardless of `canEdit`.
+    // Every SQL-backed reader keeps the scoped collaboration subscription for
+    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -254,11 +259,21 @@ describe("document editor layout", () => {
       'docId: collabEnabled ? documentId : "",',
     );
     expect(documentEditorSource).toContain(
-      "ydoc={collabEnabled ? ydoc : null}",
+      "collabEnabled && canEdit && !bodyHydrationPending;",
     );
     expect(documentEditorSource).toContain(
-      "awareness={collabEnabled ? awareness : null}",
+      "ydoc={collabEditorEnabled ? ydoc : null}",
     );
+    expect(documentEditorSource).toContain(
+      "awareness={collabEditorEnabled ? awareness : null}",
+    );
+    expect(documentEditorSource).toContain(
+      'collabEditorEnabled && ydoc ? "live-ready"',
+    );
+    expect(documentEditorSource).toContain(
+      'canEdit && !isLocalFileDocument ? "live-pending"',
+    );
+    expect(documentEditorSource).toContain("snapshot:${document.updatedAt}");
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
     );
@@ -271,14 +286,51 @@ describe("document editor layout", () => {
       "canEdit && !isLocalFileDocument ? documentId : null",
     );
 
-    // A read-only client must never mutate the shared Y.Doc: VisualEditor
-    // neuters seed + reconcile-apply so no local `/update` POST can originate.
-    expect(visualEditorSource).toContain(
-      "setContent: (e, value, options) => {",
+    expect(documentEditorSource).toContain(
+      "canEdit &&\n                    collabLoading",
     );
-    expect(visualEditorSource).toContain("if (!editable) return;");
-    expect(visualEditorSource).toContain(
-      "shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>\n      editable &&",
+  });
+
+  it("opens comments and selects a highlighted thread atomically", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const activationStart = source.indexOf("const activateCommentThread");
+    const activationEnd = source.indexOf(
+      "const handleUtilityPanelChange",
+      activationStart,
+    );
+    const activation = source.slice(activationStart, activationEnd);
+
+    expect(activationStart).toBeGreaterThan(-1);
+    expect(activation).toContain("setSelectedThreadId(threadId)");
+    expect(activation).toContain('setUtilityPanel("comments")');
+    expect(source).toContain("onActivateThread={activateCommentThread}");
+    expect(source).not.toContain("? setSelectedThreadId\n");
+  });
+
+  it("does not clear comment focus at the start of a touch or scroll gesture", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain("onPointerDownCapture={(event) => {");
+    expect(source).toContain("onClickCapture={(event) => {");
+  });
+
+  it("keeps the narrow utility sheet width-safe and vertically reachable", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"',
+    );
+    expect(source).toContain(
+      'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
     );
   });
 
@@ -326,6 +378,13 @@ describe("document editor layout", () => {
       'event.key === flushRequestKey || event.key === "*"',
     );
     expect(source).toContain("void flushIfRequested()");
+    expect(source).toContain(
+      "const persistDocumentUpdatesRef = useRef(persistDocumentUpdates)",
+    );
+    expect(source).toContain("persistDocumentUpdatesRef.current(updates)");
+    expect(source).not.toMatch(
+      /useEffect\(\(\) => \{[\s\S]*?void flushIfRequested\(\)[\s\S]*?\}, \[[\s\S]*?persistDocumentUpdates,[\s\S]*?\]\);/,
+    );
     expect(source).not.toContain("setTimeout(poll, 600)");
     expect(source).not.toContain("setTimeout(flushIfRequested");
   });

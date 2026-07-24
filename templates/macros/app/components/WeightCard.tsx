@@ -40,8 +40,8 @@ export function WeightCard({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   return (
-    <div className="group relative flex items-center gap-3 rounded-xl border border-border bg-card p-3 hover:bg-accent/40 sm:gap-4 sm:p-4">
-      <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-blue-500/10 border border-blue-500/20">
+    <div className="group relative flex items-center gap-3 rounded-xl bg-card p-3 hover:bg-accent/40 sm:gap-4 sm:p-4">
+      <div className="flex items-center justify-center w-9 h-9 shrink-0 rounded-lg bg-blue-500/10">
         <IconScale className="h-4 w-4 text-blue-400" />
       </div>
       <div className="flex-1 min-w-0">

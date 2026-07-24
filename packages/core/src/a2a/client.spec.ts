@@ -154,15 +154,15 @@ describe("A2AClient", () => {
         }
 
         return new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener(
-            "abort",
-            () => {
-              reject(
-                new DOMException("The operation was aborted", "AbortError"),
-              );
-            },
-            { once: true },
-          );
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
         });
       },
     );
@@ -173,12 +173,9 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 5_000, pollIntervalMs: 1_000 },
     );
-    const assertion = expect(result).rejects.toMatchObject({
-      name: "A2ATaskTimeoutError",
-      taskId: "task-hung-poll",
-      lastState: "working",
-      timeoutMs: 5_000,
-    });
+    // Attach a handler before advancing timers so the intentional rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
 
     const hasTaskRead = () =>
       fetchMock.mock.calls.some(
@@ -186,9 +183,20 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    while (!hasTaskRead()) await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(5_000);
-    await assertion;
+    // waitFor advances fake time in coarse intervals. Stepping the clock 1ms at
+    // a time performs 1,000 async flushes and can exceed Vitest's real 5s test
+    // timeout when the full suite is under load.
+    await vi.waitFor(() => expect(hasTaskRead()).toBe(true), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-hung-poll",
+      lastState: "working",
+      timeoutMs: 5_000,
+    });
     expect(hasTaskRead()).toBe(true);
     expect(
       fetchMock.mock.calls.find(
@@ -197,7 +205,7 @@ describe("A2AClient", () => {
           JSON.parse(String(init.body)).method === "tasks/get",
       )?.[1]?.signal,
     ).toBeInstanceOf(AbortSignal);
-  });
+  }, 30_000);
 
   it("recovers after one task-status request exceeds the per-request timeout", async () => {
     vi.useFakeTimers();
@@ -218,15 +226,17 @@ describe("A2AClient", () => {
         if (taskReads === 1) {
           firstPollSignal = init.signal ?? null;
           return new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener(
-              "abort",
-              () => {
-                reject(
-                  new DOMException("The operation was aborted", "AbortError"),
-                );
-              },
-              { once: true },
-            );
+            const rejectAborted = () =>
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            if (init.signal?.aborted) {
+              rejectAborted();
+              return;
+            }
+            init.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
           });
         }
         return completedResponse(body, "recovered after transient poll hang");

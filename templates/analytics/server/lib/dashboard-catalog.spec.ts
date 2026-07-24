@@ -259,6 +259,26 @@ describe("dashboard catalog", () => {
     }
   });
 
+  it("uses a fixed 800-day generator for signup date fill in catalog and seed", () => {
+    const catalogPanel = requiredFirstPartyPanel("signups-over-time");
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanel = (
+      seed?.panels as Array<{ id?: string; sql?: string }>
+    ).find((panel) => panel.id === "signups-over-time");
+
+    expect(catalogPanel.sql).toContain("WITH digits AS");
+    expect(catalogPanel.sql).toContain(
+      "SELECT ones.n + tens.n * 10 + hundreds.n * 100 AS n",
+    );
+    expect(catalogPanel.sql).toContain("WHERE hundreds.n < 8");
+    expect(catalogPanel.sql).not.toContain("ROW_NUMBER() OVER");
+    expect(catalogPanel.sql).not.toContain("FROM analytics_events LIMIT 800");
+    expect(seedPanel?.sql).toBe(catalogPanel.sql);
+    expect(() =>
+      validateFirstPartyAnalyticsSql(catalogPanel.sql),
+    ).not.toThrow();
+  });
+
   it("repairs only exact legacy observed-retention panels and preserves custom panel intent", () => {
     const legacyDaily = requiredFirstPartyPanel("recurring-users-by-template");
     const legacyWeekly = requiredFirstPartyPanel(

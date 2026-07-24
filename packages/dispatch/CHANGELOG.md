@@ -1,5 +1,42 @@
 # @agent-native/dispatch
 
+## 0.15.20
+
+### Patch Changes
+
+- Updated dependencies [8afb252]
+  - @agent-native/toolkit@0.10.6
+
+## 0.15.19
+
+### Patch Changes
+
+- 0e2c19d: Use quieter borderless styling for Dispatch secondary controls and surfaces.
+- 0e2c19d: Standardize Dispatch sidebar utility controls with the shared footer layout.
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+  - @agent-native/toolkit@0.10.5
+
+## 0.15.18
+
+### Patch Changes
+
+- b00c38d: Remove the redundant extensions section from the Dispatch sidebar.
+
+## 0.15.17
+
+### Patch Changes
+
+- 5477352: Keep Dispatch's overview composer, full-page chat, and side chat on the same selected model.
+
+## 0.15.16
+
+### Patch Changes
+
+- Updated dependencies [4b734be]
+  - @agent-native/toolkit@0.10.4
+
 ## 0.15.15
 
 ### Patch Changes

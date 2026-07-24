@@ -112,12 +112,12 @@ describe("ExtensionsListPage", () => {
     vi.unstubAllGlobals();
   });
 
-  async function renderListPage() {
+  async function renderListPage(embedded = false) {
     await act(async () => {
       root.render(
         <MemoryRouter initialEntries={["/extensions"]}>
           <QueryClientProvider client={queryClient}>
-            <ExtensionsListPage />
+            <ExtensionsListPage embedded={embedded} />
           </QueryClientProvider>
         </MemoryRouter>,
       );
@@ -154,5 +154,21 @@ describe("ExtensionsListPage", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it("does not write standalone navigation state when embedded in Settings", async () => {
+    await renderListPage(true);
+
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/_agent-native/application-state/navigation"),
+      ),
+    ).toBe(false);
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.textContent).not.toContain("Agent");
+    expect(container.textContent).toContain("New extension");
+    expect(
+      container.querySelector('button[aria-label="Options for Extensions"]'),
+    ).not.toBeNull();
   });
 });

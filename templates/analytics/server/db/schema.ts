@@ -67,6 +67,10 @@ export const dashboardRevisions = table(
       t.dashboardId,
       t.createdAt,
     ),
+    orgDashboardIdx: index("dashboard_revisions_org_dashboard_idx").on(
+      t.orgId,
+      t.dashboardId,
+    ),
   }),
 );
 
@@ -109,6 +113,11 @@ export const dashboardReportSubscriptions = table(
       enum: ["success", "error", "running"],
     }),
     lastError: text("last_error"),
+    lastCaptureAt: text("last_capture_at"),
+    lastCaptureMode: text("last_capture_mode", {
+      enum: ["full", "partial", "none"],
+    }),
+    lastCaptureError: text("last_capture_error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),

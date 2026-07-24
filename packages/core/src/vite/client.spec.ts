@@ -626,6 +626,28 @@ describe("route warmup config", () => {
       }
     }
   });
+
+  it("exposes the build-time GTM container id for SSR bundles", () => {
+    const previous = process.env.GTM_CONTAINER_ID;
+    process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__).toBe(
+        JSON.stringify("gtm-UNITTEST123"),
+      );
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_BUILD_GTM_CONTAINER_ID"],
+      ).toBe(JSON.stringify("gtm-UNITTEST123"));
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GTM_CONTAINER_ID;
+      } else {
+        process.env.GTM_CONTAINER_ID = previous;
+      }
+    }
+  });
 });
 
 describe("MCP integrations config", () => {

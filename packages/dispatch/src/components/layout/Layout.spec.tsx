@@ -43,6 +43,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => <div>Language</div>,
   useT: () => (key: string, values?: Record<string, unknown>) => {
     const messages: Record<string, string> = {
       "dispatch.nav.chat": "Chat",
@@ -62,12 +63,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/ui", () => ({
-  FeedbackButton: () => <div>Feedback</div>,
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/extensions", () => ({
-  ExtensionsSidebarSection: () => <div>Extensions</div>,
+vi.mock("@agent-native/core/client/ui", () => ({
+  FeedbackButton: () => <div>Feedback</div>,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
@@ -159,12 +160,13 @@ describe("Dispatch NavContent", () => {
     });
 
     const lists = [...container.querySelectorAll("nav > ul")];
-    expect(lists).toHaveLength(3);
+    expect(lists).toHaveLength(4);
     expect(lists[0].className).toContain("gap-1");
     expect(lists[1].className).toContain("mt-5");
     expect(lists[1].className).toContain("gap-1");
     expect(lists[2].className).toContain("mt-3");
     expect(lists[2].className).toContain("gap-1");
+    expect(lists[3].querySelector('a[href="/settings"]')).not.toBeNull();
     expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
   });
 

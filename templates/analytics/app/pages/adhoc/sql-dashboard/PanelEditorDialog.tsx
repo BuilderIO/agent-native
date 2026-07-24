@@ -506,7 +506,7 @@ function PanelEditorContent({
       </div>
 
       {isExtensionPanel ? (
-        <div className="grid gap-4 rounded-lg border p-4">
+        <div className="grid gap-4 rounded-lg bg-card p-4">
           <div className="grid gap-1.5">
             <Label htmlFor="panel-extension-mode">
               {t("panelEditor.extensionDisplay")}

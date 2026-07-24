@@ -197,6 +197,7 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -254,7 +255,10 @@ import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
   deferredPreviewDocumentSave,
+  type PreviewDocumentPayload,
   type PreviewDocumentSaveAdapter,
+  type PreviewDocumentSaveDeferred,
+  type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -436,7 +440,8 @@ export function databaseCreatedItemForImmediatePreview(
   if (returnedItem) return returnedItem;
   if (!response.createdItemId || !response.createdDocumentId) return null;
 
-  const now = args.now ?? new Date().toISOString();
+  const now =
+    response.createdDocumentUpdatedAt ?? args.now ?? new Date().toISOString();
   const position = Math.max(
     0,
     (response.pagination?.totalItems ?? response.items.length + 1) - 1,
@@ -470,6 +475,42 @@ export function databaseCreatedItemForImmediatePreview(
       createdAt: now,
       updatedAt: now,
     },
+  };
+}
+
+export function previewDocumentSaveResult(args: {
+  result: DocumentUpdateResult;
+  payload: PreviewDocumentPayload;
+  baseline?: PreviewDocumentPayload;
+  contentChanged: boolean;
+}): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
+  const serverDocument = isDocumentUpdateConflict(args.result)
+    ? args.result.document
+    : args.result;
+  const titleSaveObservedExternalBody =
+    !args.contentChanged && serverDocument.content !== args.payload.content;
+
+  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+    return deferredPreviewDocumentSave("conflict", {
+      lastSaved: args.baseline ?? args.payload,
+      pending: {
+        title: serverDocument.title,
+        content: serverDocument.content,
+        loadedUpdatedAt: serverDocument.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          serverDocument.content,
+        ),
+      },
+      deferredReason: "conflict",
+    });
+  }
+
+  return {
+    outcome: "saved",
+    loadedUpdatedAt: args.result.updatedAt,
+    loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+      args.result.content,
+    ),
   };
 }
 
@@ -4098,8 +4139,6 @@ function DatabaseItemPreview({
   // ever touch its own row's state. See previewDocumentSaveRegistry.
   const updateDocumentRef = useRef(updateDocument);
   updateDocumentRef.current = updateDocument;
-  const queryClientRef = useRef(queryClient);
-  queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
   const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
@@ -4244,30 +4283,14 @@ function DatabaseItemPreview({
           },
           {
             onSuccess: (result) => {
-              if (isDocumentUpdateConflict(result)) {
-                resolve(
-                  deferredPreviewDocumentSave("conflict", {
-                    lastSaved: baseline ?? payload,
-                    pending: {
-                      title: result.document.title,
-                      content: result.document.content,
-                      loadedUpdatedAt: result.document.updatedAt,
-                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                        result.document.content,
-                      ),
-                    },
-                    deferredReason: "conflict",
-                  }),
-                );
-                return;
-              }
-              resolve({
-                outcome: "saved" as const,
-                loadedUpdatedAt: result.updatedAt,
-                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                  result.content,
-                ),
-              });
+              resolve(
+                previewDocumentSaveResult({
+                  result,
+                  payload,
+                  baseline,
+                  contentChanged,
+                }),
+              );
             },
             onError: reject,
           },
@@ -4276,12 +4299,6 @@ function DatabaseItemPreview({
     onSaved: (persistedPayload) => {
       const controller = peekPreviewDocumentSaveController(documentId);
       if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
-      void queryClientRef.current.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-      void queryClientRef.current.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
     },
     onError: (err) => {
       toast.error(dbText("failedToSavePagePreview"), {
@@ -4876,6 +4893,7 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
+                databaseDocumentId={databaseDocumentId}
                 canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
@@ -4913,6 +4931,7 @@ function DatabaseItemPreview({
                 const editor = previewDocument.databaseMembership ? (
                   <DocumentBlockFields
                     documentId={previewDocument.id}
+                    databaseDocumentId={databaseDocumentId}
                     canEdit={previewCanEdit}
                     primaryEditor={primaryEditor}
                   />

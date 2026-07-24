@@ -1,9 +1,10 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconHierarchy2,
   IconCalendar,
@@ -23,6 +24,7 @@ import {
   IconEyeOff,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -96,6 +98,9 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
+];
+
+const bottomNavItems = [
   {
     path: "/agent",
     labelKey: "settings.agentTitle",
@@ -701,6 +706,61 @@ export function Sidebar({
     onClose();
   }
 
+  const collapseButton = onCollapsedChange ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 shrink-0 text-muted-foreground"
+          onClick={() => onCollapsedChange(!collapsed)}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground"
+          onClick={openCommandMenu}
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <>
       {/* Mobile overlay */}
@@ -726,25 +786,7 @@ export function Sidebar({
             collapsed ? "px-1" : "px-4",
           )}
         >
-          {collapsed && onCollapsedChange ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 shrink-0 text-muted-foreground"
-                  onClick={() => onCollapsedChange(false)}
-                  aria-label={t("sidebar.expandSidebar")}
-                >
-                  <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("sidebar.expandSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
+          {!collapsed && (
             <>
               <Link
                 to="/"
@@ -767,35 +809,6 @@ export function Sidebar({
                   {t("navigation.brand")}
                 </span>
               </Link>
-              {onCollapsedChange ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 text-muted-foreground"
-                      onClick={() => onCollapsedChange(!collapsed)}
-                      aria-label={
-                        collapsed
-                          ? t("sidebar.expandSidebar")
-                          : t("sidebar.collapseSidebar")
-                      }
-                    >
-                      {collapsed ? (
-                        <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                      ) : (
-                        <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    {collapsed
-                      ? t("sidebar.expandSidebar")
-                      : t("sidebar.collapseSidebar")}
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
             </>
           )}
         </div>
@@ -1123,21 +1136,54 @@ export function Sidebar({
           )}
         </div>
 
+        <nav
+          className={cn(
+            "shrink-0",
+            collapsed
+              ? "flex flex-col items-center gap-1 px-1 py-2"
+              : "space-y-0.5 border-t border-border p-2.5",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const isActive = location.pathname.startsWith(item.path);
+            const link = (
+              <Link
+                to={item.path}
+                onClick={onClose}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+                className={cn(
+                  "flex items-center rounded-lg font-medium transition-colors",
+                  collapsed
+                    ? "h-10 w-10 justify-center"
+                    : "gap-3 px-3 py-2 text-sm",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {!collapsed && t(item.labelKey)}
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip key={item.path}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.path}>{link}</div>
+            );
+          })}
+        </nav>
+
         {!collapsed ? (
           <div className="shrink-0">
-            <div className="px-2.5 py-1.5">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher reserveSpace />
             </div>
 
             <div className="flex items-center gap-1 px-1.5 py-1.5">
               <DevDatabaseLink />
-              <div className="min-w-0 flex-1">
-                <FeedbackButton className="px-3 py-2" />
-              </div>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -1164,6 +1210,13 @@ export function Sidebar({
             </div>
           </div>
         ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </aside>
     </>
   );

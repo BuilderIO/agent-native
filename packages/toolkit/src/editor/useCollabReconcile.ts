@@ -33,6 +33,11 @@ export function getEditorMarkdown(editor: Editor): string {
  * is identical, so skipping it is safe by construction.
  */
 const EMITTED_RING_MAX = 16;
+// The hosted awareness transport polls every 2s when its SSE gateway cannot
+// forward presence. Give that first snapshot one poll plus margin before an
+// empty SQL value is allowed to clear a nonempty Y.Doc. This is the same settle
+// window used below when a known peer may deliver an edit through Yjs.
+const PEER_SETTLE_MS = 2500;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -264,6 +269,11 @@ export function useCollabReconcile({
   // arrives via Yjs, so external markdown reconcile must defer (avoid applying
   // the same change through both Yjs and setContent).
   const peerCountRef = useRef(0);
+  // Briefly gates the first empty-SQL reconcile while Collaboration projects
+  // a nonempty fragment. `seededRef` is still released immediately so a real
+  // first keystroke can persist; this ref only postpones the ambiguous clear
+  // decision until we can distinguish an active/local edit from stale CRDT.
+  const emptySnapshotDecisionPendingRef = useRef(false);
   useEffect(() => {
     if (!collab || !awareness || !ydoc) {
       setIsLeadClient(true);
@@ -299,25 +309,73 @@ export function useCollabReconcile({
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
-    if (!isLeadClient) return;
-    if (!value.trim()) return;
-    const fragment = ydoc.getXmlFragment("default");
-    const currentMarkdown = getMarkdown(editor);
-    // Seed only when the shared doc is genuinely empty — either the fragment has
-    // no nodes yet, or it holds no semantic markdown (an empty paragraph, or an
-    // app's sentinel-empty filler via a custom `shouldSeed`).
-    if (
-      !shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
-    ) {
+    // An empty SQL value has nothing to seed. Release the first real keystroke
+    // immediately, but when a fragment already exists defer the ambiguous
+    // reconcile decision for one task: active-peer or just-emitted local content
+    // is live and must be adopted; stale persisted CRDT with no active writer is
+    // cleared by the canonical SQL snapshot.
+    if (!value.trim()) {
       seededRef.current = true;
-      return;
-    }
+      const fragment = ydoc.getXmlFragment("default");
+      const currentMarkdown = getMarkdown(editor);
+      if (fragment.length === 0 && !currentMarkdown.trim()) return;
 
+      emptySnapshotDecisionPendingRef.current = true;
+      let cancelled = false;
+      const adoptTimer = setTimeout(
+        () => {
+          if (cancelled || editor.isDestroyed) return;
+          const projectedMarkdown = getMarkdown(editor);
+          const isOwnFreshEdit =
+            projectedMarkdown.trim() &&
+            (projectedMarkdown === lastEmittedRef.current ||
+              recentEmittedRef.current.includes(projectedMarkdown));
+          if (
+            projectedMarkdown.trim() &&
+            (peerCountRef.current > 0 || isOwnFreshEdit)
+          ) {
+            lastAppliedValueRef.current = value;
+            lastAppliedSerializedRef.current = projectedMarkdown;
+            if (contentUpdatedAt) {
+              lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+            }
+          }
+          emptySnapshotDecisionPendingRef.current = false;
+        },
+        awareness ? PEER_SETTLE_MS : 0,
+      );
+      return () => {
+        cancelled = true;
+        clearTimeout(adoptTimer);
+        emptySnapshotDecisionPendingRef.current = false;
+      };
+    }
+    if (!isLeadClient) return;
     let cancelled = false;
     // Defer via a timer task (NOT a microtask — microtasks can still run
     // inside React's commit and trigger flushSync-from-lifecycle warnings).
+    // Read the editor and fragment INSIDE that task. The collaboration
+    // extension can finish projecting an already-populated Y.Doc into
+    // ProseMirror after this effect is scheduled. Capturing the pre-projection
+    // empty editor here would incorrectly seed the SQL snapshot alongside the
+    // existing CRDT content, duplicating the whole document after reload.
     const seedTimer = setTimeout(() => {
       if (cancelled || editor.isDestroyed) return;
+      const fragment = ydoc.getXmlFragment("default");
+      const currentMarkdown = getMarkdown(editor);
+      // Seed only when the shared doc is genuinely empty — either the fragment
+      // has no nodes yet, or it holds no semantic markdown (an empty paragraph,
+      // or an app's sentinel-empty filler via a custom `shouldSeed`).
+      if (
+        !shouldSeed({
+          value,
+          currentMarkdown,
+          fragmentLength: fragment.length,
+        })
+      ) {
+        seededRef.current = true;
+        return;
+      }
       isSettingContentRef.current = true;
       try {
         setContent(editor, value, {});
@@ -362,14 +420,24 @@ export function useCollabReconcile({
     // With peers present, a peer's edit also arrives via Yjs. Defer one poll
     // cycle (+margin) and re-check before applying via setContent so the same
     // change isn't inserted twice (Yjs + setContent → duplicated region).
-    const PEER_SETTLE_MS = 2500;
-
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       // In collab mode, defer all reconcile until the shared doc is seeded so we
       // never setContent over an unseeded fragment.
-      if (collab && (!collabSynced || !seededRef.current)) {
+      if (collab && !collabSynced) {
         retry = setTimeout(() => apply(deferred), 300);
+        return;
+      }
+      // The seed decision itself is deferred one task so Collaboration can
+      // project persisted Y.Doc state before we inspect it. Poll that short
+      // handoff promptly: waiting the full provider cadence here makes a newer
+      // canonical SQL snapshot visibly stale after reload.
+      if (collab && !seededRef.current) {
+        retry = setTimeout(() => apply(deferred), 25);
+        return;
+      }
+      if (collab && emptySnapshotDecisionPendingRef.current) {
+        retry = setTimeout(() => apply(deferred), 50);
         return;
       }
       const currentMarkdown = getMarkdown(editor);

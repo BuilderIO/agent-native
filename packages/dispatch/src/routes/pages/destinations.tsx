@@ -119,7 +119,7 @@ export default function DestinationsRoute() {
     >
       <div className="flex flex-col gap-4">
         <TaskQueueHealth />
-        <section className="rounded-2xl border bg-card p-5">
+        <section className="rounded-2xl bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             {t("dispatch.pages.savedDestinations")}
           </h2>
@@ -205,7 +205,7 @@ export default function DestinationsRoute() {
         <Collapsible
           open={addOpen}
           onOpenChange={setAddOpen}
-          className="rounded-2xl border bg-card"
+          className="rounded-2xl bg-card"
         >
           <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 p-5 text-left hover:bg-muted/20">
             <span>

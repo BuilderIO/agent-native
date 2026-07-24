@@ -5,8 +5,10 @@ import renderTaskListInline, {
 } from "./render-task-list-inline.js";
 
 describe("render-task-list-inline", () => {
-  it("defaults to open tasks only", () => {
-    expect(renderTaskListInline.schema.parse({})).toEqual({
+  it("defaults to open tasks only", async () => {
+    const result = await renderTaskListInline.run({});
+
+    expect(result.inlineExtension.context).toEqual({
       includeDone: false,
     });
   });

@@ -59,8 +59,8 @@ export function OrganizationSwitcher({ className }: OrganizationSwitcherProps) {
           <button
             type="button"
             className={cn(
-              "flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-start",
-              "hover:bg-accent",
+              "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2 py-1.5 text-start",
+              "hover:bg-accent/70",
               className,
             )}
           >

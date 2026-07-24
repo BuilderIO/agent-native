@@ -5,7 +5,7 @@ import {
   applyText,
   seedFromText,
 } from "@agent-native/core/collab";
-import { isPostgres } from "@agent-native/core/db";
+import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -15,6 +15,30 @@ import { withSourceFileWriteLock } from "../server/source-workspace.js";
 import { assertDesignHtmlEditIntegrity } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { sourceContentHash } from "../shared/source-workspace.js";
+
+// TEMPORARY diagnostic — remove once we've read a few real conflicts in prod.
+// Conflicts are now benign 409s the framework no longer error-logs; this keeps
+// them visible in Netlify, and `content-conflict`'s cacheIsStale field tells us
+// whether they're the multi-instance stale-cache phantom (→ worth the core
+// reload fix) or a genuine concurrent writer (→ 409-rebase is already correct).
+function logSaveConflictDebug(
+  event: string,
+  detail: Record<string, unknown>,
+): void {
+  console.warn(`[update-file:debug] ${event}`, detail);
+}
+
+// 404 via statusCode (NOT status — the action route only reads statusCode) so
+// the client save-outbox treats a gone file as terminal and drops it, instead
+// of looping a masked 500. Used at every missing-file guard, including the
+// post-lock rereads a concurrent delete can hit.
+function fileNotFound(id: string): Error & { statusCode?: number } {
+  const err = new Error(`File not found: ${id}`) as Error & {
+    statusCode?: number;
+  };
+  err.statusCode = 404;
+  return err;
+}
 
 function rowsAffected(result: unknown): number | undefined {
   const candidate = result as {
@@ -169,16 +193,8 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      // Terminal (not transient): the row is gone or out of access scope, so a
-      // retry can never succeed. Mark it 404 so the client save-outbox drops the
-      // entry instead of retrying forever (which turns one orphaned/deleted
-      // screen into an update-file 500 storm — see design-save-outbox
-      // isTerminalSaveError).
-      const notFound = new Error(`File not found: ${id}`) as Error & {
-        status?: number;
-      };
-      notFound.status = 404;
-      throw notFound;
+      // The row is gone or out of access scope — retry can't succeed.
+      throw fileNotFound(id);
     }
 
     await assertAccess("design", file.designId, "editor");
@@ -232,7 +248,9 @@ export default defineAction({
           .where(eq(schema.designFiles.id, id))
           .limit(1);
         if (!persistedFile) {
-          throw new Error(`File not found: ${id}`);
+          // Delete-race: the row passed the access check but is gone now.
+          // Same 404 as the outer guard, not a bare 500 the outbox retries.
+          throw fileNotFound(id);
         }
 
         const persistedContentHash = sourceContentHash(persistedFile.content);
@@ -390,9 +408,47 @@ export default defineAction({
                 skippedStaleMirror = true;
               }
             } else {
-              throw new Error(
+              const liveContentHash = sourceContentHash(liveContent);
+              // Diagnostic probe (never affects the outcome): `getText` read this
+              // instance's Y.Doc cache, never re-hydrated from the DB. Compare it
+              // to the freshly persisted text_snapshot so the log distinguishes a
+              // multi-instance stale cache (cacheIsStale) from a genuine writer.
+              let freshDbLiveHash: string | null = null;
+              try {
+                const { rows } = await getDbExec().execute({
+                  sql: "SELECT text_snapshot FROM _collab_docs WHERE doc_id = ?",
+                  args: [id],
+                });
+                if (rows.length > 0) {
+                  freshDbLiveHash = sourceContentHash(
+                    String(rows[0]?.text_snapshot ?? ""),
+                  );
+                }
+              } catch {
+                // diagnostic only
+              }
+              logSaveConflictDebug("content-conflict", {
+                id,
+                caller: context?.caller,
+                syncCollab,
+                operationRevision: operationRevision ?? null,
+                expectedVersionHash,
+                sentContentHash: sourceContentHash(content),
+                liveContentHash,
+                persistedMirrorHash: persistedContentHash,
+                cacheIsStale:
+                  freshDbLiveHash !== null &&
+                  freshDbLiveHash !== liveContentHash,
+                freshDbMatchesExpected: freshDbLiveHash === expectedVersionHash,
+              });
+              // 409 (statusCode), not a bare 500: an expected optimistic-
+              // concurrency outcome the framework returns verbatim and the client
+              // rebases from, instead of a Sentry-captured fault + retry storm.
+              const conflict = new Error(
                 "File changed since it was read. Re-read the file and retry.",
-              );
+              ) as Error & { statusCode?: number };
+              conflict.statusCode = 409;
+              throw conflict;
             }
           }
         }
@@ -461,7 +517,9 @@ export default defineAction({
             // guarded UPDATE alone can still race. Serialize design-file renames in
             // this rare path without using SQLite's fragile async savepoint wrapper.
             await (
-              tx as unknown as { execute: (query: unknown) => Promise<unknown> }
+              tx as unknown as {
+                execute: (query: unknown) => Promise<unknown>;
+              }
             ).execute(sql`LOCK TABLE design_files IN SHARE ROW EXCLUSIVE MODE`);
             const [collision] = await tx
               .select({ id: schema.designFiles.id })
@@ -545,7 +603,7 @@ export default defineAction({
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, id))
             .limit(1);
-          if (!confirmed) throw new Error(`File not found: ${id}`);
+          if (!confirmed) throw fileNotFound(id);
           const confirmedHash = sourceContentHash(confirmed.content);
           const exactOperationPersisted =
             confirmed.contentOperationSource === operationSource &&
@@ -622,9 +680,18 @@ export default defineAction({
         }
         return;
       }
-      throw new Error(
+      logSaveConflictDebug("retry-exhausted", {
+        id,
+        caller: context?.caller,
+        operationSource: operationSource ?? null,
+        operationRevision: operationRevision ?? null,
+        expectedVersionHash,
+      });
+      const exhausted = new Error(
         "File changed repeatedly while it was being saved. Re-read the file and retry.",
-      );
+      ) as Error & { statusCode?: number };
+      exhausted.statusCode = 409;
+      throw exhausted;
     });
 
     // Update the parent design's updatedAt timestamp. This still runs even
