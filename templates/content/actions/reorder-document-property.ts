@@ -15,6 +15,7 @@ export default defineAction({
     "Reorder a property definition within its database by moving it before or after another property. Used for reordering Blocks fields on the page.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
+    databaseId: z.string().describe("Database ID that owns the properties"),
     propertyId: z.string().describe("Property definition ID to move"),
     targetPropertyId: z.string().describe("Property to position relative to"),
     position: z
@@ -22,11 +23,21 @@ export default defineAction({
       .default("before")
       .describe("Place the moved property before or after the target"),
   }),
-  run: async ({ documentId, propertyId, targetPropertyId, position }) => {
+  run: async ({
+    documentId,
+    databaseId,
+    propertyId,
+    targetPropertyId,
+    position,
+  }) => {
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
-    const database = await resolvePropertyDatabaseForDocument(document);
+    const database = await resolvePropertyDatabaseForDocument(
+      document,
+      databaseId,
+      "editor",
+    );
     if (!database) throw new Error("Document is not part of a database.");
 
     const definitions = await db
@@ -55,7 +66,7 @@ export default defineAction({
       return {
         documentId,
         databaseId: database.id,
-        properties: await listPropertiesForDocument(document),
+        properties: await listPropertiesForDocument(document, database.id),
       };
     }
 
@@ -83,7 +94,7 @@ export default defineAction({
     return {
       documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties: await listPropertiesForDocument(document, database.id),
     };
   },
 });

@@ -179,11 +179,14 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toContain(
+      "databaseId={databaseId ?? document.databaseMembership.databaseId}",
+    );
     expect(infoPanel).toMatch(
-      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+      /databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+      /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");

@@ -38,6 +38,7 @@ const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
 interface DocumentBlockFieldsProps {
   documentId: string;
+  databaseId: string;
   databaseDocumentId: string;
   canEdit: boolean;
   /**
@@ -239,12 +240,13 @@ export function blockFieldsRenderState(args: {
  */
 export function DocumentBlockFields({
   documentId,
+  databaseId,
   databaseDocumentId,
   canEdit,
   primaryEditor,
 }: DocumentBlockFieldsProps) {
   const t = useT();
-  const query = useDocumentProperties(documentId);
+  const query = useDocumentProperties(documentId, databaseId);
   const properties = query.data?.properties ?? [];
   const blockFields = useMemo(
     () => blockFieldsFromProperties(properties),
@@ -321,6 +323,7 @@ export function DocumentBlockFields({
       return (
         <MultiBlockFields
           documentId={documentId}
+          databaseId={databaseId}
           databaseDocumentId={databaseDocumentId}
           canEdit={canEdit}
           blockFields={state.fields}
@@ -333,6 +336,7 @@ export function DocumentBlockFields({
 
 function MultiBlockFields({
   documentId,
+  databaseId,
   databaseDocumentId,
   canEdit,
   blockFields,
@@ -340,13 +344,18 @@ function MultiBlockFields({
   t,
 }: {
   documentId: string;
+  databaseId: string;
   databaseDocumentId: string;
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   t: ReturnType<typeof useT>;
 }) {
-  const reorder = useReorderDocumentProperty(documentId);
+  const reorder = useReorderDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverGapIndex, setDragOverGapIndex] = useState<number | null>(null);
   const [dragPreview, setDragPreview] =
@@ -805,7 +814,11 @@ function AdditionalBlockEditor({
   property: DocumentProperty;
   canEdit: boolean;
 }) {
-  const setProperty = useSetDocumentProperty(documentId, databaseDocumentId);
+  const setProperty = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";

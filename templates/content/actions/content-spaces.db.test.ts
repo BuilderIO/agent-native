@@ -891,6 +891,7 @@ describe("Content space provisioning", () => {
       () =>
         setDocumentPropertyAction.run({
           documentId: "favorite-org-b",
+          databaseId: memberProvisioned.favoritesDatabaseId,
           propertyId: "favorites-personal-note",
           value: "Cross-workspace metadata",
         }),
