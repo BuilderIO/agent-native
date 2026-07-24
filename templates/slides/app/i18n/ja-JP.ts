@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "デッキオプション",
     generatingImage: "画像を生成中...",
     noAssetsYet: "アセットはまだありません。",
+    assetUploadFailed: "一部のアップロードに失敗しました",
+    assetDeleteFailed: "アセットの削除に失敗しました",
     contentMarkdown: "コンテンツ (Markdown)",
     speakerNotes: "スピーカーノート",
     speakerNotesForSlide: "スピーカーノート — スライド {{index}} / {{count}}",

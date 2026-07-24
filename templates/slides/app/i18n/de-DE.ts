@@ -62,6 +62,8 @@ const messages = {
     deckOptions: "Deckoptionen",
     generatingImage: "Bild wird generiert...",
     noAssetsYet: "Noch keine Assets.",
+    assetUploadFailed: "Einige Uploads sind fehlgeschlagen",
+    assetDeleteFailed: "Asset konnte nicht gelöscht werden",
     contentMarkdown: "Inhalt (Markdown)",
     speakerNotes: "Sprechernotizen",
     speakerNotesForSlide: "Sprechernotizen — Folie {{index}} / {{count}}",

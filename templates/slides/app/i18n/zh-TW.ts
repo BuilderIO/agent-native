@@ -58,6 +58,8 @@ const messages = {
     deckOptions: "簡報選項",
     generatingImage: "正在產生圖片...",
     noAssetsYet: "還沒有素材。",
+    assetUploadFailed: "部分上傳失敗",
+    assetDeleteFailed: "刪除素材失敗",
     contentMarkdown: "內容 (Markdown)",
     speakerNotes: "演講者備註",
     speakerNotesForSlide: "演講者備註 — 幻燈片 {{index}} / {{count}}",

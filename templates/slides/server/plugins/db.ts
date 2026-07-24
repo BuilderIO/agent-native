@@ -210,6 +210,26 @@ const runSlidesMigrations = runMigrations(
   CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
   CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
     },
+    // v20: index of assets uploaded through the file-upload provider chain.
+    // GET /api/assets previously always returned [] (no persisted record of
+    // uploads), so the Asset Library panel could never show or re-select a
+    // file after uploading it. This table only stores the returned URL/
+    // metadata, never the file bytes.
+    {
+      version: 20,
+      name: "slides-uploaded-assets-table",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_assets (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    provider TEXT,
+    owner_email TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -8,6 +8,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { missingDesignSystemDataFields } from "../server/lib/design-system-data-validation.js";
 
 export default defineAction({
   description:
@@ -36,11 +37,18 @@ export default defineAction({
       ),
   }),
   run: async ({ title, description, data, assets, customInstructions }) => {
-    // Validate that data is valid JSON
+    let parsedData: unknown;
     try {
-      JSON.parse(data);
+      parsedData = JSON.parse(data);
     } catch {
       throw new Error("data must be a valid JSON string");
+    }
+    const missingFields = missingDesignSystemDataFields(parsedData);
+    if (missingFields.length > 0) {
+      throw new Error(
+        "data is missing required design system field(s): " +
+          missingFields.join(", "),
+      );
     }
     if (assets) {
       try {

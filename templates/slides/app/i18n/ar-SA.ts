@@ -60,6 +60,8 @@ const messages = {
     deckOptions: "خيارات العرض",
     generatingImage: "جار إنشاء الصورة...",
     noAssetsYet: "لا توجد أصول بعد.",
+    assetUploadFailed: "فشل بعض التحميلات",
+    assetDeleteFailed: "فشل حذف الأصل",
     contentMarkdown: "المحتوى (Markdown)",
     speakerNotes: "ملاحظات المتحدث",
     speakerNotesForSlide: "ملاحظات المتحدث — الشريحة {{index}} / {{count}}",

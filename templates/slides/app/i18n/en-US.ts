@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "Deck options",
     generatingImage: "Generating image...",
     noAssetsYet: "No assets yet.",
+    assetUploadFailed: "Some uploads failed",
+    assetDeleteFailed: "Failed to delete asset",
     contentMarkdown: "Content (Markdown)",
     speakerNotes: "Speaker Notes",
     speakerNotesForSlide: "Speaker Notes — Slide {{index}} / {{count}}",

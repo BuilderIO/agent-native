@@ -52,7 +52,12 @@ export default function DesignSystems() {
 
   const parseDesignData = (dataStr: string): DesignSystemData | null => {
     try {
-      return JSON.parse(dataStr) as DesignSystemData;
+      const parsed = JSON.parse(dataStr) as DesignSystemData;
+      // DesignSystemCard reads colors.* / typography.* unconditionally — a
+      // partial payload from an interrupted generation must not crash the
+      // whole page, so skip cards missing either object instead of rendering.
+      if (!parsed?.colors || !parsed?.typography) return null;
+      return parsed;
     } catch {
       return null;
     }

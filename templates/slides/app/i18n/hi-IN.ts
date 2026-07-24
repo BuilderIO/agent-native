@@ -60,6 +60,8 @@ const messages = {
     deckOptions: "डेक विकल्प",
     generatingImage: "छवि जनरेट हो रही है...",
     noAssetsYet: "अभी कोई एसेट नहीं है.",
+    assetUploadFailed: "कुछ अपलोड विफल हुए",
+    assetDeleteFailed: "एसेट हटाने में विफल",
     contentMarkdown: "सामग्री (Markdown)",
     speakerNotes: "स्पीकर नोट्स",
     speakerNotesForSlide: "स्पीकर नोट्स — स्लाइड {{index}} / {{count}}",

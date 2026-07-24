@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "덱 옵션",
     generatingImage: "이미지 생성 중...",
     noAssetsYet: "아직 에셋이 없습니다.",
+    assetUploadFailed: "일부 업로드에 실패했습니다",
+    assetDeleteFailed: "에셋 삭제에 실패했습니다",
     contentMarkdown: "콘텐츠 (Markdown)",
     speakerNotes: "발표자 노트",
     speakerNotesForSlide: "발표자 노트 — 슬라이드 {{index}} / {{count}}",

@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 interface Asset {
   url: string;
@@ -67,17 +68,32 @@ export default function AssetLibraryPanel({
     const files = e.target.files;
     if (!files || files.length === 0) return;
     setUploading(true);
+    const failures: string[] = [];
     try {
       for (const file of Array.from(files)) {
         const form = new FormData();
         form.append("file", file);
-        await fetch(`${appBasePath()}/api/assets/upload`, {
-          method: "POST",
-          body: form,
-        });
+        try {
+          const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            failures.push(
+              `${file.name}: ${body?.error || `HTTP ${res.status}`}`,
+            );
+          }
+        } catch {
+          failures.push(`${file.name}: upload failed`);
+        }
       }
       await fetchAssets();
-    } catch {
+      if (failures.length > 0) {
+        toast.error(t("raw.assetUploadFailed"), {
+          description: failures.join("\n"),
+        });
+      }
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -86,14 +102,20 @@ export default function AssetLibraryPanel({
 
   const handleDelete = async (filename: string) => {
     try {
-      await fetch(
+      const res = await fetch(
         `${appBasePath()}/api/assets/${encodeURIComponent(filename)}`,
         {
           method: "DELETE",
         },
       );
+      if (!res.ok) {
+        toast.error(t("raw.assetDeleteFailed"));
+        return;
+      }
       setAssets((prev) => prev.filter((a) => a.filename !== filename));
-    } catch {}
+    } catch {
+      toast.error(t("raw.assetDeleteFailed"));
+    }
   };
 
   const handleSelect = (url: string) => {

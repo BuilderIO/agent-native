@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "Options du deck",
     generatingImage: "Génération de l’image...",
     noAssetsYet: "Aucun asset pour le moment.",
+    assetUploadFailed: "Certains envois ont échoué",
+    assetDeleteFailed: "Échec de la suppression de l'asset",
     contentMarkdown: "Contenu (Markdown)",
     speakerNotes: "Notes du présentateur",
     speakerNotesForSlide:
