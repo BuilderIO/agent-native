@@ -43,11 +43,16 @@ ladder.
   local agents can read recent app/window context through
   `agent-native mcp screen-memory`; do not upload raw Screen Memory segments or
   treat them as shareable Clips unless the user explicitly exports/imports them.
-- Use `import-loom-recording` for Loom share/embed URLs. It downloads Loom's
-  public MP4, reuploads it to Clips storage, creates a ready playable
-  Clips-hosted recording, and imports Loom's public transcript when the share
-  page exposes one. If Loom does not expose a downloadable MP4, ask the user to
-  download the original from Loom and use "Upload video".
+- Use `import-loom-recording` for Loom share/embed URLs, or a direct link to a
+  video file (e.g. an MP4/WebM/MOV/M4V hosted by another screen recorder).
+  Loom links download Loom's public MP4, reupload it to Clips storage, and
+  import Loom's public transcript when the share page exposes one. Direct
+  video links are downloaded by content type and reuploaded the same way, but
+  without transcript metadata — use `request-transcript` afterward. If Loom
+  does not expose a downloadable MP4, ask the user to download the original
+  from Loom and use "Upload video". The dedicated `/import` page is the
+  primary Loom-targeted entry point for this action; it also accepts other
+  direct video links.
 - Native transcript first. Cleanup and transcript-backed title/summary
   generation run in the durable post-finalize path; do not hide a usable native
   transcript behind failed metadata work, and keep heuristic titles replaceable

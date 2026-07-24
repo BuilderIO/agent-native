@@ -534,18 +534,20 @@ export default function RecordingPage() {
     setRetryingFinalize(true);
     setProcessingTimeout(false);
     try {
-      const retryingLoomImport = isLoomRecording;
-      const actionPath = retryingLoomImport
+      const isUrlImportRetry =
+        isLoomRecording ||
+        recording?.sourceAppName?.trim().toLowerCase() === "video link";
+      const actionPath = isUrlImportRetry
         ? "/_agent-native/actions/import-loom-recording"
         : "/_agent-native/actions/finalize-recording";
-      if (retryingLoomImport && !recording?.sourceWindowTitle) {
+      if (isUrlImportRetry && !recording?.sourceWindowTitle) {
         throw new Error(t("recordingPage.loomMissingUrl"));
       }
       const res = await fetch(agentNativePath(actionPath), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
-          retryingLoomImport
+          isUrlImportRetry
             ? {
                 recordingId,
                 url: recording?.sourceWindowTitle,
@@ -576,7 +578,7 @@ export default function RecordingPage() {
         return;
       }
       toast.success(
-        retryingLoomImport
+        isUrlImportRetry
           ? t("recordingPage.loomImportResumed")
           : t("recordingPage.clipUploadResumed"),
       );

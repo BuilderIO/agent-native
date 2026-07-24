@@ -527,10 +527,6 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
-function userFacingActionErrorMessage(error: string): string {
-  return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
-}
-
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -785,7 +781,6 @@ export default function RecordRoute() {
   // the live camera bubble is hidden during full-screen recording.
   const [resolvedDisplaySurface, setResolvedDisplaySurface] =
     useState<DisplaySurface | null>(null);
-  const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
   // Surfaced during the post-stop compression pass so the spinner can show
@@ -815,6 +810,17 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
   }, [location.search]);
+  const autoOpenUploadFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("autoUpload") === "1";
+  }, [location.search]);
+  const importLoomHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
+    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
+    const qs = params.toString();
+    return qs ? `/import?${qs}` : "/import";
+  }, [spaceIdFromUrl, folderIdFromUrl]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -1792,62 +1798,6 @@ export default function RecordRoute() {
     [markStorageConfigured, navigate, probeVideoMetadata],
   );
 
-  const importLoom = useCallback(
-    async (url: string) => {
-      startSessionRef.current += 1;
-      fileUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
-      fileUploadAbortRef.current = null;
-      setError(null);
-      setLoomImporting(true);
-
-      try {
-        const result = (await callAction(
-          "import-loom-recording" as any,
-          {
-            url,
-            spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-            folderId: folderIdFromUrl ?? undefined,
-          } as any,
-        )) as {
-          recordingId?: string;
-          status?: string;
-          storageSetupRequired?: boolean;
-        };
-        const recordingId = result?.recordingId;
-        if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
-        }
-
-        if (
-          result?.storageSetupRequired ||
-          result?.status === "waiting_storage"
-        ) {
-          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
-            description: t("recordRoute.connectStorageToRetryLoom"),
-            duration: 12_000,
-          });
-        } else {
-          await copyRecordingLink(recordingId);
-          toast.success(t("recordRoute.loomImported"));
-        }
-        await writeAppState("navigate", {
-          view: "recording",
-          recordingId,
-        }).catch(() => {});
-        navigate(`/r/${recordingId}`);
-      } catch (err) {
-        throw new Error(
-          err instanceof Error
-            ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom"),
-        );
-      } finally {
-        setLoomImporting(false);
-      }
-    },
-    [folderIdFromUrl, navigate, spaceIdFromUrl],
-  );
-
   const saveBrowserDiagnostics = useCallback(
     async (recordingId: string) => {
       const capture = browserDiagnosticsRef.current;
@@ -2488,10 +2438,10 @@ export default function RecordRoute() {
                     initialRecorderOptions.surface
                   }
                   onUpload={uploadFile}
-                  onImportLoom={importLoom}
-                  importingLoom={loomImporting}
+                  importLoomHref={importLoomHref}
                   cameraSize={cameraSize}
                   onCameraSizeChange={handleCameraSizeChange}
+                  autoOpenUpload={autoOpenUploadFromUrl}
                 />
               ) : (
                 <StorageSetupCard

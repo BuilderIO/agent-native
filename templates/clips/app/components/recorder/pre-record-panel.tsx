@@ -13,14 +13,8 @@ import {
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import { Button } from "@/components/ui/button";
@@ -29,12 +23,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -78,13 +66,16 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
-  /** Called when the user submits a Loom URL to import. */
-  onImportLoom?: (url: string) => Promise<void> | void;
-  importingLoom?: boolean;
+  /** When set, shows an "Import Loom" link pointing at the dedicated
+   * Loom-import page instead of an inline import form. */
+  importLoomHref?: string;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
   onCameraSizeChange?: (size: CameraBubbleSize) => void;
+  /** Opens the file picker once on mount, e.g. when arriving from a
+   * dedicated "Upload video" entry point elsewhere in the app. */
+  autoOpenUpload?: boolean;
 }
 
 type MicTestState = {
@@ -152,16 +143,16 @@ export function PreRecordPanel({
   initialMode,
   initialDisplaySurface,
   onUpload,
-  onImportLoom,
-  importingLoom,
+  importLoomHref,
   onCancel,
   busy,
   cameraSize = "md",
   onCameraSizeChange,
+  autoOpenUpload,
 }: PreRecordPanelProps) {
   const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const loomInputRef = useRef<HTMLInputElement>(null);
+  const autoOpenUploadTriggeredRef = useRef(false);
   const browserTabCaptureSupported = useMemo(
     () => supportsBrowserTabCapture(),
     [],
@@ -179,9 +170,6 @@ export function PreRecordPanel({
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
-  const [loomImportOpen, setLoomImportOpen] = useState(false);
-  const [loomUrl, setLoomUrl] = useState("");
-  const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>(
@@ -272,6 +260,13 @@ export function PreRecordPanel({
     }
     if (initialMode) setMode(initialMode);
   }, [initialMode, isMobile]);
+
+  useEffect(() => {
+    if (!autoOpenUpload || autoOpenUploadTriggeredRef.current) return;
+    if (!onUpload || busy) return;
+    autoOpenUploadTriggeredRef.current = true;
+    fileInputRef.current?.click();
+  }, [autoOpenUpload, busy, onUpload]);
 
   useEffect(() => {
     if (initialDisplaySurface) {
@@ -513,35 +508,6 @@ export function PreRecordPanel({
   const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
     setCameraTest((prev) => ({ ...prev, hasPreview }));
   }, []);
-
-  const handleLoomImport = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const url = loomUrl.trim();
-      if (!url || !onImportLoom) return;
-
-      setLoomError(null);
-      try {
-        await onImportLoom(url);
-        setLoomUrl("");
-        setLoomImportOpen(false);
-      } catch (err) {
-        setLoomError(
-          err instanceof Error ? err.message : t("preRecord.loomImportFailed"),
-        );
-      }
-    },
-    [loomUrl, onImportLoom, t],
-  );
-
-  useEffect(() => {
-    if (!loomImportOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      loomInputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [loomImportOpen]);
-
   useEffect(() => {
     if (needsCamera) return;
     setCameraTest({ status: "idle", error: null, hasPreview: false });
@@ -581,13 +547,6 @@ export function PreRecordPanel({
         testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
-      import: onImportLoom
-        ? {
-            loomPanelOpen: loomImportOpen,
-            loomUrlPresent: loomUrl.trim().length > 0,
-            loomImporting: Boolean(importingLoom),
-          }
-        : undefined,
     }).catch(() => {});
   }, [
     cameraId,
