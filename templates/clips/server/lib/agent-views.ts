@@ -16,7 +16,11 @@ import { getRequestHeader, getRequestIP, type H3Event } from "h3";
 import { getDb, schema } from "../db/index.js";
 import { nanoid } from "./recordings.js";
 
-/** One agent's burst of context + transcript + frame polls is one view. */
+/**
+ * One agent's burst of context + transcript + frame polls is one view.
+ * Fixed windows mean a burst straddling a boundary counts twice; switch to
+ * last-seen-gap dedup if that ever shows up in the numbers.
+ */
 export const AGENT_VIEW_SESSION_MS = 30 * 60 * 1000;
 
 const AGENT_LABELS: [RegExp, string][] = [

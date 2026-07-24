@@ -4,6 +4,8 @@ const mockViewerRows = vi.hoisted(() => vi.fn());
 const mockEventRows = vi.hoisted(() => vi.fn());
 const mockViewLogRows = vi.hoisted(() => vi.fn());
 const mockRecordingRows = vi.hoisted(() => vi.fn());
+const mockCountAgentViews = vi.hoisted(() => vi.fn());
+const mockListAgentViewers = vi.hoisted(() => vi.fn());
 const tables = vi.hoisted(() => ({
   recordingViewers: { recordingId: "recordingViewers.recordingId" },
   recordingViews: { recordingId: "recordingViews.recordingId" },
@@ -49,6 +51,13 @@ vi.mock("../server/db/index.js", () => ({
   schema: tables,
 }));
 
+vi.mock("../server/lib/agent-views.js", () => ({
+  countRecordingAgentViews: (...args: unknown[]) =>
+    mockCountAgentViews(...args),
+  listRecordingAgentViewers: (...args: unknown[]) =>
+    mockListAgentViewers(...args),
+}));
+
 import getRecordingInsights from "./get-recording-insights";
 
 function countedViewer(id: string, viewerEmail: string) {
@@ -78,6 +87,25 @@ describe("get-recording-insights", () => {
     mockEventRows.mockResolvedValue([]);
     mockViewLogRows.mockResolvedValue([{ value: 1 }]);
     mockRecordingRows.mockResolvedValue([{ durationMs: 10_000 }]);
+    mockCountAgentViews.mockResolvedValue(0);
+    mockListAgentViewers.mockResolvedValue([]);
+  });
+
+  it("reports agent views separately from human views", async () => {
+    mockViewLogRows.mockResolvedValue([{ value: 2 }]);
+    mockCountAgentViews.mockResolvedValue(5);
+    mockListAgentViewers.mockResolvedValue([
+      { agentLabel: "Claude", views: 3, lastSeenAt: "2026-07-24T00:00:00Z" },
+      { agentLabel: "ChatGPT", views: 2, lastSeenAt: "2026-07-23T00:00:00Z" },
+    ]);
+
+    const result = await getRecordingInsights.run({
+      recordingId: "recording-1",
+    });
+
+    expect(result.views).toBe(2);
+    expect(result.agentViews).toBe(5);
+    expect(result.agentViewers).toHaveLength(2);
   });
 
   it("keeps completion metrics within the percentage range", async () => {

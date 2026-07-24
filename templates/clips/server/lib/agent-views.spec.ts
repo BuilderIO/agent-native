@@ -11,9 +11,9 @@ import {
 describe("agentLabelFromUserAgent", () => {
   it("names known AI agents", () => {
     expect(agentLabelFromUserAgent("Claude-User/1.0")).toBe("Claude");
-    expect(agentLabelFromUserAgent("Mozilla/5.0 (compatible; GPTBot/1.2)")).toBe(
-      "ChatGPT",
-    );
+    expect(
+      agentLabelFromUserAgent("Mozilla/5.0 (compatible; GPTBot/1.2)"),
+    ).toBe("ChatGPT");
     expect(agentLabelFromUserAgent("PerplexityBot/1.0")).toBe("Perplexity");
   });
 
