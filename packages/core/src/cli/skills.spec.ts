@@ -298,6 +298,7 @@ describe("agent-native skills", () => {
     delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
     const telemetry = {
       track: vi.fn(),
+      captureException: vi.fn(),
       flush: vi.fn(async () => undefined),
     };
 
@@ -329,6 +330,7 @@ describe("agent-native skills", () => {
       );
 
       expect(telemetry.track).not.toHaveBeenCalled();
+      expect(telemetry.captureException).not.toHaveBeenCalled();
       expect(telemetry.flush).not.toHaveBeenCalled();
       expect(fs.readdirSync(home)).toEqual([]);
       expect(fs.readdirSync(codexHome)).toEqual([]);
