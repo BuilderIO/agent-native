@@ -1649,9 +1649,28 @@ export default function SlideEditor({
         ".fmd-slide",
       ) as HTMLElement | null;
       if (!fmdSlide) return;
+      // .fmd-slide is often visually scaled (canvas zoom, and the autofit
+      // system that shrinks overflowing slides to fit) via a CSS transform.
+      // A transform doesn't change the element's own layout coordinate
+      // space, so a pixel offset computed from its on-screen rect would be
+      // scaled a second time once applied to a child. Percentages resolve
+      // against that untransformed layout box, so they land at the actual
+      // click point regardless of the current scale.
       const rect = fmdSlide.getBoundingClientRect();
-      const x = Math.max(0, Math.round(clientX - rect.left));
-      const y = Math.max(0, Math.round(clientY - rect.top));
+      const xPct =
+        rect.width > 0
+          ? Math.min(
+              100,
+              Math.max(0, ((clientX - rect.left) / rect.width) * 100),
+            )
+          : 0;
+      const yPct =
+        rect.height > 0
+          ? Math.min(
+              100,
+              Math.max(0, ((clientY - rect.top) / rect.height) * 100),
+            )
+          : 0;
 
       if (getComputedStyle(fmdSlide).position === "static") {
         fmdSlide.style.position = "relative";
@@ -1660,8 +1679,8 @@ export default function SlideEditor({
       const box = document.createElement("div");
       box.className = "fmd-text-box";
       box.style.position = "absolute";
-      box.style.left = String(x) + "px";
-      box.style.top = String(y) + "px";
+      box.style.left = `${xPct}%`;
+      box.style.top = `${yPct}%`;
       box.style.width = "320px";
       box.style.fontSize = "24px";
       box.style.color = "#fff";
