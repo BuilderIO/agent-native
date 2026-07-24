@@ -310,6 +310,20 @@
   opacity: 1;
 }
 
+/* A named chat surface already morphs from its old geometry during a
+   full-page-chat handoff. Suppress the generic desktop drawer entry on that
+   same panel so it does not slide in from the right underneath the morph. */
+.agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
+  width: var(--agent-sidebar-width);
+  transition: none;
+}
+
+.agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
+  > .agent-sidebar-panel-inner {
+  transform: translateX(0);
+  transition: none;
+}
+
 @starting-style {
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
     width: 0;
@@ -329,6 +343,15 @@
 
   .agent-sidebar-backdrop[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
     opacity: 0;
+  }
+
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
+    width: var(--agent-sidebar-width);
+  }
+
+  .agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
+    > .agent-sidebar-panel-inner {
+    transform: translateX(0);
   }
 }
 

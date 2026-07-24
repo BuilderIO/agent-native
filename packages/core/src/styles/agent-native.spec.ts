@@ -45,6 +45,19 @@ describe("agent-native shell surface tokens", () => {
     );
   });
 
+  it("does not double-animate a named chat handoff through the drawer entry", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][^}]*width: var\(--agent-sidebar-width\);[^}]*transition: none;/s,
+    );
+    expect(css).toMatch(
+      /\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][\s\S]*?> \.agent-sidebar-panel-inner[^}]*transform: translateX\(0\);[^}]*transition: none;/s,
+    );
+  });
+
   it("keeps the active tool shine clipped to its label text", () => {
     const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
       encoding: "utf8",
