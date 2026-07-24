@@ -535,13 +535,13 @@ See [MCP Apps](/docs/mcp-apps) for the full bridge details — transplant vs con
 
 On top of the per-action tools the MCP server exposes a stable verb set, so an external agent has a predictable surface without guessing per-app action names:
 
-| Tool                                               | Side effects | Returns                                                                                                                      |
-| -------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | none         | workspace apps + their URLs / running state                                                                                  |
-| `open_app({ app, view?, path?, params?, embed? })` | none         | a deep link or same-origin route; `embed: true` renders the full app inline where supported                                  |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | agent loop   | routes a natural-language task to that app's in-app agent; long work returns a durable `taskId` for `ask_app_status` polling |
-| `create_workspace_app({ name, template })`         | scaffolds    | a new app booted via the workspace path, plus its running URL + deep link                                                    |
-| `list_templates`                                   | none         | the allow-listed templates only                                                                                              |
+| Tool                                               | Side effects | Returns                                                                                                                                                 |
+| -------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | none         | workspace apps + their URLs / running state                                                                                                             |
+| `open_app({ app, view?, path?, params?, embed? })` | none         | a deep link or same-origin route; `embed: true` renders the full app inline where supported                                                             |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | agent loop   | routes a natural-language task to that app's in-app agent; long work returns a durable `taskHandle` plus a legacy `taskId` for `ask_app_status` polling |
+| `create_workspace_app({ name, template })`         | scaffolds    | a new app booted via the workspace path, plus its running URL + deep link                                                                               |
+| `list_templates`                                   | none         | the allow-listed templates only                                                                                                                         |
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
@@ -551,12 +551,18 @@ For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that
 
 ### Long-running agent requests
 
+When `ask_app` returns a `taskHandle`, pass that opaque value back unchanged to
+`ask_app_status`; it preserves the original task route even if app discovery
+changes between calls. The older `app` plus `taskId` arguments remain accepted
+during migration.
+
 MCP hosts and gateways do not share one long tool-call timeout; some enforce a
 five-minute ceiling and others are configurable. Do not design an external
 agent integration around a ten-minute blocking `tools/call`. `ask-agent` and
-`ask_app` acknowledge hosted work quickly, then return a durable `taskId` when
-the inline wait expires. Poll with `ask_app_status` using the returned `app`
-and `taskId`; the result includes `pollAfterMs` as a host-friendly interval.
+`ask_app` acknowledge hosted work quickly, then return a durable `taskHandle`
+plus a legacy `taskId` when the inline wait expires. Poll with `ask_app_status`
+by replaying the returned `poll.arguments` unchanged, especially the
+`taskHandle`; the result includes `pollAfterMs` as a host-friendly interval.
 The task must be created before the first response can time out, so a polling
 URL returned only after a long call is not a reliable recovery contract.
 
@@ -564,7 +570,9 @@ If a bounded transient status read is unavailable, `ask_app_status` can return
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
 original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
 read is unavailable—not that the durable task failed. Retry `ask_app_status`
-with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
+with the exact returned `poll.arguments`, including `taskHandle` when present;
+legacy results without a handle must reuse the same `app` and `taskId`. Never
+resubmit `ask_app` to recover, because
 submission can duplicate work. Permanent authentication, not-found, and
 protocol failures remain errors.
 

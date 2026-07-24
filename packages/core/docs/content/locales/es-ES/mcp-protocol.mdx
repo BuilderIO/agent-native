@@ -230,7 +230,11 @@ El agente ejecuta el mismo ciclo que el chat interactivo: puede llamar a múltip
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```

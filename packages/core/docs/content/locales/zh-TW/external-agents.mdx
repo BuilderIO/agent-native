@@ -507,13 +507,13 @@ CSP 和沙箱權限等安全中繼資料存在於資源中
 
 在每個操作工具之上，MCP 伺服器公開了一個穩定的動詞集，因此外部代理具有可預測的表面，而無需猜測每個應用操作名稱：
 
-| 工具                                               | 副作用   | 退貨                                                                                                |
-| -------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | 無       | 工作區應用+其 URL/執行狀態                                                                          |
-| `open_app({ app, view?, path?, params?, embed? })` | 無       | 深層連結或同來源路由； `embed: true` 在支援的情況下行內渲染完整的應用程式                           |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | 代理迴圈 | 將自然語言工作路由到該應用的應用內代理；長時間的工作會傳回持久的 `taskId`，供 `ask_app_status` 輪詢 |
-| `create_workspace_app({ name, template })`         | 腳手架   | 透過工作區路徑啟動的新應用程式，及其正在執行的 URL + 深層連結                                       |
-| `list_templates`                                   | 無       | 僅限允許列出的範本                                                                                  |
+| 工具                                               | 副作用   | 退貨                                                                                                                    |
+| -------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 無       | 工作區應用+其 URL/執行狀態                                                                                              |
+| `open_app({ app, view?, path?, params?, embed? })` | 無       | 深層連結或同來源路由； `embed: true` 在支援的情況下行內渲染完整的應用程式                                               |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | 代理迴圈 | 將自然語言工作路由到該應用的應用內代理；長時間的工作會傳回持久的 `taskHandle` 與舊版 `taskId`，供 `ask_app_status` 輪詢 |
+| `create_workspace_app({ name, template })`         | 腳手架   | 透過工作區路徑啟動的新應用程式，及其正在執行的 URL + 深層連結                                                           |
+| `list_templates`                                   | 無       | 僅限允許列出的範本                                                                                                      |
 
 `create_workspace_app` 拒絕任何非允許清單範本 - `packages/shared-app-config/templates.ts` 中的公開範本允許清單是權威且受 CI 保護的；外部代理無法擴大它。同名的範本操作會覆蓋內建操作（範本優先於核心優先級）。使用 `MCPConfig.builtinCrossAppTools: false` 停用整個設定。
 
@@ -523,12 +523,17 @@ CSP 和沙箱權限等安全中繼資料存在於資源中
 
 ### 長時間執行的代理請求
 
-MCP 主機與閘道器並未共用單一的長工具呼叫逾時限制；有些強制五分鐘上限，有些則可設定。請勿將外部代理整合設計成依賴十分鐘的封鎖式 `tools/call`。`ask-agent` 與 `ask_app` 會快速確認託管工作，並在行內等待逾期時傳回持久的 `taskId`。請使用傳回的 `app` 與 `taskId` 呼叫 `ask_app_status` 進行輪詢；結果包含 `pollAfterMs` 作為對主機友善的輪詢間隔。任務必須在第一次回應逾時之前就已建立，因此僅在長時間呼叫後才傳回輪詢網址並非可靠的復原機制。
+當 `ask_app` 傳回 `taskHandle` 時，請將這個不透明值原樣傳給
+`ask_app_status`；即使兩次呼叫之間的應用程式探索結果改變，它仍會保留原始任務路由。
+遷移期間仍接受舊的 `app` 與 `taskId` 引數。
+
+MCP 主機與閘道器並未共用單一的長工具呼叫逾時限制；有些強制五分鐘上限，有些則可設定。請勿將外部代理整合設計成依賴十分鐘的封鎖式 `tools/call`。`ask-agent` 與 `ask_app` 會快速確認託管工作，並在行內等待逾期時傳回持久的 `taskHandle` 與舊版 `taskId`。請原樣重用傳回的 `poll.arguments`（尤其是 `taskHandle`）呼叫 `ask_app_status` 進行輪詢；結果包含 `pollAfterMs` 作為對主機友善的輪詢間隔。任務必須在第一次回應逾時之前就已建立，因此僅在長時間呼叫後才傳回輪詢網址並非可靠的復原機制。
 
 若有界的暫時狀態讀取無法使用，`ask_app_status` 可傳回
 `status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
 `app` 與 `taskId`，以及 `pollAfterMs` / `poll`。這表示狀態讀取無法使用，並不表示
-持久任務失敗。請以完全相同的 `app` 與 `taskId` 重試 `ask_app_status`；切勿為了復原而
+持久任務失敗。請以完全相同的傳回 `poll.arguments`（若存在則包括 `taskHandle`）重試
+`ask_app_status`；沒有控制代碼的舊版結果必須重用相同的 `app` 與 `taskId`。切勿為了復原而
 重新提交 `ask_app`，因為提交可能重複工作。永久性的驗證、找不到與通訊協定錯誤仍然是錯誤。
 
 ### 每應用游覽 {#tour}
