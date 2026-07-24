@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/db/schema";
 import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -794,12 +794,11 @@ export async function migrateAnalyticsArtifacts(
     }
 
     for (const [duplicateId, canonicalId] of duplicateDashboardMap) {
-      await copyShares(
+      await copySharesBatch(
         tx,
         schema.dashboardShares,
         schema.dashboardShares,
-        duplicateId,
-        canonicalId,
+        [{ sourceId: duplicateId, targetId: canonicalId }],
         runId,
       );
       await tx
@@ -820,12 +819,11 @@ export async function migrateAnalyticsArtifacts(
     }
 
     for (const [duplicateId, canonicalId] of duplicateAnalysisMap) {
-      await copyShares(
+      await copySharesBatch(
         tx,
         schema.analysisShares,
         schema.analysisShares,
-        duplicateId,
-        canonicalId,
+        [{ sourceId: duplicateId, targetId: canonicalId }],
         runId,
       );
       await tx
@@ -836,12 +834,11 @@ export async function migrateAnalyticsArtifacts(
     }
 
     for (const [duplicateId, canonicalId] of duplicateExtensionMap) {
-      await copyShares(
+      await copySharesBatch(
         tx,
         migrationExtensionShares,
         migrationExtensionShares,
-        duplicateId,
-        canonicalId,
+        [{ sourceId: duplicateId, targetId: canonicalId }],
         runId,
       );
       for (const dashboard of state.dashboards) {
@@ -909,12 +906,11 @@ export async function migrateAnalyticsArtifacts(
               analysis.visibility === "public" ? "org" : analysis.visibility,
           })
           .onConflictDoNothing();
-        await copyShares(
+        await copySharesBatch(
           tx,
           schema.analysisShares,
           migrationExtensionShares,
-          analysis.id,
-          extensionId,
+          [{ sourceId: analysis.id, targetId: extensionId }],
           runId,
         );
         await tx.insert(schema.dashboards).values({
@@ -939,12 +935,11 @@ export async function migrateAnalyticsArtifacts(
           hiddenAt: analysis.hiddenAt,
           hiddenBy: analysis.hiddenAt ? ctx.userEmail : null,
         });
-        await copyShares(
+        await copySharesBatch(
           tx,
           schema.analysisShares,
           schema.dashboardShares,
-          analysis.id,
-          dashboardId,
+          [{ sourceId: analysis.id, targetId: dashboardId }],
           runId,
         );
         summary.analysisDashboardsCreated += 1;
@@ -1004,12 +999,11 @@ export async function migrateAnalyticsArtifacts(
           hiddenAt: extension.hiddenAt,
           hiddenBy: extension.hiddenAt ? ctx.userEmail : null,
         });
-        await copyShares(
+        await copySharesBatch(
           tx,
           migrationExtensionShares,
           schema.dashboardShares,
-          extension.id,
-          dashboardId,
+          [{ sourceId: extension.id, targetId: dashboardId }],
           runId,
         );
         summary.extensionDashboardsCreated += 1;
