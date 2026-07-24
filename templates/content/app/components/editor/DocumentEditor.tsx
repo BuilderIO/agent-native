@@ -144,6 +144,28 @@ export function titleMatchConfirmsSave(args: {
   );
 }
 
+export function refreshUnchangedContentSaveWatermark(args: {
+  serverContent: string;
+  serverUpdatedAt: string | null;
+  lastSaved: ContentSaveWatermark;
+}): ContentSaveWatermark {
+  if (
+    args.serverContent !== args.lastSaved.content ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+
+  // documents.updatedAt versions the whole row, not just the body. If the
+  // fetched body still byte-matches our saved baseline, a newer timestamp can
+  // only describe a title/icon/metadata update. Advance the content CAS base so
+  // a local rich-text tail is not silently preflight-dropped. A concurrent body
+  // edit still differs here and remains protected by the server CAS.
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -580,6 +602,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const documentContentRef = useRef(document.content);
+  documentContentRef.current = document.content;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -925,6 +949,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
+        serverContent: documentContentRef.current,
+        serverUpdatedAt: documentUpdatedAtRef.current,
+        lastSaved: lastSavedContentRef.current,
+      });
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.

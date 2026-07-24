@@ -968,10 +968,13 @@ export function SlashCommandMenu({
       // the durable snapshot cannot omit the block. Media placeholders are
       // still held by VisualEditor's pending-media guard until they have a src.
       if (!editor.isDestroyed && !editor.state.doc.eq(beforeDoc)) {
-        await onDraftCommitted?.();
+        const persisted = await onDraftCommitted?.();
+        if (persisted === false) {
+          toast.error(t("empty.genericError"));
+        }
       }
     },
-    [editor, onDraftCommitted],
+    [editor, onDraftCommitted, t],
   );
 
   useEffect(() => {

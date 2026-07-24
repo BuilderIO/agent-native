@@ -11,6 +11,7 @@ import {
   documentEditorTitleRegionClassName,
   enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
+  refreshUnchangedContentSaveWatermark,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
 import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
@@ -59,6 +60,37 @@ describe("document editor layout", () => {
 
     await expect(first).rejects.toThrow("network interrupted");
     await expect(second).resolves.toBe("latest");
+  });
+
+  it("advances the content CAS base across metadata-only row updates", () => {
+    expect(
+      refreshUnchangedContentSaveWatermark({
+        serverContent: "saved prefix",
+        serverUpdatedAt: "2026-07-24T17:00:02.000Z",
+        lastSaved: {
+          content: "saved prefix",
+          updatedAt: "2026-07-24T17:00:01.000Z",
+        },
+      }),
+    ).toEqual({
+      content: "saved prefix",
+      updatedAt: "2026-07-24T17:00:02.000Z",
+    });
+  });
+
+  it("does not advance the content CAS base across a real body change", () => {
+    const lastSaved = {
+      content: "saved prefix",
+      updatedAt: "2026-07-24T17:00:01.000Z",
+    };
+
+    expect(
+      refreshUnchangedContentSaveWatermark({
+        serverContent: "external body",
+        serverUpdatedAt: "2026-07-24T17:00:02.000Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
   });
 
   it("flushes a pending title with an icon update", () => {

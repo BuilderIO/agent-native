@@ -1929,13 +1929,16 @@ export function VisualEditor({
     const guards = guardsRef.current;
     if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
     try {
-      await persistEditorContent(editorToPersist, {
+      const persisted = await persistEditorContent(editorToPersist, {
         immediate: true,
         userInitiated: true,
       });
+      if (!persisted) throw new Error(t("empty.genericError"));
     } catch (error) {
       // The ordinary onUpdate path still queues its debounced retry. Keep the
-      // immediate durability attempt from becoming an unhandled rejection.
+      // immediate durability attempt from becoming an unhandled rejection,
+      // but fail visibly instead of treating a skipped save as success.
+      toast.error(t("empty.genericError"));
       console.error("Media source persistence error:", error);
     }
   };
