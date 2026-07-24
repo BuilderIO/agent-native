@@ -977,17 +977,15 @@ interface VisualEditorExtensionOptions {
   emptyBlockPlaceholder?: string;
 }
 
-function hasAncestorType(
+export function hasAncestorType(
   editor: CoreEditor,
   pos: number,
   typeName: string,
 ): boolean {
   const doc = editor.state.doc;
-  const positions = [
-    Math.max(0, pos - 1),
-    pos,
-    Math.min(doc.content.size, pos + 1),
-  ];
+  const clampPosition = (candidate: number) =>
+    Math.min(doc.content.size, Math.max(0, candidate));
+  const positions = [...new Set([pos - 1, pos, pos + 1].map(clampPosition))];
 
   return positions.some((candidatePos) => {
     const resolvedPos = doc.resolve(candidatePos);

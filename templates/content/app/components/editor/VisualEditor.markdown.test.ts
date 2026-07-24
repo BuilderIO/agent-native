@@ -26,6 +26,7 @@ import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
   getRecentEditPresenceMarkerRect,
+  hasAncestorType,
   parseNfmForCollabReconcile,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
@@ -69,6 +70,22 @@ function createFullEditor(content = "") {
 function waitForDeferredCallback() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
+
+describe("placeholder ancestry", () => {
+  it("clamps stale collaborative positions to the live document", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>Short paragraph</p>",
+    });
+    try {
+      expect(() => hasAncestorType(editor, 180, "blockquote")).not.toThrow();
+      expect(hasAncestorType(editor, 180, "blockquote")).toBe(false);
+      expect(() => hasAncestorType(editor, -180, "blockquote")).not.toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+});
 
 function triggerTextInput(editor: Editor, text: string) {
   const { from, to } = editor.state.selection;
