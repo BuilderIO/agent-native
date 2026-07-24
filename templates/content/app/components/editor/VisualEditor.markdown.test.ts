@@ -830,6 +830,51 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("mounts a fenced code block in the collaborative editor", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(TooltipProvider, {
+              children: createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(VisualEditor, {
+                  content: "```ts\nconst answer = 42\n```",
+                  contentUpdatedAt: "2026-07-24T00:00:00.000Z",
+                  onChange: () => {},
+                  ydoc,
+                  collabSynced: true,
+                  editable: true,
+                }),
+              ),
+            }),
+          ),
+        );
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(
+        container.querySelector("pre.notion-code-block code")?.textContent,
+      ).toBe("const answer = 42");
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+    }
+  });
+
   it("does not clear awareness owned by the shared collab connection on unmount", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
