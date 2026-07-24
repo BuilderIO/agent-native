@@ -862,9 +862,12 @@ function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
   ) {
     return undefined;
   }
-  const knownTarget = normalizeKnownSkillTarget(parsed.target ?? "assets");
-  const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
-  if (!isScreenMemoryMcpBuiltInSkill(knownBuiltIn)) return undefined;
+  const explicitlyTargetsRewind =
+    normalizeKnownSkillTarget(parsed.target ?? "assets") === "rewind" ||
+    parsed.plainSkillNames?.some(
+      (skillName) => normalizeKnownSkillTarget(skillName) === "rewind",
+    );
+  if (!explicitlyTargetsRewind) return undefined;
   const screenMemoryDir = resolveScreenMemoryStoreDir();
   if (!screenMemoryDir) throw new Error(REWIND_MISSING_STORE_ERROR);
   return screenMemoryDir;

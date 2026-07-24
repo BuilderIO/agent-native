@@ -310,6 +310,23 @@ describe("agent-native skills", () => {
       ).rejects.toThrow(
         /https:\/\/clips\.agent-native\.com\/download.*was not installed or enabled automatically/,
       );
+      await expect(
+        runSkills(
+          [
+            "add",
+            "--skill",
+            "rewind",
+            "--client",
+            "codex",
+            "--scope",
+            "user",
+            "--yes",
+          ],
+          { baseDir: root, telemetry },
+        ),
+      ).rejects.toThrow(
+        /https:\/\/clips\.agent-native\.com\/download.*was not installed or enabled automatically/,
+      );
 
       expect(telemetry.track).not.toHaveBeenCalled();
       expect(telemetry.flush).not.toHaveBeenCalled();
