@@ -434,6 +434,81 @@ describe("agent-native skills", () => {
     }
   });
 
+  it.each(["codex", "claude-code"] as const)(
+    "restores existing %s instructions and config when MCP setup fails",
+    async (client) => {
+      const root = tmpDir();
+      const home = path.join(root, "home");
+      const codexHome = path.join(root, "codex-home");
+      const store = path.join(root, "screen-memory");
+      const skillDir =
+        client === "codex"
+          ? path.join(codexHome, "skills", "rewind")
+          : path.join(home, ".claude", "skills", "rewind");
+      const configPath =
+        client === "codex"
+          ? path.join(codexHome, "config.toml")
+          : path.join(home, ".claude.json");
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.mkdirSync(store, { recursive: true });
+      fs.writeFileSync(path.join(skillDir, "SKILL.md"), "original skill\n");
+      fs.writeFileSync(configPath, "original config\n");
+      const previousHome = process.env.HOME;
+      const previousCodexHome = process.env.CODEX_HOME;
+      const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+      process.env.HOME = home;
+      process.env.CODEX_HOME = codexHome;
+      process.env.CLIPS_SCREEN_MEMORY_DIR = store;
+      const telemetry = {
+        track: vi.fn(),
+        captureException: vi.fn(),
+        flush: vi.fn(async () => undefined),
+      };
+
+      try {
+        await expect(
+          addAgentNativeSkill(
+            parseSkillsArgs([
+              "add",
+              "rewind",
+              "--client",
+              client,
+              "--scope",
+              "user",
+              "--yes",
+            ]),
+            {
+              baseDir: root,
+              telemetry,
+              installScreenMemory: () => {
+                fs.writeFileSync(configPath, "partial config\n");
+                throw new Error("simulated MCP write failure");
+              },
+            },
+          ),
+        ).rejects.toThrow("simulated MCP write failure");
+
+        expect(fs.readFileSync(configPath, "utf-8")).toBe("original config\n");
+        expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toBe(
+          "original skill\n",
+        );
+        expect(telemetry.track).not.toHaveBeenCalledWith(
+          "skills_cli install completed",
+          expect.anything(),
+        );
+      } finally {
+        if (previousHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousHome;
+        if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = previousCodexHome;
+        if (previousStore === undefined)
+          delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+        else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+      }
+    },
+  );
+
   it("dry-runs Rewind setup without requiring an active local store", async () => {
     const result = await addAgentNativeSkill(
       parseSkillsArgs([
