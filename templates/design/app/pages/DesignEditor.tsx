@@ -4041,7 +4041,9 @@ function DesignEditor() {
         designId: id,
         actorScope: designSaveActorScope,
       });
-      if (result.saved.length > 0) {
+      if (result.saved.length > 0 || result.rebased.length > 0) {
+        // rebased = a 409 the server moved past; refetch so the editor rebases
+        // onto current content. No toast: the file wasn't lost, unlike dropped.
         queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });

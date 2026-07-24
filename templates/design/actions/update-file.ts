@@ -28,6 +28,18 @@ function logSaveConflictDebug(
   console.warn(`[update-file:debug] ${event}`, detail);
 }
 
+// 404 via statusCode (NOT status — the action route only reads statusCode) so
+// the client save-outbox treats a gone file as terminal and drops it, instead
+// of looping a masked 500. Used at every missing-file guard, including the
+// post-lock rereads a concurrent delete can hit.
+function fileNotFound(id: string): Error & { statusCode?: number } {
+  const err = new Error(`File not found: ${id}`) as Error & {
+    statusCode?: number;
+  };
+  err.statusCode = 404;
+  return err;
+}
+
 function rowsAffected(result: unknown): number | undefined {
   const candidate = result as {
     rowsAffected?: unknown;
@@ -181,14 +193,8 @@ export default defineAction({
       .limit(1);
 
     if (!file) {
-      // Terminal: the row is gone/out of scope, so retry can't succeed. Tag 404
-      // via statusCode (NOT status — the action route only reads statusCode) so
-      // the save-outbox drops it instead of looping an update-file 500 storm.
-      const notFound = new Error(`File not found: ${id}`) as Error & {
-        statusCode?: number;
-      };
-      notFound.statusCode = 404;
-      throw notFound;
+      // The row is gone or out of access scope — retry can't succeed.
+      throw fileNotFound(id);
     }
 
     await assertAccess("design", file.designId, "editor");
@@ -242,7 +248,9 @@ export default defineAction({
           .where(eq(schema.designFiles.id, id))
           .limit(1);
         if (!persistedFile) {
-          throw new Error(`File not found: ${id}`);
+          // Delete-race: the row passed the access check but is gone now.
+          // Same 404 as the outer guard, not a bare 500 the outbox retries.
+          throw fileNotFound(id);
         }
 
         const persistedContentHash = sourceContentHash(persistedFile.content);
@@ -595,7 +603,7 @@ export default defineAction({
             .from(schema.designFiles)
             .where(eq(schema.designFiles.id, id))
             .limit(1);
-          if (!confirmed) throw new Error(`File not found: ${id}`);
+          if (!confirmed) throw fileNotFound(id);
           const confirmedHash = sourceContentHash(confirmed.content);
           const exactOperationPersisted =
             confirmed.contentOperationSource === operationSource &&

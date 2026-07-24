@@ -37,6 +37,14 @@ export interface DrainDesignSaveOutboxResult {
    * transient/conflict errors that SHOULD be retried.
    */
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
+  /**
+   * Entries dropped because the server moved past their base version (a 409
+   * conflict). Distinct from `dropped`: the file still exists and nothing was
+   * lost to deletion, so the editor should rebase from the server rather than
+   * warn "changes discarded". Kept separate so a normal concurrent edit is
+   * never presented as a deleted file.
+   */
+  rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
 
 /**
@@ -342,6 +350,7 @@ async function drainEntries(
     saved: [],
     failed: [],
     dropped: [],
+    rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
     try {
@@ -394,13 +403,14 @@ async function drainEntries(
         }
       } else if (isConflictSaveError(error)) {
         // Base version superseded — retry is futile and replaying the stale
-        // snapshot would clobber newer content. Drop and rebase (the conflict
-        // analogue of the 404 orphan drop).
+        // snapshot would clobber newer content. Drop into `rebased` (NOT
+        // `dropped`) so the editor rebases from the server instead of warning
+        // that the file was discarded/deleted.
         await storage.deleteIfRevision(entry);
-        result.dropped.push({ entry, error });
+        result.rebased.push({ entry, error });
         if (typeof console !== "undefined") {
           console.warn(
-            `[design-save-outbox] dropped superseded save for ${entry.actionName} ${entry.resourceId} (server content moved on)`,
+            `[design-save-outbox] rebased superseded save for ${entry.actionName} ${entry.resourceId} (server content moved on)`,
           );
         }
       } else {

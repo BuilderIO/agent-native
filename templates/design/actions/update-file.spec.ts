@@ -204,6 +204,7 @@ vi.mock("../server/db/index.js", () => {
 });
 
 import { hasCollabState, applyText } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
 
 import { sourceContentHash } from "../shared/source-workspace.js";
 import updateFileAction from "./update-file.js";
@@ -603,5 +604,31 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     // make.
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
     expect(liveText).toContain("mirror-state-plus-mine-");
+  });
+
+  it("12. delete-race after the access lookup: inner missing-file guard returns 404 (not a bare 500) so the outbox drops it", async () => {
+    // The row exists for the access lookup, then a concurrent delete removes it
+    // before the write-lock reread. assertAccess runs in exactly that window,
+    // so clear the store there to reach the inner missing-file guard.
+    vi.mocked(assertAccess).mockImplementationOnce(async () => {
+      designFilesStore.rows.clear();
+      return { role: "editor", resource: {} } as never;
+    });
+
+    let rejection: unknown = null;
+    try {
+      await updateFileAction.run({
+        id: FILE_ID,
+        content: buildDoc(" delete-race-"),
+        syncCollab: true,
+      } as never);
+    } catch (error) {
+      rejection = error;
+    }
+
+    expect((rejection as Error)?.message).toMatch(/file not found/i);
+    // 404, not a bare 500 — otherwise the save-outbox retries the gone file
+    // forever (the orphan-storm this fix prevents).
+    expect((rejection as { statusCode?: number })?.statusCode).toBe(404);
   });
 });
