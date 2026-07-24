@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.405
+
+### Patch Changes
+
+- Updated dependencies [8afb252]
+  - @agent-native/core@0.120.4
+
 ## 0.2.404
 
 ### Patch Changes

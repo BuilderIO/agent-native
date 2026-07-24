@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.15.20
+
+### Patch Changes
+
+- Updated dependencies [8afb252]
+  - @agent-native/toolkit@0.10.6
+
 ## 0.15.19
 
 ### Patch Changes
