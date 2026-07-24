@@ -74,7 +74,7 @@ const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
 /// Keep this close to the rendered capsule's height. The window frame is what
 /// hover is polled against, so slack here makes the pill light up while the
 /// cursor is still nowhere near it.
-const PILL_H_LOGICAL: u32 = 60;
+const PILL_H_LOGICAL: u32 = 64;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
