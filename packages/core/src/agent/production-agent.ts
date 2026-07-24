@@ -6401,6 +6401,10 @@ export async function chainServerDrivenContinuation(opts: {
         terminalEvent: run.events.at(-1)?.event,
       })
       .catch(() => {});
+    run.continuationTerminalEvent = {
+      type: "auto_continue",
+      reason: continuationReason,
+    };
   } catch (chainErr) {
     // Chain dispatch failed — fail loud so the held row goes terminal
     // instead of spinning. The reaper would also catch it, but this is

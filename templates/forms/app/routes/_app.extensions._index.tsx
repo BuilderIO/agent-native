@@ -1,4 +1,4 @@
-import { ExtensionsListPage } from "@agent-native/core/client/extensions";
+import { Navigate } from "react-router";
 
 import messages from "@/i18n/en-US";
 
@@ -7,5 +7,5 @@ export function meta() {
 }
 
 export default function ExtensionsRoute() {
-  return <ExtensionsListPage />;
+  return <Navigate to="/settings#extensions" replace />;
 }

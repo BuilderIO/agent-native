@@ -749,6 +749,7 @@ const enUS = {
     makeVariations: "Make variations",
     handoff: "Handoff",
     download: "Download",
+    downloadFailed: "Could not download asset.",
     copyUrl: "Copy URL",
     delete: "Delete",
     deleteTitle: "Delete asset?",
@@ -3229,6 +3230,7 @@ const assetDetailDeDE = {
   copiedUrl: "URL kopiert",
   copyFailed: "Konnte nicht in die Zwischenablage kopieren.",
   previewUnavailable: "Vorschau nicht verfügbar",
+  downloadFailed: "Asset konnte nicht heruntergeladen werden.",
 } satisfies Partial<Messages["assetDetail"]>;
 
 const assetPickerDeDE = {
@@ -3339,6 +3341,7 @@ const assetDetailJaJP = {
   copiedUrl: "URL をコピーしました",
   copyFailed: "クリップボードにコピーできませんでした。",
   previewUnavailable: "プレビューを利用できません",
+  downloadFailed: "アセットをダウンロードできませんでした。",
 } satisfies Partial<Messages["assetDetail"]>;
 
 const assetPickerJaJP = {
@@ -3444,6 +3447,7 @@ const assetDetailKoKR = {
   copiedUrl: "URL이 복사되었습니다",
   copyFailed: "클립보드에 복사할 수 없습니다.",
   previewUnavailable: "미리보기를 사용할 수 없습니다",
+  downloadFailed: "자산을 다운로드할 수 없습니다.",
 } satisfies Partial<Messages["assetDetail"]>;
 
 const assetPickerKoKR = {
@@ -3548,6 +3552,7 @@ const assetDetailHiIN = {
   copiedUrl: "URL कॉपी हुआ",
   copyFailed: "Clipboard पर कॉपी नहीं कर सके।",
   previewUnavailable: "Preview उपलब्ध नहीं है",
+  downloadFailed: "एसेट डाउनलोड नहीं किया जा सका।",
 } satisfies Partial<Messages["assetDetail"]>;
 
 const assetPickerHiIN = {
@@ -4041,6 +4046,7 @@ export const messagesByLocale = {
       deleteDescription:
         "这会从库中删除该资源。已使用此 URL 的现有导出可能会停止渲染。",
       deleteTitle: "删除资产？",
+      downloadFailed: "无法下载资产。",
       loading: "正在加载资源...",
       makeVariations: "做出变化",
       makeVideoVariation: "制作视频变体",
@@ -4911,6 +4917,7 @@ export const messagesByLocale = {
       deleteDescription:
         "Esto elimina el activo de la biblioteca. Las exportaciones existentes que ya utilizan este URL pueden dejar de procesarse.",
       deleteTitle: "¿Eliminar activo?",
+      downloadFailed: "No se pudo descargar el activo.",
       loading: "Cargando activo...",
       makeVariations: "hacer variaciones",
       makeVideoVariation: "Hacer variación de video",
@@ -5359,6 +5366,7 @@ export const messagesByLocale = {
       deleteDescription:
         "Cela supprime l'actif de la bibliothèque. Les exportations existantes qui utilisent déjà ce URL peuvent arrêter le rendu.",
       deleteTitle: "Supprimer l'élément ?",
+      downloadFailed: "Impossible de télécharger l'élément.",
       loading: "Chargement de l'élément...",
       makeVariations: "Faire des variantes",
       makeVideoVariation: "Faire une variation vidéo",
@@ -6853,6 +6861,7 @@ export const messagesByLocale = {
       deleteDescription:
         "Isso remove o ativo da biblioteca. As exportações existentes que já usam este URL podem parar de renderizar.",
       deleteTitle: "Excluir recurso?",
+      downloadFailed: "Não foi possível baixar o recurso.",
       loading: "Carregando recurso...",
       makeVariations: "Faça variações",
       makeVideoVariation: "Faça variação de vídeo",
@@ -7646,6 +7655,7 @@ export const messagesByLocale = {
       deleteDescription:
         "يؤدي هذا إلى إزالة الأصل من المكتبة. قد تتوقف عمليات التصدير الحالية التي تستخدم URL بالفعل عن العرض.",
       deleteTitle: "هل تريد حذف مادة العرض؟",
+      downloadFailed: "تعذّر تنزيل الأصل.",
       loading: "جارٍ تحميل الأصل...",
       makeVariations: "قم بإجراء الاختلافات",
       makeVideoVariation: "جعل الاختلاف في الفيديو",

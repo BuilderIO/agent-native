@@ -76,6 +76,22 @@ Full source-code customization is a core Agent Native capability. Extensions
 are the fast, sandboxed, no-deploy layer—not the limit of what the app can
 become.
 
+Use this decision rule when either path could solve the request:
+
+- Start with an extension for a self-contained, relatively one-off widget,
+  custom visualization or interaction, dashboard tile, standalone utility, or
+  add-on in an existing slot.
+- Use app code for a core template feature, native UI/layout/routes/business
+  logic, a new slot, or behavior that should be reused broadly across dashboards
+  or users.
+- If the same extension keeps getting rebuilt, promote it into app code as one
+  reusable native feature instead of maintaining copies.
+
+As a rule of thumb, if an extension can solve the problem, generally start
+there. An isolated custom dashboard visualization belongs in an extension; a
+new chart type that should be available across dashboards belongs in the
+template code.
+
 **When a user asks to "make an extension", "create an extension", or "build
 a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
 
