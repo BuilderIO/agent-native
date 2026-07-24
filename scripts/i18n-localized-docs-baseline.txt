@@ -3,6 +3,19 @@
 # Format: relative/localized/path.md|English source string
 packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Hello world
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/ar-SA/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|A2A, email
@@ -12,6 +25,19 @@ packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Hello world
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/de-DE/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/de-DE/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/de-DE/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|A2A, email
@@ -21,6 +47,13 @@ packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Hello world
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/es-ES/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/es-ES/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|A2A, email
@@ -30,6 +63,19 @@ packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Hello world
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/fr-FR/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|A2A, email
@@ -39,6 +85,19 @@ packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Hello world
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/hi-IN/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|A2A, email
@@ -48,6 +107,19 @@ packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Hello world
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/ja-JP/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|A2A, email
@@ -57,6 +129,19 @@ packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Hello world
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/ko-KR/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|A2A, email
@@ -66,6 +151,13 @@ packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Hello world
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/pt-BR/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|A2A, email
@@ -75,6 +167,19 @@ packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Hello world
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/zh-CN/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|A2A, email
@@ -84,6 +189,19 @@ packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's signups"
 packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Agent-callable and UI-callable operations
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Always-on instructions for the app agent
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Hello world
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Local SQLite state when DATABASE_URL is unset
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Nitro server and SQL schema
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Pack my box with five dozen liquor jugs.
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|React routes, pages, and chat surfaces
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Results saved by the agent or triggered manually.
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Run the analyze-text action on "Hello world. How are you today?"
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Skills the agent loads when relevant
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Text analyses
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|Text statistics
+packages/core/docs/content/locales/zh-TW/getting-started.mdx|The quick brown fox jumps over the lazy dog.
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|A2A, email
