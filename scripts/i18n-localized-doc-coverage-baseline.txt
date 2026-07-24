@@ -7,7 +7,7 @@ ar-SA|generative-ui
 ar-SA|http-api
 ar-SA|integrations
 ar-SA|organizations-teams-permissions
-ar-SA|template-sync
+ar-SA|syncing-template-changes
 ar-SA|toolkit-agent-ux
 ar-SA|toolkit-collaboration
 ar-SA|toolkit-command-navigation
@@ -26,7 +26,7 @@ de-DE|generative-ui
 de-DE|http-api
 de-DE|integrations
 de-DE|organizations-teams-permissions
-de-DE|template-sync
+de-DE|syncing-template-changes
 de-DE|toolkit-agent-ux
 de-DE|toolkit-collaboration
 de-DE|toolkit-command-navigation
@@ -45,7 +45,7 @@ es-ES|generative-ui
 es-ES|http-api
 es-ES|integrations
 es-ES|organizations-teams-permissions
-es-ES|template-sync
+es-ES|syncing-template-changes
 es-ES|toolkit-agent-ux
 es-ES|toolkit-collaboration
 es-ES|toolkit-command-navigation
@@ -64,7 +64,7 @@ fr-FR|generative-ui
 fr-FR|http-api
 fr-FR|integrations
 fr-FR|organizations-teams-permissions
-fr-FR|template-sync
+fr-FR|syncing-template-changes
 fr-FR|toolkit-agent-ux
 fr-FR|toolkit-collaboration
 fr-FR|toolkit-command-navigation
@@ -83,7 +83,7 @@ hi-IN|generative-ui
 hi-IN|http-api
 hi-IN|integrations
 hi-IN|organizations-teams-permissions
-hi-IN|template-sync
+hi-IN|syncing-template-changes
 hi-IN|toolkit-agent-ux
 hi-IN|toolkit-collaboration
 hi-IN|toolkit-command-navigation
@@ -102,7 +102,7 @@ ja-JP|generative-ui
 ja-JP|http-api
 ja-JP|integrations
 ja-JP|organizations-teams-permissions
-ja-JP|template-sync
+ja-JP|syncing-template-changes
 ja-JP|toolkit-agent-ux
 ja-JP|toolkit-collaboration
 ja-JP|toolkit-command-navigation
@@ -121,7 +121,7 @@ ko-KR|generative-ui
 ko-KR|http-api
 ko-KR|integrations
 ko-KR|organizations-teams-permissions
-ko-KR|template-sync
+ko-KR|syncing-template-changes
 ko-KR|toolkit-agent-ux
 ko-KR|toolkit-collaboration
 ko-KR|toolkit-command-navigation
@@ -140,7 +140,7 @@ pt-BR|generative-ui
 pt-BR|http-api
 pt-BR|integrations
 pt-BR|organizations-teams-permissions
-pt-BR|template-sync
+pt-BR|syncing-template-changes
 pt-BR|toolkit-agent-ux
 pt-BR|toolkit-collaboration
 pt-BR|toolkit-command-navigation
@@ -159,7 +159,7 @@ zh-CN|generative-ui
 zh-CN|http-api
 zh-CN|integrations
 zh-CN|organizations-teams-permissions
-zh-CN|template-sync
+zh-CN|syncing-template-changes
 zh-CN|toolkit-agent-ux
 zh-CN|toolkit-collaboration
 zh-CN|toolkit-command-navigation
@@ -177,7 +177,7 @@ zh-TW|generative-ui
 zh-TW|http-api
 zh-TW|integrations
 zh-TW|organizations-teams-permissions
-zh-TW|template-sync
+zh-TW|syncing-template-changes
 zh-TW|toolkit-agent-ux
 zh-TW|toolkit-collaboration
 zh-TW|toolkit-command-navigation

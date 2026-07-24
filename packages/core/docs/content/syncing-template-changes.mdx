@@ -150,10 +150,10 @@ It diffs your app against its baseline so only your own changes are candidates, 
 
 ## Relationship to other commands {#relationship-to-other-commands}
 
-| Command | Moves |
-| --- | --- |
-| `agent-native upgrade` | `@agent-native/*` package versions, imports, skill directories |
-| `agent-native template sync` | files copied out of a template at scaffold time |
-| `agent-native eject` | a framework component into app-owned source, with provenance |
+| Command                      | Moves                                                          |
+| ---------------------------- | -------------------------------------------------------------- |
+| `agent-native upgrade`       | `@agent-native/*` package versions, imports, skill directories |
+| `agent-native template sync` | files copied out of a template at scaffold time                |
+| `agent-native eject`         | a framework component into app-owned source, with provenance   |
 
 `upgrade` and `template sync` are complementary and safe to run together. `eject` is the opposite move — it takes ownership of a file deliberately, and ejected files are tracked separately in `agent-native.ejections.json`.

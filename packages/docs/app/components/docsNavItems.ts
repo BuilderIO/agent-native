@@ -264,9 +264,9 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "creating-templates",
       },
       {
-        id: "template-sync",
+        id: "syncing-template-changes",
         labelKey: "syncingTemplateChanges",
-        slug: "template-sync",
+        slug: "syncing-template-changes",
       },
       {
         id: "writing-agent-instructions",
