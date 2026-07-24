@@ -33,6 +33,7 @@ import {
   builderAuthoritativeRawBodyHash,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
+  builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
@@ -100,6 +101,41 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("accepts only the persisted Builder continuation offset", () => {
+    const metadataJson = JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 400,
+      activeReadSourceRowIds: ["entry-1"],
+    });
+
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 400)).toBe(true);
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 100)).toBe(
+      false,
+    );
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 0)).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "fetching",
+          lastReadHasMore: true,
+          lastReadNextOffset: 400,
+        }),
+        400,
+      ),
+    ).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "idle",
+          lastReadHasMore: false,
+          lastReadNextOffset: 580,
+        }),
+        400,
+      ),
+    ).toBe(false);
+  });
+
   it("selects document bodies only for explicitly heavy Builder snapshots", () => {
     expect(sourceSnapshotDocumentSelection(false)).not.toHaveProperty(
       "content",
@@ -289,6 +325,44 @@ describe("database source helpers", () => {
       sourceFetchState: "error",
       activeReadSourceRowIds: [],
     });
+  });
+
+  it("clears the Builder refresh claim when read metadata is finalized", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 580,
+        matchedRowCount: 580,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+        }),
+        completedBuilderContinuationClaimId: "claim-1",
+      }),
+    );
+
+    expect(metadata).not.toHaveProperty("builderContinuationClaimId");
+    expect(metadata).not.toHaveProperty("builderContinuationClaimOffset");
+  });
+
+  it("preserves a Builder refresh claim for unrelated metadata writers", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 400,
+        matchedRowCount: 400,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+          builderContinuationClaimedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      }),
+    );
+
+    expect(metadata.builderContinuationClaimId).toBe("claim-1");
+    expect(metadata.builderContinuationClaimOffset).toBe(400);
   });
 
   it("preserves existing Builder model fields during metadata rewrites", () => {

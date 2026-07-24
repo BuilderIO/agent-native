@@ -5,9 +5,11 @@ import { z } from "zod";
 import type { ContentDatabaseSourceStatusResponse } from "../shared/api.js";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
+  claimBuilderCmsSourceRefresh,
   getContentDatabaseSourceSnapshot,
   getContentDatabaseSourceSnapshotById,
   getExistingSourceForWrite,
+  releaseBuilderCmsSourceRefreshClaim,
   resyncBuilderCmsSourceSnapshot,
   resyncMockSourceSnapshot,
   resolveDatabaseForSourceMutation,
@@ -33,6 +35,14 @@ export default defineAction({
       .describe(
         "For paginated Builder CMS or Notion sources, read a bounded multi-page snapshot in this refresh.",
       ),
+    expectedBuilderContinuationOffset: z
+      .number()
+      .int()
+      .nonnegative()
+      .optional()
+      .describe(
+        "Internal Builder pagination guard. Continue only when the persisted source still expects this offset.",
+      ),
   }),
   run: async (args): Promise<ContentDatabaseSourceStatusResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
@@ -50,15 +60,30 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
+    let skippedOverlappingBuilderRefresh = false;
     if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
-      await resyncBuilderCmsSourceSnapshot({
-        database,
+      const claimedSource = await claimBuilderCmsSourceRefresh({
         source,
-        now,
-        runFullRefresh: args.fullRefresh === true,
+        expectedOffset: args.expectedBuilderContinuationOffset,
       });
+      skippedOverlappingBuilderRefresh = !claimedSource;
+      if (claimedSource) {
+        await resyncBuilderCmsSourceSnapshot({
+          database,
+          source: claimedSource.source,
+          now,
+          runFullRefresh: args.fullRefresh === true,
+          refreshClaimId: claimedSource.claimId,
+        }).catch(async (error: unknown) => {
+          await releaseBuilderCmsSourceRefreshClaim({
+            sourceId: source.id,
+            claimId: claimedSource.claimId,
+          });
+          throw error;
+        });
+      }
     } else if (source.sourceType === "local-table") {
       // Read-only federated secondary; its rows are re-read on demand, nothing
       // to resync against the primary's local snapshot here.
@@ -116,11 +141,13 @@ export default defineAction({
       database: serializeDatabase(database),
       mode: "source-backed",
       summary: snapshot
-        ? builderFetching
-          ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
-          : snapshot.sourceType === "notion-database"
-            ? `${snapshot.sourceName} refreshed read-only from Notion.`
-            : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
+        ? skippedOverlappingBuilderRefresh
+          ? `${snapshot.sourceName} already advanced or has another refresh in progress; the current snapshot was preserved.`
+          : builderFetching
+            ? `${snapshot.sourceName} fetched ${builderFetched ?? "some"} rows. Run refresh again to continue loading the remaining Builder rows.`
+            : snapshot.sourceType === "notion-database"
+              ? `${snapshot.sourceName} refreshed read-only from Notion.`
+              : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
         : "Source metadata refreshed.",
       source: snapshot,
     };

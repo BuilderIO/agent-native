@@ -162,6 +162,9 @@ type SourceMetadataRecord = {
   lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
   sourceFetchState?: "idle" | "fetching" | "error" | string;
+  builderContinuationClaimId?: string;
+  builderContinuationClaimOffset?: number;
+  builderContinuationClaimedAt?: string;
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -181,6 +184,145 @@ function parseObject<T extends object>(
   } catch {
     return null;
   }
+}
+
+export function builderCmsSourceContinuationIsCurrent(
+  metadataJson: string | null | undefined,
+  expectedOffset: number,
+) {
+  const metadata = parseObject<SourceMetadataRecord>(metadataJson);
+  return (
+    metadata?.sourceFetchState === "fetching" &&
+    metadata.lastReadHasMore === true &&
+    expectedOffset > 0 &&
+    metadata.lastReadNextOffset === expectedOffset &&
+    Array.isArray(metadata.activeReadSourceRowIds) &&
+    metadata.activeReadSourceRowIds.length > 0 &&
+    metadata.activeReadSourceRowIds.every((id) => typeof id === "string")
+  );
+}
+
+// Content's hosted request wall is 75 seconds. Keep the orphan-recovery lease
+// well beyond that so an expired owner cannot still be executing mutations.
+export const BUILDER_CMS_REFRESH_CLAIM_LEASE_MS = 30 * 60 * 1000;
+
+export async function claimBuilderCmsSourceRefresh(args: {
+  source: ContentDatabaseSourceRowDb;
+  expectedOffset?: number;
+  now?: string;
+}) {
+  const metadata =
+    parseObject<SourceMetadataRecord>(args.source.metadataJson) ?? {};
+  const now = args.now ?? new Date().toISOString();
+  const claimedAt = metadata.builderContinuationClaimedAt
+    ? Date.parse(metadata.builderContinuationClaimedAt)
+    : Number.NaN;
+  const activeClaim =
+    !!metadata.builderContinuationClaimId &&
+    Number.isFinite(claimedAt) &&
+    Date.parse(now) - claimedAt < BUILDER_CMS_REFRESH_CLAIM_LEASE_MS;
+  if (
+    activeClaim ||
+    (args.expectedOffset !== undefined &&
+      !builderCmsSourceContinuationIsCurrent(
+        args.source.metadataJson,
+        args.expectedOffset,
+      ))
+  ) {
+    return null;
+  }
+
+  const claimId = nanoid();
+  const claimedMetadataJson = JSON.stringify({
+    ...metadata,
+    builderContinuationClaimId: claimId,
+    builderContinuationClaimOffset: args.expectedOffset,
+    builderContinuationClaimedAt: now,
+  });
+  const [claimed] = await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: claimedMetadataJson })
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.id, args.source.id),
+        args.source.metadataJson === null
+          ? isNull(schema.contentDatabaseSources.metadataJson)
+          : eq(
+              schema.contentDatabaseSources.metadataJson,
+              args.source.metadataJson,
+            ),
+      ),
+    )
+    .returning();
+  return claimed ? { source: claimed, claimId } : null;
+}
+
+export async function releaseBuilderCmsSourceRefreshClaim(args: {
+  sourceId: string;
+  claimId: string;
+}) {
+  const db = getDb();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    const metadata = parseObject<SourceMetadataRecord>(current?.metadataJson);
+    if (!metadata || metadata.builderContinuationClaimId !== args.claimId) {
+      return false;
+    }
+    delete metadata.builderContinuationClaimId;
+    delete metadata.builderContinuationClaimOffset;
+    delete metadata.builderContinuationClaimedAt;
+    const nextMetadataJson = JSON.stringify(metadata);
+    const released = await db
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: nextMetadataJson })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          eq(schema.contentDatabaseSources.metadataJson, current.metadataJson!),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (released.length > 0) return true;
+  }
+  return false;
+}
+
+export async function renewBuilderCmsSourceRefreshClaim(args: {
+  sourceId: string;
+  claimId: string;
+  now?: string;
+}) {
+  const db = getDb();
+  const now = args.now ?? new Date().toISOString();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    const metadata = parseObject<SourceMetadataRecord>(current?.metadataJson);
+    if (!metadata || metadata.builderContinuationClaimId !== args.claimId) {
+      return false;
+    }
+    metadata.builderContinuationClaimedAt = now;
+    const nextMetadataJson = JSON.stringify(metadata);
+    const renewed = await db
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: nextMetadataJson })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          eq(schema.contentDatabaseSources.metadataJson, current.metadataJson!),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (renewed.length > 0) return true;
+  }
+  return false;
 }
 
 function parseArray<T>(value: string | null | undefined): T[] {
@@ -3941,11 +4083,12 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   suspiciousEmpty?: boolean;
   builderModelFields?: BuilderCmsModelFieldSummary[];
   existingMetadataJson?: string | null;
+  completedBuilderContinuationClaimId?: string;
 }) {
   const existingMetadata = parseObject<SourceMetadataRecord>(
     args.existingMetadataJson,
   );
-  return JSON.stringify({
+  const metadata: SourceMetadataRecord = {
     ...builderCmsSourceMetadata(args.sourceTable),
     ...existingMetadata,
     builderModelFields:
@@ -3970,7 +4113,17 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
         : args.readState === "error"
           ? "error"
           : "idle"),
-  });
+  };
+  if (
+    args.completedBuilderContinuationClaimId &&
+    existingMetadata?.builderContinuationClaimId ===
+      args.completedBuilderContinuationClaimId
+  ) {
+    delete metadata.builderContinuationClaimId;
+    delete metadata.builderContinuationClaimOffset;
+    delete metadata.builderContinuationClaimedAt;
+  }
+  return JSON.stringify(metadata);
 }
 
 export function serializeSourceCapabilitiesRecord(
@@ -5339,6 +5492,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   source: ContentDatabaseSourceRowDb;
   now: string;
   runFullRefresh?: boolean;
+  refreshClaimId?: string;
 }) {
   let { properties, response } = await sourceSetupPayload(args.database.id);
   const db = getDb();
@@ -5401,6 +5555,17 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       (builderRead.progress?.startOffset ?? 0) > 0);
   const builderEntries =
     builderRead.state === "live" ? builderRead.entries : [];
+  if (
+    args.refreshClaimId &&
+    !(await renewBuilderCmsSourceRefreshClaim({
+      sourceId: args.source.id,
+      claimId: args.refreshClaimId,
+    }))
+  ) {
+    throw new Error(
+      "Builder source refresh claim was lost before snapshot mutation.",
+    );
+  }
   let existingRows = await db
     .select()
     .from(schema.contentDatabaseSourceRows)
@@ -5432,6 +5597,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       sourceFetchState: "error",
       syncState: "error",
       suspiciousEmpty: true,
+      refreshClaimId: args.refreshClaimId,
     });
     return;
   }
@@ -5597,6 +5763,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       sourceFetchState: hasMore ? "fetching" : "idle",
       syncState: hasMore ? "refreshing" : "idle",
       activeReadSourceRowIds: hasMore ? nextActiveReadSourceRowIds : undefined,
+      refreshClaimId: args.refreshClaimId,
     });
     return;
   }
@@ -5711,6 +5878,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     sourceFetchState: builderRead.state === "error" ? "error" : "idle",
     activeReadSourceRowIds: undefined,
     syncState: "idle",
+    refreshClaimId: args.refreshClaimId,
   });
 }
 
@@ -6053,58 +6221,87 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   syncState?: ContentDatabaseSourceSyncState;
   builderModelFields?: BuilderCmsModelFieldSummary[];
   suspiciousEmpty?: boolean;
+  refreshClaimId?: string;
 }) {
   const db = getDb();
-  const [currentSource] = await db
-    .select({
-      capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
-      metadataJson: schema.contentDatabaseSources.metadataJson,
-      lastSourceUpdatedAt: schema.contentDatabaseSources.lastSourceUpdatedAt,
-    })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId))
-    .limit(1);
-  const nextJson = mergeBuilderCmsWriteSettingsIntoJson({
-    sourceTable: args.sourceTable,
-    currentCapabilitiesJson: currentSource?.capabilitiesJson,
-    currentMetadataJson: currentSource?.metadataJson,
-    nextCapabilitiesJson: sourceCapabilitiesForType("builder-cms"),
-    nextMetadataJson: serializeBuilderCmsSourceReadMetadataRecord({
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [currentSource] = await db
+      .select({
+        capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+        metadataJson: schema.contentDatabaseSources.metadataJson,
+        lastSourceUpdatedAt: schema.contentDatabaseSources.lastSourceUpdatedAt,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    if (!currentSource) throw new Error("Builder source not found.");
+    const currentMetadata = parseObject<SourceMetadataRecord>(
+      currentSource.metadataJson,
+    );
+    if (
+      args.refreshClaimId &&
+      currentMetadata?.builderContinuationClaimId !== args.refreshClaimId
+    ) {
+      throw new Error(
+        "Builder source refresh claim was lost before completion.",
+      );
+    }
+    const nextJson = mergeBuilderCmsWriteSettingsIntoJson({
       sourceTable: args.sourceTable,
-      readState: args.readState,
-      entryCount: args.entryCount,
-      matchedRowCount: args.matchedRowCount,
-      progress: args.progress,
-      sourceFetchState: args.sourceFetchState,
-      activeReadSourceRowIds: args.activeReadSourceRowIds,
-      suspiciousEmpty: args.suspiciousEmpty,
-      builderModelFields: args.builderModelFields,
-      existingMetadataJson: currentSource?.metadataJson,
-    }),
-  });
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({
-      syncState: args.syncState ?? "linked",
-      freshness:
-        args.readState === "error" ||
-        args.progress?.partial ||
-        args.suspiciousEmpty
-          ? "stale"
-          : "fresh",
-      capabilitiesJson: nextJson.capabilitiesJson,
-      metadataJson: nextJson.metadataJson,
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.suspiciousEmpty
-        ? (currentSource?.lastSourceUpdatedAt ?? null)
-        : args.fetchedAt,
-      lastError:
-        args.readState === "error" || args.suspiciousEmpty
-          ? args.message
-          : null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+      currentCapabilitiesJson: currentSource.capabilitiesJson,
+      currentMetadataJson: currentSource.metadataJson,
+      nextCapabilitiesJson: sourceCapabilitiesForType("builder-cms"),
+      nextMetadataJson: serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: args.sourceTable,
+        readState: args.readState,
+        entryCount: args.entryCount,
+        matchedRowCount: args.matchedRowCount,
+        progress: args.progress,
+        sourceFetchState: args.sourceFetchState,
+        activeReadSourceRowIds: args.activeReadSourceRowIds,
+        suspiciousEmpty: args.suspiciousEmpty,
+        builderModelFields: args.builderModelFields,
+        existingMetadataJson: currentSource.metadataJson,
+        completedBuilderContinuationClaimId: args.refreshClaimId,
+      }),
+    });
+    const updated = await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        syncState: args.syncState ?? "linked",
+        freshness:
+          args.readState === "error" ||
+          args.progress?.partial ||
+          args.suspiciousEmpty
+            ? "stale"
+            : "fresh",
+        capabilitiesJson: nextJson.capabilitiesJson,
+        metadataJson: nextJson.metadataJson,
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: args.suspiciousEmpty
+          ? currentSource.lastSourceUpdatedAt
+          : args.fetchedAt,
+        lastError:
+          args.readState === "error" || args.suspiciousEmpty
+            ? args.message
+            : null,
+        updatedAt: args.now,
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          currentSource.metadataJson === null
+            ? isNull(schema.contentDatabaseSources.metadataJson)
+            : eq(
+                schema.contentDatabaseSources.metadataJson,
+                currentSource.metadataJson,
+              ),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (updated.length > 0) return;
+  }
+  throw new Error("Builder source metadata changed repeatedly during refresh.");
 }
 
 export async function updateReadOnlySourceMetadata(args: {

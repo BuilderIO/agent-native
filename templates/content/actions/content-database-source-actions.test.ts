@@ -373,6 +373,18 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts a guarded Builder continuation offset", () => {
+    expect(
+      refreshSource.schema.parse({
+        databaseId: "database",
+        expectedBuilderContinuationOffset: 400,
+      }),
+    ).toEqual({
+      databaseId: "database",
+      expectedBuilderContinuationOffset: 400,
+    });
+  });
+
   it("caps content database page sizes for bounded responses", () => {
     expect(
       normalizeContentDatabasePageOptions({ limit: 1, offset: -5 }),

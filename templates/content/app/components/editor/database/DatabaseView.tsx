@@ -1115,12 +1115,20 @@ function DatabaseTable({
     ),
   };
   const runSourceRefresh = useCallback(
-    (sourceId: string, onError?: () => void) => {
+    (
+      sourceId: string,
+      onError?: () => void,
+      expectedBuilderContinuationOffset?: number,
+    ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
       }
       refreshSource.mutate(
-        { documentId: document.id, sourceId },
+        {
+          documentId: document.id,
+          sourceId,
+          expectedBuilderContinuationOffset,
+        },
         {
           onError,
           onSettled: () => {
@@ -1197,10 +1205,13 @@ function DatabaseTable({
       continuationKey,
     );
     if (
-      !runSourceRefresh(candidate.id, () =>
-        setBuilderContinuationClientErrorKeys((current) =>
-          addUniqueKey(current, continuationKey),
-        ),
+      !runSourceRefresh(
+        candidate.id,
+        () =>
+          setBuilderContinuationClientErrorKeys((current) =>
+            addUniqueKey(current, continuationKey),
+          ),
+        candidate.metadata.lastReadNextOffset,
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1273,10 +1284,13 @@ function DatabaseTable({
         return;
       }
       if (
-        runSourceRefresh(candidate.id, () =>
-          setBuilderContinuationClientErrorKeys((current) =>
-            addUniqueKey(current, continuationKey),
-          ),
+        runSourceRefresh(
+          candidate.id,
+          () =>
+            setBuilderContinuationClientErrorKeys((current) =>
+              addUniqueKey(current, continuationKey),
+            ),
+          candidate.metadata.lastReadNextOffset,
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -2545,10 +2559,13 @@ function DatabaseTable({
                 continuationKey,
               );
               builderContinuationWatchdogRef.current.set(continuationKey, 0);
-              runSourceRefresh(builderSource.id, () =>
-                setBuilderContinuationClientErrorKeys((current) =>
-                  addUniqueKey(current, continuationKey),
-                ),
+              runSourceRefresh(
+                builderSource.id,
+                () =>
+                  setBuilderContinuationClientErrorKeys((current) =>
+                    addUniqueKey(current, continuationKey),
+                  ),
+                builderSource.metadata.lastReadNextOffset,
               );
             }}
           />
