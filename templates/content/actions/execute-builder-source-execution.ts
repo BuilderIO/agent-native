@@ -637,6 +637,7 @@ async function reconcileBuilderCmsWrite(args: {
 
 export function realExecutionDeps(
   sourceId?: string,
+  changeSetId?: string,
 ): ExecuteBuilderSourceExecutionDeps {
   return {
     now: () => new Date().toISOString(),
@@ -644,8 +645,39 @@ export function realExecutionDeps(
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
-    getSourceSnapshot: (database) =>
-      getContentDatabaseSourceSnapshotForWrite(database, sourceId),
+    getSourceSnapshot: async (database) => {
+      // Execution always targets one prepared change set. Loading every
+      // Builder-backed document (and every heavy body baseline) here can spend
+      // the hosted request budget before the provider write is dispatched.
+      // Resolve the durable prepared target first, then build the authoritative
+      // write snapshot for that document only. The unscoped fallback preserves
+      // compatibility for legacy/non-persisted callers.
+      const [target] = changeSetId
+        ? await getDb()
+            .select({
+              documentId: schema.contentDatabaseSourceChangeSets.documentId,
+              sourceId: schema.contentDatabaseSourceChangeSets.sourceId,
+            })
+            .from(schema.contentDatabaseSourceChangeSets)
+            .where(
+              sourceId
+                ? and(
+                    eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+                    eq(
+                      schema.contentDatabaseSourceChangeSets.sourceId,
+                      sourceId,
+                    ),
+                  )
+                : eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+            )
+            .limit(1)
+        : [];
+      return getContentDatabaseSourceSnapshotForWrite(
+        database,
+        sourceId ?? target?.sourceId,
+        target?.documentId ? [target.documentId] : undefined,
+      );
+    },
     getExecution: async (args) => {
       const [claim] = await getDb()
         .select({
@@ -1297,7 +1329,7 @@ export default defineAction({
   ): Promise<ContentDatabaseResponse> => {
     return executeBuilderSourceExecutionWithDeps(
       args,
-      realExecutionDeps(args.sourceId),
+      realExecutionDeps(args.sourceId, args.changeSetId),
     );
   },
 });

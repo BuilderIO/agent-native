@@ -77,6 +77,7 @@ let prepareReview: typeof import("./prepare-builder-source-review.js").default;
 let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
+let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
 let builderReviewBodyCandidateDocumentIds: typeof import("./_database-source-utils.js").builderReviewBodyCandidateDocumentIds;
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
 
@@ -93,6 +94,8 @@ beforeAll(async () => {
     .default;
   validateExecution = (await import("./validate-builder-source-execution.js"))
     .default;
+  realExecutionDeps = (await import("./execute-builder-source-execution.js"))
+    .realExecutionDeps;
   ({
     builderReviewBodyCandidateDocumentIds,
     builderReviewSourceValueTextProjection,
@@ -370,6 +373,23 @@ describe("Builder source review execution gates", () => {
     } finally {
       heavySnapshotReads.omitTargetRows = false;
     }
+  });
+
+  it("scopes live execution snapshots to the prepared change-set document", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    heavySnapshotReads.documentScopes = [];
+
+    const deps = realExecutionDeps(seeded.sourceId, seeded.changeSetId);
+    const database = await deps.resolveDatabase({
+      documentId: seeded.databaseDocumentId,
+    });
+    expect(database).not.toBeNull();
+
+    await deps.getSourceSnapshot(database!);
+
+    expect(heavySnapshotReads.documentScopes).toEqual([[seeded.rowDocumentId]]);
   });
 
   it("refreshes a previously approved body only from a provably unsent blocked dry run", async () => {
