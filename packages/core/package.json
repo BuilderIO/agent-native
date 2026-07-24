@@ -322,7 +322,7 @@
     "build": "tsc && tsc -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --dir src",
+    "test": "vitest --run --dir src --maxWorkers=25%",
     "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
     "postpack": "tsx ../../scripts/sync-core-first-party-templates.ts --clean",
     "prepublishOnly": "npm run build"
