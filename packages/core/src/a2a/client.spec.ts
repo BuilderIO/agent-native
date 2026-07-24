@@ -31,18 +31,6 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
   };
 });
 
-// Captured before fake timers install (which fake setImmediate), so waiting
-// loops still yield real event-loop turns for any residual real async.
-const realSetImmediate = setImmediate;
-const yieldReal = () => new Promise<void>((r) => realSetImmediate(r));
-async function advanceSettled(vitest: typeof vi, totalMs: number) {
-  const step = 500;
-  for (let advanced = 0; advanced < totalMs; advanced += step) {
-    await vitest.advanceTimersByTimeAsync(Math.min(step, totalMs - advanced));
-    await yieldReal();
-  }
-}
-
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
 
@@ -207,15 +195,9 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 5_000, pollIntervalMs: 1_000 },
     );
-    const assertion = expect(result).rejects.toMatchObject({
-      name: "A2ATaskTimeoutError",
-      taskId: "task-hung-poll",
-      lastState: "working",
-      timeoutMs: 5_000,
-    });
-    // Mark handled: if the promise settles unexpectedly mid-advance, the
-    // failure must surface at the await below, not as an unhandled rejection.
-    assertion.catch(() => {});
+    // Attach a handler before advancing timers so the intentional rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
 
     const hasTaskRead = () =>
       fetchMock.mock.calls.some(
@@ -223,13 +205,20 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    for (let i = 0; !hasTaskRead(); i++) {
-      expect(i).toBeLessThan(5_000);
-      await yieldReal();
-      await vi.advanceTimersByTimeAsync(10);
-    }
-    await advanceSettled(vi, 5_000);
-    await assertion;
+    // waitFor advances fake time in coarse intervals. Stepping the clock 1ms at
+    // a time performs 1,000 async flushes and can exceed Vitest's real 5s test
+    // timeout when the full suite is under load.
+    await vi.waitFor(() => expect(hasTaskRead()).toBe(true), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-hung-poll",
+      lastState: "working",
+      timeoutMs: 5_000,
+    });
     expect(hasTaskRead()).toBe(true);
     expect(
       fetchMock.mock.calls.find(
@@ -281,7 +270,17 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 60_000, pollIntervalMs: 1_000 },
     );
-    const assertion = expect(result).resolves.toMatchObject({
+    // Attach a handler before advancing timers so an unexpected rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
+
+    // Same coarse-interval pacing rationale as the hung-poll test above.
+    await vi.waitFor(() => expect(taskReads).toBeGreaterThan(0), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toMatchObject({
       status: {
         state: "completed",
         message: {
@@ -291,17 +290,6 @@ describe("A2AClient", () => {
         },
       },
     });
-    // Mark handled: if the promise settles unexpectedly mid-advance, the
-    // failure must surface at the await below, not as an unhandled rejection.
-    assertion.catch(() => {});
-
-    for (let i = 0; taskReads === 0; i++) {
-      expect(i).toBeLessThan(5_000);
-      await yieldReal();
-      await vi.advanceTimersByTimeAsync(10);
-    }
-    await advanceSettled(vi, 16_000);
-    await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
   }, 30_000);
