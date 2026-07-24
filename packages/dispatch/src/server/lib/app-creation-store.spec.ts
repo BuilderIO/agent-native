@@ -5,6 +5,7 @@ import {
   generateWorkspaceAppDescription,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
+  setAppCreationSettings,
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
 } from "./app-creation-store.js";
@@ -46,6 +47,18 @@ const mocks = vi.hoisted(() => {
     runBuilderAgent: vi.fn(),
     resolveBuilderBranchProjectId: vi.fn(async () => ""),
     getBuilderBranchProjectId: vi.fn(() => ""),
+    writeAppSecret: vi.fn(async () => "secret-id"),
+    deleteAppSecret: vi.fn(async () => true),
+  };
+});
+
+vi.mock("@agent-native/core/secrets", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/secrets")>();
+  return {
+    ...actual,
+    writeAppSecret: (...args: any[]) => mocks.writeAppSecret(...args),
+    deleteAppSecret: (...args: any[]) => mocks.deleteAppSecret(...args),
   };
 });
 
@@ -542,5 +555,75 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("coming-soon");
     expect(mocks.resolveBuilderCredentialsDetailed).not.toHaveBeenCalled();
+  });
+});
+
+describe("setAppCreationSettings", () => {
+  const projectId = "274d28fec94b48f2b2d68f2274d390eb";
+  const orgId = "builder_io";
+
+  function save(
+    builderProjectId: string | null,
+    ctx: { userEmail: string; orgId?: string } = {
+      userEmail: "dev@example.test",
+      orgId,
+    },
+  ) {
+    return runWithRequestContext(ctx, () =>
+      setAppCreationSettings({ builderProjectId }),
+    );
+  }
+
+  it("stores the project id as an org-scoped credential so member apps resolve it", async () => {
+    await save(projectId);
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "BUILDER_BRANCH_PROJECT_ID",
+        value: projectId,
+        scope: "org",
+        scopeId: orgId,
+      }),
+    );
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("scopes the credential to one organization rather than every tenant", async () => {
+    await save(projectId);
+
+    const [args] = mocks.writeAppSecret.mock.calls.at(-1) as [
+      { scope: string; scopeId: string },
+    ];
+    expect(args.scope).not.toBe("user");
+    expect(args.scopeId).toBe(orgId);
+  });
+
+  it("falls back to a solo workspace scope when there is no active org", async () => {
+    await save(projectId, { userEmail: "dev@example.test" });
+
+    expect(mocks.writeAppSecret).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "workspace",
+        scopeId: "solo:dev@example.test",
+      }),
+    );
+  });
+
+  it("removes the credential when the project id is cleared", async () => {
+    await save(null);
+
+    expect(mocks.deleteAppSecret).toHaveBeenCalledWith({
+      key: "BUILDER_BRANCH_PROJECT_ID",
+      scope: "org",
+      scopeId: orgId,
+    });
+    expect(mocks.writeAppSecret).not.toHaveBeenCalled();
+  });
+
+  it("does not save the setting when the credential write fails", async () => {
+    mocks.writeAppSecret.mockRejectedValueOnce(new Error("credential store down"));
+
+    await expect(save(projectId)).rejects.toThrow("credential store down");
+    expect(mocks.putSetting).not.toHaveBeenCalled();
   });
 });

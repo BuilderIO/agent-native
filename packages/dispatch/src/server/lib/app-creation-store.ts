@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 
 import { getDbExec } from "@agent-native/core/db";
 import {
+  deleteAppSecret,
+  writeAppSecret,
+  type SecretScope,
+} from "@agent-native/core/secrets";
+import {
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
@@ -30,6 +35,9 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
+const BUILDER_BRANCH_PROJECT_SECRET_KEY = "BUILDER_BRANCH_PROJECT_ID";
+const BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION =
+  "Builder project for cloud code-change branches (set in Dispatch)";
 const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
@@ -207,6 +215,16 @@ function scopedSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${SETTINGS_KEY}:org:${orgId}`;
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function builderProjectSecretTarget(): {
+  scope: Extract<SecretScope, "org" | "workspace">;
+  scopeId: string;
+} | null {
+  const orgId = currentOrgId();
+  if (orgId) return { scope: "org", scopeId: orgId };
+  const email = currentOwnerEmail();
+  return email ? { scope: "workspace", scopeId: `solo:${email}` } : null;
 }
 
 function workspaceAppMetadataSettingsKey(): string {
@@ -1500,6 +1518,29 @@ export async function setAppCreationSettings(input: {
   await assertCanManageAppCreationSettings();
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
+
+  // The credential store, not this settings row, is what
+  // `resolveBuilderBranchProjectId()` reads. Write it first: a saved setting
+  // whose secret never landed reports the project as configured while cloud
+  // code changes stay silently disabled.
+  const secretTarget = builderProjectSecretTarget();
+  if (secretTarget) {
+    const ref = {
+      key: BUILDER_BRANCH_PROJECT_SECRET_KEY,
+      scope: secretTarget.scope,
+      scopeId: secretTarget.scopeId,
+    };
+    if (builderProjectId) {
+      await writeAppSecret({
+        ...ref,
+        value: builderProjectId,
+        description: BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION,
+      });
+    } else {
+      await deleteAppSecret(ref);
+    }
+  }
+
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
     action: "settings.updated",
