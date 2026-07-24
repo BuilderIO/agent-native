@@ -131,7 +131,7 @@ const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
 const originalErroredRetentionEnv = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
 const originalNetlify = process.env.NETLIFY;
 const originalNetlifyLocal = process.env.NETLIFY_LOCAL;
-const originalSiteId = process.env.SITE_ID;
+const originalSiteId = process.env.SITE_ID; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
 const originalCfPages = process.env.CF_PAGES;
 const originalVercel = process.env.VERCEL;
 const originalVercelEnv = process.env.VERCEL_ENV;
@@ -146,7 +146,7 @@ function clearHostedEnvForTest() {
   delete process.env.AGENT_ERRORED_RUN_RETENTION_MS;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
-  delete process.env.SITE_ID;
+  delete process.env.SITE_ID; // guard:allow-env-credential -- tests isolate Netlify's public runtime host marker.
   delete process.env.CF_PAGES;
   delete process.env.VERCEL;
   delete process.env.VERCEL_ENV;
@@ -170,8 +170,9 @@ function restoreHostedEnvAfterTest() {
   else process.env.NETLIFY = originalNetlify;
   if (originalNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
   else process.env.NETLIFY_LOCAL = originalNetlifyLocal;
-  if (originalSiteId === undefined) delete process.env.SITE_ID;
-  else process.env.SITE_ID = originalSiteId;
+  if (originalSiteId === undefined)
+    delete process.env.SITE_ID; // guard:allow-env-credential -- tests restore Netlify's public runtime host marker.
+  else process.env.SITE_ID = originalSiteId; // guard:allow-env-credential -- tests restore Netlify's public runtime host marker.
   if (originalCfPages === undefined) delete process.env.CF_PAGES;
   else process.env.CF_PAGES = originalCfPages;
   if (originalVercel === undefined) delete process.env.VERCEL;
