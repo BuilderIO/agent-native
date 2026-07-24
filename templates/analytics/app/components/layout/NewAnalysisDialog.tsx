@@ -30,7 +30,7 @@ const ANALYSIS_CONTEXT =
   "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `generate-chart`, and dashboard inspection do not count as data queries. " +
   "If no source can answer, report the exact unavailable/error result instead of saving guessed metrics. " +
   "Read the `adhoc-analysis` skill first. Gather and synthesize the requested evidence, then save the result as a dashboard with `update-dashboard` and navigate with `navigate --view=adhoc --dashboardId=<id>`. " +
-  "If the requested visualization or workflow needs bespoke UI, call `create-extension` and immediately embed the new extension as one or more `chartType: \"extension\"` dashboard panels with `config.extensionId`; never leave it as a standalone Analytics artifact. " +
+  'If the requested visualization or workflow needs bespoke UI, call `create-extension` and immediately embed the new extension as one or more `chartType: "extension"` dashboard panels with `config.extensionId`; never leave it as a standalone Analytics artifact. ' +
   "No code files need to be created — dashboard and embedded-extension actions are the source of truth.";
 
 function buildAnalysisContext(configuredSourceNames: string[]): string {
