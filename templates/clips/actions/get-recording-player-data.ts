@@ -27,6 +27,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
+import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
@@ -154,21 +155,25 @@ export default defineAction({
       access.role === "editor";
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
-    const [cleanupStateRaw, builderCreditsRaw, verificationPending, viewCount] =
-      await Promise.all([
-        readAppState(`transcript-cleanup-${args.recordingId}`).catch(
-          () => null,
-        ),
-        canEditRecording
-          ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
-          : Promise.resolve(null),
-        isMediaVerificationPending({
-          ownerEmail: rec.ownerEmail,
-          recordingId: args.recordingId,
-          recordingStatus: rec.status,
-        }),
-        countRecordingViews(args.recordingId).catch(() => 0),
-      ]);
+    const [
+      cleanupStateRaw,
+      builderCreditsRaw,
+      verificationPending,
+      viewCount,
+      agentViewCount,
+    ] = await Promise.all([
+      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
+      canEditRecording
+        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+        : Promise.resolve(null),
+      isMediaVerificationPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+      }),
+      countRecordingViews(args.recordingId).catch(() => 0),
+      countRecordingAgentViews(args.recordingId).catch(() => 0),
+    ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
@@ -301,6 +306,7 @@ export default defineAction({
     return {
       role: access.role,
       viewCount,
+      agentViewCount,
       recording: {
         id: rec.id,
         organizationId: rec.organizationId,

@@ -3,8 +3,9 @@
  *
  * Owner-only — uses assertAccess at editor level (owners always satisfy).
  *
- * Returns: views (total counted view sessions, so a returning viewer counts
- * again), uniqueViewers (distinct people behind those views), completionRate,
+ * Returns: views (total counted human view sessions, so a returning viewer
+ * counts again), agentViews (outside agents reading the clip's agent APIs),
+ * uniqueViewers (distinct people behind those views), completionRate,
  * dropOff (100 buckets), ctaConversionRate.
  *
  * Usage:
@@ -17,6 +18,10 @@ import { count, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  countRecordingAgentViews,
+  listRecordingAgentViewers,
+} from "../server/lib/agent-views.js";
 import {
   clampCompletionPct,
   displayViewerName,
@@ -44,10 +49,14 @@ export default defineAction({
       .from(schema.recordingEvents)
       .where(eq(schema.recordingEvents.recordingId, args.recordingId));
 
-    const [viewLogRow] = await db
-      .select({ value: count() })
-      .from(schema.recordingViews)
-      .where(eq(schema.recordingViews.recordingId, args.recordingId));
+    const [[viewLogRow], agentViews, agentViewers] = await Promise.all([
+      db
+        .select({ value: count() })
+        .from(schema.recordingViews)
+        .where(eq(schema.recordingViews.recordingId, args.recordingId)),
+      countRecordingAgentViews(args.recordingId),
+      listRecordingAgentViewers(args.recordingId),
+    ]);
 
     // Same definition as `countedViewCondition`, applied to rows already in
     // memory so this action keeps its single viewer-row read. One row per
@@ -117,6 +126,8 @@ export default defineAction({
 
     return {
       views,
+      agentViews,
+      agentViewers,
       uniqueViewers,
       completionRate,
       ctaConversionRate,

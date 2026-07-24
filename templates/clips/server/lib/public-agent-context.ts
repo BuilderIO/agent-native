@@ -31,6 +31,7 @@ import {
 } from "../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../shared/transcript-status.js";
 import { getDb, schema } from "../db/index.js";
+import { recordAgentView } from "./agent-views.js";
 import { verifySharePassword } from "./share-password.js";
 
 export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
@@ -288,6 +289,12 @@ export async function loadPublicAgentAccess(
         },
       };
     }
+  }
+
+  // Every agent API route funnels through here, so this is the one place that
+  // sees an outside agent read a clip. Owner requests are previews, not views.
+  if (!viewerIsOwner) {
+    await recordAgentView(event, recording.id);
   }
 
   return {

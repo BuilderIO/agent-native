@@ -25,8 +25,16 @@ interface ViewerRow {
   lastViewedAt: string | null;
 }
 
+interface AgentViewerRow {
+  agentLabel: string;
+  views: number;
+  lastSeenAt: string;
+}
+
 interface Insights {
   views: number;
+  agentViews: number;
+  agentViewers: AgentViewerRow[];
   uniqueViewers: number;
   completionRate: number;
   ctaConversionRate: number;
@@ -93,6 +101,7 @@ export function RecordingViewsBadge({
 
   const viewers = viewersQuery.data?.viewers ?? [];
   const insights = insightsQuery.data;
+  const agentViewers = insights?.agentViewers ?? [];
   const summary = insights
     ? t("recordingInsights.totalViewsSummary", {
         total: insights.views,
@@ -146,6 +155,9 @@ export function RecordingViewsBadge({
               {summary}
             </div>
             <div className="max-h-80 overflow-y-auto p-1.5">
+              <p className="px-2 pt-1 pb-1.5 text-xs font-medium text-muted-foreground">
+                {t("recordingInsights.humanViews")}
+              </p>
               {viewersQuery.isLoading ? (
                 <p className="px-2 py-3 text-sm text-muted-foreground">
                   {t("recordingInsights.loading")}
@@ -167,6 +179,34 @@ export function RecordingViewsBadge({
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {Math.round(v.completedPct)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="mt-2 border-t border-border px-2 pt-2.5 pb-1.5 text-xs font-medium text-muted-foreground">
+                {t("recordingInsights.agentViews")}
+              </p>
+              {agentViewers.length === 0 ? (
+                <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                  {t("recordingInsights.noAgentViewsYet")}
+                </p>
+              ) : (
+                <ul className="space-y-0.5">
+                  {agentViewers.map((a) => (
+                    <li
+                      key={a.agentLabel}
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5"
+                    >
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        <IconTerminal2 className="h-3.5 w-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                        {a.agentLabel}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {t("recordingInsights.viewsCount", { count: a.views })}
                       </span>
                     </li>
                   ))}
