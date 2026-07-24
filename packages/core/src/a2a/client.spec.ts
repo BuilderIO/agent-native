@@ -9,6 +9,21 @@ import {
   signA2AToken,
 } from "./client.js";
 
+// Captured before fake timers install (which fake setImmediate): the request
+// path does real async work outside the mocked fetch (ssrf host checks), so
+// fake-time advancing loops must yield REAL event-loop turns or fake time
+// races ahead of it on loaded CI runners — aborting requests before the mock
+// is ever reached.
+const realSetImmediate = setImmediate;
+const yieldReal = () => new Promise<void>((r) => realSetImmediate(r));
+async function advanceSettled(vitest: typeof vi, totalMs: number) {
+  const step = 500;
+  for (let advanced = 0; advanced < totalMs; advanced += step) {
+    await vitest.advanceTimersByTimeAsync(Math.min(step, totalMs - advanced));
+    await yieldReal();
+  }
+}
+
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
 
@@ -179,6 +194,9 @@ describe("A2AClient", () => {
       lastState: "working",
       timeoutMs: 5_000,
     });
+    // Mark handled: if the promise settles unexpectedly mid-advance, the
+    // failure must surface at the await below, not as an unhandled rejection.
+    assertion.catch(() => {});
 
     const hasTaskRead = () =>
       fetchMock.mock.calls.some(
@@ -186,11 +204,12 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    // Coarse steps: the first poll lands at pollIntervalMs (1s of fake time),
-    // and 1ms steps are ~1000 queue drains — enough to blow the real-time test
-    // timeout on a loaded CI worker. Overshooting the poll instant is harmless.
-    while (!hasTaskRead()) await vi.advanceTimersByTimeAsync(50);
-    await vi.advanceTimersByTimeAsync(5_000);
+    for (let i = 0; !hasTaskRead(); i++) {
+      expect(i).toBeLessThan(5_000);
+      await yieldReal();
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    await advanceSettled(vi, 5_000);
     await assertion;
     expect(hasTaskRead()).toBe(true);
     expect(
@@ -251,10 +270,16 @@ describe("A2AClient", () => {
         },
       },
     });
+    // Mark handled: if the promise settles unexpectedly mid-advance, the
+    // failure must surface at the await below, not as an unhandled rejection.
+    assertion.catch(() => {});
 
-    // Coarse steps for the same CI-load reason as the hung-poll test above.
-    while (taskReads === 0) await vi.advanceTimersByTimeAsync(50);
-    await vi.advanceTimersByTimeAsync(16_000);
+    for (let i = 0; taskReads === 0; i++) {
+      expect(i).toBeLessThan(5_000);
+      await yieldReal();
+      await vi.advanceTimersByTimeAsync(10);
+    }
+    await advanceSettled(vi, 16_000);
     await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
