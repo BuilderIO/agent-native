@@ -35,6 +35,7 @@ import {
   AllSelection,
   NodeSelection,
   Selection,
+  type Transaction,
 } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
@@ -981,6 +982,10 @@ interface VisualEditorExtensionOptions {
   localFilePath?: string | null;
   referenceDepth?: number;
   emptyBlockPlaceholder?: string;
+  onMediaSourceCommitted?: (
+    editor: CoreEditor,
+    transaction: Transaction,
+  ) => void;
 }
 
 export function hasAncestorType(
@@ -1007,6 +1012,43 @@ export function hasAncestorType(
 type MediaNodeType = "image" | "video" | "audio";
 
 const MEDIA_NODE_TYPES = new Set<MediaNodeType>(["image", "video", "audio"]);
+
+function mediaSourceCounts(doc: ProseMirrorNode) {
+  const counts = new Map<string, number>();
+  doc.descendants((node) => {
+    if (!MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType)) return true;
+    const src = typeof node.attrs.src === "string" ? node.attrs.src : "";
+    if (!src) return false;
+    const key = `${node.type.name}\u0000${src}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    return false;
+  });
+  return counts;
+}
+
+export function didCommitMediaSource(transaction: Transaction): boolean {
+  if (!transaction.docChanged) return false;
+  const before = mediaSourceCounts(transaction.before);
+  const after = mediaSourceCounts(transaction.doc);
+  return [...after].some(([key, count]) => count > (before.get(key) ?? 0));
+}
+
+const MediaSourceCommit = Extension.create<{
+  onMediaSourceCommitted?: (
+    editor: CoreEditor,
+    transaction: Transaction,
+  ) => void;
+}>({
+  name: "mediaSourceCommit",
+  addOptions() {
+    return { onMediaSourceCommitted: undefined };
+  },
+  onTransaction({ editor, transaction }) {
+    if (didCommitMediaSource(transaction)) {
+      this.options.onMediaSourceCommitted?.(editor, transaction);
+    }
+  },
+});
 
 /**
  * Empty media nodes are transient editor UI, not durable document content.
@@ -1354,6 +1396,7 @@ export function createVisualEditorExtensions({
   localFilePath,
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
+  onMediaSourceCommitted,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1421,6 +1464,7 @@ export function createVisualEditorExtensions({
         documentId,
         onAudioComment: onImageComment,
       }),
+      MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
         resizable: false,
         HTMLAttributes: { class: "notion-table" },
@@ -1737,6 +1781,15 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
+  const onMediaSourceCommittedRef = useRef<
+    ((editor: CoreEditor, transaction: Transaction) => void) | null
+  >(null);
+  const onMediaSourceCommitted = useCallback(
+    (editor: CoreEditor, transaction: Transaction) => {
+      onMediaSourceCommittedRef.current?.(editor, transaction);
+    },
+    [],
+  );
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
     return (
@@ -1794,6 +1847,7 @@ export function VisualEditor({
         localFilePath,
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
+        onMediaSourceCommitted,
       }),
     [
       documentId,
@@ -1809,6 +1863,7 @@ export function VisualEditor({
       localFilePath,
       referenceDepth,
       t,
+      onMediaSourceCommitted,
     ],
   );
 
@@ -1870,6 +1925,20 @@ export function VisualEditor({
     },
     [content, localFileMode, t],
   );
+  onMediaSourceCommittedRef.current = async (editorToPersist, transaction) => {
+    const guards = guardsRef.current;
+    if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+    try {
+      await persistEditorContent(editorToPersist, {
+        immediate: true,
+        userInitiated: true,
+      });
+    } catch (error) {
+      // The ordinary onUpdate path still queues its debounced retry. Keep the
+      // immediate durability attempt from becoming an unhandled rejection.
+      console.error("Media source persistence error:", error);
+    }
+  };
 
   const editor = useEditor({
     extensions,

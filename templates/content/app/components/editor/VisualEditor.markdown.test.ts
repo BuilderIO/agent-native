@@ -8,6 +8,7 @@ import {
 } from "@shared/notion-markdown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
+import type { Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -25,6 +26,7 @@ import { createPreviewDocumentSaveController } from "./previewDocumentSaveContro
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   createVisualEditorExtensions,
+  didCommitMediaSource,
   EmptyLineParagraph,
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
@@ -91,6 +93,38 @@ describe("placeholder ancestry", () => {
 });
 
 describe("media draft persistence", () => {
+  it("detects a media source enrichment but not unrelated media movement", () => {
+    const editor = createFullEditor();
+    const transactions: Transaction[] = [];
+    editor.on("transaction", ({ transaction }) =>
+      transactions.push(transaction),
+    );
+
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "video", attrs: { src: null } }],
+      });
+      editor.commands.setNodeSelection(0);
+      transactions.length = 0;
+
+      editor.commands.updateAttributes("video", {
+        src: "https://cdn.example.com/flower.mp4",
+      });
+      expect(transactions.some(didCommitMediaSource)).toBe(true);
+
+      transactions.length = 0;
+      const paragraph = editor.schema.nodes.paragraph.create(
+        null,
+        editor.schema.text("Before media"),
+      );
+      editor.view.dispatch(editor.state.tr.insert(0, paragraph));
+      expect(transactions.some(didCommitMediaSource)).toBe(false);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it.each([
     ["image", "https://cdn.example.com/birds.png"],
     ["video", "https://cdn.example.com/flower.mp4"],
