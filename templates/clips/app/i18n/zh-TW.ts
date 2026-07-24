@@ -61,7 +61,6 @@ const messages = {
     folder: "資料夾",
     extensions: "擴充功能",
     newRecording: "新建錄製",
-    import: "匯入",
     folders: "資料夾",
     newFolder: "新建資料夾",
     noSpaces: "暫無空間",

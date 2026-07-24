@@ -34,6 +34,7 @@ import {
   IconSettings,
   IconSearch,
   IconUpload,
+  IconLink,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation, useParams } from "react-router";
@@ -392,19 +393,33 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </Tooltip>
               </div>
 
-              <div className="flex justify-center px-2">
+              <div className="flex flex-col items-center gap-1 px-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <NavLink
                       to="/record"
-                      aria-label={t("navigation.import")}
+                      aria-label={t("preRecord.uploadVideo")}
                       className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     >
                       <IconUpload className="h-4 w-4" />
                     </NavLink>
                   </TooltipTrigger>
                   <TooltipContent side="right">
-                    {t("navigation.import")}
+                    {t("preRecord.uploadVideo")}
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <NavLink
+                      to="/record"
+                      aria-label={t("preRecord.importLoom")}
+                      className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    >
+                      <IconLink className="h-4 w-4" />
+                    </NavLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t("preRecord.importLoom")}
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -450,7 +465,18 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 >
                   <NavLink to="/record">
                     <IconUpload className="h-4 w-4" />
-                    {t("navigation.import")}
+                    {t("preRecord.uploadVideo")}
+                  </NavLink>
+                </Button>
+                <Button
+                  className="mt-1.5 w-full gap-1.5 text-muted-foreground"
+                  size="sm"
+                  variant="ghost"
+                  asChild
+                >
+                  <NavLink to="/record">
+                    <IconLink className="h-4 w-4" />
+                    {t("preRecord.importLoom")}
                   </NavLink>
                 </Button>
               </div>

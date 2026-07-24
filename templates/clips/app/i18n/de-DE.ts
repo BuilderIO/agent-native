@@ -63,7 +63,6 @@ const messages = {
     folder: "Ordner",
     extensions: "Erweiterungen",
     newRecording: "Neue Aufnahme",
-    import: "Importieren",
     folders: "Ordner",
     newFolder: "Neuer Ordner",
     noSpaces: "Noch keine Bereiche",

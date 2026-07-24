@@ -63,7 +63,6 @@ const messages = {
     folder: "फ़ोल्डर",
     extensions: "एक्सटेंशन",
     newRecording: "नई रिकॉर्डिंग",
-    import: "आयात करें",
     folders: "फ़ोल्डर",
     newFolder: "नया फ़ोल्डर",
     noSpaces: "अभी कोई स्पेस नहीं",

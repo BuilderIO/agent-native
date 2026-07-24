@@ -9,6 +9,7 @@ import {
   IconChevronRight,
   IconPlayerRecord,
   IconUpload,
+  IconLink,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router";
@@ -86,13 +87,22 @@ function NewRecordingTile({
           {t("navigation.newRecording")}
         </NavLink>
       </Button>
-      <NavLink
-        to={recordHref}
-        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-      >
-        <IconUpload className="h-3.5 w-3.5" />
-        {t("navigation.import")}
-      </NavLink>
+      <div className="flex items-center gap-3">
+        <NavLink
+          to={recordHref}
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <IconUpload className="h-3.5 w-3.5" />
+          {t("preRecord.uploadVideo")}
+        </NavLink>
+        <NavLink
+          to={recordHref}
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <IconLink className="h-3.5 w-3.5" />
+          {t("preRecord.importLoom")}
+        </NavLink>
+      </div>
     </div>
   );
 }

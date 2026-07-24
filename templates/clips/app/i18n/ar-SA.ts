@@ -62,7 +62,6 @@ const messages = {
     folder: "مجلد",
     extensions: "الإضافات",
     newRecording: "تسجيل جديد",
-    import: "استيراد",
     folders: "المجلدات",
     newFolder: "مجلد جديد",
     noSpaces: "لا توجد مساحات بعد",

@@ -63,7 +63,6 @@ const messages = {
     folder: "폴더",
     extensions: "확장 프로그램",
     newRecording: "새 녹화",
-    import: "가져오기",
     folders: "폴더",
     newFolder: "새 폴더",
     noSpaces: "아직 스페이스가 없습니다",

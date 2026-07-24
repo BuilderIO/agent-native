@@ -63,7 +63,6 @@ const messages = {
     folder: "フォルダ",
     extensions: "拡張機能",
     newRecording: "新規録画",
-    import: "インポート",
     folders: "フォルダ",
     newFolder: "新規フォルダ",
     noSpaces: "スペースはまだありません",
