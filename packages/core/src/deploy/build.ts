@@ -2447,6 +2447,8 @@ export const config = {
   name: "agent-native server keep warm",
   generator: "agent-native build",
   schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
 };
 `;
 
