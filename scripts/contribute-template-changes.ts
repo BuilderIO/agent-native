@@ -5,6 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import {
+  baselineRefName,
+  resolveBaselineStore,
+} from "../packages/core/src/cli/template-baseline.ts";
+
 export interface Replacement {
   placeholder: string;
   value: string;
@@ -393,11 +398,11 @@ function resolveBaseline(
     return { dir, source: `--baseline ${dir}`, approximate: false };
   }
 
-  const toplevel = tryGit(appDir, ["rev-parse", "--show-toplevel"]);
+  const store = resolveBaselineStore(appDir);
+  const toplevel = store.repoRoot;
   if (toplevel) {
-    const appRel =
-      path.relative(toplevel, appDir).split(path.sep).join("/") || ".";
-    const ref = `refs/agent-native/template-baseline/${appRel}`;
+    const appRel = store.prefix || ".";
+    const ref = baselineRefName(store, "baseline");
     const resolved = tryGit(toplevel, [
       "rev-parse",
       "--verify",
