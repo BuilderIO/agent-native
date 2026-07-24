@@ -1218,7 +1218,8 @@ export function useSetContentDatabaseSourceWriteMode(documentId: string) {
     ContentDatabaseResponse,
     SetContentDatabaseSourceWriteModeRequest
   >("set-content-database-source-write-mode", {
-    onSuccess: () => {
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),
       });
