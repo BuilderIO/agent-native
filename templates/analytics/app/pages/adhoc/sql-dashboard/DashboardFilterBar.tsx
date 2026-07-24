@@ -426,8 +426,8 @@ function FilterControl({
           value={current}
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue className="flex-1 text-left" />
+          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+            <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
             {filter.options?.map((opt) => (

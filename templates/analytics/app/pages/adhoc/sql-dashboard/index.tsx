@@ -1516,41 +1516,6 @@ export default function SqlDashboardPage() {
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
           <DropdownMenuContent align="end" className="w-72">
-            <DropdownMenuLabel className="font-normal">
-              <DashboardMetadata
-                createdAt={dashboardCreatedAt}
-                createdBy={dashboardOwner}
-                updatedAt={dashboardUpdatedAt}
-                updatedBy={dashboardUpdatedBy}
-              />
-              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {dashboardVisibility ? (
-                  <span className="flex items-center gap-1.5">
-                    {dashboardVisibility === "public" ? (
-                      <IconWorld className="h-3 w-3" />
-                    ) : dashboardVisibility === "org" ? (
-                      <IconUsersGroup className="h-3 w-3" />
-                    ) : (
-                      <IconLock className="h-3 w-3" />
-                    )}
-                    {dashboardVisibility === "public"
-                      ? t("sqlDashboard.public")
-                      : dashboardVisibility === "org"
-                        ? t("sqlDashboard.sharedWithOrg")
-                        : t("sqlDashboard.private")}
-                  </span>
-                ) : null}
-                {hiddenAt && (
-                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-                    <IconEyeOff className="h-3 w-3" />
-                    {t("sqlDashboard.hidden")}
-                  </span>
-                )}
-              </div>
-            </DropdownMenuLabel>
-            {(canEdit && !archivedAt) || canManage ? (
-              <DropdownMenuSeparator />
-            ) : null}
             {dashboardId && canEdit && !archivedAt ? (
               <DropdownMenuItem
                 onSelect={(event) => {
@@ -1616,6 +1581,41 @@ export default function SqlDashboardPage() {
                 {t("sqlDashboard.deletePermanently")}
               </DropdownMenuItem>
             ) : null}
+            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            <DropdownMenuLabel className="font-normal">
+              <DashboardMetadata
+                createdAt={dashboardCreatedAt}
+                createdBy={dashboardOwner}
+                updatedAt={dashboardUpdatedAt}
+                updatedBy={dashboardUpdatedBy}
+              />
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
+                {dashboardVisibility ? (
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconUsersGroup className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
+                    {dashboardVisibility === "public"
+                      ? t("sqlDashboard.public")
+                      : dashboardVisibility === "org"
+                        ? t("sqlDashboard.sharedWithOrg")
+                        : t("sqlDashboard.private")}
+                  </span>
+                ) : null}
+                {hiddenAt && (
+                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                    <IconEyeOff className="h-3 w-3" />
+                    {t("sqlDashboard.hidden")}
+                  </span>
+                )}
+              </div>
+            </DropdownMenuLabel>
           </DropdownMenuContent>
         </DropdownMenu>
         {dashboardId ? (
