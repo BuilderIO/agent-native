@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.121.2
+
+### Patch Changes
+
+- 302cac7: Rewrite getting started guide based on hands-on walkthrough
+
 ## 0.121.1
 
 ### Patch Changes
