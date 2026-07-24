@@ -1,23 +1,40 @@
 ---
 title: "Primeros pasos"
-description: "Crea una app agentic empezando por chat, añade una action, renderiza resultados estructurados en línea y crece hacia una página persistente que el agent puede abrir."
+description: "Crea una aplicación agéntica centrada en el chat, añade una acción, muestra resultados estructurados en línea y, a continuación, amplíala a una página persistente que el agente puede abrir."
 ---
 
 # Primeros pasos
 
-Agent-Native sirve para crear agentic applications: el AI agent y la UI comparten las mismas [actions](/docs/actions), datos SQL y application state. El camino principal empieza con Chat para que los usuarios puedan hablar con el agent de inmediato, y después añade las superficies de producto que el flujo necesita.
+Agent-Native es para aplicaciones agénticas: aplicaciones en las que el agente de IA y la interfaz de usuario
+comparten las mismas [acciones](/docs/actions), datos SQL y el estado de la aplicación. Empieza
+con el chat para que los usuarios puedan hablar con el agente de inmediato y, después, añade las superficies de la aplicación
+que tu flujo de trabajo necesite.
 
-El recorrido útil es:
+La forma más rápida de empezar es la **plantilla Chat**: una aplicación mínima que te ofrece una
+interfaz de chat con IA funcional, hilos duraderos, autenticación y un directorio `actions/`
+listo para ampliar. Es la base desde la que crece la mayoría de las aplicaciones Agent-Native.
 
-1. Crear una Chat app.
-2. Añadir una action.
-3. Renderizar el resultado de la action dentro del chat.
-4. Persistir datos en SQL.
-5. Añadir una página que el agent pueda abrir cuando conviene inspeccionar el resultado visualmente.
+El primer camino útil es:
 
-## 1. Crea una Chat app {#create-your-app}
+1. Crear una aplicación de chat.
+2. Conectar un motor de IA para que el agente pueda responder.
+3. Añadir una acción.
+4. Mostrar el resultado de la acción en línea dentro del chat.
+5. Persistir datos en SQL.
+6. Añadir una página que el agente pueda abrir cuando la inspección visual sea mejor que otro
+   párrafo en la transcripción.
 
-Necesitas [Node.js 22+](https://nodejs.org) y [pnpm](https://pnpm.io).
+¿Prefieres una aplicación de dominio completa? Clona una plantilla enriquecida como
+[Mail](/docs/template-mail), [Calendar](/docs/template-calendar),
+[Forms](/docs/template-forms), [Analytics](/docs/template-analytics) o
+[Plan](/docs/template-plan). ¿Aún no quieres interfaz de navegador? Consulta
+[Aplicaciones basadas en automatización](/docs/pure-agent-apps) tras este tutorial.
+
+## 1. Crear una aplicación de chat {#create-your-app}
+
+Necesitarás [Node.js 22+](https://nodejs.org) y [pnpm](https://pnpm.io).
+
+Abre una terminal, ve al directorio donde quieres tu aplicación Agent Native y ejecuta:
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
@@ -26,75 +43,213 @@ pnpm install
 pnpm dev
 ```
 
-El template incluye durable chat threads, auth, live sync, un directorio `actions/`, las actions estándar `view-screen` y `navigate`, y una app React lista para extender.
+Esto te proporciona hilos de chat duraderos, autenticación, sincronización en tiempo real, un directorio `actions/`,
+las acciones estándar `view-screen` y `navigate`, y una pequeña aplicación React que puedes
+ampliar.
 
-## 2. Añade una action {#add-an-action}
+El servidor de desarrollo se inicia y abre `http://localhost:8080` en tu navegador. Es posible que
+veas algunas líneas de registro al arrancar, como `NitroViteError: Vite environment "nitro" is
+unavailable`. Se trata de una condición de carrera normal durante el inicio inicial y
+se resuelven solas. La aplicación está lista cuando **VITE ready** aparece en la
+salida del terminal.
 
-Una action es una operación tipada que comparten el agent y la UI. Para este flujo, crea `actions/analyze-responses.ts`: analiza respuestas de formularios y devuelve una forma validada para un gráfico de chat propio.
+Cuando la aplicación se inicie, es posible que te encuentres en la pantalla de inicio de sesión en lugar de dentro de la aplicación. En ese caso, simplemente regístrate con un nombre de usuario inventado para satisfacer la pantalla de inicio de sesión.
+En el entorno de desarrollo local no se requiere verificación de correo electrónico.
 
-<!-- prettier-ignore -->
-```ts
-// actions/analyze-responses.ts
+### Si deseas un tipo de aplicación diferente
+
+Esta guía utiliza la plantilla Chat porque es el camino más corto
+hacia una aplicación agéntica: el agente puede actuar desde el primer día y dispones de una superficie de aplicación real
+desde la que crecer. Sin embargo, si deseas crear un tipo de aplicación diferente, ejecuta `create` sin indicadores para acceder al selector de CLI con plantillas de dominio y formas de aplicación avanzadas:
+
+```bash
+npx @agent-native/core@latest create my-app
+```
+
+## 2. Conectar un motor de IA {#connect-ai}
+
+El chat del agente no puede responder hasta que conectes un motor de IA. Una vez que hayas iniciado sesión, haz clic en el botón **Connect AI**.
+
+Tienes dos opciones:
+
+**Opción A: Conectar Builder.** Haz clic en **Connect Builder.io**, elige el espacio de Builder y haz clic en el botón **Authorize**. No es necesario proporcionar ninguna clave manualmente.
+
+**Opción B: Añadir tus propias claves.** Introduce tu clave de API de Anthropic u OpenAI. Puedes obtener una
+clave de Anthropic en [console.anthropic.com](https://console.anthropic.com).
+
+Alternativamente, crea un archivo `.env` en el directorio `my-app/` (el mismo
+directorio que contiene `package.json`) antes de ejecutar `pnpm dev`:
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+```
+
+Reinicia el servidor de desarrollo. Una vez que el motor de IA esté conectado, el panel de configuración
+se ocultará y el agente estará listo para chatear.
+
+> **¿Pantalla en blanco?** Crea un archivo `.env` en tu directorio `my-app/` con
+> `ANTHROPIC_API_KEY=sk-ant-...` y, a continuación, reinicia `pnpm dev`. El panel de configuración dentro de la aplicación
+> solo aparece una vez que la aplicación ha cargado, por lo que una clave que falta y que impide
+> que la aplicación se renderice debe corregirse mediante la variable de entorno y no a través de
+> la interfaz de usuario.
+
+## 3. Añadir una acción {#add-an-action}
+
+Una acción es una operación tipada que tanto tu agente como tu interfaz de usuario pueden invocar. Es
+la forma en que el agente realiza tareas en tu aplicación. Las acciones se encuentran en el directorio `actions/`
+y pueden activarse desde el chat, desde componentes React, desde la CLI o de forma programada. Las defines una vez y las llamas desde cualquier lugar.
+
+### Probar la acción de ejemplo
+
+La plantilla Chat incluye una acción `hello` en `actions/hello.ts`:
+
+```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartResultSchema = z.object({
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Ejecútala desde el terminal (dentro de tu directorio `my-app/`):
+
+```bash
+pnpm action hello --name Alice
+```
+
+O abre tu aplicación en `http://localhost:8080` y pídele al agente en el chat:
+
+> Use the hello action with the name Alice.
+
+### Añadir tu propia acción
+
+Reemplaza la acción de ejemplo con la primera operación real de tu dominio. Este ejemplo
+cuenta palabras, frases y párrafos en cualquier texto que le pases. Todo se calcula
+de forma local, por lo que no hay nada que configurar ni ningún servicio externo al que conectarse:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const textStatsSchema = z.object({
   title: z.string(),
-  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+  points: z.array(z.object({ label: z.string(), value: z.number() })),
 });
 
 export default defineAction({
-  description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({ 
-    formId: z.string().default("demo") 
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z
+      .string()
+      .default(
+        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
+      ),
   }),
-  outputSchema: responseChartResultSchema,
-  chatUI: { 
-    renderer: "responses.response-chart", 
-    title: "Gráfico de respuestas" 
+  outputSchema: textStatsSchema,
+  chatUI: {
+    renderer: "text.stats-chart",
+    title: "Text stats",
   },
   readOnly: true,
-  run: async ({ formId }) => ({
-    title: `Responses for ${formId}`,
-    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  run: async ({ text }) => ({
+    title: "Text statistics",
+    points: [
+      { label: "Characters", value: text.length },
+      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+      {
+        label: "Sentences",
+        value: text.split(/[.!?]+/).filter(Boolean).length,
+      },
+      {
+        label: "Paragraphs",
+        value: text.split(/\n\n+/).filter(Boolean).length,
+      },
+    ],
   }),
 });
 ```
 
-Pruébala directamente:
+Pruébala desde el terminal:
 
 ```bash
-pnpm action analyze-responses --formId demo
+pnpm action analyze-text --text "Hello world. How are you today?"
 ```
 
-O pídeselo al agent en el navegador:
+O abre tu aplicación en `http://localhost:8080` y pídele al agente en el chat:
 
-> Analiza las respuestas recientes del formulario de demo.
+> Run the analyze-text action on "Hello world. How are you today?"
 
-## 3. Renderiza el resultado en chat {#render-inline}
+#### Definir una vez, llamar desde cualquier lugar
 
-Como la action declara `outputSchema` y una `chatUI.renderer` específica del producto, el transcript no convierte los datos en texto plano. Registra un componente React para ese id exacto desde el arranque de la app, por ejemplo importando `app/chat-renderers.tsx` una vez desde `app/root.tsx`:
+Esta acción es ahora accesible desde el chat, hooks de React, CLI, HTTP, MCP, A2A,
+trabajos programados y webhooks.
 
-<!-- prettier-ignore -->
-```tsx
-import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+CONSEJO: Siempre que quieras que el agente llame a una acción específica sin ambigüedad, formularlo como "Run the `<action-name>` action" es lo más fiable. Las instrucciones en lenguaje natural funcionan bien una vez que el agente tiene suficiente contexto sobre el dominio de tu aplicación. Para una aplicación nueva sin datos ni contexto todavía, ser explícito es más seguro.
 
-type ResponseChartResult = {
+## 4. Mostrar el resultado en línea {#render-inline}
+
+Cuando el agente ejecuta `analyze-text`, devuelve datos estructurados: un título y un
+array de recuentos. De forma predeterminada, el agente describirá esos datos en prosa: "El
+texto tiene 9 palabras, 2 frases..." y así sucesivamente. Eso funciona, pero también puedes
+mostrar el resultado como un componente de interfaz de usuario real (un gráfico de barras, una tabla, una tarjeta)
+directamente dentro de la transcripción del chat, justo donde respondió el agente.
+
+Esto es lo que hace `chatUI.renderer` en la acción. Es una etiqueta que dice "cuando
+el resultado de esta acción aparezca en el chat, entrégaselo a este componente React en lugar de
+resumirlo en texto". El componente recibe el resultado validado de la acción como
+props y renderiza lo que quieras.
+
+En el siguiente paso, crearás `app/chat-renderers.tsx`, pero primero añade una línea de importación
+a `app/root.tsx` para que se ejecute al inicio:
+
+```ts filename="app/root.tsx"
+import "./chat-renderers";
+```
+
+Añádela junto a tus otras importaciones en la parte superior del archivo. Ese es el único
+cambio en `root.tsx`. La importación simplemente garantiza que el archivo se ejecute y registre el
+renderer. Ahora crea el archivo del renderer:
+
+```tsx filename="app/chat-renderers.tsx"
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
+
+type TextStatsResult = {
   title: string;
-  points: Array<{ day: string; responses: number }>;
+  points: Array<{ label: string; value: number }>;
 };
 
-function ResponseChart({ context }: ToolRendererProps) {
-  const result = context.resultJson as ResponseChartResult;
-  const max = Math.max(...result.points.map((point) => point.responses), 1);
+const MAX_BAR_PX = 80;
+
+function TextStatsChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as TextStatsResult;
+  const max = Math.max(...result.points.map((point) => point.value), 1);
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
-      <div className="mt-4 flex h-32 items-end gap-2">
+      <div className="mt-4 flex items-end gap-2">
         {result.points.map((point) => (
-          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
-            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
-            <span className="text-xs text-muted-foreground">{point.day}</span>
+          <div
+            key={point.label}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-blue-500"
+              style={{
+                height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px`,
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{point.label}</span>
           </div>
         ))}
       </div>
@@ -103,97 +258,384 @@ function ResponseChart({ context }: ToolRendererProps) {
 }
 
 registerActionChatRenderer({
-  id: "responses.response-chart",
-  renderer: "responses.response-chart",
-  Component: ResponseChart,
+  id: "text.stats-chart",
+  renderer: "text.stats-chart",
+  Component: TextStatsChart,
 });
 ```
 
-Para salidas genéricas reutilizables, el framework también incluye renderers integrados `data-chart` y `data-table`, además de `data-insights` para tarjetas combinadas de resumen/gráfico/tabla. Consulta [Native Chat UI](/docs/native-chat-ui).
+Una vez registrado el renderer, la respuesta del agente tiene este aspecto. En lugar
+de un párrafo de texto, tu componente React se renderiza directamente dentro de la transcripción del chat.
 
-<WireframeBlock id="doc-block-inline-result-wireframe-es">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Analiza respuestas de demo.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Renderizado con responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Gráfico de respuestas</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Lun</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mar</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mié</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Jue</span></div></div></section></div></div></div>"
-    }
-  />
-</WireframeBlock>
+Utiliza este paso cuando el resultado pertenezca al lugar donde el agente está hablando:
 
-## 4. Persiste datos en SQL {#persist-data}
+- resúmenes de configuración
+- informes breves
+- aprobaciones
+- tablas o gráficos lo suficientemente pequeños para inspeccionar en línea
+- enlaces a vistas de aplicación duraderas
 
-Cuando el resultado debe revisarse, compararse o actualizarse, guárdalo en SQL y mantén las lecturas/escrituras detrás de actions:
+Para salidas genéricas reutilizables, el framework también incluye renderers integrados de
+`data-chart` y `data-table`, además de `data-insights` para tarjetas combinadas de
+resumen/gráfico/tabla. Consulta [IU de chat nativa](/docs/native-chat-ui). Para
+controles temporales que el agente crea en tiempo de ejecución, consulta
+[IU generativa](/docs/generative-ui).
 
-Define la tabla con los helpers portables del framework, no con imports de `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core`:
+## 5. Persistir datos en SQL {#persist-data}
 
-```ts
-// server/db/schema.ts
+En este momento, cada vez que el agente ejecuta `analyze-text`, el resultado aparece en el chat
+y luego desaparece. No hay nada a lo que volver, nada a lo que el agente pueda
+hacer referencia más tarde y ninguna forma de construir una página en torno a los datos. Persistir en SQL
+soluciona eso: el agente escribe los resultados en una tabla, y tanto el agente como tu interfaz de usuario
+pueden leerlos en cualquier momento.
+
+Las aplicaciones Agent-Native disponen de una base de datos SQL por defecto: SQLite de forma local
+y tu proveedor configurado (Postgres, Turso/libSQL, Cloudflare D1) en
+producción.
+
+### Conectar el complemento de base de datos
+
+La plantilla Chat no incluye un complemento de base de datos por defecto. Crea
+`server/plugins/db.ts` para inicializarlo. Esto es lo que ejecuta las migraciones y
+pone la base de datos a disposición de tus acciones:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+Cada entrada del array es una migración aditiva. Cuando añadas nuevas columnas o
+tablas más adelante, agrega un nuevo objeto de versión. Nunca edites los existentes.
+
+### Definir el esquema
+
+Crea `server/db/schema.ts`. El directorio `server/db/` puede que aún no exista,
+así que créalo si es necesario. Este archivo describe tus tablas usando helpers tipados para que
+tus acciones tengan autocompletado completo de TypeScript:
+
+```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
-export const responseInsights = table("response_insights", {
+export const textAnalyses = table("text_analyses", {
   id: text("id").primaryKey(),
-  formId: text("form_id").notNull(),
-  title: text("title").notNull(),
-  summary: text("summary").notNull(),
-  responseCount: integer("response_count").notNull(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
   createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
 });
 ```
 
-Estos helpers eligen el backend SQL configurado, así que el mismo schema puede correr en SQLite local y en producción con Postgres, Turso/libSQL, D1 u otro provider SQL soportado.
+Utiliza los helpers de esquema del framework (`table`, `text`, `integer`, `now`) en lugar de
+`sqliteTable`, `pgTable` o importaciones específicas del dialecto. Seleccionan el backend
+SQL configurado automáticamente, por lo que el mismo esquema se ejecuta localmente en SQLite y en
+producción con cualquier proveedor compatible.
 
-- `create-response-insight` escribe un insight nuevo.
-- `list-response-insights` lee los datos para la página.
-- `update-response-insight` actualiza un registro.
-- `analyze-responses` sigue devolviendo el widget nativo del chat.
+Tras añadir ambos archivos, reinicia el servidor de desarrollo para que se ejecute la migración:
 
-No crees una REST route duplicada solo para el navegador; la UI y el agent deben compartir actions.
+```bash
+pnpm dev
+```
 
-## 5. Añade una página que el agent pueda abrir {#add-a-page}
+Busca estas dos líneas en la salida del terminal. Confirman que la tabla se creó:
 
-Añade una route `/response-insights` con `useActionQuery("list-response-insights")` y `useActionMutation("create-response-insight")`. La página es una proyección del SQL state; los datos siguen escribiéndose por las mismas actions.
+```
+[db] Applying 1 migration(s) on SQLite/libsql…
+[db] Applied migration v1 (1 statement)
+```
 
-<WireframeBlock id="doc-block-response-insights-page-wireframe-es">
-  <Screen
-    surface="desktop"
-    html={
-      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>Insights de respuestas</h2><p class='wf-muted' style='margin:0'>Insights que el agente creó a partir de respuestas del formulario.</p></header><button class='primary' data-rough style='align-self:flex-start'>Analizar formulario demo</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>Tema de precios</strong><p class='wf-muted' style='margin:8px 0 0'>Los usuarios piden un plan de equipo.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>Abandono en onboarding</strong><p class='wf-muted' style='margin:8px 0 0'>Tres pasos necesitan textos más claros.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Formulario de demo</strong><span class='wf-muted'>42 respuestas analizadas</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Siguiente paso</strong><span class='wf-muted'>Revisar dos borradores de insights</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>Chat</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>Tú</span><p style='margin:4px 0 0'>Abre insights de respuestas.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>Insights de respuestas abiertos.</p></div></aside></section></main>"
-    }
-  />
-</WireframeBlock>
+Las líneas `NitroViteError`, la advertencia `BETTER_AUTH_SECRET` y la
+advertencia `SECRETS_ENCRYPTION_KEY` que también aparecen son normales en el entorno de desarrollo local y
+pueden ignorarse.
 
-## 6. Deja que el agent navegue {#agent-navigation}
+### Añadir acciones para la tabla
 
-La Chat template incluye las actions `view-screen` y `navigate`. Amplíalas a medida que tu app crece:
+Ahora crea los archivos de acción que leen y escriben en la tabla. Estos van en tu
+directorio `actions/`, en el mismo lugar que `hello.ts` y `analyze-text.ts`. Los
+creas tú mismo, un archivo por operación. El agente y tu interfaz de usuario los llamarán
+de la misma forma que llaman a cualquier otra acción.
 
-- `view-screen` debería leer el application state y devolver la route actual, el insight seleccionado, los filtros activos y cualquier contexto de página compacto que el agent necesite.
-- `navigate` debería escribir una route same-origin como `/response-insights` cuando el agent decida que el usuario debe inspeccionar el resultado visualmente.
-- Los resultados de una action pueden incluir enlaces como `href: "/response-insights"` para que el chat ofrezca un botón explícito "Abrir insights de respuestas".
+**`actions/save-text-analysis.ts`** escribe una fila de resultado en la base de datos.
+Llama a esto después de ejecutar `analyze-text` para que el resultado sea duradero:
 
-Cuando el chat de página completa abra una página de app, usa `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` y `chatViewTransition` desde [Agent Surfaces](/docs/agent-surfaces#rich-chat) para deslizar el chat al panel lateral sin perder el thread.
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string(),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+  }),
+  run: async ({ input, charCount, wordCount, sentenceCount }) => {
+    const id = crypto.randomUUID();
+    await getDbExec().execute({
+      sql: `INSERT INTO text_analyses (id, input, char_count, word_count, sentence_count)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [id, input, charCount, wordCount, sentenceCount],
+    });
+    return { id };
+  },
+});
+```
+
+**`actions/list-text-analyses.ts`** lee todos los resultados guardados. El agente puede
+llamar a esto para resumir análisis anteriores, y tu interfaz de usuario puede usarlo para rellenar una página:
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "List all saved text analyses, newest first.",
+  schema: z.object({}),
+  readOnly: true,
+  run: async () => {
+    const result = await getDbExec().execute(
+      `SELECT id, input, char_count, word_count, sentence_count, created_at
+       FROM text_analyses
+       ORDER BY created_at DESC`,
+    );
+    return result.rows;
+  },
+});
+```
+
+**`actions/delete-text-analysis.ts`** elimina una fila por id:
+
+```ts filename="actions/delete-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Delete a saved text analysis by id.",
+  schema: z.object({ id: z.string() }),
+  run: async ({ id }) => {
+    await getDbExec().execute({
+      sql: `DELETE FROM text_analyses WHERE id = ?`,
+      args: [id],
+    });
+    return { deleted: id };
+  },
+});
+```
+
+Una vez guardados estos archivos, el servidor de desarrollo los recoge automáticamente. No
+es necesario reiniciar. Prueba a listar los análisis desde el terminal:
+
+```bash
+pnpm action list-text-analyses
+```
+
+Deberías ver un array vacío. La tabla existe y la acción funciona; simplemente
+no hay nada guardado todavía:
+
+```
+[]
+```
+
+Los datos se guardan en `data/app.db`, un archivo SQLite en el directorio de tu proyecto que
+se crea automáticamente en la primera ejecución. En producción apuntarías
+`DATABASE_URL` a una base de datos alojada, pero de forma local este archivo es todo lo que
+necesitas.
+
+Para guardar algo, primero ejecuta `analyze-text` para obtener los recuentos:
+
+```bash
+pnpm action analyze-text --text "Hello world"
+```
+
+Verás una salida similar a esta:
+
+```
+{
+  title: 'Text statistics',
+  points: [
+    { label: 'Characters', value: 11 },
+    { label: 'Words', value: 2 },
+    { label: 'Sentences', value: 1 },
+    { label: 'Paragraphs', value: 1 }
+  ]
+}
+```
+
+Luego pasa esos valores a `save-text-analysis`:
+
+```bash
+pnpm action save-text-analysis \
+  --input "Hello world" \
+  --charCount 11 \
+  --wordCount 2 \
+  --sentenceCount 1
+```
+
+Ahora ejecuta `list-text-analyses` de nuevo y verás la fila guardada:
+
+```bash
+pnpm action list-text-analyses
+```
+
+O pídele al agente en el chat en `http://localhost:8080` que realice ambos pasos a la vez:
+
+> Run analyze-text on "Hello world", then save the result.
+
+## 6. Añadir una página que el agente puede abrir {#add-a-page}
+
+El chat es ideal para la interacción conversacional, pero algunos datos se inspeccionan mejor
+en una interfaz dedicada: una tabla que puedas explorar, ordenar o de la que puedas eliminar filas. Este paso
+añade una ruta React que muestra todo lo guardado en `text_analyses`, usando las
+mismas acciones `list-text-analyses` y `delete-text-analysis` que ya escribiste.
+No hay una segunda capa de datos. La página es simplemente una vista del mismo estado SQL
+que el agente lee y escribe.
+
+Crea el archivo de ruta en `app/routes/text-analyses.tsx`. Los archivos de ruta en
+`app/routes/` son recogidos automáticamente por el framework. El nombre del archivo
+se convierte en la ruta de la URL, por lo que esta página estará disponible en
+`http://localhost:8080/text-analyses`.
+
+```tsx filename="app/routes/text-analyses.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+export default function TextAnalysesRoute() {
+  const analyses = useActionQuery("list-text-analyses", {});
+  const deleteAnalysis = useActionMutation("delete-text-analysis");
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">
+          Results saved by the agent or triggered manually.
+        </p>
+      </header>
+      <section className="flex flex-col gap-3">
+        {analyses.data?.length === 0 && (
+          <p className="text-muted-foreground">No analyses saved yet.</p>
+        )}
+        {analyses.data?.map((row: any) => (
+          <article
+            key={row.id}
+            className="flex items-start justify-between rounded-lg border p-4"
+          >
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">{row.input}</p>
+              <p className="text-xs text-muted-foreground">
+                {row.word_count} words · {row.char_count} characters ·{" "}
+                {row.sentence_count} sentences
+              </p>
+            </div>
+            <button
+              className="text-xs text-destructive hover:underline"
+              onClick={() => deleteAnalysis.mutate({ id: row.id })}
+            >
+              Delete
+            </button>
+          </article>
+        ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` llama a `list-text-analyses` y mantiene el resultado actualizado. Si el
+agente guarda una nueva fila mientras la página está abierta, aparece automáticamente.
+`useActionMutation` llama a `delete-text-analysis` cuando el usuario hace clic en Delete
+y luego invalida la consulta para que la lista se actualice.
+
+Abre `http://localhost:8080/text-analyses` en tu navegador. Si guardaste un
+análisis en el paso anterior, lo verás listado. Luego pídele al agente en el chat:
+
+> Open the text analyses page.
+
+Si obtienes un error 404, intenta reiniciar el servidor de desarrollo.
+
+## 7. Ampliar la navegación {#extend-navigation}
+
+Cuando el agente abrió `/text-analyses` en el paso anterior, utilizó dos
+acciones integradas que se incluyen con la plantilla Chat:
+
+- **`view-screen`** lee la ruta actual y devuelve un resumen compacto de
+  lo que el usuario está viendo. El agente la llama cuando necesita contexto de la interfaz de usuario
+  antes de decidir qué hacer a continuación.
+- **`navigate`** escribe una ruta del mismo origen en el historial del navegador. El
+  agente la llama cuando una página visual es la respuesta correcta a lo que el usuario
+  preguntó.
+
+No escribiste ninguna de estas; están incluidas en la plantilla. A medida que añadas
+más páginas, mantenlas actualizadas para que el agente sea consciente de lo que hay en la aplicación:
+
+- `view-screen` debe devolver la ruta actual, cualquier elemento seleccionado o filtros activos,
+  y suficiente contexto de la página para que el agente pueda responder preguntas de seguimiento
+  sin que el usuario describa la pantalla.
+- `navigate` debe gestionar cada ruta de tu aplicación. Documenta las rutas disponibles en
+  `AGENTS.md` para que el agente sepa qué destinos existen.
+- Los resultados de las acciones pueden incluir `href: "/text-analyses"` para que una respuesta en el chat renderice
+  un botón explícito en lugar de depender de que el agente llame a `navigate`
+  automáticamente.
+
+Cuando la aplicación tiene tanto una ruta de chat a pantalla completa como una página de aplicación, utiliza los helpers
+de transferencia de chat compartidos descritos en [Superficies del agente](/docs/agent-surfaces#rich-chat):
+`AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`,
+`useAgentChatHomeHandoffLinks` y `chatViewTransition`. Esto permite que el chat completo
+se deslice al panel lateral a medida que se abre la página, manteniendo el mismo hilo mientras
+el usuario inspecciona datos duraderos.
 
 ## Estructura del proyecto {#project-structure}
 
 ```text
 my-app/
-  actions/         # Operaciones invocables por el agente y la interfaz
-  app/             # Rutas, páginas y superficies de chat de React
+  actions/         # Operaciones invocables por el agente y la interfaz de usuario
+  app/             # Rutas React, páginas y superficies de chat
   server/          # Servidor Nitro y esquema SQL
-  AGENTS.md        # Instrucciones siempre activas para el agente de la app
-  .agents/         # Skills que el agente carga cuando corresponde
+  AGENTS.md        # Instrucciones siempre activas para el agente de la aplicación
+  .agents/         # Habilidades que el agente carga cuando son relevantes
   data/app.db      # Estado SQLite local cuando DATABASE_URL no está definido
 ```
 
-## ¿Quieres un punto de partida completo para analytics? {#analytics-starting-point}
+## ¿Quieres un punto de partida completo para analítica? {#analytics-starting-point}
 
-El ejemplo de Insights de respuestas anterior es pequeño a propósito para mostrar las piezas del framework. Si vas a crear un producto real de analytics, empieza con [Analytics](/docs/template-analytics). Es el punto de partida robusto: conecta tus providers, usa los dashboards y agent actions existentes, y personaliza desde ahí.
+El ejemplo de text-analyses anterior es intencionadamente pequeño para que puedas ver las
+piezas del framework. Si estás construyendo un producto de analítica real, comienza desde
+[Analytics](/docs/template-analytics) en su lugar. Es el punto de partida sólido:
+conecta tus proveedores, usa los paneles y las acciones del agente existentes y, a continuación,
+personaliza la aplicación desde ahí.
 
-## Siguientes pasos {#next}
+## Qué viene después {#next}
 
-- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks y transport.
-- **[Native Chat UI](/docs/native-chat-ui)** — tablas, gráficos y typed cards para resultados de actions.
-- **[Chat Template](/docs/template-chat)** — la app mínima chat-first.
-- **[Analytics Template](/docs/template-analytics)** — una base robusta para analytics; conecta providers y personaliza desde ahí.
-- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state y objetos seleccionados.
-- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation y agents externos.
+- **[Acciones](/docs/actions)**: esquemas, autenticación, aprobaciones, hooks y transporte.
+- **[IU de chat nativa](/docs/native-chat-ui)**: muestra los resultados de las acciones como tablas,
+  gráficos y tarjetas tipadas.
+- **[Plantilla Chat](/docs/template-chat)**: la aplicación mínima centrada en el chat que acabas de
+  crear.
+- **[Plantilla Analytics](/docs/template-analytics)**: un sólido punto de partida para aplicaciones de analítica; conecta proveedores y personaliza desde ahí.
+- **[Conciencia del contexto](/docs/context-awareness)**: `view-screen`, `navigate`,
+  estado de la ruta y objetos seleccionados.
+- **[Superficies del agente](/docs/agent-surfaces)**: chat, IU en línea, páginas de aplicación,
+  sidecars integrados, automatización y agentes externos.
+- **[Despliegue](/docs/deployment)**: publica tu aplicación en tu propio dominio.

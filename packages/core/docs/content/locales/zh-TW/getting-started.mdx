@@ -1,25 +1,35 @@
 ---
-title: "入門"
-description: "建立聊天優先的 agentic app，新增 action，內嵌渲染結構化結果，然後擴展成 agent 可以開啟的持久頁面。"
+title: "快速入門"
+description: "建立一個以對話為核心的智能代理應用程式，新增動作、在內文中渲染結構化結果，然後擴展為代理可以開啟的持久頁面。"
 ---
 
-# 入門
+# 快速入門
 
-Agent-Native 用來建置 agentic applications：AI agent 和 UI 共享同一組
-[actions](/docs/actions)、SQL 資料與 application state。預設路徑不是先做
-headless agent，而是先有一個使用者能立即對話的 Chat app，然後逐步增加應用介面。
+Agent-Native 專為智能代理應用程式設計：這類應用程式中，AI 代理與 UI
+共享相同的 [actions](/docs/actions)、SQL 資料和應用程式狀態。從對話介面開始，讓使用者能立即與代理互動，然後隨著工作流程的發展，逐步新增應用程式介面。
 
-建議流程：
+最快的入門方式是使用 **Chat 模板**：這是一個最精簡的應用程式，提供可運作的 AI 對話介面、持久對話串、驗證機制，以及一個可供擴展的 `actions/` 目錄。它是大多數 Agent-Native 應用程式的基礎。
 
-1. 建立 Chat app。
-2. 新增一個 action。
-3. 在聊天中用原生 inline UI 渲染 action 結果。
-4. 將資料持久化到 SQL。
-5. 新增一個頁面，讓 agent 在需要視覺化檢查時開啟。
+第一條實用的路徑是：
 
-## 1. 建立 Chat app {#create-your-app}
+1. 建立一個對話應用程式。
+2. 連接 AI 引擎，讓代理可以回應。
+3. 新增一個動作。
+4. 在對話中以內嵌方式渲染動作結果。
+5. 將資料持久化儲存到 SQL。
+6. 新增一個代理可以開啟的頁面，當視覺化檢視比在對話記錄中再多一段文字更合適時使用。
 
-需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
+想要一個完整的領域應用程式？請複製豐富的模板，例如
+[Mail](/docs/template-mail)、[Calendar](/docs/template-calendar)、
+[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics) 或
+[Plan](/docs/template-plan)。還不需要瀏覽器 UI？完成本教學後，請參閱
+[Automation-First Apps](/docs/pure-agent-apps)。
+
+## 1. 建立對話應用程式 {#create-your-app}
+
+您需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
+
+開啟終端機，切換到您想要建立 Agent Native 應用程式的目錄，並執行：
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
@@ -28,81 +38,185 @@ pnpm install
 pnpm dev
 ```
 
-這個模板已包含 durable chat threads、auth、live sync、`actions/` 目錄、標準的 `view-screen` 與 `navigate` actions，以及可繼續擴充的 React app。
+這將提供您持久對話串、驗證機制、即時同步、一個 `actions/` 目錄、
+標準的 `view-screen` 和 `navigate` 動作，以及一個可供擴展的小型 React 應用程式。
 
-若想使用完整模板選擇器，也可以執行：
+開發伺服器啟動後，會在您的瀏覽器中開啟 `http://localhost:8080`。您可能會看到幾行啟動日誌，例如 `NitroViteError: Vite environment "nitro" is unavailable`。這是初始啟動時的正常競態條件，會自動解決。當終端機輸出中顯示 **VITE ready** 時，應用程式即已就緒。
+
+應用程式啟動後，您可能會看到登入畫面而非應用程式主頁。此時，只需使用任意帳號資料完成登入即可。
+在本機開發環境中，實際上不需要電子郵件驗證。
+
+### 如果您想要不同類型的應用程式
+
+本指南使用 Chat 模板，因為它是建立智能代理應用程式的最短路徑：代理從第一天起就能採取行動，您也擁有一個真實的應用程式介面可以擴展。但是，如果您想建立不同類型的應用程式，請執行不帶旗標的 `create` 指令，以使用 CLI 選擇器來選取領域模板和進階應用程式形態：
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
-## 2. 新增 action {#add-an-action}
+## 2. 連接 AI 引擎 {#connect-ai}
 
-Action 是 agent 與 UI 共同呼叫的一個 typed operation。可將入門範例換成 `actions/analyze-responses.ts`：它分析表單回覆並返回自訂聊天圖表的已驗證資料形狀。
+在連接 AI 引擎之前，代理對話無法回應。登入後，點擊 **Connect AI** 按鈕。
 
-<!-- prettier-ignore -->
-```ts
-// actions/analyze-responses.ts
+您有兩個選項：
+
+**選項 A：連接 Builder。** 點擊 **Connect Builder.io**，選擇 Builder Space，然後點擊 **Authorize** 按鈕。您不需要手動提供任何金鑰。
+
+**選項 B：新增您自己的金鑰。** 輸入您的 Anthropic 或 OpenAI API 金鑰。您可以在 [console.anthropic.com](https://console.anthropic.com) 取得 Anthropic 金鑰。
+
+或者，在執行 `pnpm dev` 之前，在 `my-app/` 目錄（即包含 `package.json` 的目錄）中建立一個 `.env` 檔案：
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+```
+
+重新啟動開發伺服器。一旦連接了 AI 引擎，設定面板會自動隱藏，代理即可開始對話。
+
+> **畫面空白？** 在您的 `my-app/` 目錄中建立一個包含
+> `ANTHROPIC_API_KEY=sk-ant-...` 的 `.env` 檔案，然後重新啟動 `pnpm dev`。應用程式內的設定面板只有在應用程式載入後才會顯示，因此若缺少金鑰導致應用程式無法渲染，需要透過環境變數而非 UI 來修復。
+
+## 3. 新增動作 {#add-an-action}
+
+動作是一種具有型別的操作，您的代理和 UI 都可以呼叫。這是代理在應用程式中執行操作的方式。動作存放在 `actions/` 目錄中，可以從對話、React 元件、CLI 或排程中觸發。您只需定義一次，即可從任何地方呼叫。
+
+### 試用入門動作
+
+Chat 模板在 `actions/hello.ts` 中包含一個 `hello` 動作：
+
+```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartResultSchema = z.object({
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+從終端機執行（在您的 `my-app/` 目錄中）：
+
+```bash
+pnpm action hello --name Alice
+```
+
+或在 `http://localhost:8080` 開啟您的應用程式，並在對話中詢問代理：
+
+> Use the hello action with the name Alice.
+
+### 新增您自己的動作
+
+將入門動作替換為您領域中的第一個真實操作。以下範例會計算您傳入的任何文字的字數、句數和段落數。它在本地端完成所有計算，因此無需進行任何設定，也不需要連接外部服務：
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const textStatsSchema = z.object({
   title: z.string(),
-  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+  points: z.array(z.object({ label: z.string(), value: z.number() })),
 });
 
 export default defineAction({
-  description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({ 
-    formId: z.string().default("demo") 
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z
+      .string()
+      .default(
+        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
+      ),
   }),
-  outputSchema: responseChartResultSchema,
-  chatUI: { 
-    renderer: "responses.response-chart", 
-    title: "回覆圖表" 
+  outputSchema: textStatsSchema,
+  chatUI: {
+    renderer: "text.stats-chart",
+    title: "Text stats",
   },
   readOnly: true,
-  run: async ({ formId }) => ({
-    title: `Responses for ${formId}`,
-    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  run: async ({ text }) => ({
+    title: "Text statistics",
+    points: [
+      { label: "Characters", value: text.length },
+      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+      {
+        label: "Sentences",
+        value: text.split(/[.!?]+/).filter(Boolean).length,
+      },
+      {
+        label: "Paragraphs",
+        value: text.split(/\n\n+/).filter(Boolean).length,
+      },
+    ],
   }),
 });
 ```
 
-直接執行：
+從終端機試用：
 
 ```bash
-pnpm action analyze-responses --formId demo
+pnpm action analyze-text --text "Hello world. How are you today?"
 ```
 
-或在瀏覽器中詢問 agent：
+或在 `http://localhost:8080` 開啟您的應用程式，並在對話中詢問代理：
 
-> 分析示範表單的最新回覆。
+> Run the analyze-text action on "Hello world. How are you today?"
 
-## 3. 內嵌渲染結果 {#render-inline}
+#### 定義一次，隨處呼叫
 
-因為 action 宣告了 `outputSchema` 與產品專屬的 `chatUI.renderer`，聊天紀錄不必把結構化資料壓成文字。然後在 app 啟動時為這個完全相同的 renderer id 註冊 React 元件，例如從 `app/root.tsx` 匯入一次 `app/chat-renderers.tsx`：
+此動作現在可從對話、React hooks、CLI、HTTP、MCP、A2A、排程任務和 webhook 中存取。
 
-<!-- prettier-ignore -->
-```tsx
-import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+提示：每當您希望代理毫無歧義地呼叫特定動作時，將其表達為「Run the `<action-name>` action」是最可靠的方式。一旦代理對您應用程式的領域有足夠的上下文，自然語言提示也能很好地運作。對於一個全新的、尚無資料或上下文的應用程式，明確指定更為安全。
 
-type ResponseChartResult = {
+## 4. 以內嵌方式渲染結果 {#render-inline}
+
+當代理執行 `analyze-text` 時，它會返回結構化資料：一個標題和一個計數陣列。預設情況下，代理會以文字描述該資料：「文字有 9 個單字、2 個句子……」等等。這雖然可行，但您也可以將結果作為真實的 UI 元件（長條圖、表格、卡片）直接渲染在對話記錄中，就在代理回應的位置。
+
+這就是動作中 `chatUI.renderer` 的作用。它是一個標籤，告知系統「當此動作的結果出現在對話中時，將其交給這個 React 元件，而不是以文字摘要呈現。」該元件接收經過驗證的動作輸出作為 props，並渲染您想要的任何內容。
+
+在下一步中，您將建立 `app/chat-renderers.tsx`，但首先，在 `app/root.tsx` 中新增一行 import，使其在啟動時執行：
+
+```ts filename="app/root.tsx"
+import "./chat-renderers";
+```
+
+將其與檔案頂部的其他 import 一起新增。這是對 `root.tsx` 的唯一修改。這個 import 只是確保檔案執行並註冊渲染器。現在建立渲染器檔案：
+
+```tsx filename="app/chat-renderers.tsx"
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
+
+type TextStatsResult = {
   title: string;
-  points: Array<{ day: string; responses: number }>;
+  points: Array<{ label: string; value: number }>;
 };
 
-function ResponseChart({ context }: ToolRendererProps) {
-  const result = context.resultJson as ResponseChartResult;
-  const max = Math.max(...result.points.map((point) => point.responses), 1);
+const MAX_BAR_PX = 80;
+
+function TextStatsChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as TextStatsResult;
+  const max = Math.max(...result.points.map((point) => point.value), 1);
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
-      <div className="mt-4 flex h-32 items-end gap-2">
+      <div className="mt-4 flex items-end gap-2">
         {result.points.map((point) => (
-          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
-            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
-            <span className="text-xs text-muted-foreground">{point.day}</span>
+          <div
+            key={point.label}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-blue-500"
+              style={{
+                height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px`,
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{point.label}</span>
           </div>
         ))}
       </div>
@@ -111,97 +225,328 @@ function ResponseChart({ context }: ToolRendererProps) {
 }
 
 registerActionChatRenderer({
-  id: "responses.response-chart",
-  renderer: "responses.response-chart",
-  Component: ResponseChart,
+  id: "text.stats-chart",
+  renderer: "text.stats-chart",
+  Component: TextStatsChart,
 });
 ```
 
-對於可重用的通用輸出，framework 也提供內建 `data-chart` 與 `data-table` renderers，以及用於組合摘要/圖表/表格卡片的 `data-insights`。更多模式請見 [Native Chat UI](/docs/native-chat-ui)。
+渲染器註冊後，代理的回應看起來像這樣。您的 React 元件不再以文字段落呈現，而是直接渲染在對話記錄中。
 
-<WireframeBlock id="doc-block-inline-result-wireframe-zh-tw">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>分析示範回覆。</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>由 responses.response-chart 渲染。</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>回覆圖表</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>週一</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>週二</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>週三</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>週四</span></div></div></section></div></div></div>"
-    }
-  />
-</WireframeBlock>
+當結果應該顯示在代理說話的位置時，請使用此步驟：
 
-## 4. 持久化資料 {#persist-data}
+- 設定摘要
+- 簡短報告
+- 審核確認
+- 足夠小可以內嵌檢視的表格或圖表
+- 指向持久應用程式視圖的連結
 
-當結果需要回看、比較或更新時，將資料寫入 SQL。為 回覆洞察 新增 schema，並把讀寫都放在 actions 後面：
+對於可重複使用的通用輸出，框架也提供內建的 `data-chart` 和 `data-table` 渲染器，以及用於組合摘要/圖表/表格卡片的 `data-insights`。請參閱 [Native Chat UI](/docs/native-chat-ui)。對於代理在執行時動態建立的臨時控制項，請參閱 [Generative UI](/docs/generative-ui)。
 
-用 framework 的可移植 helpers 定義資料表，不要直接從 `drizzle-orm/sqlite-core` 或 `drizzle-orm/pg-core` 匯入：
+## 5. 將資料持久化儲存到 SQL {#persist-data}
 
-```ts
-// server/db/schema.ts
+目前，每次代理執行 `analyze-text`，結果都會出現在對話中然後消失。沒有任何可供回顧的內容，代理也無法稍後參考，更無法圍繞資料建立頁面。持久化儲存到 SQL 可以解決這個問題：代理將結果寫入資料表，代理和您的 UI 都可以隨時讀取。
+
+Agent-Native 應用程式預設提供 SQL 資料庫：本機使用 SQLite，
+生產環境使用您配置的提供者（Postgres、Turso/libSQL、Cloudflare D1）。
+
+### 接入資料庫外掛程式
+
+Chat 模板預設不包含資料庫外掛程式。建立
+`server/plugins/db.ts` 來初始化它。這是執行遷移並使資料庫可供動作使用的設定：
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+陣列中的每個條目都是一個累加式遷移。當您稍後新增欄位或資料表時，請附加一個新的版本物件。切勿編輯現有的條目。
+
+### 定義結構描述
+
+建立 `server/db/schema.ts`。`server/db/` 目錄可能尚不存在，
+如有需要請先建立。此檔案使用具有型別的輔助函式描述您的資料表，讓您的動作獲得完整的 TypeScript 自動完成：
+
+```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
-export const responseInsights = table("response_insights", {
+export const textAnalyses = table("text_analyses", {
   id: text("id").primaryKey(),
-  formId: text("form_id").notNull(),
-  title: text("title").notNull(),
-  summary: text("summary").notNull(),
-  responseCount: integer("response_count").notNull(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
   createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
 });
 ```
 
-這些 helpers 會選擇目前設定的 SQL backend，因此同一份 schema 可以在本機 SQLite 上執行，也可以在 production 的 Postgres、Turso/libSQL、D1 或其他支援的 SQL provider 上執行。
+請使用框架的結構描述輔助函式（`table`、`text`、`integer`、`now`），而非
+`sqliteTable`、`pgTable` 或特定方言的 import。它們會自動選取已配置的 SQL 後端，因此相同的結構描述可以在本機的 SQLite 和生產環境的任何支援提供者上運行。
 
-- `create-response-insight` 寫入新的 insight。
-- `list-response-insights` 為頁面讀取資料。
-- `update-response-insight` 在 agent 學到更多後更新記錄。
-- `analyze-responses` 繼續返回聊天中的原生 widget。
+新增兩個檔案後，重新啟動開發伺服器以執行遷移：
 
-不要為瀏覽器另外寫一條重複的 REST route；UI 和 agent 應共享 actions。
+```bash
+pnpm dev
+```
 
-## 5. 新增 agent 可以開啟的頁面 {#add-a-page}
+在終端機輸出中尋找這兩行。它們確認資料表已建立：
 
-新增 `/response-insights` route，用 `useActionQuery("list-response-insights")` 讀取資料，用 `useActionMutation("create-response-insight")` 觸發分析。這個頁面只是 SQL state 的投影；資料仍由同一組 actions 寫入。
+```
+[db] Applying 1 migration(s) on SQLite/libsql…
+[db] Applied migration v1 (1 statement)
+```
 
-<WireframeBlock id="doc-block-response-insights-page-wireframe-zh-tw">
-  <Screen
-    surface="desktop"
-    html={
-      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>回覆洞察</h2><p class='wf-muted' style='margin:0'>Agent 從表單回覆建立的洞察。</p></header><button class='primary' data-rough style='align-self:flex-start'>分析示範表單</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>定價主題</strong><p class='wf-muted' style='margin:8px 0 0'>使用者想要團隊方案。</p></article><article class='wf-box' data-rough style='padding:12px'><strong>導入流程流失</strong><p class='wf-muted' style='margin:8px 0 0'>三個步驟需要更清楚的文案。</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>示範表單</strong><span class='wf-muted'>已分析 42 則回覆</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>下一步</strong><span class='wf-muted'>檢視兩個洞察草稿</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>聊天</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>你</span><p style='margin:4px 0 0'>開啟回覆洞察。</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>已開啟回覆洞察。</p></div></aside></section></main>"
-    }
-  />
-</WireframeBlock>
+同時出現的 `NitroViteError` 行、`BETTER_AUTH_SECRET` 警告和
+`SECRETS_ENCRYPTION_KEY` 警告在本機開發環境中是正常的，可以忽略。
 
-## 6. 讓 agent 導覽 {#agent-navigation}
+### 為資料表新增動作
 
-Chat 範本包含 `view-screen` 和 `navigate` action。隨著應用的成長擴充它們：
+現在建立讀寫資料表的動作檔案。這些檔案放在您的
+`actions/` 目錄中，與 `hello.ts` 和 `analyze-text.ts` 相同的位置。您自行建立它們，每個操作一個檔案。代理和您的 UI 將以呼叫任何其他動作的相同方式呼叫它們。
 
-- `view-screen` 應讀取 application state，回傳目前 route、選中的 insight、生效的篩選條件，以及 agent 需要的任何精簡頁面上下文。
-- 當 agent 判斷使用者需要直觀檢視結果時，`navigate` 應寫入 `/response-insights` 這類同源 path。
-- action 結果可以包含 `href: "/response-insights"` 這類連結，讓聊天提供明確的「開啟回覆洞察」按鈕。
+**`actions/save-text-analysis.ts`** 將結果行寫入資料庫。
+在執行 `analyze-text` 後呼叫此動作，使結果持久化：
 
-當完整聊天頁開啟 app 頁面時，使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中的 `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`，讓聊天滑到側邊欄並保留同一個 thread。
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string(),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+  }),
+  run: async ({ input, charCount, wordCount, sentenceCount }) => {
+    const id = crypto.randomUUID();
+    await getDbExec().execute({
+      sql: `INSERT INTO text_analyses (id, input, char_count, word_count, sentence_count)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [id, input, charCount, wordCount, sentenceCount],
+    });
+    return { id };
+  },
+});
+```
+
+**`actions/list-text-analyses.ts`** 讀取所有已儲存的結果。代理可以呼叫此動作來摘要過去的分析，您的 UI 也可以使用它來填充頁面：
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "List all saved text analyses, newest first.",
+  schema: z.object({}),
+  readOnly: true,
+  run: async () => {
+    const result = await getDbExec().execute(
+      `SELECT id, input, char_count, word_count, sentence_count, created_at
+       FROM text_analyses
+       ORDER BY created_at DESC`,
+    );
+    return result.rows;
+  },
+});
+```
+
+**`actions/delete-text-analysis.ts`** 依 id 刪除一行：
+
+```ts filename="actions/delete-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Delete a saved text analysis by id.",
+  schema: z.object({ id: z.string() }),
+  run: async ({ id }) => {
+    await getDbExec().execute({
+      sql: `DELETE FROM text_analyses WHERE id = ?`,
+      args: [id],
+    });
+    return { deleted: id };
+  },
+});
+```
+
+這些檔案儲存後，開發伺服器會自動偵測到它們。無需重新啟動。從終端機試著列出分析結果：
+
+```bash
+pnpm action list-text-analyses
+```
+
+您應該會看到一個空陣列。資料表已存在，動作也可正常運作；只是尚未儲存任何內容：
+
+```
+[]
+```
+
+資料儲存在 `data/app.db`，這是您專案目錄中的一個 SQLite 檔案，在首次執行時自動建立。在生產環境中，您會將 `DATABASE_URL` 指向託管的資料庫，但在本機，這個檔案就是您所需的一切。
+
+若要儲存資料，首先執行 `analyze-text` 取得計數：
+
+```bash
+pnpm action analyze-text --text "Hello world"
+```
+
+您會看到類似以下的輸出：
+
+```
+{
+  title: 'Text statistics',
+  points: [
+    { label: 'Characters', value: 11 },
+    { label: 'Words', value: 2 },
+    { label: 'Sentences', value: 1 },
+    { label: 'Paragraphs', value: 1 }
+  ]
+}
+```
+
+然後將這些值傳遞給 `save-text-analysis`：
+
+```bash
+pnpm action save-text-analysis \
+  --input "Hello world" \
+  --charCount 11 \
+  --wordCount 2 \
+  --sentenceCount 1
+```
+
+現在再次執行 `list-text-analyses`，您將看到已儲存的行：
+
+```bash
+pnpm action list-text-analyses
+```
+
+或在 `http://localhost:8080` 的對話中詢問代理一次完成兩個步驟：
+
+> Run analyze-text on "Hello world", then save the result.
+
+## 6. 新增代理可以開啟的頁面 {#add-a-page}
+
+對話非常適合互動式交流，但有些資料在專用 UI 中更便於檢視：一個可以掃描、排序或刪除行的資料表。此步驟新增一個 React 路由，顯示 `text_analyses` 中儲存的所有內容，使用您已經撰寫的相同 `list-text-analyses` 和 `delete-text-analysis` 動作。沒有第二個資料層。該頁面只是代理讀寫的相同 SQL 狀態上的一個視圖。
+
+在 `app/routes/text-analyses.tsx` 建立路由檔案。`app/routes/` 中的路由檔案會被框架自動偵測。檔案名稱成為 URL 路徑，因此此頁面將在
+`http://localhost:8080/text-analyses` 上可用。
+
+```tsx filename="app/routes/text-analyses.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+export default function TextAnalysesRoute() {
+  const analyses = useActionQuery("list-text-analyses", {});
+  const deleteAnalysis = useActionMutation("delete-text-analysis");
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">
+          Results saved by the agent or triggered manually.
+        </p>
+      </header>
+      <section className="flex flex-col gap-3">
+        {analyses.data?.length === 0 && (
+          <p className="text-muted-foreground">No analyses saved yet.</p>
+        )}
+        {analyses.data?.map((row: any) => (
+          <article
+            key={row.id}
+            className="flex items-start justify-between rounded-lg border p-4"
+          >
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">{row.input}</p>
+              <p className="text-xs text-muted-foreground">
+                {row.word_count} words · {row.char_count} characters ·{" "}
+                {row.sentence_count} sentences
+              </p>
+            </div>
+            <button
+              className="text-xs text-destructive hover:underline"
+              onClick={() => deleteAnalysis.mutate({ id: row.id })}
+            >
+              Delete
+            </button>
+          </article>
+        ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` 呼叫 `list-text-analyses` 並保持結果即時更新。如果代理在頁面開啟時儲存了新的行，它會自動出現。
+`useActionMutation` 在使用者點擊刪除時呼叫 `delete-text-analysis`，然後使查詢失效以刷新列表。
+
+在瀏覽器中開啟 `http://localhost:8080/text-analyses`。如果您在前一步驟中儲存了分析結果，您會看到它列在其中。然後在對話中詢問代理：
+
+> Open the text analyses page.
+
+如果出現 404，請嘗試重新啟動您的開發伺服器。
+
+## 7. 擴展導覽 {#extend-navigation}
+
+當代理在前一步驟中開啟 `/text-analyses` 時，它使用了 Chat 模板內建的兩個動作：
+
+- **`view-screen`** 讀取當前路由並返回使用者正在查看內容的簡潔摘要。代理在需要 UI 上下文以決定下一步操作時會呼叫此動作。
+- **`navigate`** 將同源路徑寫入瀏覽器的歷史記錄。當視覺頁面是回應使用者請求的正確方式時，代理會呼叫此動作。
+
+您無需撰寫這兩個動作；它們已包含在模板中。隨著您新增更多頁面，請持續更新它們，以使代理了解應用程式中的內容：
+
+- `view-screen` 應返回當前路由、任何已選取的項目或啟用的篩選條件，以及足夠的頁面上下文，讓代理能在不需要使用者描述畫面的情況下回答後續問題。
+- `navigate` 應處理應用程式中的每個路由。在 `AGENTS.md` 中記錄可用路徑，讓代理知道有哪些目的地存在。
+- 動作結果可以包含 `href: "/text-analyses"`，使對話回覆渲染出明確的按鈕，而不是依賴代理自動呼叫 `navigate`。
+
+當應用程式同時擁有全頁對話路由和應用程式頁面時，請使用 [Agent Surfaces](/docs/agent-surfaces#rich-chat) 中描述的共享對話交接輔助函式：
+`AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、
+`useAgentChatHomeHandoffLinks` 和 `chatViewTransition`。這樣可以讓完整對話在頁面開啟時滑入側邊面板，在使用者檢視持久資料的同時保持相同的對話串。
 
 ## 專案結構 {#project-structure}
 
 ```text
 my-app/
-  actions/         # Agent 和介面都可呼叫的操作
-  app/             # React 路由、頁面與聊天介面
-  server/          # Nitro 伺服器與 SQL 架構
-  AGENTS.md        # 應用 Agent 的常駐指令
-  .agents/         # Agent 在相關情境載入的技能
-  data/app.db      # 未設定 DATABASE_URL 時的本機 SQLite 狀態
+  actions/         # Agent-callable and UI-callable operations
+  app/             # React routes, pages, and chat surfaces
+  server/          # Nitro server and SQL schema
+  AGENTS.md        # Always-on instructions for the app agent
+  .agents/         # Skills the agent loads when relevant
+  data/app.db      # Local SQLite state when DATABASE_URL is unset
 ```
 
-## 想要完整的 Analytics 起點？ {#analytics-starting-point}
+## 想要一個完整的分析起始點？ {#analytics-starting-point}
 
-上面的 回覆洞察 範例刻意保持很小，方便你看清框架部件。如果你要建置真正的 analytics 產品，請從 [Analytics](/docs/template-analytics) 開始。它是更強健的起點：連接 providers，使用現有 dashboards 與 agent actions，然後繼續自訂。
+上面的 text-analyses 範例刻意設計得較小，讓您能看清楚框架的各個組成部分。如果您正在建立真正的分析產品，請從 [Analytics](/docs/template-analytics) 開始。它是穩健的起始點：連接您的提供者，使用現有的儀表板和代理動作，然後從那裡自訂應用程式。
 
 ## 下一步 {#next}
 
-- **[Actions](/docs/actions)** — schemas、auth、approvals、hooks 與 transport。
-- **[Native Chat UI](/docs/native-chat-ui)** — 將 action 結果渲染成表格、圖表與 typed cards。
-- **[Chat Template](/docs/template-chat)** — 最小聊天優先 app。
-- **[Analytics Template](/docs/template-analytics)** — 強健的 analytics app 起點；連接 providers 後繼續自訂。
-- **[Context Awareness](/docs/context-awareness)** — `view-screen`、`navigate`、route state 與選中物件。
-- **[Agent Surfaces](/docs/agent-surfaces)** — chat、inline UI、app pages、embedded sidecars、automation 與外部 agent。
+- **[Actions](/docs/actions)**：結構描述、驗證、審核、hooks 和傳輸方式。
+- **[Native Chat UI](/docs/native-chat-ui)**：將動作結果渲染為表格、圖表和具有型別的卡片。
+- **[Chat Template](/docs/template-chat)**：您剛建立的最精簡對話優先應用程式。
+- **[Analytics Template](/docs/template-analytics)**：穩健的分析應用程式起始點；連接提供者並從那裡自訂。
+- **[Context Awareness](/docs/context-awareness)**：`view-screen`、`navigate`、路由狀態和已選取物件。
+- **[Agent Surfaces](/docs/agent-surfaces)**：對話、內嵌 UI、應用程式頁面、嵌入式側邊欄、自動化和外部代理。
+- **[Deployment](/docs/deployment)**：將您的應用程式部署到自己的網域。

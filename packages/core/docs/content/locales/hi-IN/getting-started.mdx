@@ -1,23 +1,30 @@
 ---
-title: "शुरुआत"
-description: "Chat से शुरू होने वाली agentic app बनाएं, action जोड़ें, structured results inline render करें, और फिर agent के खोलने योग्य persistent page तक बढ़ाएं."
+title: "शुरुआत करें"
+description: "एक chat-first agentic ऐप बनाएं, एक action जोड़ें, structured results को inline render करें, फिर एक persistent page में विस्तार करें जिसे agent खोल सके।"
 ---
 
-# शुरुआत
+# शुरुआत करें
 
-Agent-Native agentic applications बनाने के लिए है: AI agent और UI वही [actions](/docs/actions), SQL data और application state साझा करते हैं. मुख्य रास्ता headless agent से नहीं, बल्कि Chat app से शुरू होता है ताकि उपयोगकर्ता agent से तुरंत बात कर सकें.
+Agent-Native agentic applications के लिए है: ऐसे ऐप जहाँ AI agent और UI एक ही [actions](/docs/actions), SQL data, और application state साझा करते हैं। Chat से शुरू करें ताकि users तुरंत agent से बात कर सकें, फिर वे app surfaces जोड़ें जो आपका workflow अर्जित करे।
 
-काम का क्रम:
+सबसे तेज़ रास्ता है **Chat template**: एक minimal ऐप जो आपको एक काम करने वाला AI chat interface, durable threads, auth, और एक `actions/` directory देता है जो extend करने के लिए तैयार है। यह वह नींव है जिससे अधिकांश Agent-Native ऐप बढ़ते हैं।
 
-1. Chat app बनाएं.
-2. एक action जोड़ें.
-3. action result को chat में native inline UI के रूप में render करें.
-4. data को SQL में persist करें.
-5. ऐसा page जोड़ें जिसे visual inspection ज़रूरी होने पर agent खोल सके.
+पहला उपयोगी रास्ता है:
 
-## 1. Chat app बनाएं {#create-your-app}
+1. एक chat ऐप बनाएं।
+2. एक AI engine कनेक्ट करें ताकि agent जवाब दे सके।
+3. एक action जोड़ें।
+4. Action का result chat में inline render करें।
+5. SQL में data persist करें।
+6. एक ऐसा page जोड़ें जिसे agent तब खोल सके जब visual inspection transcript में एक और paragraph से बेहतर हो।
 
-[Node.js 22+](https://nodejs.org) और [pnpm](https://pnpm.io) चाहिए.
+इसके बजाय एक complete domain ऐप चाहते हैं? [Mail](/docs/template-mail), [Calendar](/docs/template-calendar), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics), या [Plan](/docs/template-plan) जैसा कोई rich template clone करें। अभी browser UI नहीं चाहते? इस tutorial के बाद [Automation-First Apps](/docs/pure-agent-apps) देखें।
+
+## 1. एक chat ऐप बनाएं {#create-your-app}
+
+आपको [Node.js 22+](https://nodejs.org) और [pnpm](https://pnpm.io) की ज़रूरत होगी।
+
+एक terminal खोलें, उस directory में जाएं जहाँ आप अपना Agent Native ऐप चाहते हैं, और चलाएं:
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
@@ -26,75 +33,182 @@ pnpm install
 pnpm dev
 ```
 
-इस template में durable chat threads, auth, live sync, `actions/` directory, standard `view-screen` और `navigate` actions, और extend करने योग्य React app शामिल है.
+यह आपको durable chat threads, auth, live sync, एक `actions/` directory, standard `view-screen` और `navigate` actions, और एक छोटा React ऐप देता है जिसे आप extend कर सकते हैं।
 
-## 2. action जोड़ें {#add-an-action}
+Dev server शुरू होता है और आपके browser में `http://localhost:8080` खोलता है। आपको कुछ startup log lines दिख सकती हैं जैसे `NitroViteError: Vite environment "nitro" is unavailable`। ये initial boot के दौरान एक सामान्य race condition हैं और अपने आप resolve हो जाती हैं। ऐप तब तैयार होता है जब terminal output में **VITE ready** दिखे।
 
-Action वह typed operation है जिसे agent और UI दोनों call करते हैं. इस flow के लिए `actions/analyze-responses.ts` बनाएं: यह form responses analyze करता है और custom chat chart के लिए validated shape लौटाता है.
+जब ऐप शुरू हो, तो आप ऐप में जाने के बजाय login screen पर हो सकते हैं। इस स्थिति में, बस login screen को satisfy करने के लिए एक बनावटी login से sign up करें। Local development के लिए, वास्तव में कोई email verification आवश्यक नहीं है।
 
-<!-- prettier-ignore -->
-```ts
-// actions/analyze-responses.ts
+### यदि आप किसी अलग प्रकार का ऐप चाहते हैं
+
+यह guide Chat template का उपयोग करती है क्योंकि यह एक agentic application का सबसे छोटा रास्ता है: agent पहले दिन से काम कर सकता है, और आपके पास बढ़ने के लिए एक real app surface है। हालाँकि, यदि आप किसी अलग प्रकार का ऐप बनाना चाहते हैं, तो domain templates और advanced app shapes के लिए CLI picker के साथ बिना flags के `create` चलाएं:
+
+```bash
+npx @agent-native/core@latest create my-app
+```
+
+## 2. एक AI engine कनेक्ट करें {#connect-ai}
+
+AI engine कनेक्ट करने तक agent chat जवाब नहीं दे सकता। Login होने के बाद, **Connect AI** बटन पर क्लिक करें।
+
+आपके पास दो विकल्प हैं:
+
+**विकल्प A: Builder कनेक्ट करें।** **Connect Builder.io** पर क्लिक करें, Builder Space चुनें, और **Authorize** बटन पर क्लिक करें। आपको manually कोई keys प्रदान नहीं करनी होंगी।
+
+**विकल्प B: अपनी खुद की keys जोड़ें।** अपनी Anthropic या OpenAI API key दर्ज करें। आप [console.anthropic.com](https://console.anthropic.com) पर Anthropic key प्राप्त कर सकते हैं।
+
+वैकल्पिक रूप से, `pnpm dev` चलाने से पहले `my-app/` directory में (उसी directory में जिसमें `package.json` है) एक `.env` file बनाएं:
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+```
+
+Dev server restart करें। एक बार AI engine कनेक्ट होने पर, Setup panel खुद छुप जाता है और agent chat करने के लिए तैयार है।
+
+> **Blank screen?** अपनी `my-app/` directory में `ANTHROPIC_API_KEY=sk-ant-...` के साथ एक `.env` file बनाएं, फिर `pnpm dev` restart करें। In-app Setup panel केवल तभी दिखता है जब ऐप load हो जाए, इसलिए एक missing key जो ऐप को render होने से रोकती है, उसे UI के बजाय environment variable के माध्यम से ठीक करना होगा।
+
+## 3. एक action जोड़ें {#add-an-action}
+
+Action एक typed operation है जिसे आपका agent और आपका UI दोनों call कर सकते हैं। यही वह तरीका है जिससे agent आपके ऐप में काम करता है। Actions `actions/` directory में रहते हैं और chat से, React components से, CLI से, या schedule पर trigger किए जा सकते हैं। आप उन्हें एक बार define करते हैं और कहीं से भी call करते हैं।
+
+### Starter action आज़माएं
+
+Chat template में `actions/hello.ts` पर एक `hello` action शामिल है:
+
+```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartResultSchema = z.object({
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+इसे terminal से चलाएं (अपनी `my-app/` directory के अंदर):
+
+```bash
+pnpm action hello --name Alice
+```
+
+या अपने ऐप को `http://localhost:8080` पर खोलें और वहाँ chat में agent से पूछें:
+
+> Use the hello action with the name Alice.
+
+### अपना खुद का action जोड़ें
+
+Starter action को अपने domain के पहले real operation से बदलें। यह example किसी भी text में आप pass करते हैं उसमें words, sentences, और paragraphs गिनता है। यह सब कुछ locally compute करता है, इसलिए configure करने के लिए कुछ नहीं है और कोई external service कनेक्ट नहीं करनी है:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const textStatsSchema = z.object({
   title: z.string(),
-  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+  points: z.array(z.object({ label: z.string(), value: z.number() })),
 });
 
 export default defineAction({
-  description: "Analyze recent form responses and render a custom chart.",
-  schema: z.object({ 
-    formId: z.string().default("demo") 
+  description: "Count words, sentences, and paragraphs in a block of text.",
+  schema: z.object({
+    text: z
+      .string()
+      .default(
+        "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
+      ),
   }),
-  outputSchema: responseChartResultSchema,
-  chatUI: { 
-    renderer: "responses.response-chart", 
-    title: "प्रतिक्रिया चार्ट" 
+  outputSchema: textStatsSchema,
+  chatUI: {
+    renderer: "text.stats-chart",
+    title: "Text stats",
   },
   readOnly: true,
-  run: async ({ formId }) => ({
-    title: `Responses for ${formId}`,
-    points: [{ day: "Mon", responses: 12 }, { day: "Tue", responses: 18 }, { day: "Wed", responses: 24 }, { day: "Thu", responses: 21 }],
+  run: async ({ text }) => ({
+    title: "Text statistics",
+    points: [
+      { label: "Characters", value: text.length },
+      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+      {
+        label: "Sentences",
+        value: text.split(/[.!?]+/).filter(Boolean).length,
+      },
+      {
+        label: "Paragraphs",
+        value: text.split(/\n\n+/).filter(Boolean).length,
+      },
+    ],
   }),
 });
 ```
 
-इसे सीधे चलाएं:
+Terminal से आज़माएं:
 
 ```bash
-pnpm action analyze-responses --formId demo
+pnpm action analyze-text --text "Hello world. How are you today?"
 ```
 
-या browser में agent से पूछें:
+या अपने ऐप को `http://localhost:8080` पर खोलें और वहाँ chat में agent से पूछें:
 
-> डेमो फ़ॉर्म की हाल की प्रतिक्रियाओं का विश्लेषण करें.
+> Run the analyze-text action on "Hello world. How are you today?"
 
-## 3. result को chat में render करें {#render-inline}
+#### एक बार define करें, कहीं से भी call करें
 
-क्योंकि action `outputSchema` और product-specific `chatUI.renderer` declare करता है, transcript structured data को plain text में नहीं बदलता. फिर app startup से उसी exact renderer id के लिए React component register करें, जैसे `app/root.tsx` से `app/chat-renderers.tsx` को एक बार import करके:
+यह action अब chat, React hooks, CLI, HTTP, MCP, A2A, scheduled jobs, और webhooks से reachable है।
 
-<!-- prettier-ignore -->
-```tsx
-import { registerActionChatRenderer, type ToolRendererProps,} from "@agent-native/core/client/chat";
+TIP: जब भी आप चाहते हैं कि agent बिना किसी ambiguity के कोई specific action call करे, तो इसे "Run the `<action-name>` action" के रूप में phrase करना सबसे reliable है। Natural-language prompts तब अच्छा काम करते हैं जब agent के पास आपके ऐप के domain के बारे में पर्याप्त context हो। बिना data या context वाले नए ऐप के लिए, explicit होना ज़्यादा सुरक्षित है।
 
-type ResponseChartResult = {
+## 4. Result को inline render करें {#render-inline}
+
+जब agent `analyze-text` चलाता है, तो यह structured data return करता है: एक title और counts की एक array। By default agent उस data को prose में describe करेगा: "The text has 9 words, 2 sentences..." और इसी तरह। यह काम करता है, लेकिन आप result को एक real UI component (एक bar chart, एक table, एक card) के रूप में भी render कर सकते हैं सीधे chat transcript के अंदर, वहीं जहाँ agent ने जवाब दिया।
+
+यही `chatUI.renderer` action में करता है। यह एक label है जो कहता है "जब यह action का result chat में दिखे, तो इसे text में summarize करने के बजाय इस React component को दें।" Component validated action output को props के रूप में receive करता है और जो चाहे render करता है।
+
+अगले step में, आप `app/chat-renderers.tsx` बनाएंगे, लेकिन पहले, `app/root.tsx` में एक import line जोड़ें ताकि यह startup पर चले:
+
+```ts filename="app/root.tsx"
+import "./chat-renderers";
+```
+
+इसे file के top पर अपने अन्य imports के साथ जोड़ें। `root.tsx` में बस यही बदलाव है। Import केवल यह सुनिश्चित करता है कि file चले और renderer register हो। अब renderer file बनाएं:
+
+```tsx filename="app/chat-renderers.tsx"
+import {
+  registerActionChatRenderer,
+  type ToolRendererProps,
+} from "@agent-native/core/client/chat";
+
+type TextStatsResult = {
   title: string;
-  points: Array<{ day: string; responses: number }>;
+  points: Array<{ label: string; value: number }>;
 };
 
-function ResponseChart({ context }: ToolRendererProps) {
-  const result = context.resultJson as ResponseChartResult;
-  const max = Math.max(...result.points.map((point) => point.responses), 1);
+const MAX_BAR_PX = 80;
+
+function TextStatsChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as TextStatsResult;
+  const max = Math.max(...result.points.map((point) => point.value), 1);
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
-      <div className="mt-4 flex h-32 items-end gap-2">
+      <div className="mt-4 flex items-end gap-2">
         {result.points.map((point) => (
-          <div key={point.day} className="flex flex-1 flex-col items-center gap-2">
-            <div className="w-full rounded-t bg-primary" style={{ height: `${(point.responses / max) * 100}%` }} />
-            <span className="text-xs text-muted-foreground">{point.day}</span>
+          <div
+            key={point.label}
+            className="flex flex-1 flex-col items-center gap-2"
+          >
+            <div
+              className="w-full rounded-t bg-blue-500"
+              style={{
+                height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px`,
+              }}
+            />
+            <span className="text-xs text-muted-foreground">{point.label}</span>
           </div>
         ))}
       </div>
@@ -103,97 +217,317 @@ function ResponseChart({ context }: ToolRendererProps) {
 }
 
 registerActionChatRenderer({
-  id: "responses.response-chart",
-  renderer: "responses.response-chart",
-  Component: ResponseChart,
+  id: "text.stats-chart",
+  renderer: "text.stats-chart",
+  Component: TextStatsChart,
 });
 ```
 
-Reusable generic outputs के लिए framework built-in `data-chart` और `data-table` renderers भी देता है, साथ ही combined summary/chart/table cards के लिए `data-insights`. देखें [Native Chat UI](/docs/native-chat-ui).
+एक बार renderer register होने के बाद, agent का response इस तरह दिखता है। Text के एक paragraph के बजाय, आपका React component सीधे chat transcript के अंदर render होता है।
 
-<WireframeBlock id="doc-block-inline-result-wireframe-hi">
-  <Screen
-    surface="desktop"
-    html={
-      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>डेमो प्रतिक्रियाओं का विश्लेषण करें.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>responses.response-chart से रेंडर किया गया.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>प्रतिक्रिया चार्ट</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>सोम</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>मंगल</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>बुध</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>गुरु</span></div></div></section></div></div></div>"
-    }
-  />
-</WireframeBlock>
+इस step का उपयोग तब करें जब result वहीं belong करता हो जहाँ agent बोल रहा है:
 
-## 4. SQL में data persist करें {#persist-data}
+- setup summaries
+- छोटी reports
+- approvals
+- tables या charts जो inline inspect करने के लिए काफी छोटे हों
+- durable app views में links
 
-जब result को दोबारा देखना, compare करना या update करना हो, उसे SQL में रखें और reads/writes को actions के पीछे रखें:
+Reusable generic outputs के लिए, framework built-in `data-chart` और `data-table` renderers भी ship करता है, साथ ही combined summary/chart/table cards के लिए `data-insights`। देखें [Native Chat UI](/docs/native-chat-ui)। Agent द्वारा runtime पर बनाए गए temporary controls के लिए, देखें [Generative UI](/docs/generative-ui)।
 
-Table को framework के portable helpers से define करें, `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` imports से नहीं:
+## 5. SQL में data persist करें {#persist-data}
 
-```ts
-// server/db/schema.ts
+अभी, हर बार जब agent `analyze-text` चलाता है तो result chat में दिखता है और फिर गायब हो जाता है। वापस देखने के लिए कुछ नहीं है, agent बाद में reference नहीं कर सकता, और data के आसपास कोई page नहीं बना सकते। SQL में persist करना इसे ठीक करता है: agent एक table में results लिखता है, और agent और आपका UI दोनों उन्हें कभी भी वापस read कर सकते हैं।
+
+Agent-Native ऐप में by default एक SQL database उपलब्ध है: locally SQLite, और production में आपका configured provider (Postgres, Turso/libSQL, Cloudflare D1)।
+
+### Database plugin wire करें
+
+Chat template में by default database plugin शामिल नहीं है। इसे initialize करने के लिए `server/plugins/db.ts` बनाएं। यही वह है जो migrations चलाता है और database को आपके actions के लिए available बनाता है:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+Array में प्रत्येक entry एक additive migration है। जब आप बाद में नए columns या tables जोड़ते हैं, तो एक नया version object append करें। मौजूदा ones को कभी edit न करें।
+
+### Schema define करें
+
+`server/db/schema.ts` बनाएं। `server/db/` directory अभी exist नहीं कर सकती, इसलिए अगर ज़रूरत हो तो इसे बनाएं। यह file typed helpers का उपयोग करके आपके tables describe करती है ताकि आपके actions को full TypeScript autocomplete मिले:
+
+```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
-export const responseInsights = table("response_insights", {
+export const textAnalyses = table("text_analyses", {
   id: text("id").primaryKey(),
-  formId: text("form_id").notNull(),
-  title: text("title").notNull(),
-  summary: text("summary").notNull(),
-  responseCount: integer("response_count").notNull(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
   createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
 });
 ```
 
-ये helpers configured SQL backend चुनते हैं, इसलिए वही schema local SQLite और production में Postgres, Turso/libSQL, D1 या किसी supported SQL provider पर चल सकता है.
+Dialect-specific imports के बजाय framework schema helpers (`table`, `text`, `integer`, `now`) का उपयोग करें जैसे `sqliteTable`, `pgTable`। ये configured SQL backend automatically pick करते हैं, इसलिए वही schema locally SQLite पर और production में किसी भी supported provider पर चलता है।
 
-- `create-response-insight` नया insight लिखता है.
-- `list-response-insights` page के लिए data पढ़ता है.
-- `update-response-insight` record update करता है.
-- `analyze-responses` chat का native widget लौटाता रहता है.
+दोनों files जोड़ने के बाद, dev server restart करें ताकि migration चले:
 
-Browser के लिए अलग duplicate REST route न बनाएं; UI और agent को actions साझा करने चाहिए.
+```bash
+pnpm dev
+```
 
-## 5. agent के खोलने योग्य page जोड़ें {#add-a-page}
+Terminal output में इन दो lines को देखें। ये confirm करती हैं कि table बनाई गई:
 
-`/response-insights` route जोड़ें और `useActionQuery("list-response-insights")`, `useActionMutation("create-response-insight")` इस्तेमाल करें. यह page SQL state का projection है; data वही actions लिखते हैं.
+```
+[db] Applying 1 migration(s) on SQLite/libsql…
+[db] Applied migration v1 (1 statement)
+```
 
-<WireframeBlock id="doc-block-response-insights-page-wireframe-hi">
-  <Screen
-    surface="desktop"
-    html={
-      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>प्रतिक्रिया insights</h2><p class='wf-muted' style='margin:0'>फ़ॉर्म प्रतिक्रियाओं से agent ने बनाए insights.</p></header><button class='primary' data-rough style='align-self:flex-start'>डेमो फ़ॉर्म विश्लेषित करें</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>मूल्य निर्धारण थीम</strong><p class='wf-muted' style='margin:8px 0 0'>यूज़र टीम प्लान मांगते हैं.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>ऑनबोर्डिंग ड्रॉप-ऑफ़</strong><p class='wf-muted' style='margin:8px 0 0'>तीन चरणों को ज्यादा स्पष्ट copy चाहिए.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>डेमो फ़ॉर्म</strong><span class='wf-muted'>42 प्रतिक्रियाओं का विश्लेषण हुआ</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>अगला चरण</strong><span class='wf-muted'>दो draft insights देखें</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>चैट</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>आप</span><p style='margin:4px 0 0'>प्रतिक्रिया insights खोलें.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>प्रतिक्रिया insights खोल दिए.</p></div></aside></section></main>"
-    }
-  />
-</WireframeBlock>
+`NitroViteError` lines, `BETTER_AUTH_SECRET` warning, और `SECRETS_ENCRYPTION_KEY` warning जो भी दिखती हैं, local dev के लिए सामान्य हैं और ignore की जा सकती हैं।
 
-## 6. agent को navigate करने दें {#agent-navigation}
+### Table के लिए actions जोड़ें
 
-Chat template में `view-screen` और `navigate` actions शामिल हैं. आपकी app बढ़ने के साथ इन्हें extend करें:
+अब वे action files बनाएं जो table को read और write करें। ये आपकी `actions/` directory में जाती हैं, वहीं जहाँ `hello.ts` और `analyze-text.ts` हैं। आप उन्हें खुद बनाते हैं, प्रति operation एक file। Agent और आपका UI उन्हें उसी तरह call करेंगे जैसे वे किसी अन्य action को call करते हैं।
 
-- `view-screen` को application state पढ़कर current route, selected insight, active filters, और agent को जरूरी किसी भी compact page context को return करना चाहिए.
-- `navigate` को `/response-insights` जैसा same-origin path तब लिखना चाहिए जब agent तय करे कि user को result visually देखना चाहिए.
-- action results में `href: "/response-insights"` जैसे links हो सकते हैं ताकि chat एक स्पष्ट "प्रतिक्रिया insights खोलें" button दिखा सके.
+**`actions/save-text-analysis.ts`** database में एक result row लिखता है। Result को durable बनाने के लिए `analyze-text` चलाने के बाद इसे call करें:
 
-जब full-page chat app page खोलता है, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) से `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` और `chatViewTransition` इस्तेमाल करें ताकि वही thread रखते हुए chat side panel में slide हो जाए.
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string(),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+  }),
+  run: async ({ input, charCount, wordCount, sentenceCount }) => {
+    const id = crypto.randomUUID();
+    await getDbExec().execute({
+      sql: `INSERT INTO text_analyses (id, input, char_count, word_count, sentence_count)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [id, input, charCount, wordCount, sentenceCount],
+    });
+    return { id };
+  },
+});
+```
+
+**`actions/list-text-analyses.ts`** सभी saved results read करता है। Agent इसे past analyses summarize करने के लिए call कर सकता है, और आपका UI इसे एक page populate करने के लिए उपयोग कर सकता है:
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "List all saved text analyses, newest first.",
+  schema: z.object({}),
+  readOnly: true,
+  run: async () => {
+    const result = await getDbExec().execute(
+      `SELECT id, input, char_count, word_count, sentence_count, created_at
+       FROM text_analyses
+       ORDER BY created_at DESC`,
+    );
+    return result.rows;
+  },
+});
+```
+
+**`actions/delete-text-analysis.ts`** id द्वारा एक row हटाता है:
+
+```ts filename="actions/delete-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Delete a saved text analysis by id.",
+  schema: z.object({ id: z.string() }),
+  run: async ({ id }) => {
+    await getDbExec().execute({
+      sql: `DELETE FROM text_analyses WHERE id = ?`,
+      args: [id],
+    });
+    return { deleted: id };
+  },
+});
+```
+
+एक बार ये files save होने पर dev server उन्हें automatically pick कर लेता है। कोई restart नहीं चाहिए। Terminal से analyses list करके आज़माएं:
+
+```bash
+pnpm action list-text-analyses
+```
+
+आपको एक empty array दिखनी चाहिए। Table exist करती है और action काम करता है; बस अभी तक कुछ save नहीं हुआ:
+
+```
+[]
+```
+
+Data `data/app.db` में save होता है, आपके project directory में एक SQLite file जो पहली बार run पर automatically बनती है। Production में आप `DATABASE_URL` को एक hosted database पर point करेंगे, लेकिन locally यह file ही काफी है।
+
+कुछ save करने के लिए, पहले counts पाने के लिए `analyze-text` चलाएं:
+
+```bash
+pnpm action analyze-text --text "Hello world"
+```
+
+आपको इस तरह का output दिखेगा:
+
+```
+{
+  title: 'Text statistics',
+  points: [
+    { label: 'Characters', value: 11 },
+    { label: 'Words', value: 2 },
+    { label: 'Sentences', value: 1 },
+    { label: 'Paragraphs', value: 1 }
+  ]
+}
+```
+
+फिर उन values को `save-text-analysis` में pass करें:
+
+```bash
+pnpm action save-text-analysis \
+  --input "Hello world" \
+  --charCount 11 \
+  --wordCount 2 \
+  --sentenceCount 1
+```
+
+अब `list-text-analyses` फिर से चलाएं और आपको saved row दिखेगी:
+
+```bash
+pnpm action list-text-analyses
+```
+
+या `http://localhost:8080` पर chat में agent से दोनों steps एक साथ करने के लिए कहें:
+
+> Run analyze-text on "Hello world", then save the result.
+
+## 6. एक ऐसा page जोड़ें जिसे agent खोल सके {#add-a-page}
+
+Conversational interaction के लिए Chat बहुत अच्छा है, लेकिन कुछ data को dedicated UI में बेहतर inspect किया जाता है: एक table जिसे आप scan, sort, या rows delete कर सकते हैं। यह step एक React route जोड़ता है जो `text_analyses` में save किए गए सब कुछ display करता है, उन्हीं `list-text-analyses` और `delete-text-analysis` actions का उपयोग करके जो आपने पहले ही लिखी हैं। कोई दूसरी data layer नहीं है। Page उसी SQL state का एक view है जिसे agent read और write करता है।
+
+`app/routes/text-analyses.tsx` पर route file बनाएं। `app/routes/` में Route files framework द्वारा automatically pick की जाती हैं। Filename URL path बन जाता है, इसलिए यह page `http://localhost:8080/text-analyses` पर उपलब्ध होगा।
+
+```tsx filename="app/routes/text-analyses.tsx"
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
+export default function TextAnalysesRoute() {
+  const analyses = useActionQuery("list-text-analyses", {});
+  const deleteAnalysis = useActionMutation("delete-text-analysis");
+
+  return (
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">
+          Results saved by the agent or triggered manually.
+        </p>
+      </header>
+      <section className="flex flex-col gap-3">
+        {analyses.data?.length === 0 && (
+          <p className="text-muted-foreground">No analyses saved yet.</p>
+        )}
+        {analyses.data?.map((row: any) => (
+          <article
+            key={row.id}
+            className="flex items-start justify-between rounded-lg border p-4"
+          >
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">{row.input}</p>
+              <p className="text-xs text-muted-foreground">
+                {row.word_count} words · {row.char_count} characters ·{" "}
+                {row.sentence_count} sentences
+              </p>
+            </div>
+            <button
+              className="text-xs text-destructive hover:underline"
+              onClick={() => deleteAnalysis.mutate({ id: row.id })}
+            >
+              Delete
+            </button>
+          </article>
+        ))}
+      </section>
+    </main>
+  );
+}
+```
+
+`useActionQuery` `list-text-analyses` call करता है और result को live रखता है। अगर page खुला होने पर agent कोई नई row save करता है, तो वह automatically दिखती है। `useActionMutation` तब `delete-text-analysis` call करता है जब user Delete पर click करता है, फिर query invalidate करता है ताकि list refresh हो।
+
+अपने browser में `http://localhost:8080/text-analyses` खोलें। अगर आपने पिछले step में कोई analysis save की थी तो आपको वह listed दिखेगी। फिर chat में agent से पूछें:
+
+> Open the text analyses page.
+
+अगर आपको 404 मिले, तो अपना dev server restart करने की कोशिश करें।
+
+## 7. Navigation extend करें {#extend-navigation}
+
+जब agent ने पिछले step में `/text-analyses` खोला, तो उसने दो built-in actions का उपयोग किया जो Chat template के साथ आते हैं:
+
+- **`view-screen`** current route read करता है और एक compact summary return करता है कि user क्या देख रहा है। Agent इसे तब call करता है जब उसे यह decide करने से पहले UI context चाहिए कि आगे क्या करना है।
+- **`navigate`** browser के history में एक same-origin path लिखता है। Agent इसे तब call करता है जब user ने जो पूछा उसका सही जवाब एक visual page हो।
+
+आपने इनमें से कोई भी नहीं लिखा; वे template में शामिल हैं। जैसे-जैसे आप अधिक pages जोड़ते हैं, उन्हें updated रखें ताकि agent को पता रहे कि ऐप में क्या है:
+
+- `view-screen` को current route, कोई selected item या active filters, और agent के follow-up questions का जवाब देने के लिए पर्याप्त page context return करना चाहिए बिना user को screen describe किए।
+- `navigate` को आपके ऐप के हर route को handle करना चाहिए। `AGENTS.md` में available paths document करें ताकि agent को पता हो कि कौन से destinations exist करते हैं।
+- Action results में `href: "/text-analyses"` शामिल हो सकता है ताकि chat reply एक explicit button render करे बजाय agent के automatically `navigate` call करने पर निर्भर होने के।
+
+जब ऐप में full-page chat route और एक app page दोनों हों, तो [Agent Surfaces](/docs/agent-surfaces#rich-chat) में described shared chat handoff helpers का उपयोग करें: `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks`, और `chatViewTransition`। यह full chat को side panel में slide करने देता है जैसे page खुलती है, user के durable data inspect करते समय वही thread बनाए रखता है।
 
 ## Project structure {#project-structure}
 
 ```text
 my-app/
-  actions/         # Agent और UI से कॉल किए जा सकने वाले operations
-  app/             # React routes, pages, और chat surfaces
-  server/          # Nitro server और SQL schema
-  AGENTS.md        # App agent के लिए हमेशा सक्रिय instructions
-  .agents/         # ज़रूरत पड़ने पर agent जिन skills को लोड करता है
-  data/app.db      # DATABASE_URL सेट न होने पर local SQLite state
+  actions/         # Agent-callable and UI-callable operations
+  app/             # React routes, pages, and chat surfaces
+  server/          # Nitro server and SQL schema
+  AGENTS.md        # Always-on instructions for the app agent
+  .agents/         # Skills the agent loads when relevant
+  data/app.db      # Local SQLite state when DATABASE_URL is unset
 ```
 
-## Analytics के लिए मजबूत starting point चाहिए? {#analytics-starting-point}
+## क्या आप एक full analytics starting point चाहते हैं? {#analytics-starting-point}
 
-ऊपर वाला प्रतिक्रिया insights example जानबूझकर छोटा है ताकि framework की pieces साफ दिखें. अगर आप वास्तविक analytics product बना रहे हैं, तो [Analytics](/docs/template-analytics) से शुरू करें. यह robust starting point है: अपने providers connect करें, existing dashboards और agent actions इस्तेमाल करें, फिर वहीं से customize करें.
+ऊपर का text-analyses example जानबूझकर छोटा है ताकि आप framework के pieces देख सकें। अगर आप एक real analytics product बना रहे हैं, तो इसके बजाय [Analytics](/docs/template-analytics) से शुरू करें। यह robust starting point है: अपने providers कनेक्ट करें, existing dashboards और agent actions का उपयोग करें, फिर वहाँ से ऐप customize करें।
 
-## आगे क्या {#next}
+## आगे क्या है {#next}
 
-- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks और transport.
-- **[Native Chat UI](/docs/native-chat-ui)** — action results को tables, charts और typed cards के रूप में render करें.
-- **[Chat Template](/docs/template-chat)** — न्यूनतम chat-first app.
-- **[Analytics Template](/docs/template-analytics)** — robust analytics app starting point; providers connect करें और customize करें.
-- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`, route state और selected objects.
-- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages, embedded sidecars, automation और external agents.
+- **[Actions](/docs/actions)**: schemas, auth, approvals, hooks, और transport।
+- **[Native Chat UI](/docs/native-chat-ui)**: action results को tables, charts, और typed cards के रूप में render करें।
+- **[Chat Template](/docs/template-chat)**: वह minimal chat-first ऐप जो आपने अभी बनाया।
+- **[Analytics Template](/docs/template-analytics)**: एक robust analytics ऐप starting point; providers कनेक्ट करें और वहाँ से customize करें।
+- **[Context Awareness](/docs/context-awareness)**: `view-screen`, `navigate`, route state, और selected objects।
+- **[Agent Surfaces](/docs/agent-surfaces)**: chat, inline UI, app pages, embedded sidecars, automation, और external agents।
+- **[Deployment](/docs/deployment)**: अपने ऐप को अपने domain पर डालें।
