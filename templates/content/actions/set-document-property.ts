@@ -1,5 +1,4 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -87,7 +86,6 @@ export default defineAction({
           now,
         });
       }
-      await writeAppState("refresh-signal", { ts: Date.now() });
       return {
         documentId,
         databaseId: database.id,
@@ -132,8 +130,6 @@ export default defineAction({
         updatedAt: now,
       });
     }
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
       documentId,

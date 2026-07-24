@@ -591,6 +591,11 @@ export async function runSkillsCli(
       error: error instanceof Error ? error.message : String(error),
       durationMs: Date.now() - startedAt,
     });
+    telemetry.captureException(error, {
+      handled: false,
+      tags: { source: "skills-command", command: parsed.command },
+      extra: { durationMs: Date.now() - startedAt },
+    });
     throw error;
   } finally {
     await telemetry.flush();

@@ -59,7 +59,7 @@ export default function ApprovalsRoute() {
       description="Review durable dispatch changes before they apply."
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <Collapsible className="rounded-2xl border bg-card">
+        <Collapsible className="rounded-2xl bg-card">
           <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 p-5 text-left hover:bg-muted/20">
             <span>
               <span className="block text-lg font-semibold text-foreground">
@@ -133,7 +133,7 @@ export default function ApprovalsRoute() {
           </CollapsibleContent>
         </Collapsible>
 
-        <section className="rounded-2xl border bg-card p-5">
+        <section className="rounded-2xl bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             Pending and recent requests
           </h2>

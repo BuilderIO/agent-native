@@ -5,6 +5,7 @@ import {
   claimDueDashboardReportSubscriptions,
   dashboardReportRetryAt,
   markDashboardReportResult,
+  recordDashboardReportCaptureOutcome,
 } from "../lib/dashboard-report-subscriptions";
 
 let running = false;
@@ -23,6 +24,24 @@ async function persistDashboardReportResult(
       err instanceof Error ? err.message : String(err),
     );
     return false;
+  }
+}
+
+async function persistDashboardReportCaptureOutcome(
+  ...args: Parameters<typeof recordDashboardReportCaptureOutcome>
+): Promise<void> {
+  try {
+    const persisted = await recordDashboardReportCaptureOutcome(...args);
+    if (!persisted) {
+      console.warn(
+        `[dashboard-report] Capture checkpoint was superseded for subscription ${args[0].id}`,
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[dashboard-report] Failed to persist capture checkpoint for subscription ${args[0].id}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -71,6 +90,8 @@ export async function runDashboardReportsOnce(): Promise<{
           () =>
             sendDashboardReportSubscription(sub, {
               skipEmailWithoutScreenshot: retryAt !== null,
+              onCaptureOutcome: (outcome) =>
+                persistDashboardReportCaptureOutcome(sub, outcome),
               ...(deliveryDeadlineAt ? { deadlineAt: deliveryDeadlineAt } : {}),
             }),
         );

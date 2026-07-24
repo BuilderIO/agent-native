@@ -63,6 +63,10 @@ import {
 import { toast } from "sonner";
 
 import {
+  AssetPreviewDialog,
+  type PreviewAsset,
+} from "@/components/asset/AssetPreviewDialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -1508,6 +1512,7 @@ type LaneGalleryItem = {
   asset?: any;
   mediaType?: "image" | "video";
   href?: string;
+  onOpen?: () => void;
   selected?: boolean;
   busy?: boolean;
   showBusyOverlay?: boolean;
@@ -2105,6 +2110,7 @@ function AssetSwimlaneBoard({
 }) {
   const t = useT();
   const [bulkContextOpen, setBulkContextOpen] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState<any | null>(null);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2367,6 +2373,7 @@ function AssetSwimlaneBoard({
       status: isReference ? t("library.reference") : t("library.saved"),
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
+      onOpen: () => setPreviewAsset(asset),
       selected: selectedIds.has(asset.id),
       deleting: deletingIds.has(asset.id),
       busy,
@@ -2382,6 +2389,7 @@ function AssetSwimlaneBoard({
           onDelete={() => confirmDelete([asset.id])}
           onMoveToReferences={onMoveToReferences}
           onRemoveFromReferences={onRemoveFromReferences}
+          onOpenPreview={() => setPreviewAsset(asset)}
         />
       ),
       primaryActions:
@@ -2753,6 +2761,12 @@ function AssetSwimlaneBoard({
           }
         />
       )}
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={boardAssets as PreviewAsset[]}
+        onAssetChange={setPreviewAsset}
+      />
     </>
   );
 }
@@ -2933,7 +2947,15 @@ function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
             aria-busy={item.busy}
           >
             <div className="relative aspect-4/3 bg-muted/30">
-              {item.href ? (
+              {item.onOpen ? (
+                <button
+                  type="button"
+                  onClick={item.onOpen}
+                  className="block h-full w-full text-left"
+                >
+                  {item.thumbnail}
+                </button>
+              ) : item.href ? (
                 <Link to={item.href} className="block h-full w-full">
                   {item.thumbnail}
                 </Link>
@@ -3075,7 +3097,15 @@ function SwimLane({
                   aria-busy={activeItem?.busy}
                 >
                   <div className="aspect-16/10 bg-muted/30">
-                    {activeItem?.href ? (
+                    {activeItem?.onOpen ? (
+                      <button
+                        type="button"
+                        onClick={activeItem.onOpen}
+                        className="block h-full w-full text-left"
+                      >
+                        {activeItem.preview}
+                      </button>
+                    ) : activeItem?.href ? (
                       <Link
                         to={activeItem.href}
                         className="block h-full w-full"
@@ -3198,7 +3228,16 @@ function SwimLane({
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {activeItem?.href ? (
+            {activeItem?.onOpen ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                onClick={activeItem.onOpen}
+              >
+                {t("brandKitDetail.open")}
+              </Button>
+            ) : activeItem?.href ? (
               <Button asChild variant="outline" size="sm" className="flex-1">
                 <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
               </Button>
@@ -3303,6 +3342,7 @@ function AssetActionsMenu({
   onDelete,
   onMoveToReferences,
   onRemoveFromReferences,
+  onOpenPreview,
 }: {
   asset: any;
   folders: any[];
@@ -3311,6 +3351,7 @@ function AssetActionsMenu({
   onDelete: () => void;
   onMoveToReferences?: () => void;
   onRemoveFromReferences?: () => void;
+  onOpenPreview?: () => void;
 }) {
   const t = useT();
   const [contextOpen, setContextOpen] = useState(false);
@@ -3330,12 +3371,24 @@ function AssetActionsMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem asChild>
-            <Link to={`/asset/${asset.id}`}>
+          {onOpenPreview ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onOpenPreview();
+              }}
+            >
               <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
               {t("library.viewDetails")}
-            </Link>
-          </DropdownMenuItem>
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem asChild>
+              <Link to={`/asset/${asset.id}`}>
+                <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+                {t("library.viewDetails")}
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
@@ -3925,6 +3978,7 @@ export function LiveCandidatesStage({
       status: "draft",
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
+      onOpen: () => setPreviewAsset(asset),
       busy,
       preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <AssetPreview asset={asset} />,
@@ -3946,6 +4000,7 @@ export function LiveCandidatesStage({
     };
   }
 
+  const [previewAsset, setPreviewAsset] = useState(null as any);
   const items = [...slots.map(slotItem), ...draftAssets.map(draftItem)];
   const itemIds = items.map((item) => item.id).join("\n");
   const activeItem =
@@ -4032,7 +4087,15 @@ export function LiveCandidatesStage({
               aria-busy={activeItem?.busy}
             >
               <div className="h-36 bg-muted/30 sm:h-44 lg:h-56 2xl:h-64">
-                {activeItem?.href ? (
+                {activeItem?.onOpen ? (
+                  <button
+                    type="button"
+                    onClick={activeItem.onOpen}
+                    className="block h-full w-full text-left"
+                  >
+                    {activeItem.preview}
+                  </button>
+                ) : activeItem?.href ? (
                   <Link to={activeItem.href} className="block h-full w-full">
                     {activeItem.preview}
                   </Link>
@@ -4045,7 +4108,17 @@ export function LiveCandidatesStage({
                   <Spinner className="h-5 w-5" />
                 </div>
               ) : null}
-              {activeItem?.href ? (
+              {activeItem?.onOpen ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
+                  onClick={activeItem.onOpen}
+                >
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  {t("library.details")}
+                </Button>
+              ) : activeItem?.href ? (
                 <Button
                   asChild
                   variant="secondary"
@@ -4119,7 +4192,17 @@ export function LiveCandidatesStage({
                 <div>{activeItem.primaryActions}</div>
               ) : null}
             </div>
-            {activeItem?.href ? (
+            {activeItem?.onOpen ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5"
+                onClick={activeItem.onOpen}
+              >
+                <IconArrowUpRight className="h-3.5 w-3.5" />
+                {t("library.openDetails")}
+              </Button>
+            ) : activeItem?.href ? (
               <Button asChild variant="ghost" size="sm" className="gap-1.5">
                 <Link to={activeItem.href}>
                   <IconArrowUpRight className="h-3.5 w-3.5" />
@@ -4130,6 +4213,12 @@ export function LiveCandidatesStage({
           </aside>
         </div>
       </section>
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={draftAssets as PreviewAsset[]}
+        onAssetChange={setPreviewAsset}
+      />
     </>
   );
 }

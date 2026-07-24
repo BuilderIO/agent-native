@@ -154,15 +154,15 @@ describe("A2AClient", () => {
         }
 
         return new Promise<Response>((_resolve, reject) => {
-          init.signal?.addEventListener(
-            "abort",
-            () => {
-              reject(
-                new DOMException("The operation was aborted", "AbortError"),
-              );
-            },
-            { once: true },
-          );
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
         });
       },
     );
@@ -218,15 +218,17 @@ describe("A2AClient", () => {
         if (taskReads === 1) {
           firstPollSignal = init.signal ?? null;
           return new Promise<Response>((_resolve, reject) => {
-            init.signal?.addEventListener(
-              "abort",
-              () => {
-                reject(
-                  new DOMException("The operation was aborted", "AbortError"),
-                );
-              },
-              { once: true },
-            );
+            const rejectAborted = () =>
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            if (init.signal?.aborted) {
+              rejectAborted();
+              return;
+            }
+            init.signal?.addEventListener("abort", rejectAborted, {
+              once: true,
+            });
           });
         }
         return completedResponse(body, "recovered after transient poll hang");

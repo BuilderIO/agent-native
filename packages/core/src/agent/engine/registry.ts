@@ -96,6 +96,42 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
   return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
 }
 
+/**
+ * True only when there is positive evidence this module is executing from a
+ * bundled serverless function where optional dependencies were inlined into the
+ * bundle and are therefore NOT resolvable via `require.resolve` — even though
+ * the dynamic `import()` the engine uses to load them still works.
+ *
+ * Deliberately narrow. The Nitro Vercel/Netlify presets (which agent-native's
+ * own `deploy` command emits) inline optional peers and always set these env
+ * markers, so they are a reliable signal. Other serverless runtimes — a
+ * container on Cloud Run / Google Cloud Functions (`K_SERVICE` /
+ * `FUNCTION_TARGET`), or a plain AWS Lambda — commonly ship a real
+ * `node_modules` where `require.resolve` is authoritative; there a resolve miss
+ * means the package is genuinely absent and must NOT be masked. Those runtimes
+ * are still covered *when the code is actually bundled*, via the module-path
+ * check below, which stays false for a normal `node_modules` layout.
+ */
+function isBundledServerlessRuntime(): boolean {
+  const env = process.env;
+  // Nitro's Vercel/Netlify presets inline optional peers into the function
+  // bundle; these platforms always set these markers.
+  if (env.VERCEL || env.NETLIFY) return true;
+  // Otherwise require direct evidence that this module is running from inside a
+  // bundle output directory (Vercel's `/var/task`, Nitro's `.output/server`,
+  // inlined `_libs`). This is the real signal that `require.resolve` cannot be
+  // trusted; it stays false for normal `node_modules` layouts (dev, tests, and
+  // container/Lambda/Cloud Run deploys that ship their dependencies), so a
+  // genuine "package not installed" miss still surfaces there.
+  try {
+    return /[\\/](?:_libs|\.vercel|\.netlify|\.output)[\\/]|\/var\/task\//.test(
+      import.meta.url ?? "",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function canResolvePackage(packageName: string): boolean {
   const cached = _packageAvailabilityCache.get(packageName);
   if (cached !== undefined) return cached;
@@ -104,7 +140,15 @@ function canResolvePackage(packageName: string): boolean {
     require.resolve(packageName);
     available = true;
   } catch {
-    available = false;
+    // Bundled serverless runtimes (e.g. Nitro on Vercel/Netlify) inline optional
+    // provider packages into the function bundle, so require.resolve cannot find
+    // them even though the dynamic `import()` the engine actually uses to load
+    // them works. Treat them as available there and let the engine's own import
+    // be the real gate — it already fails with a clear "pnpm add …" message when
+    // the package is genuinely missing. Without this, every engine-usability
+    // gate rejects the AI-SDK engines at runtime and the agent silently falls
+    // back to the native Anthropic engine.
+    available = isBundledServerlessRuntime();
   }
   _packageAvailabilityCache.set(packageName, available);
   return available;
@@ -179,17 +223,41 @@ function findLatestSupportedVersionMatch(
   return best?.model;
 }
 
+export interface NormalizeModelOptions {
+  /**
+   * Force unrecognized (custom) model IDs to be kept verbatim, as if
+   * `engine.preserveCustomModels` were set on a live engine instance.
+   *
+   * The settings actions call `normalizeModelForEngine` with a static registry
+   * ENTRY, which never carries the runtime `preserveCustomModels` flag — that
+   * is only set on the engine INSTANCE created with an OpenAI-compatible
+   * `baseUrl`. They resolve the capability with
+   * {@link resolveEnginePreservesCustomModels} and pass it here so a gateway
+   * model (e.g. an Ollama `gemma4`) is not rewritten to the OpenAI default on
+   * save/read. First-party OpenAI (no gateway) leaves this unset, so an unknown
+   * or invalid model still normalizes to a supported one.
+   */
+  preserveCustomModels?: boolean;
+}
+
 export function normalizeModelForEngine(
   engine: Pick<
     AgentEngine,
     "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
   >,
   model: string | null | undefined,
+  options: NormalizeModelOptions = {},
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (engine.preserveCustomModels) return candidate;
+  // Preserve custom IDs verbatim BEFORE any catalog/version matching, so a
+  // version-shaped gateway model that happens to share a family with a
+  // built-in model (e.g. `gpt-5.4` on an OpenAI-compatible endpoint) is not
+  // rewritten to a catalog entry.
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
+    return candidate;
+  }
 
   if (engine.supportedModels.length === 0) return candidate;
 
@@ -201,6 +269,31 @@ export function normalizeModelForEngine(
     findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
     engine.defaultModel
   );
+}
+
+/**
+ * Whether models saved or read for this engine ENTRY should be preserved
+ * verbatim instead of normalized against the built-in catalog.
+ *
+ * `normalizeModelForEngine` honors a live engine's `preserveCustomModels`, but
+ * that flag is only set on an AI SDK engine INSTANCE when the OpenAI provider
+ * is pointed at an OpenAI-compatible gateway (a custom base URL — e.g. Ollama
+ * Cloud or LiteLLM), whose model IDs are not in the built-in OpenAI catalog.
+ * The static registry entry the settings actions pass to
+ * `normalizeModelForEngine` cannot carry that runtime flag, so this async
+ * helper reproduces the same decision — `ai-sdk:openai` AND a resolved base URL
+ * — from the request's stored/deploy config. First-party OpenAI (no gateway)
+ * returns false so an unknown/invalid model still normalizes to a supported one.
+ */
+export async function resolveEnginePreservesCustomModels(
+  entry: Pick<AgentEngineEntry, "name">,
+): Promise<boolean> {
+  if (entry.name !== "ai-sdk:openai") return false;
+  try {
+    return Boolean(await resolveOpenAiBaseUrl());
+  } catch {
+    return false;
+  }
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {

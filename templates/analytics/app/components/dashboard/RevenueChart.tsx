@@ -30,7 +30,7 @@ export function RevenueChart() {
   const t = useT();
 
   return (
-    <Card className="col-span-full lg:col-span-4 bg-card border-border/50">
+    <Card className="col-span-full lg:col-span-4 bg-card">
       <CardHeader>
         <CardTitle>{t("dashboard.revenueOverTime")}</CardTitle>
       </CardHeader>

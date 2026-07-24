@@ -12,6 +12,7 @@ import {
   IconChevronRight,
   IconAlertTriangle,
   IconInfoCircle,
+  IconRefresh,
   IconTrendingUp,
   IconTrendingDown,
 } from "@tabler/icons-react";
@@ -173,6 +174,27 @@ const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
 const TABLE_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
 const TABLE_PANEL_SKELETON_ROWS = 10;
+
+export function formatSqlChartError(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error ?? "");
+  const readableMessage = message
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
+    return "This chart took too long to load. Try again.";
+  }
+  if (/internal server error/i.test(readableMessage)) {
+    return "This chart could not be loaded. Try again.";
+  }
+  return readableMessage || "This chart could not be loaded. Try again.";
+}
 
 function formatYValue(
   value: number,
@@ -1108,6 +1130,7 @@ export function SqlChart({
     isLoading,
     isFetching,
     error: queryError,
+    refetch,
   } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
@@ -1117,14 +1140,11 @@ export function SqlChart({
   );
 
   const rawRows = result?.rows ?? [];
-  const queryErrorMessage =
-    queryError instanceof Error
-      ? queryError.message
-      : queryError
-        ? String(queryError)
-        : undefined;
   const error =
-    rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
+    rawRows.length === 0
+      ? (result?.error ??
+        (queryError ? formatSqlChartError(queryError) : undefined))
+      : undefined;
 
   const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
@@ -1209,9 +1229,21 @@ export function SqlChart({
   if (error) {
     return (
       <div
-        className={`flex flex-1 items-center justify-center px-4 ${placeholderPadY} ${placeholderMinH}`}
+        className={`flex flex-1 flex-col items-center justify-center gap-3 px-4 ${placeholderPadY} ${placeholderMinH}`}
+        role="alert"
       >
-        <p className="text-sm text-red-400 text-center break-all">{error}</p>
+        <p className="text-center text-sm text-red-400 break-all">
+          {formatSqlChartError(error)}
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => void refetch()}
+        >
+          <IconRefresh className="mr-2 h-3.5 w-3.5" />
+          {t("sqlDashboard.refresh")}
+        </Button>
       </div>
     );
   }

@@ -87,6 +87,11 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "await createDatabase.mutateAsync({ documentId })",
     );
+    expect(source).toContain("isDatabaseChoicePending(");
+    expect(source).toContain("document,\n    createDatabase.isPending");
+    expect(source).toContain(
+      "disabled={!editorCanEdit || databaseChoicePending}",
+    );
     expect(source).toContain('{t("sidebar.page")}');
     expect(source).toContain('{t("sidebar.database")}');
     expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
@@ -174,6 +179,12 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toMatch(
+      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");
   });

@@ -29,6 +29,7 @@ import {
   nextDailyRunAt,
   normalizeDashboardReportRecipients,
   queueDashboardReportSubscriptionNow,
+  recordDashboardReportCaptureOutcome,
   truncateDashboardReportError,
 } from "./dashboard-report-subscriptions";
 import type { DashboardReportSubscription } from "./dashboard-report-subscriptions";
@@ -37,7 +38,7 @@ import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 function createClaimDbMock(rows: unknown[]) {
   const returning = vi.fn(async () => rows);
   const where = vi.fn(() => ({ returning }));
-  const set = vi.fn(() => ({ where }));
+  const set = vi.fn((_values: Record<string, unknown>) => ({ where }));
   const update = vi.fn(() => ({ set }));
   return {
     db: { update },
@@ -138,6 +139,15 @@ describe("dashboard report subscriptions", () => {
       expect(stored.startsWith("first capture attempt")).toBe(true);
       expect(stored.endsWith("final browser error: page crashed")).toBe(true);
     });
+
+    it("redacts embed tokens before persisting diagnostics", () => {
+      const stored = truncateDashboardReportError(
+        "report capture failed at ?__an_embed_token=secret-token&reportScreenshot=1",
+      );
+
+      expect(stored).toContain("__an_embed_token=[REDACTED]");
+      expect(stored).not.toContain("secret-token");
+    });
   });
 
   it("schedules the next daily run in UTC", () => {
@@ -189,6 +199,9 @@ describe("dashboard report subscriptions", () => {
         lastRunAt: null,
         lastStatus: null,
         lastError: null,
+        lastCaptureAt: null,
+        lastCaptureMode: null,
+        lastCaptureError: null,
         createdAt: "2026-07-01T00:00:00.000Z",
         updatedAt: "2026-07-01T00:00:00.000Z",
         ownerEmail: "owner@example.com",
@@ -228,6 +241,9 @@ describe("dashboard report subscriptions", () => {
       lastRunAt: null,
       lastStatus: null,
       lastError: null,
+      lastCaptureAt: null,
+      lastCaptureMode: null,
+      lastCaptureError: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       ownerEmail: "owner@example.com",
@@ -250,6 +266,9 @@ describe("dashboard report subscriptions", () => {
         updatedAt: "2026-01-01T12:00:00.000Z",
       }),
     );
+    expect(set.mock.calls[0]?.[0]).not.toHaveProperty("lastCaptureAt");
+    expect(set.mock.calls[0]?.[0]).not.toHaveProperty("lastCaptureMode");
+    expect(set.mock.calls[0]?.[0]).not.toHaveProperty("lastCaptureError");
     expect(where).toHaveBeenCalledTimes(1);
     expect(returning).toHaveBeenCalledTimes(1);
     expect(claimed).toMatchObject({
@@ -287,6 +306,9 @@ describe("dashboard report subscriptions", () => {
       lastRunAt: "2026-01-01T11:00:00.000Z",
       lastStatus: null,
       lastError: null,
+      lastCaptureAt: null,
+      lastCaptureMode: null,
+      lastCaptureError: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T12:00:00.000Z",
       ownerEmail: "owner@example.com",
@@ -338,6 +360,9 @@ describe("dashboard report subscriptions", () => {
         lastRunAt: null,
         lastStatus: "running",
         lastError: null,
+        lastCaptureAt: null,
+        lastCaptureMode: null,
+        lastCaptureError: null,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
         ownerEmail: "owner@example.com",
@@ -350,6 +375,49 @@ describe("dashboard report subscriptions", () => {
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({
         lastError: expect.stringMatching(/final screenshot failure$/),
+      }),
+    );
+  });
+
+  it("checkpoints a redacted capture outcome for the claimed attempt", async () => {
+    const { db, set } = createClaimDbMock([{ id: "sub_1" }]);
+    getDbMock.mockReturnValue(db);
+    const sub: DashboardReportSubscription = {
+      id: "sub_1",
+      dashboardId: "dash_1",
+      name: "Daily",
+      recipients: ["person@example.com"],
+      filters: {},
+      frequency: "daily",
+      timeOfDay: "09:00",
+      timezone: "UTC",
+      enabled: true,
+      nextRunAt: null,
+      lastRunAt: "2026-01-01T12:00:00.000Z",
+      lastStatus: "running",
+      lastError: null,
+      lastCaptureAt: null,
+      lastCaptureMode: null,
+      lastCaptureError: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    };
+
+    const recorded = await recordDashboardReportCaptureOutcome(sub, {
+      mode: "none",
+      error:
+        "chunk failed at ?__an_embed_token=secret-token&reportScreenshot=1",
+    });
+
+    expect(recorded).toBe(true);
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastCaptureAt: expect.any(String),
+        lastCaptureMode: "none",
+        lastCaptureError:
+          "chunk failed at ?__an_embed_token=[REDACTED]&reportScreenshot=1",
       }),
     );
   });

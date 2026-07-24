@@ -1,5 +1,74 @@
 # @agent-native/skills
 
+## 0.2.404
+
+### Patch Changes
+
+- 0e2c19d: Capture server-side and CLI exceptions in first-party Agent Native monitoring, and avoid reporting browser errors already handled by stale-chunk recovery or extensions.
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+  - @agent-native/core@0.120.3
+
+## 0.2.403
+
+### Patch Changes
+
+- Updated dependencies [b00c38d]
+- Updated dependencies [b00c38d]
+- Updated dependencies [b00c38d]
+- Updated dependencies [b00c38d]
+  - @agent-native/core@0.120.2
+
+## 0.2.402
+
+### Patch Changes
+
+- Updated dependencies [5477352]
+- Updated dependencies [5477352]
+  - @agent-native/core@0.120.1
+
+## 0.2.401
+
+### Patch Changes
+
+- Updated dependencies [20ebb96]
+  - @agent-native/core@0.120.0
+
+## 0.2.400
+
+### Patch Changes
+
+- Updated dependencies [f3c3523]
+  - @agent-native/core@0.119.6
+
+## 0.2.399
+
+### Patch Changes
+
+- Updated dependencies [13eb9f7]
+  - @agent-native/core@0.119.5
+
+## 0.2.398
+
+### Patch Changes
+
+- Updated dependencies [4b734be]
+- Updated dependencies [4b734be]
+- Updated dependencies [4b734be]
+- Updated dependencies [4b734be]
+- Updated dependencies [4b734be]
+- Updated dependencies [4b734be]
+  - @agent-native/core@0.119.4
+
 ## 0.2.397
 
 ### Patch Changes

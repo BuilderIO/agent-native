@@ -196,4 +196,51 @@ describe("public form SSR", () => {
       'var FORM_VERSION = "2026-07-14T12:01:00.000Z";',
     );
   });
+
+  it("renders conditional metadata and disables hidden required controls", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-conditional-123",
+          slug: "conditional-events",
+          title: "Event request",
+          description: null,
+          ownerEmail: "owner@example.test",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify([
+            {
+              id: "event_type",
+              type: "radio",
+              label: "Event type",
+              options: ["Virtual", "Physical"],
+              required: true,
+            },
+            {
+              id: "venue",
+              type: "text",
+              label: "Venue",
+              required: true,
+              conditional: {
+                fieldId: "event_type",
+                operator: "equals",
+                value: "Physical",
+              },
+            },
+          ]),
+          settings: "{}",
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/conditional-events",
+    );
+
+    expect(html).toContain(
+      'data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical"',
+    );
+    expect(html).toContain("control.disabled = !show");
+  });
 });

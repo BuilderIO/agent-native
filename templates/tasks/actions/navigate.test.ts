@@ -8,7 +8,7 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppStateForCurrentTab,
 }));
 
-import navigate from "./navigate.js";
+import navigate, { navigateSchema } from "./navigate.js";
 
 describe("navigate", () => {
   beforeEach(() => {
@@ -19,7 +19,7 @@ describe("navigate", () => {
   describe("schema", () => {
     it("accepts tasks navigation commands", () => {
       expect(
-        navigate.schema.parse({
+        navigateSchema.parse({
           view: "tasks",
           includeDone: true,
           taskId: "abc",
@@ -30,7 +30,7 @@ describe("navigate", () => {
         taskId: "abc",
       });
       expect(
-        navigate.schema.parse({ view: "tasks", includeDone: "true" }),
+        navigateSchema.parse({ view: "tasks", includeDone: "true" }),
       ).toEqual({
         view: "tasks",
         includeDone: true,
@@ -38,11 +38,11 @@ describe("navigate", () => {
     });
 
     it("requires a known view and ignores a raw path", () => {
-      expect(() => navigate.schema.parse({})).toThrow();
-      expect(() => navigate.schema.parse({ view: "unknown" })).toThrow();
+      expect(() => navigateSchema.parse({})).toThrow();
+      expect(() => navigateSchema.parse({ view: "unknown" })).toThrow();
       // `path` is no longer part of the surface, so zod strips it.
       expect(
-        navigate.schema.parse({ view: "tasks", path: "/_agent-native/poll" }),
+        navigateSchema.parse({ view: "tasks", path: "/_agent-native/poll" }),
       ).toEqual({ view: "tasks" });
     });
   });

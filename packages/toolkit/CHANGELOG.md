@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.10.5
+
+### Patch Changes
+
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
 ## 0.10.3
 
 ### Patch Changes

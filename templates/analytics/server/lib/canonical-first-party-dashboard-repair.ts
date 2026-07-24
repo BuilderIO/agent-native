@@ -1,4 +1,7 @@
 import {
+  LEGACY_SIGNUPS_OVER_TIME_SQL,
+  LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+  SIGNUPS_OVER_TIME_SQL,
   type ExactFirstPartyPanelReplacement,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
@@ -12,6 +15,14 @@ const NEW_VS_RECURRING_USERS_DESCRIPTION =
 
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
+    {
+      id: "signups-over-time",
+      legacySql: [
+        LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+        LEGACY_SIGNUPS_OVER_TIME_SQL,
+      ],
+      sql: SIGNUPS_OVER_TIME_SQL,
+    },
     {
       id: "new-vs-recurring-users",
       legacySql: [LEGACY_NEW_VS_RECURRING_USERS_SQL],
