@@ -232,25 +232,19 @@ export function RecordingViewsBadge({
                     value={insights?.agentViews ?? 0}
                   />
                 </div>
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>
-                    {t("recordingInsights.uniqueViewers")}
-                    <span className="ms-1.5 text-foreground tabular-nums">
-                      {insights?.uniqueViewers ?? 0}
-                    </span>
-                  </span>
-                  <span>
-                    {t("recordingInsights.completion")}
-                    <span className="ms-1.5 text-foreground tabular-nums">
-                      {Math.round(insights?.completionRate ?? 0)}%
-                    </span>
-                  </span>
-                  <span>
-                    {t("recordingInsights.ctaConversion")}
-                    <span className="ms-1.5 text-foreground tabular-nums">
-                      {Math.round(insights?.ctaConversionRate ?? 0)}%
-                    </span>
-                  </span>
+                <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                  <MiniStat
+                    label={t("recordingInsights.uniqueViewers")}
+                    value={insights?.uniqueViewers ?? 0}
+                  />
+                  <MiniStat
+                    label={t("recordingInsights.completion")}
+                    value={`${Math.round(insights?.completionRate ?? 0)}%`}
+                  />
+                  <MiniStat
+                    label={t("recordingInsights.ctaConversion")}
+                    value={`${Math.round(insights?.ctaConversionRate ?? 0)}%`}
+                  />
                 </div>
               </>
             )}
@@ -300,6 +294,15 @@ export function ViewerAvatar({
         )}
       </AvatarFallback>
     </Avatar>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="min-w-0">
+      <div className="truncate">{label}</div>
+      <div className="mt-0.5 text-foreground tabular-nums">{value}</div>
+    </div>
   );
 }
 
