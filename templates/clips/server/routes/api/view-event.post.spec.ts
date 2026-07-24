@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
   nanoid: vi.fn(),
   writeAppState: vi.fn(),
+  emit: vi.fn(),
+  enqueueTransactionalEmail: vi.fn(),
 }));
 
 const tables = vi.hoisted(() => ({
@@ -49,7 +51,9 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 
-vi.mock("@agent-native/core/event-bus", () => ({ emit: vi.fn() }));
+vi.mock("@agent-native/core/event-bus", () => ({
+  emit: (...args: unknown[]) => mocks.emit(...args),
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mocks.getSession(...args),
@@ -77,6 +81,12 @@ vi.mock("../../lib/recordings.js", () => ({
     completedPct: number,
     scrubbedToEnd: boolean,
   ) => totalWatchMs >= 5000 || completedPct >= 75 || scrubbedToEnd,
+}));
+
+vi.mock("../../lib/transactional-email-store.js", () => ({
+  transactionalEmailStore: {
+    enqueue: (...args: unknown[]) => mocks.enqueueTransactionalEmail(...args),
+  },
 }));
 
 import handler, { __resetViewEventRateLimitForTests } from "./view-event.post";
@@ -268,6 +278,7 @@ describe("POST /api/view-event", () => {
     mocks.resolveAccess.mockResolvedValue({
       resource: { ownerEmail: "owner@example.com" },
     });
+    mocks.enqueueTransactionalEmail.mockResolvedValue({ created: true });
   });
 
   it("rejects declared and actual oversized bodies before database access", async () => {
@@ -370,6 +381,105 @@ describe("POST /api/view-event", () => {
     expect(state.viewer?.viewerKey).toBe("anon:session-example");
     expect(state.events).toHaveLength(1);
     expect(state.events[0].viewerId).toBe("legacy-viewer");
+  });
+
+  it("enqueues after an anonymous viewer first transitions to counted and preserves clip.viewed", async () => {
+    const { db } = createStatefulDb({
+      id: "viewer-1",
+      recordingId: "rec-example",
+      viewerKey: "anon:session-example",
+      viewerEmail: null,
+      viewerName: "anon:session-example",
+      totalWatchMs: 1000,
+      completedPct: 10,
+      countedView: false,
+      ctaClicked: false,
+    });
+    mocks.getDb.mockReturnValue(db);
+
+    await handler(makeEvent({ kind: "view-start", totalWatchMs: 5000 }) as any);
+
+    expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledWith(
+      "first-view:rec-example",
+      {
+        type: "first-view",
+        recipient: "owner@example.com",
+        recordingIds: ["rec-example"],
+        requestedBy: "owner@example.com",
+      },
+    );
+    expect(db.transaction.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.enqueueTransactionalEmail.mock.invocationCallOrder[0],
+    );
+    expect(mocks.emit).toHaveBeenCalledWith(
+      "clip.viewed",
+      {
+        clipId: "rec-example",
+        viewerEmail: null,
+        viewedAt: expect.any(String),
+      },
+      { owner: "owner@example.com" },
+    );
+  });
+
+  it("does not enqueue for an already-counted viewer or the recording owner", async () => {
+    const alreadyCounted = createStatefulDb({
+      id: "viewer-1",
+      recordingId: "rec-example",
+      viewerKey: "anon:session-example",
+      viewerEmail: null,
+      viewerName: "anon:session-example",
+      totalWatchMs: 5000,
+      completedPct: 75,
+      countedView: true,
+      ctaClicked: false,
+    });
+    mocks.getDb.mockReturnValue(alreadyCounted.db);
+    await handler(makeEvent({ totalWatchMs: 6000 }) as any);
+
+    const ownerViewer = createStatefulDb({
+      id: "viewer-owner",
+      recordingId: "rec-example",
+      viewerKey: "owner@example.com",
+      viewerEmail: "owner@example.com",
+      viewerName: "owner",
+      totalWatchMs: 1000,
+      completedPct: 10,
+      countedView: false,
+      ctaClicked: false,
+    });
+    mocks.getSession.mockResolvedValue({ email: "OWNER@example.com" });
+    mocks.getDb.mockReturnValue(ownerViewer.db);
+    await handler(
+      makeEvent({ sessionId: "owner-session", totalWatchMs: 5000 }) as any,
+    );
+
+    expect(mocks.enqueueTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it("uses the stable recording key when later viewer rows qualify", async () => {
+    for (const sessionId of ["first-session", "later-session"]) {
+      const { db } = createStatefulDb({
+        id: `viewer-${sessionId}`,
+        recordingId: "rec-example",
+        viewerKey: `anon:${sessionId}`,
+        viewerEmail: null,
+        viewerName: `anon:${sessionId}`,
+        totalWatchMs: 0,
+        completedPct: 0,
+        countedView: false,
+        ctaClicked: false,
+      });
+      mocks.getDb.mockReturnValue(db);
+      await handler(makeEvent({ sessionId, totalWatchMs: 5000 }) as any);
+    }
+
+    expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.enqueueTransactionalEmail.mock.calls.map(
+        ([logicalKey]) => logicalKey,
+      ),
+    ).toEqual(["first-view:rec-example", "first-view:rec-example"]);
   });
 
   it("concurrent first events share one viewer and preserve monotonic flags", async () => {

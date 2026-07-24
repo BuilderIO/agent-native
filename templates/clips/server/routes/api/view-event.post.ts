@@ -38,6 +38,7 @@ import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../../db/index.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
+import { transactionalEmailStore } from "../../lib/transactional-email-store.js";
 
 interface ViewEventBody {
   recordingId?: string;
@@ -407,6 +408,25 @@ export default defineEventHandler(async (event) => {
         if (!updated) throw new Error("Canonical recording viewer disappeared");
         return updated;
       });
+
+      const ownerEmail = rec.ownerEmail?.trim();
+      const transitionedToCountedView =
+        !existing.countedView && persisted.countedView;
+      const viewerIsOwner =
+        Boolean(viewerEmail && ownerEmail) &&
+        viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
+      if (transitionedToCountedView && ownerEmail && !viewerIsOwner) {
+        try {
+          await transactionalEmailStore.enqueue(`first-view:${recordingId}`, {
+            type: "first-view",
+            recipient: ownerEmail,
+            recordingIds: [recordingId],
+            requestedBy: ownerEmail,
+          });
+        } catch (err) {
+          console.warn("[view-event] first-view email enqueue failed:", err);
+        }
+      }
 
       // Only broadcast a refresh signal on "meaningful" events to avoid
       // spamming the polling clients every 2s with watch-progress

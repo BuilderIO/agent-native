@@ -4,7 +4,7 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -18,6 +18,7 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
+import { transactionalEmailStore } from "../server/lib/transactional-email-store.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -113,6 +114,39 @@ function boundedDurationMs(value: number | null | undefined): number {
   );
 }
 
+export async function enqueueFirstImportEmailIfEligible(
+  input: { recordingId: string; ownerEmail: string; createdAt: string },
+  db: ReturnType<typeof getDb> = getDb(),
+): Promise<void> {
+  const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
+  if (input.createdAt < enabledAt) return;
+
+  const [firstReadyImport] = await db
+    .select({ id: schema.recordings.id })
+    .from(schema.recordings)
+    .where(
+      and(
+        ownerEmailMatches(schema.recordings.ownerEmail, input.ownerEmail),
+        eq(schema.recordings.status, "ready"),
+        inArray(schema.recordings.sourceAppName, ["Loom", "Video link"]),
+        gte(schema.recordings.createdAt, enabledAt),
+      ),
+    )
+    .orderBy(asc(schema.recordings.createdAt), asc(schema.recordings.id))
+    .limit(1);
+  if (firstReadyImport?.id !== input.recordingId) return;
+
+  await transactionalEmailStore.enqueue(
+    `first-import:${input.ownerEmail.trim().toLowerCase()}`,
+    {
+      type: "first-import",
+      recipient: input.ownerEmail,
+      recordingIds: [input.recordingId],
+      requestedBy: input.ownerEmail,
+    },
+  );
+}
+
 async function fetchLoomOembed(shareUrl: string) {
   const endpoint = new URL("https://www.loom.com/v1/oembed");
   endpoint.searchParams.set("url", shareUrl);
@@ -181,7 +215,9 @@ export default defineAction({
         existingRecording.sourceAppName?.trim().toLowerCase() !==
         sourceAppName.toLowerCase()
       ) {
-        throw new Error("Only a matching waiting import can be retried this way.");
+        throw new Error(
+          "Only a matching waiting import can be retried this way.",
+        );
       }
       const isWaitingStorageRetry =
         existingRecording.status === "uploading" &&
@@ -203,6 +239,7 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
+    const createdAt = existingRecording?.createdAt ?? now;
     const oembed = isLoom ? await fetchLoomOembed(loomShareUrl!) : null;
 
     const spaceIds = (
@@ -220,9 +257,7 @@ export default defineAction({
         : `Imported video ${id.slice(0, 8)}`);
     const durationMs = boundedDurationMs(oembed?.duration);
     const width = boundedDimension(oembed?.width ?? oembed?.thumbnail_width);
-    const height = boundedDimension(
-      oembed?.height ?? oembed?.thumbnail_height,
-    );
+    const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
       args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
@@ -274,7 +309,7 @@ export default defineAction({
           status: "uploading",
           failureReason: storageSetupReason,
           ownerEmail,
-          createdAt: now,
+          createdAt,
         });
       }
 
@@ -358,7 +393,7 @@ export default defineAction({
         status: "ready",
         failureReason: null,
         ownerEmail,
-        createdAt: now,
+        createdAt,
       });
     }
 
@@ -421,6 +456,11 @@ export default defineAction({
         createdAt: now,
       });
     }
+
+    await enqueueFirstImportEmailIfEligible(
+      { recordingId: id, ownerEmail, createdAt },
+      db,
+    );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState("navigate", { view: "recording", recordingId: id });
