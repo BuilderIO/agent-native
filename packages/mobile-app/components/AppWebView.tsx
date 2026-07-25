@@ -250,6 +250,21 @@ function AppWebView(
     [sessionTokenKey, sessionOwnerKey, trustedOrigin],
   );
 
+  // Persist everything the deep-link handler needs to finish an OAuth callback
+  // (route to return to, token/owner storage keys, app origin) so completion
+  // works even if Android kills this app while it's in the browser. Shared by
+  // every path that hands OAuth off to the system browser via a deep link.
+  const persistOAuthReturnContext = useCallback(
+    () =>
+      AsyncStorage.multiSet([
+        [OAUTH_RETURN_PATH_KEY, pathnameRef.current],
+        [OAUTH_TOKEN_STORE_KEY, sessionTokenKey],
+        [OAUTH_OWNER_KEY_KEY, sessionOwnerKey ?? ""],
+        [OAUTH_BASE_URL_KEY, trustedOrigin ?? ""],
+      ]),
+    [sessionTokenKey, sessionOwnerKey, trustedOrigin],
+  );
+
   // Google refuses OAuth inside embedded WebViews, so run the flow in a system
   // browser tab.
   const openGoogleSession = useCallback(
@@ -261,14 +276,8 @@ function AppWebView(
           // an external browser/app and never redirect back (expo #27500).
           // Open a Custom Tab in the preferred browser and let the
           // agentnative://oauth-complete deep link (OAuthDeepLinkHandler) bring
-          // the result back — persist the completion context first so it can
-          // finish even if Android kills this app while it's in the browser.
-          await AsyncStorage.multiSet([
-            [OAUTH_RETURN_PATH_KEY, pathnameRef.current],
-            [OAUTH_TOKEN_STORE_KEY, sessionTokenKey],
-            [OAUTH_OWNER_KEY_KEY, sessionOwnerKey ?? ""],
-            [OAUTH_BASE_URL_KEY, trustedOrigin ?? ""],
-          ]);
+          // the result back.
+          await persistOAuthReturnContext();
           const { preferredBrowserPackage } =
             await WebBrowser.getCustomTabsSupportingBrowsersAsync();
           await WebBrowser.openBrowserAsync(googleUrl, {
@@ -294,7 +303,7 @@ function AppWebView(
         console.log("[oauth] auth session error:", String(e));
       }
     },
-    [oauthContext, sessionTokenKey, sessionOwnerKey, trustedOrigin],
+    [oauthContext, persistOAuthReturnContext],
   );
 
   // Some core versions navigate the WebView straight to the auth-url endpoint,
@@ -396,17 +405,29 @@ function AppWebView(
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
           const parsed = new URL(msg.url);
-          // Only open external hosts in Safari — anything else is ignored
+          // Only open external hosts in Safari — anything else is ignored.
+          // These are Google OAuth hosts, so persist the completion context
+          // (like the intercepted-navigation path) before handing off, or the
+          // deep-link callback can't restore the return route / Clips token key.
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             rememberOAuthState(msg.url);
-            void Linking.openURL(msg.url);
+            void (async () => {
+              await persistOAuthReturnContext();
+              await Linking.openURL(msg.url);
+            })().catch(() => {});
           }
         }
       } catch {
         // Ignore malformed messages
       }
     },
-    [captureSessionToken, sessionOwnerKey, sessionTokenKey, trustedOrigin],
+    [
+      captureSessionToken,
+      sessionOwnerKey,
+      sessionTokenKey,
+      trustedOrigin,
+      persistOAuthReturnContext,
+    ],
   );
 
   const handleLoadEnd = useCallback(

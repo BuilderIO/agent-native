@@ -22,8 +22,12 @@ export async function consumeOAuthStateMatches(
   state: string | null,
 ): Promise<boolean> {
   const expected = await AsyncStorage.getItem(OAUTH_STATE_KEY);
-  await AsyncStorage.removeItem(OAUTH_STATE_KEY);
-  return Boolean(expected) && state === expected;
+  const matches = Boolean(expected) && state === expected;
+  // Only consume on a match. A stale or forged callback must not clear the
+  // pending state, or the legitimate redirect that follows would fail to
+  // validate and leave the user signed out.
+  if (matches) await AsyncStorage.removeItem(OAUTH_STATE_KEY);
+  return matches;
 }
 
 // Clips needs an owner key (derived from email/orgId) alongside the token
