@@ -718,7 +718,7 @@ describe("Builder callback CSRF state", () => {
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it("uses the configured Builder user id instead of caller email", async () => {
+    it("attributes the branch to the requesting user, not the connected credential", async () => {
       process.env.BUILDER_PRIVATE_KEY = "bpk-test";
       process.env.BUILDER_PUBLIC_KEY = "pub-test";
       process.env.BUILDER_USER_ID = "builder-user-123";
@@ -740,12 +740,55 @@ describe("Builder callback CSRF state", () => {
       await runBuilderAgent({
         prompt: "Create an app",
         projectId: "project-123",
+        userEmail: "brent@builder.io",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(body.userEmail).toBe("brent@builder.io");
+      expect(body.userId).toBeUndefined();
+    });
+
+    it("falls back to the credential user when the caller email is not a Space member", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-test";
+      process.env.BUILDER_PUBLIC_KEY = "pub-test";
+      process.env.BUILDER_USER_ID = "builder-user-123";
+      process.env.BUILDER_API_HOST = "https://api.test.builder.io";
+
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "User not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              branchName: "qa-branch",
+              projectId: "project-123",
+              url: "https://builder.io/app/projects/project-123/branch/qa-branch",
+              status: "processing",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const result = await runBuilderAgent({
+        prompt: "Create an app",
+        projectId: "project-123",
         userEmail: "dispatch+slack@integration.local",
       });
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      expect(body.userId).toBe("builder-user-123");
-      expect(body.userEmail).toBeUndefined();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const first = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(first.userEmail).toBe("dispatch+slack@integration.local");
+      const second = JSON.parse(fetchSpy.mock.calls[1][1].body);
+      expect(second.userId).toBe("builder-user-123");
+      expect(second.userEmail).toBeUndefined();
+      expect(result.branchName).toBe("qa-branch");
     });
 
     it("rejects a blank branchName from Builder instead of returning an unusable run", async () => {
