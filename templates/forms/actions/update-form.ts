@@ -6,7 +6,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import {
+  assertValidFields,
+  normalizeFieldIds,
+} from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
@@ -81,6 +84,7 @@ export default defineAction({
       } else {
         parsedFields = args.fields;
       }
+      parsedFields = normalizeFieldIds(parsedFields);
       assertValidFields(parsedFields);
       updates.fields = JSON.stringify(parsedFields);
     }

@@ -6801,6 +6801,90 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("coerces a JSON-encoded string into the object/array the tool schema expects", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "stringified-call",
+            name: "update-source",
+            input: {
+              id: "src-1",
+              // The model JSON-encoded the object instead of sending it
+              // directly — the real failure signature seen repeatedly in
+              // prod (brain's update-source, 11 identical retries/turn).
+              config: '{"host":"db.example.com","port":5432}',
+            },
+            error: "input/config must be object",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Updated." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "updated");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "update-source": {
+          tool: {
+            description: "Update source",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                config: { type: "object" },
+              },
+              required: ["id", "config"],
+            },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith(
+      { id: "src-1", config: { host: "db.example.com", port: 5432 } },
+      expect.any(Object),
+    );
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "update-source",
+        isError: true,
+      }),
+    );
+  });
+
   it("marks MCP isError results as errored tool results for the next model turn", async () => {
     let streamCalls = 0;
     const seenMessages: any[] = [];
