@@ -1,5 +1,6 @@
 # Agent-Native
 
+
 ## The framework for agentic apps
 
 Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.
@@ -23,6 +24,12 @@ export default defineAction({
 - **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
 ## Don't pick between apps or agents.
+
+
+
+https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
+
+
 
 Agent-native apps are both
 
