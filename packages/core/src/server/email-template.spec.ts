@@ -15,6 +15,20 @@ describe("renderEmail", () => {
     expect(html).toContain(">Clips</span>");
   });
 
+  it("uses an organization logo when provided", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      brandLogoUrl: "https://clips.example/api/media/org-logo.png",
+      heading: "A Clip was shared",
+      paragraphs: ["Open the Clip below."],
+    });
+
+    expect(html).toContain(
+      'src="https://clips.example/api/media/org-logo.png"',
+    );
+    expect(html).not.toContain('src="cid:agent-native-logo"');
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",

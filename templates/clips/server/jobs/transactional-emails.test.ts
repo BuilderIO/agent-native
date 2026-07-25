@@ -28,6 +28,7 @@ async function testRoot(): Promise<string> {
 function recording(id: string, ownerEmail = "sender@example.com"): Recording {
   return {
     id,
+    organizationId: "org-1",
     ownerEmail,
     title: `Clip ${id}`,
     titleSource: "default",
@@ -46,6 +47,8 @@ function createRepository(state: {
   viewed?: Set<string>;
   countedViews?: Map<string, Array<string | null>>;
   imports?: Recording[];
+  displayNames?: Map<string, string>;
+  brandLogoUrls?: Map<string, string>;
 }): TransactionalEmailRepository {
   const recipientKey = (recipient: string, recordingId: string) =>
     `${recipient.toLowerCase()}:${recordingId}`;
@@ -162,6 +165,12 @@ function createRepository(state: {
     },
     async getRecording(recordingId) {
       return state.recordings.get(recordingId) ?? null;
+    },
+    async getUserDisplayName(email) {
+      return state.displayNames?.get(email) ?? null;
+    },
+    async getOrganizationBrandLogoUrl(organizationId) {
+      return state.brandLogoUrls?.get(organizationId) ?? null;
     },
     async recipientOwnsRecording(recipient) {
       return state.owners?.has(recipient) ?? false;
@@ -373,6 +382,49 @@ describe("transactional email worker", () => {
     expect(await clock.store.readJob("unviewed-reminder:too-new")).toBeNull();
     expect(await clock.store.readJob("unviewed-reminder:local")).toBeNull();
     expect(await clock.store.readJob("unviewed-reminder:qa")).toBeNull();
+  });
+
+  it("resolves the reminder originator profile and organization logo", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:00.000Z");
+    const share: Share = {
+      id: "branded-reminder",
+      recordingId: "recording-1",
+      recipient: "person@example.com",
+      createdBy: "sender@example.com",
+      createdAt: "2026-08-01T00:00:00.000Z",
+    };
+    const send = vi.fn().mockResolvedValue(undefined);
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [share],
+        recordings: new Map([
+          ["recording-1", recording("recording-1", "sender@example.com")],
+        ]),
+        displayNames: new Map([["sender@example.com", "Alex Rivera"]]),
+        brandLogoUrls: new Map([
+          ["org-1", "/clips/api/media/org-logo.png"],
+        ]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).toHaveBeenCalledWith({
+      kind: "unviewed-reminder",
+      to: "person@example.com",
+      recordingId: "recording-1",
+      title: "Clip recording-1",
+      senderEmail: "sender@example.com",
+      senderName: "Alex Rivera",
+      brandLogoUrl: "/clips/api/media/org-logo.png",
+    });
+    expect(
+      await clock.store.readJob("unviewed-reminder:branded-reminder"),
+    ).toMatchObject({ state: "sent" });
   });
 
   it("skips malformed share recipients without wedging the due cursor", async () => {

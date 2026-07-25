@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 
 const CLIPS_BRAND_NAME = "Clips";
+const FRIENDLY_REPLY_TO = "hello@agent-native.com";
 const UNTITLED_CLIP = "Untitled Clip";
 
 interface TransactionalEmailBase {
@@ -24,6 +25,8 @@ export type ClipsTransactionalEmailInput =
       recordingId: string;
       title?: string | null;
       senderEmail?: string | null;
+      senderName?: string | null;
+      brandLogoUrl?: string | null;
     })
   | (TransactionalEmailBase & {
       kind: "first-import";
@@ -103,6 +106,29 @@ function recordUrl(options: ClipsTransactionalEmailRenderOptions): string {
   return appUrlForPath("/record", options);
 }
 
+function resolveBrandLogoUrl(
+  value: string | null | undefined,
+  options: ClipsTransactionalEmailRenderOptions,
+): string | undefined {
+  const candidate = singleLine(value);
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate, options.appUrl);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function validReplyTo(value: string | null | undefined): string | undefined {
+  const candidate = singleLine(value).toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)
+    ? candidate
+    : undefined;
+}
+
 export function renderClipsTransactionalEmail(
   input: ClipsTransactionalEmailInput,
   options: ClipsTransactionalEmailRenderOptions,
@@ -115,7 +141,6 @@ export function renderClipsTransactionalEmail(
       const subject = `Your Clip “${title}” got its first view`;
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-
         preheader: subject,
         heading: "Someone watched your Clip",
         paragraphs: [
@@ -133,12 +158,14 @@ export function renderClipsTransactionalEmail(
     }
 
     case "unviewed-reminder": {
-      const sender = normalizeEmailDisplayName(input.senderEmail, "Someone");
+      const sender =
+        singleLine(input.senderName) ||
+        normalizeEmailDisplayName(input.senderEmail, "Someone");
       const subject = `Still need to watch “${title}”?`;
       const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-
+        brandLogoUrl: resolveBrandLogoUrl(input.brandLogoUrl, options),
         preheader: subject,
         heading: `${sender} shared a Clip with you`,
         paragraphs: [
@@ -163,7 +190,6 @@ export function renderClipsTransactionalEmail(
       const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-
         preheader: subject,
         heading: "Your video is ready for more than playback",
         paragraphs: [
@@ -192,7 +218,6 @@ export function renderClipsTransactionalEmail(
       const subject = "You've received two Clips. What would you create?";
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-
         preheader: subject,
         heading: "You’ve received two Agent-Native Clips",
         paragraphs: [
@@ -219,11 +244,24 @@ export async function sendClipsTransactionalEmail(
     appBasePath: process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   });
 
+  const reminderSender =
+    input.kind === "unviewed-reminder"
+      ? singleLine(input.senderName) ||
+        normalizeEmailDisplayName(input.senderEmail, "Someone")
+      : undefined;
+
   await sendEmail({
     to: input.to,
     subject: rendered.subject,
     html: rendered.html,
     text: rendered.text,
+    fromName: reminderSender
+      ? `${reminderSender} (via Agent-Native Clips)`
+      : undefined,
+    replyTo:
+      input.kind === "unviewed-reminder"
+        ? validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO
+        : FRIENDLY_REPLY_TO,
   });
 }
 

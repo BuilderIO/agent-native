@@ -1,5 +1,6 @@
 import { isEmailConfigured } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { getUserSetting } from "@agent-native/core/settings";
 import {
   and,
   asc,
@@ -16,6 +17,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
@@ -49,6 +51,7 @@ type DirectShare = {
 
 type RecordingState = {
   id: string;
+  organizationId: string;
   ownerEmail: string;
   title: string;
   titleSource: string;
@@ -115,6 +118,8 @@ export interface TransactionalEmailRepository {
     limit: number,
   ): Promise<RecordingState[]>;
   getRecording(recordingId: string): Promise<RecordingState | null>;
+  getUserDisplayName(email: string): Promise<string | null>;
+  getOrganizationBrandLogoUrl(organizationId: string): Promise<string | null>;
   recipientOwnsRecording(recipient: string): Promise<boolean>;
   recipientHasShare(
     recipient: string,
@@ -349,6 +354,7 @@ function defaultRepository(): TransactionalEmailRepository {
       return db
         .select({
           id: schema.recordings.id,
+          organizationId: schema.recordings.organizationId,
           ownerEmail: schema.recordings.ownerEmail,
           title: schema.recordings.title,
           titleSource: schema.recordings.titleSource,
@@ -385,6 +391,7 @@ function defaultRepository(): TransactionalEmailRepository {
       const [recording] = await db
         .select({
           id: schema.recordings.id,
+          organizationId: schema.recordings.organizationId,
           ownerEmail: schema.recordings.ownerEmail,
           title: schema.recordings.title,
           titleSource: schema.recordings.titleSource,
@@ -398,6 +405,23 @@ function defaultRepository(): TransactionalEmailRepository {
         .where(eq(schema.recordings.id, recordingId))
         .limit(1);
       return recording ?? null;
+    },
+    async getUserDisplayName(email) {
+      const prefs = await getUserSetting(email, CLIPS_USER_PREFS_KEY);
+      const displayName = prefs?.displayName;
+      return typeof displayName === "string" && displayName.trim()
+        ? displayName.trim()
+        : null;
+    },
+    async getOrganizationBrandLogoUrl(organizationId) {
+      const [settings] = await db
+        .select({ brandLogoUrl: schema.organizationSettings.brandLogoUrl })
+        .from(schema.organizationSettings)
+        .where(
+          eq(schema.organizationSettings.organizationId, organizationId),
+        )
+        .limit(1);
+      return settings?.brandLogoUrl?.trim() || null;
     },
     async recipientOwnsRecording(recipient) {
       const [recording] = await db
@@ -714,12 +738,21 @@ async function makeSendInput(
     ) {
       return null;
     }
+    const senderEmail =
+      normalizedEmail(job.requestedBy) ??
+      normalizedEmail(recordings[0].ownerEmail);
+    const [senderName, brandLogoUrl] = await Promise.all([
+      senderEmail ? repository.getUserDisplayName(senderEmail) : null,
+      repository.getOrganizationBrandLogoUrl(recordings[0].organizationId),
+    ]);
     return {
       kind: "unviewed-reminder",
       to: recipient,
       recordingId: recordings[0].id,
       title: recordings[0].title,
-      senderEmail: job.requestedBy ?? recordings[0].ownerEmail,
+      senderEmail,
+      senderName,
+      brandLogoUrl,
     };
   }
 

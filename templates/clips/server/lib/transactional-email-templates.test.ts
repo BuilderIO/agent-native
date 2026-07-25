@@ -229,10 +229,17 @@ describe("renderClipsTransactionalEmail", () => {
       to: "viewer@example.test",
       recordingId: "rec-2",
       title: "Launch notes",
+      senderEmail: "alex@example.test",
+      senderName: "Alex Rivera",
+      brandLogoUrl: "/brand/org-logo.png",
     });
     const reminderIntro =
       "Don't have a moment to spare? Share the below link with your own AI agent and ask it for a summary:";
     expect(reminder.text).toContain(reminderIntro);
+    expect(reminder.html).toContain("Alex Rivera shared a Clip with you");
+    expect(reminder.html).toContain(
+      'src="https://clips.example/brand/org-logo.png"',
+    );
     expect(reminder.html.indexOf(reminderIntro)).toBeLessThan(
       reminder.html.indexOf("Watch the Clip Manually"),
     );
@@ -303,6 +310,33 @@ describe("sendClipsTransactionalEmail", () => {
       text: expect.stringContaining(
         "Open your Agent-Native Clip: https://workspace.example/clips/r/rec-1",
       ),
+      fromName: undefined,
+      replyTo: "hello@agent-native.com",
+    });
+  });
+
+  it("sends reminders from the originator identity with their Reply-To", async () => {
+    mocks.getAppProductionUrl.mockReturnValue("https://workspace.example");
+
+    await sendClipsTransactionalEmail({
+      kind: "unviewed-reminder",
+      to: "viewer@example.test",
+      recordingId: "rec-2",
+      title: "Launch notes",
+      senderEmail: "alex@example.com",
+      senderName: "Alex Rivera",
+      brandLogoUrl: "/api/media/org-logo.png",
+    });
+
+    expect(mocks.sendEmail).toHaveBeenCalledWith({
+      to: "viewer@example.test",
+      subject: "Still need to watch “Launch notes”?",
+      html: expect.stringContaining(
+        'src="https://workspace.example/api/media/org-logo.png"',
+      ),
+      text: expect.stringContaining("Alex Rivera shared a Clip with you"),
+      fromName: "Alex Rivera (via Agent-Native Clips)",
+      replyTo: "alex@example.com",
     });
   });
 });

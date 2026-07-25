@@ -48,6 +48,8 @@ export interface RenderEmailArgs {
   footer?: string;
   /** Optional app name shown beside the framework logo. */
   brandName?: string;
+  /** Optional organization logo URL. Falls back to the Agent Native logo. */
+  brandLogoUrl?: string;
   /**
    * Optional brand hex color for the CTA button and inline links. Defaults to
    * a monochrome near-white button with dark text.
@@ -132,11 +134,13 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${escapeHtml(args.footer)}</p>`
     : "";
 
+  const brandLogoUrl =
+    args.brandLogoUrl || `cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}`;
   const brandHeaderHtml = `
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px 0; padding:0 0 24px 0; border-bottom:1px solid #27272a;">
                   <tr>
                     <td align="center">
-                      <img src="cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}" alt="${escapeAttr(brandName)}" width="28" height="28" style="display:inline-block; vertical-align:middle; width:28px; height:28px; margin:0 8px 0 0; border:0;" />
+                      <img src="${escapeAttr(brandLogoUrl)}" alt="${escapeAttr(brandName)}" width="28" height="28" style="display:inline-block; vertical-align:middle; width:28px; height:28px; margin:0 8px 0 0; border:0;" />
                       <span style="font-size:18px; line-height:28px; font-weight:600; color:#fafafa; vertical-align:middle;">${escapeHtml(brandName)}</span>
                     </td>
                   </tr>

@@ -9,6 +9,28 @@ describe("sendEmail", () => {
     vi.unstubAllGlobals();
   });
 
+  it("overrides only the verified sender display name and maps Reply-To", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "A Clip was shared",
+      html: "<p>Open it below.</p>",
+      fromName: "Alex Doe (via Agent-Native Clips)",
+      replyTo: "alex@example.com",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      email: "reports@example.com",
+      name: "Alex Doe (via Agent-Native Clips)",
+    });
+    expect(body.reply_to).toEqual({ email: "alex@example.com" });
+  });
+
   it("maps inline CID attachments for SendGrid", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");

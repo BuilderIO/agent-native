@@ -31,6 +31,7 @@ export interface SendEmailArgs {
   html: string;
   text?: string;
   from?: string;
+  fromName?: string;
   cc?: string | string[];
   replyTo?: string;
   inReplyTo?: string;
@@ -113,17 +114,27 @@ export async function getEmailProvider(): Promise<EmailProvider> {
 function getFromAddress(
   config: EmailTransportConfig,
   override?: string,
+  fromName?: string,
 ): string {
   const explicit = override || config.from;
-  if (explicit) return explicit;
-  // Resend lets unverified accounts send from its sandbox domain; SendGrid
-  // does not, so falling back there would cause silent 403s at runtime.
-  if (config.provider === "sendgrid") {
-    throw new Error(
-      "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
-    );
+  let resolved: string;
+  if (explicit) {
+    resolved = explicit;
+  } else {
+    // Resend lets unverified accounts send from its sandbox domain; SendGrid
+    // does not, so falling back there would cause silent 403s at runtime.
+    if (config.provider === "sendgrid") {
+      throw new Error(
+        "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
+      );
+    }
+    resolved = "Agent Native <onboarding@resend.dev>";
   }
-  return "Agent Native <onboarding@resend.dev>";
+
+  const name = fromName?.replace(/[\r\n<>]/g, " ").trim();
+  if (!name) return resolved;
+  const parsed = parseSendGridFrom(resolved);
+  return `${name} <${parsed.email}>`;
 }
 
 async function sendEmailWithSignal(
@@ -133,7 +144,7 @@ async function sendEmailWithSignal(
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
-  const from = getFromAddress(config, args.from);
+  const from = getFromAddress(config, args.from, args.fromName);
   const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
