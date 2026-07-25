@@ -119,6 +119,9 @@ const CHART_LEGEND_PROPS = {
 } as const;
 
 const CHART_RESIZE_DEBOUNCE_MS = 50;
+// Recharts' default series animation duration, plus room for the debounced
+// resize callback that follows a lazy-loaded panel's first layout pass.
+const CHART_ENTRY_ANIMATION_MS = 1500 + CHART_RESIZE_DEBOUNCE_MS * 2;
 const LEGEND_ACTION_CLOSE_DELAY_MS = 600;
 
 type ChartSize = {
@@ -136,12 +139,38 @@ export function hasChartSizeChanged(
   );
 }
 
+export function shouldDisableChartAnimation(
+  entryAnimationSettled: boolean,
+  previous: ChartSize | null,
+  next: ChartSize,
+): boolean {
+  return entryAnimationSettled && hasChartSizeChanged(previous, next);
+}
+
 function useChartResizeAnimation() {
   const [isAnimationActive, setIsAnimationActive] = useState(true);
   const firstSizeRef = useRef<ChartSize | null>(null);
+  // Switching Recharts to isAnimationActive=false mid-flight freezes the line's
+  // stroke-dasharray at whatever partial length it reached, leaving the series
+  // invisible forever. Lazy-loaded panels reflow right after mounting, so the
+  // entry animation has to be allowed to finish before a resize can disable it.
+  const entryAnimationSettledRef = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      entryAnimationSettledRef.current = true;
+    }, CHART_ENTRY_ANIMATION_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
   const handleResize = useCallback((width: number, height: number) => {
     const nextSize = { width, height };
-    if (hasChartSizeChanged(firstSizeRef.current, nextSize)) {
+    if (
+      shouldDisableChartAnimation(
+        entryAnimationSettledRef.current,
+        firstSizeRef.current,
+        nextSize,
+      )
+    ) {
       setIsAnimationActive(false);
     }
     firstSizeRef.current = nextSize;

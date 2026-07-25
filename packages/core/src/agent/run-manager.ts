@@ -29,6 +29,7 @@ import {
   setRunError,
   setRunTerminalReason,
 } from "./run-store.js";
+import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
@@ -1429,10 +1430,28 @@ function subscribeFromSQL(
                   return;
                 }
               } else if (run?.status === "completed") {
+                // A chunk boundary is also status "completed" (with a
+                // continuation terminal_reason, and a chained successor run
+                // already carrying the turn). Synthesizing `done` here told the
+                // client the agent stopped while it was still working, which
+                // surfaced as a premature "stopped without sending a final
+                // message". Prefer the run's REAL terminal event, then the
+                // terminal_reason, before falling back to `done`.
+                const existing = await getLastTerminalRunEvent(runId).catch(
+                  () => null,
+                );
+                const terminalEvent = existing
+                  ? existing.event
+                  : isContinuationTerminalReason(run.terminalReason)
+                    ? { type: "auto_continue", reason: run.terminalReason }
+                    : { type: "done" };
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
+                      `data: ${JSON.stringify({
+                        ...terminalEvent,
+                        seq: existing?.seq ?? lastSeq,
+                      })}\n\n`,
                     ),
                   );
                 } catch {

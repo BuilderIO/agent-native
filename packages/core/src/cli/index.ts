@@ -884,6 +884,21 @@ switch (command) {
     break;
   }
 
+  case "template": {
+    // Pull later upstream first-party template changes into a generated app
+    // via a 3-way merge against the tree it was scaffolded from.
+    import("./template-sync.js")
+      .then(async (m) => {
+        const code = await m.runTemplate(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "doctor": {
     // Scan app source for security-critical guard invariants (see
     // `agent-native doctor --help`). For dependency-pin health, see
@@ -1243,6 +1258,11 @@ Usage:
                                 skills, and typecheck. Prefer this over
                                 patching core/dispatch. 'upgrade check' is
                                 doctor-only.
+  agent-native template <cmd>   Pull later upstream template changes into an
+                                app generated from a first-party template, via
+                                a 3-way merge against the tree it was
+                                scaffolded from. cmds: status | diff | sync |
+                                baseline | accept. Run after 'upgrade'.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to

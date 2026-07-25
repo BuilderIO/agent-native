@@ -21,6 +21,15 @@ vi.mock("./run-store.js", () => ({
   getRunAbortState: vi.fn(() => Promise.resolve({ aborted: false })),
   getRunEventsSince: vi.fn(() => Promise.resolve([])),
   getRunById: vi.fn(() => Promise.resolve(null)),
+  isContinuationTerminalReason: (reason: unknown) =>
+    reason === "auto_continue" ||
+    reason === "run_timeout" ||
+    reason === "loop_limit" ||
+    reason === "max_tokens" ||
+    reason === "stream_ended" ||
+    reason === "gateway_timeout" ||
+    reason === "network_interrupted" ||
+    reason === "no_progress",
   getRunByThread: vi.fn(() => Promise.resolve(null)),
   cleanupOldRuns: vi.fn(() => Promise.resolve()),
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
@@ -1964,6 +1973,102 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain('data: {"type":"done","seq":0}');
+  });
+
+  it("preserves continuation boundaries for completed SQL runs", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-continuation",
+      threadId: "thread-sql-continuation",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "stream_ended",
+    });
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-continuation", 0);
+    expect(stream).not.toBeNull();
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain(
+      'data: {"type":"auto_continue","reason":"stream_ended","seq":0}',
+    );
+    expect(output).not.toContain('"type":"done"');
+  });
+
+  it("re-emits auto_continue instead of done for a completed chunk-boundary SQL run", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-chunk",
+      threadId: "thread-sql-chunk",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "run_timeout",
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-chunk", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    // A false `done` here tells the client the agent stopped while the chained
+    // successor run is still working ("stopped without sending a final message").
+    expect(chunks.join("")).toContain(
+      'data: {"type":"auto_continue","reason":"run_timeout","seq":0}',
+    );
+    expect(chunks.join("")).not.toContain('"type":"done"');
+  });
+
+  it("re-emits the run's real terminal event when the subscriber cursor is past it", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-past-cursor",
+      threadId: "thread-sql-past-cursor",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "auto_continue",
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue({
+      seq: 7,
+      event: { type: "auto_continue", reason: "no_progress" },
+    });
+
+    const stream = subscribeToRun("run-sql-past-cursor", 9);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    expect(chunks.join("")).toContain(
+      'data: {"type":"auto_continue","reason":"no_progress","seq":7}',
+    );
   });
 
   it("returns recently-completed SQL runs from /runs/active so reconnect can replay them", async () => {

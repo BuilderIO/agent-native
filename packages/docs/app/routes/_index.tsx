@@ -694,8 +694,6 @@ export default defineAction({
   schema: z.object({
     name: z.string().default("world"),
   }),
-  http: { method: "GET" },
-  readOnly: true,
   run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
 });`;
 

@@ -32,7 +32,13 @@ import {
   type LoaderFunctionArgs,
   type MetaFunction,
 } from "react-router";
-import { Link, useLoaderData, useNavigate, useParams } from "react-router";
+import {
+  Link,
+  useLoaderData,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -41,6 +47,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
+import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
@@ -82,6 +89,7 @@ import {
   buildSignupAttributionQuery,
   readShareAttribution,
 } from "../../shared/share-attribution";
+import { resolveDashboardRedirect } from "../../shared/share-dashboard-redirect";
 import { privateShareLoaderData } from "../../shared/share-loader-response";
 import {
   buildClipsShareMeta,
@@ -344,6 +352,7 @@ export default function ShareRoute() {
   const loaderData = useLoaderData<typeof loader>() as SharePageLoaderData;
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -415,6 +424,7 @@ export default function ShareRoute() {
     null,
   );
   const [processingTimeout, setProcessingTimeout] = useState(false);
+  const [panel, setPanel] = useState("comments");
   const requireSignIn = useCallback(
     (intent: "comment" | "react") => setSignInIntent(intent),
     [],
@@ -499,6 +509,10 @@ export default function ShareRoute() {
     viewerRole === "admin" ||
     viewerRole === "editor";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
+  const viewerCanOpenDashboard = Boolean(
+    dataQ.data?.data?.viewer?.canOpenDashboard,
+  );
+  const viewCount = Number(dataQ.data?.data?.viewCount ?? 0);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
     : false;
@@ -521,6 +535,21 @@ export default function ShareRoute() {
     if (!recording) return;
     document.title = clipsSharePageTitle(recording.title);
   }, [recording?.title]);
+
+  // /share/:id and /r/:id render the same clip, so anyone who can open the
+  // authenticated page goes straight there rather than through a redundant
+  // "open dashboard" button. `canOpenDashboard` is the server's own
+  // `canOpenDirectRecordingPage` verdict; deriving it from the display role
+  // instead would bounce viewers between the two routes forever, since /r
+  // sends anyone it rejects back here.
+  useEffect(() => {
+    const target = resolveDashboardRedirect({
+      recordingId: recording?.id,
+      canOpenDashboard: viewerCanOpenDashboard,
+      search: searchParams.toString(),
+    });
+    if (target) navigate(target, { replace: true });
+  }, [viewerCanOpenDashboard, recording?.id, searchParams, navigate]);
 
   // The /share/* shell skips DbSyncSetup (and thus useNavigationState), so the
   // agent mounted in the side panel has no navigation context. Write it
@@ -809,12 +838,6 @@ export default function ShareRoute() {
                   {t("sharePage.signInIfYours")}
                 </a>
               </Button>
-            ) : canManageStorage && isFailure ? (
-              <Button asChild size="sm">
-                <a href={appPath(`/r/${recording.id}`)}>
-                  {t("sharePage.openDashboard")}
-                </a>
-              </Button>
             ) : null}
             <Button
               onClick={() => {
@@ -866,19 +889,13 @@ export default function ShareRoute() {
           </div>
 
           <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
-            {viewerCanEdit ? (
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={appPath(`/r/${recording.id}`)}
-                  className="min-w-0 gap-1.5"
-                >
-                  <span className="truncate">
-                    {t("sharePage.openDashboard")}
-                  </span>
-                  <IconExternalLink className="h-3.5 w-3.5 shrink-0" />
-                </a>
-              </Button>
-            ) : session ? null : (
+            <RecordingViewsBadge
+              recordingId={recording.id}
+              viewCount={viewCount}
+              canViewDetails={viewerCanEdit}
+              onOpenInsights={() => setPanel("insights")}
+            />
+            {session ? null : (
               <Button variant="ghost" size="sm" asChild>
                 <a
                   href={appPath("/")}
@@ -984,16 +1001,6 @@ export default function ShareRoute() {
 
           <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
             <div className="min-w-0 flex-1">
-              {showTitleSkeleton ? (
-                <Skeleton
-                  aria-label={t("sharePage.generatingTitle")}
-                  className="h-5 w-72 max-w-full"
-                />
-              ) : (
-                <h2 className="break-words text-base font-semibold leading-tight">
-                  {visibleTitle}
-                </h2>
-              )}
               {recording.description ? (
                 <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
@@ -1058,7 +1065,11 @@ export default function ShareRoute() {
       </div>
 
       <aside className="flex min-h-[420px] w-full min-w-0 shrink-0 flex-col border-t border-border bg-background lg:min-h-0 lg:w-[380px] lg:border-s lg:border-t-0">
-        <Tabs defaultValue="comments" className="flex h-full flex-col">
+        <Tabs
+          value={panel}
+          onValueChange={setPanel}
+          className="flex h-full flex-col"
+        >
           <TabsList className="mx-3 mt-3 grid w-auto grid-cols-4">
             <TabsTrigger value="comments" className="text-xs gap-1">
               {t("recordingPage.activity")}

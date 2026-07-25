@@ -46,6 +46,7 @@ Read this skill before:
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
 - **`recording_viewers`** + **`recording_events`** — view counting.
 - **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
+- **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
 
 ## Dropping in the share UI
 
@@ -213,6 +214,11 @@ they can fetch only the visual context they need.
 
 ## View counting
 
+Clips counts **human views** and **agent views** separately. The two live in
+different tables and never mix — see "Agent views" below before touching either.
+
+### Human views
+
 A view counts when **any** of these is true:
 
 - The viewer has watched **≥ 5 seconds** of total real playback time
@@ -236,6 +242,34 @@ if (
 ```
 
 Events feeding this live in `recording_events`. The `/api/view-event` route receives `view-start`, `watch-progress` (every 5s), `seek`, `pause`, `resume`, `cta-click`, `reaction`. Aggregate into `recording_viewers` on write to keep `get-insights` fast.
+
+### Agent views
+
+An **agent view** is an outside agent reading a clip through its public agent
+APIs — `/api/agent-context.json`, `/api/agent-transcript.json`,
+`/api/agent-frame.jpg`. Those routes are agent-only surfaces (a human watching a
+clip never hits them), so a request on one is the signal.
+
+- **Table:** `recording_agent_views` — one row per `(recordingId, agentKey, viewSessionId)`.
+  `agentKey` is a sha256 of user-agent + request IP, so an agent is countable
+  across polls without ever storing its IP. `agentLabel` is the product name
+  parsed from the user-agent (Claude, ChatGPT, Perplexity, …), falling back to
+  `"Agent"` — never the raw user-agent string.
+- **Where it's written:** `recordAgentView` in `server/lib/agent-views.ts`,
+  called from `loadPublicAgentAccess` — the one choke point all three agent
+  routes share. Owner requests are skipped (they're previews, not views), and the
+  write is best-effort so view accounting can never fail an agent's read.
+- **Dedup:** one agent's burst of context + transcript + frame polls collapses
+  into a single view via a 30-minute window (`AGENT_VIEW_SESSION_MS`), with
+  `requestCount` recording how many polls that view covered.
+- **Reads:** `countRecordingAgentViews` and `listRecordingAgentViewers`. Surfaced
+  as `agentViews` / `agentViewers` on `get-recording-insights` and
+  `agentViewCount` on `get-recording-player-data`, and rendered in the views pill
+  popover (`RecordingViewsBadge`) next to human views.
+
+Keeping this in its own table is deliberate: no human-view query can pick agents
+up by forgetting a filter. Do not add agent rows to `recording_viewers` or
+`recording_views`.
 
 ### Per-viewer view records ("Viewed by")
 

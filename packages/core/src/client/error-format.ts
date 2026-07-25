@@ -123,6 +123,24 @@ export function normalizeChatError(
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
 
+  const code = normalizeErrorCode(errorCode);
+
+  if (code === "builder_model_unauthorized") {
+    return {
+      message:
+        "The provider behind this model rejected the request. Pick a different model, then retry.",
+      details: text,
+    };
+  }
+
+  if (code === "builder_auth_error") {
+    return {
+      message:
+        "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+      details: text,
+    };
+  }
+
   if (isProviderRateLimit(text, errorCode)) {
     return {
       message:

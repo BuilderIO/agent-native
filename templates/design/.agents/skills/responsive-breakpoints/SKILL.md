@@ -35,7 +35,10 @@ scopes to `≤ 809px`). `breakpointUpperBoundPx` in
 - `set-active-breakpoint` — persists the active edit scope to application
   state (`design-active-breakpoint:<designId>`); the UI mirrors it in the
   `design-selection` state (`activeBreakpointId`). Check the active
-  breakpoint via `view-screen` before making responsive-only edits.
+  breakpoint via `view-screen` before making responsive-only edits. Its
+  `editScope` is `cascade-smaller` by default (edits at this breakpoint also
+  apply to every narrower one); pass `only` when the user explicitly wants a
+  bounded, breakpoint-only override.
 
 The UI's breakpoint bar (chips above the focused screen) and the overview's
 side-by-side linked frames drive the same state — a chip click changes the

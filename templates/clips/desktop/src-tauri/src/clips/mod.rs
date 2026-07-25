@@ -21,7 +21,7 @@ use crate::state::{
 };
 use crate::util::{
     build_overlay_url, configure_overlay_behavior, hide_voice_wake_popover, is_recording_active,
-    mark_popover_shown, present_interactive_window, set_capture_excluded,
+    mark_popover_shown, present_interactive_window, raise_to_status_level, set_capture_excluded,
     set_capture_excluded_always, set_capture_included, tray_monitor_physical_rect,
 };
 
@@ -887,8 +887,10 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
-        let _ = existing.show();
-        let _ = existing.set_focus();
+        set_capture_excluded(&existing);
+        configure_overlay_behavior(&existing);
+        raise_to_status_level(&existing);
+        crate::util::show_without_activation(&existing);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -924,6 +926,7 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
+    raise_to_status_level(&win);
     let _ = win.show();
     dlog!("[clips-tray] toolbar shown");
 
@@ -1524,6 +1527,7 @@ pub async fn show_flow_bar(app: AppHandle) -> Result<(), String> {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         let _ = existing.set_ignore_cursor_events(false);
+        configure_overlay_behavior(&existing);
         crate::util::show_without_activation(&existing);
         return Ok(());
     }

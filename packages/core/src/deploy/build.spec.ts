@@ -211,6 +211,7 @@ export function createRequestHandler() {
 // contention; focused runs normally complete well below this limit.
 describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -524,6 +525,56 @@ export default (event) =>
     );
 
     expectDefaultWorkerSsrCacheHeaders(response);
+  });
+
+  it("inlines the default SSR cache policy when AGENT_NATIVE_SSR_CACHE is unset", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", undefined);
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      `const SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};`,
+    );
+  });
+
+  it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
+
+    const source = generateWorkerEntry([], []);
+    expect(source).toContain('const SSR_CACHE_CONTROL = "no-store";');
+    expect(source).toContain('const SSR_CDN_CACHE_CONTROL = "no-store";');
+    expect(source).toContain(
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "no-store";',
+    );
+    expect(source).not.toContain(DEFAULT_SSR_CACHE_CONTROL);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "30s");
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+    );
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {

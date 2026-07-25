@@ -86,8 +86,8 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
@@ -1614,7 +1614,7 @@ export function createCoreRoutesPlugin(
             "application/speculationrules+json; charset=utf-8",
           );
           for (const [name, value] of Object.entries(
-            DEFAULT_SSR_CACHE_HEADERS,
+            resolveSsrCacheHeaders(),
           )) {
             setResponseHeader(event, name, value);
           }

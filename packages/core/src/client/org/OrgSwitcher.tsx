@@ -65,6 +65,13 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
   /**
+   * Icon-only trigger for collapsed sidebar rails. The popover — and with it
+   * the org list, pending invitations and "Join your team" — is identical;
+   * dropping the switcher instead leaves a collapsed rail with no way to
+   * reach another workspace.
+   */
+  compact?: boolean;
+  /**
    * Path to navigate to when the user clicks "Organization settings".
    * Defaults to the Organization tab inside Settings. Templates with an
    * established org surface can pass their own path; pass `null` to only open
@@ -103,6 +110,9 @@ const APP_SUBMENU_CONTENT_CLASS =
 
 const SWITCHER_BUTTON_CLASS =
   "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
+
+const COMPACT_SWITCHER_BUTTON_CLASS =
+  "flex items-center justify-center rounded-md border-0 bg-accent/50 p-1.5 text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
 const DEFAULT_PROFILE_PATH = "/settings#account";
@@ -295,6 +305,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
+  compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
 }: OrgSwitcherProps) {
@@ -380,14 +391,25 @@ export function OrgSwitcher({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-        >
-          <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate flex-1 text-start">{buttonLabel}</span>
-          <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
-        </button>
+        {compact ? (
+          <button
+            type="button"
+            title={buttonLabel}
+            aria-label={buttonLabel}
+            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+          >
+            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+          >
+            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate flex-1 text-start">{buttonLabel}</span>
+            <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
+          </button>
+        )}
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content

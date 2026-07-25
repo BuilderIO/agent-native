@@ -1929,11 +1929,12 @@ export async function getRunById(runId: string): Promise<{
   startedAt: number;
   errorCode: string | null;
   errorDetail: string | null;
+  terminalReason: string | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail FROM agent_runs WHERE id = ?`,
+    sql: `SELECT id, thread_id, status, started_at, error_code, error_detail, terminal_reason FROM agent_runs WHERE id = ?`,
     args: [runId],
   });
   if (rows.length === 0) return null;
@@ -1944,6 +1945,7 @@ export async function getRunById(runId: string): Promise<{
     started_at: number | string;
     error_code?: string | null;
     error_detail?: string | null;
+    terminal_reason?: string | null;
   };
   return {
     id: r.id,
@@ -1952,6 +1954,7 @@ export async function getRunById(runId: string): Promise<{
     startedAt: Number(r.started_at),
     errorCode: r.error_code ?? null,
     errorDetail: r.error_detail ?? null,
+    terminalReason: r.terminal_reason ?? null,
   };
 }
 

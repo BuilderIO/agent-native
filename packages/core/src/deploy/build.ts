@@ -36,10 +36,8 @@ import {
 } from "../integrations/integration-durable-dispatch-config.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
-  DEFAULT_SSR_CDN_CACHE_CONTROL,
-  DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
   DEFAULT_SPECULATION_RULES_PATH,
-  DEFAULT_SSR_CACHE_CONTROL,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
@@ -698,6 +696,9 @@ export function generateWorkerEntry(
   options: GenerateWorkerEntryOptions = {},
 ): string {
   const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
+  // The worker ships as a static bundle with no access to runtime env, so the
+  // deployment-wide SSR cache policy is baked in from this build's env.
+  const ssrCacheHeaders = resolveSsrCacheHeaders();
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -984,9 +985,10 @@ function injectHeadScript(html, script) {
   return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
 }
 
-const DEFAULT_SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};
-const DEFAULT_SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};
-const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};
+// Resolved from AGENT_NATIVE_SSR_CACHE at build time.
+const SSR_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cache-control"])};
+const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["cdn-cache-control"])};
+const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(ssrCacheHeaders["netlify-cdn-cache-control"])};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1084,13 +1086,13 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
     else headers.delete("vary");
   }
 
-  headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
-  headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
+  headers.set("cache-control", SSR_CACHE_CONTROL);
+  headers.set("cdn-cache-control", SSR_CDN_CACHE_CONTROL);
   // Netlify function responses are dynamic by default and can otherwise show
   // Cache-Status fwd=bypass even with Cache-Control: public. Keep this
   // Netlify-specific header so SSR HTML/.data are served from the shared
   // durable CDN cache instead of stampeding origin — for every visitor.
-  headers.set("netlify-cdn-cache-control", DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL);
+  headers.set("netlify-cdn-cache-control", SSR_NETLIFY_CDN_CACHE_CONTROL);
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
