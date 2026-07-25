@@ -1,4 +1,5 @@
 # Agent-Native
+
 ## The framework for agentic apps
 
 Don't pick between apps or agents. Agent-Native apps are both.
