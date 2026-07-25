@@ -14,7 +14,6 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconHierarchy2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
@@ -43,12 +42,6 @@ const navItems = [
 ];
 
 const bottomNavItems = [
-  {
-    icon: IconHierarchy2,
-    labelKey: "settings.agentTitle",
-    href: "/agent",
-    view: "agent",
-  },
   {
     icon: IconSettings,
     labelKey: "navigation.settings",

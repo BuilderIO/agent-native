@@ -3,7 +3,7 @@ import { redirect } from "react-router";
 import { Spinner } from "@/components/ui/spinner";
 
 const SEO_TITLE =
-  "Agent-Native Mail - Open Source AI email client and Superhuman alternative";
+  "Mail - Open Source AI email client and Superhuman alternative";
 const SEO_DESCRIPTION =
   "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
 

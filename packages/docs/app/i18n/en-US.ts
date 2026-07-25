@@ -93,10 +93,9 @@ const enUS = {
   },
   home: {
     hero: {
-      badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.",
+      body: "Don't pick between apps or agents. Agent-Native apps are both.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },
@@ -110,7 +109,7 @@ const enUS = {
     },
     actionSurface: {
       eyebrow: "Deeply agentic, not AI-adjacent",
-      title: "One action gives you the whole app surface",
+      title: "One action gives you the whole surface",
       body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
       buildAction: "Build an action",
       benefits: {

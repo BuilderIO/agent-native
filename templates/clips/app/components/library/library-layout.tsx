@@ -30,7 +30,6 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
-  IconHierarchy2,
   IconSettings,
   IconSearch,
 } from "@tabler/icons-react";
@@ -304,12 +303,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     icon: React.ComponentType<{ className?: string }>;
     match: (path: string) => boolean;
   }[] = [
-    {
-      to: "/agent",
-      label: t("settings.agentTitle"),
-      icon: IconHierarchy2,
-      match: (p) => p.startsWith("/agent"),
-    },
     {
       to: "/settings",
       label: t("navigation.settings"),

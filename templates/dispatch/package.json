@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "displayName": "Agent-Native Dispatch",
+  "displayName": "Dispatch",
   "private": true,
   "type": "module",
   "scripts": {

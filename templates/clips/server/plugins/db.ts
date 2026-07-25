@@ -873,6 +873,14 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS recording_agent_views_recording_idx ON recording_agent_views (recording_id, last_seen_at)`,
       ].join("; "),
     },
+    {
+      version: 52,
+      name: "recording-loom-import-claim-lease",
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claim_id TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claimed_at TEXT`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

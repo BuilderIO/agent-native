@@ -81,10 +81,9 @@ const zhCN = {
   },
   home: {
     hero: {
-      badge: "开源框架",
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
-      body: "Agent-Native 是一个开源 framework，用于以 agent 为核心快速构建健壮的应用程序。",
+      body: "无需在应用和 agent 之间做选择。Agent-Native 应用两者兼具。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
     },
@@ -96,7 +95,7 @@ const zhCN = {
     },
     actionSurface: {
       eyebrow: "真正面向代理，而不是外挂式 AI",
-      title: "一个 action 覆盖整套应用能力面",
+      title: "一个 action 覆盖完整能力面",
       body: "只定义一次操作。Agent-Native 会把它变成 UI action、agent 工具、HTTP 端点、MCP/A2A 能力面、CLI 命令、权限检查和审计记录。",
       buildAction: "构建一个 action",
       benefits: {

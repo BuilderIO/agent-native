@@ -5,6 +5,10 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "rec-1" }]),
+);
 const mockDb = vi.hoisted(() => ({
   select: vi.fn(() => {
     const builder = {
@@ -21,6 +25,11 @@ const mockDb = vi.hoisted(() => ({
     };
     return builder;
   }),
+  update: vi.fn(() => ({
+    set: vi.fn(() => ({
+      where: vi.fn(() => ({ returning: mockUpdateReturning })),
+    })),
+  })),
 }));
 
 vi.mock("h3", () => ({
@@ -29,7 +38,13 @@ vi.mock("h3", () => ({
   setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => "eq") }));
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn(() => "and"),
+  eq: vi.fn(() => "eq"),
+  isNull: vi.fn(() => "isNull"),
+  lt: vi.fn(() => "lt"),
+  or: vi.fn(() => "or"),
+}));
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (...args: unknown[]) =>
@@ -58,8 +73,14 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      loomImportClaimId: "recordings.loomImportClaimId",
+      loomImportClaimedAt: "recordings.loomImportClaimedAt",
     },
   },
+}));
+
+vi.mock("../../../../actions/lib/loom-import-job.js", () => ({
+  runLoomImportJob: (...args: unknown[]) => mockRunLoomImportJob(...args),
 }));
 
 vi.mock("../../../lib/post-finalize-dispatch.js", () => ({
@@ -113,5 +134,43 @@ describe("post-finalize worker", () => {
       regenerate: undefined,
       requireAccepted: true,
     });
+  });
+
+  it("claims a Loom import before running its side effects", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "loom-import",
+      token: "valid-token",
+    });
+    mockRunLoomImportJob.mockResolvedValue({ status: "ready" });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "loom-import",
+      result: { status: "ready" },
+    });
+    expect(mockDb.update).toHaveBeenCalled();
+    expect(mockRunLoomImportJob).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.test",
+      claimId: expect.any(String),
+    });
+  });
+
+  it("skips a Loom import when its atomic claim is already held", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "loom-import",
+      token: "valid-token",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "loom-import",
+      skipped: true,
+      reason: "loom-import-already-running",
+    });
+    expect(mockRunLoomImportJob).not.toHaveBeenCalled();
   });
 });

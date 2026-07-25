@@ -19,14 +19,12 @@ import {
   IconLock,
   IconLink,
   IconMessageCircle,
-  IconHierarchy2,
   IconUsersGroup,
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconArrowUpRight,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -183,12 +181,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  {
-    icon: IconHierarchy2,
-    labelKey: "settings.agentTitle",
-    href: "/agent",
-    showExternalLinkIcon: true,
-  },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -2099,12 +2091,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/data-dictionary"),
     },
     {
-      icon: IconHierarchy2,
-      label: t("settings.agentTitle"),
-      href: "/agent",
-      active: location.pathname === "/agent",
-    },
-    {
       icon: IconSettings,
       label: t("navigation.settings"),
       href: "/settings",
@@ -2572,15 +2558,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       )}
                     >
                       <Icon className="h-4 w-4" />
-                      <span className="flex min-w-0 items-center gap-1">
-                        <span className="truncate">{t(item.labelKey)}</span>
-                        {item.showExternalLinkIcon && (
-                          <IconArrowUpRight
-                            aria-hidden="true"
-                            className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
-                          />
-                        )}
-                      </span>
+                      <span className="truncate">{t(item.labelKey)}</span>
                     </Link>
                   );
                 })}
