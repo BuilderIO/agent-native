@@ -122,6 +122,7 @@ export const transactionalEmailJobSchema = z
     failedAt: timestampSchema.optional(),
     lastError: z.string().max(4_000).nullable(),
     leaseUntil: timestampSchema.nullable(),
+    leaseToken: nonEmptyStringSchema.nullable(),
   })
   .strict()
   .superRefine((job, context) => {
@@ -138,18 +139,24 @@ export const transactionalEmailJobSchema = z
         message: "Job payload does not match its transactional email type",
       });
     }
-    if (job.state === "sending" && job.leaseUntil === null) {
+    if (
+      job.state === "sending" &&
+      (job.leaseUntil === null || job.leaseToken === null)
+    ) {
       context.addIssue({
         code: "custom",
-        message: "Sending jobs require a leaseUntil timestamp",
-        path: ["leaseUntil"],
+        message: "Sending jobs require leaseUntil and leaseToken",
+        path: job.leaseUntil === null ? ["leaseUntil"] : ["leaseToken"],
       });
     }
-    if (job.state !== "sending" && job.leaseUntil !== null) {
+    if (
+      job.state !== "sending" &&
+      (job.leaseUntil !== null || job.leaseToken !== null)
+    ) {
       context.addIssue({
         code: "custom",
-        message: "Only sending jobs may have a leaseUntil timestamp",
-        path: ["leaseUntil"],
+        message: "Only sending jobs may have leaseUntil and leaseToken",
+        path: job.leaseUntil !== null ? ["leaseUntil"] : ["leaseToken"],
       });
     }
   });
@@ -500,6 +507,7 @@ export function createTransactionalEmailStore(
       updatedAt: timestamp,
       lastError: null,
       leaseUntil: null,
+      leaseToken: null,
     });
     if (await publishJsonExclusive(jobFile(parsedKey), job)) {
       return { created: true, job };
@@ -550,6 +558,7 @@ export function createTransactionalEmailStore(
         failedAt: undefined,
         lastError: null,
         leaseUntil: null,
+        leaseToken: null,
       });
       await writeJsonAtomic(jobFile(logicalKey), updated);
       return updated;
@@ -569,6 +578,7 @@ export function createTransactionalEmailStore(
     return withJobLock(logicalKey, async () => {
       const job = await readJob(logicalKey);
       if (!job || !expectedStates.includes(job.state)) return null;
+      if (job.state === "sending") return null;
       if (!allowedTransitions[job.state].has(nextState)) {
         throw new Error(
           `Invalid transactional email transition: ${job.state} -> ${nextState}`,
@@ -582,6 +592,7 @@ export function createTransactionalEmailStore(
         state: nextState,
         updatedAt: timestamp,
         leaseUntil: null,
+        leaseToken: null,
         ...(timestampField ? { [timestampField]: timestamp } : {}),
       });
       await writeJsonAtomic(jobFile(logicalKey), updated);
@@ -684,6 +695,44 @@ export function createTransactionalEmailStore(
         leaseUntil: new Date(
           currentTime.getTime() + leaseDurationMs,
         ).toISOString(),
+        leaseToken: randomUUID(),
+      });
+      await writeJsonAtomic(jobFile(logicalKey), updated);
+      return updated;
+    });
+  }
+
+  async function transitionSending(
+    logicalKey: string,
+    leaseToken: string,
+    nextState: "sent" | "ready" | "cancelled" | "failed",
+    changes: { lastError?: string | null } = {},
+  ): Promise<TransactionalEmailJob | null> {
+    const parsedLeaseToken = nonEmptyStringSchema.parse(leaseToken);
+    return withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      if (
+        !job ||
+        job.state !== "sending" ||
+        job.leaseToken !== parsedLeaseToken
+      ) {
+        return null;
+      }
+      if (!allowedTransitions.sending.has(nextState)) {
+        throw new Error(
+          `Invalid transactional email transition: sending -> ${nextState}`,
+        );
+      }
+      const timestamp = now().toISOString();
+      const timestampField = stateTimestampField(nextState);
+      const updated = transactionalEmailJobSchema.parse({
+        ...job,
+        ...changes,
+        state: nextState,
+        updatedAt: timestamp,
+        leaseUntil: null,
+        leaseToken: null,
+        ...(timestampField ? { [timestampField]: timestamp } : {}),
       });
       await writeJsonAtomic(jobFile(logicalKey), updated);
       return updated;
@@ -767,6 +816,7 @@ export function createTransactionalEmailStore(
     completeClaimedAi,
     claimNextAwaitingAi,
     acquireSendingLease,
+    transitionSending,
     ensureEnabledAt,
     updateReconciliationCursor,
     readConfig,

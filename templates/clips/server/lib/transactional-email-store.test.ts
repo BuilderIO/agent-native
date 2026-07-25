@@ -235,7 +235,10 @@ describe("transactional email store", () => {
       state: "sending",
       attempts: 1,
       leaseUntil: "2026-08-01T12:01:00.000Z",
+      leaseToken: expect.any(String),
     });
+    const firstLeaseToken = firstLease?.leaseToken;
+    expect(firstLeaseToken).toBeTruthy();
 
     currentTime = new Date("2026-08-01T12:00:59.999Z");
     await expect(
@@ -251,14 +254,40 @@ describe("transactional email store", () => {
       state: "sending",
       attempts: 2,
       leaseUntil: "2026-08-01T12:01:30.000Z",
+      leaseToken: expect.any(String),
+    });
+    const reclaimedLeaseToken = reclaimed?.leaseToken;
+    expect(reclaimedLeaseToken).toBeTruthy();
+    expect(reclaimedLeaseToken).not.toBe(firstLeaseToken);
+
+    await expect(
+      store.transition("first-view:share-1", ["sending"], "sent"),
+    ).resolves.toBeNull();
+    for (const nextState of ["sent", "ready", "failed", "cancelled"] as const) {
+      await expect(
+        store.transitionSending(
+          "first-view:share-1",
+          firstLeaseToken!,
+          nextState,
+          nextState === "failed" ? { lastError: "stale failure" } : {},
+        ),
+      ).resolves.toBeNull();
+    }
+    await expect(store.readJob("first-view:share-1")).resolves.toMatchObject({
+      state: "sending",
+      leaseToken: reclaimedLeaseToken,
     });
 
-    const sent = await store.transition(
+    const sent = await store.transitionSending(
       "first-view:share-1",
-      ["sending"],
+      reclaimedLeaseToken!,
       "sent",
     );
-    expect(sent).toMatchObject({ state: "sent", leaseUntil: null });
+    expect(sent).toMatchObject({
+      state: "sent",
+      leaseUntil: null,
+      leaseToken: null,
+    });
     expect(sent?.sentAt).toBe("2026-08-01T12:01:00.000Z");
   });
 
