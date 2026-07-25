@@ -1,6 +1,6 @@
 import { isEmailConfigured } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { getUserSetting } from "@agent-native/core/settings";
+import { getUserProfile } from "@agent-native/core/user-profile/server";
 import {
   and,
   asc,
@@ -17,7 +17,6 @@ import {
   sql,
 } from "drizzle-orm";
 
-import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
@@ -407,11 +406,7 @@ function defaultRepository(): TransactionalEmailRepository {
       return recording ?? null;
     },
     async getUserDisplayName(email) {
-      const prefs = await getUserSetting(email, CLIPS_USER_PREFS_KEY);
-      const displayName = prefs?.displayName;
-      return typeof displayName === "string" && displayName.trim()
-        ? displayName.trim()
-        : null;
+      return (await getUserProfile(email)).name;
     },
     async getOrganizationBrandLogoUrl(organizationId) {
       const [settings] = await db
