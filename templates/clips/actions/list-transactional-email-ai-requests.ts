@@ -4,7 +4,10 @@ import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import {
   transactionalEmailStore,
   type TransactionalEmailJob,
@@ -52,7 +55,41 @@ async function claimantMayClaim(
       resolveAccess("recording", recordingId),
     ),
   );
-  return access.every(Boolean);
+  if (!access.every(Boolean)) return false;
+
+  const db = getDb();
+  const [directShares, countedViews] = await Promise.all([
+    db
+      .select({ recordingId: schema.recordingShares.resourceId })
+      .from(schema.recordingShares)
+      .where(
+        and(
+          eq(schema.recordingShares.principalType, "user"),
+          ownerEmailMatches(schema.recordingShares.principalId, claimantEmail),
+          inArray(schema.recordingShares.resourceId, job.recordingIds),
+        ),
+      ),
+    db
+      .select({ recordingId: schema.recordingViewers.recordingId })
+      .from(schema.recordingViewers)
+      .where(
+        and(
+          ownerEmailMatches(schema.recordingViewers.viewerEmail, claimantEmail),
+          eq(schema.recordingViewers.countedView, true),
+          inArray(schema.recordingViewers.recordingId, job.recordingIds),
+        ),
+      ),
+  ]);
+  const directlyRelatedIds = new Set([
+    ...access.flatMap((entry, index) =>
+      entry?.role === "owner" ? [job.recordingIds[index]] : [],
+    ),
+    ...directShares.map((share) => share.recordingId),
+    ...countedViews.map((view) => view.recordingId),
+  ]);
+  return job.recordingIds.every((recordingId) =>
+    directlyRelatedIds.has(recordingId),
+  );
 }
 
 async function loadContextPackets(

@@ -25,6 +25,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: () => mocks.claimant,
+  ownerEmailMatches: (...args: unknown[]) => args,
 }));
 vi.mock("../server/lib/transactional-email-store.js", () => ({
   transactionalEmailStore: {
@@ -44,6 +45,11 @@ vi.mock("../server/db/index.js", () => ({
     recordingTranscripts: {
       recordingId: "transcripts.recordingId",
       fullText: "transcripts.fullText",
+    },
+    recordingViewers: {
+      recordingId: "viewers.recordingId",
+      viewerEmail: "viewers.viewerEmail",
+      countedView: "viewers.countedView",
     },
     recordingShares: {
       id: "shares.id",
@@ -75,8 +81,20 @@ const job = {
   leaseUntil: null,
 };
 
-function setupContextRows(shareRows?: Record<string, string>[]) {
-  const rows = [
+function setupSelectRows(rows: unknown[][]) {
+  mocks.select.mockImplementation(() => {
+    const result = rows.shift() ?? [];
+    return {
+      from() {
+        return this;
+      },
+      where: async () => result,
+    };
+  });
+}
+
+function contextRows(shareRows?: Record<string, string>[]) {
+  return [
     [
       {
         id: "recording-1",
@@ -110,15 +128,10 @@ function setupContextRows(shareRows?: Record<string, string>[]) {
       },
     ],
   ];
-  mocks.select.mockImplementation(() => {
-    const result = rows.shift() ?? [];
-    return {
-      from() {
-        return this;
-      },
-      where: async () => result,
-    };
-  });
+}
+
+function setupContextRows(shareRows?: Record<string, string>[]) {
+  setupSelectRows(contextRows(shareRows));
 }
 
 beforeEach(() => {
@@ -143,7 +156,7 @@ describe("list-transactional-email-ai-requests", () => {
     expect(action.agentTool).toBe(false);
   });
 
-  it("lets the recipient claim and returns exactly two bounded authoritative packets", async () => {
+  it("lets the direct-share recipient claim and returns exactly two bounded authoritative packets", async () => {
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
     expect(mocks.resolveAccess).not.toHaveBeenCalled();
@@ -222,12 +235,38 @@ describe("list-transactional-email-ai-requests", () => {
     );
   });
 
-  it("lets the requestedBy sender claim only with viewer access to both recordings", async () => {
+  it("denies a requestedBy sender with only generic public access to the other Clip", async () => {
     mocks.claimant = "second-sender@example.test";
+    mocks.resolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: { visibility: "public" },
+    });
+    mocks.select.mockReset();
+    setupSelectRows([[{ recordingId: "recording-2" }], []]);
+
+    await expect(
+      claimTransactionalEmailAiRequests(mocks.claimant),
+    ).resolves.toEqual({ requests: [] });
+    expect(mocks.resolveAccess).toHaveBeenCalledTimes(2);
+    expect(mocks.claimAwaitingAi).not.toHaveBeenCalled();
+  });
+
+  it("allows a requestedBy sender who owns one Clip and has a direct user share to the other", async () => {
+    mocks.claimant = "second-sender@example.test";
+    mocks.resolveAccess
+      .mockResolvedValueOnce({ role: "owner", resource: {} })
+      .mockResolvedValueOnce({ role: "viewer", resource: {} });
+    mocks.select.mockReset();
+    setupSelectRows([[{ recordingId: "recording-2" }], [], ...contextRows()]);
+
     const result = await claimTransactionalEmailAiRequests(mocks.claimant);
 
-    expect(mocks.resolveAccess).toHaveBeenCalledTimes(2);
     expect(result.requests).toHaveLength(1);
+    expect(result.requests[0].contextPackets).toHaveLength(2);
+    expect(mocks.claimAwaitingAi).toHaveBeenCalledWith(
+      job.logicalKey,
+      mocks.claimant,
+    );
   });
 
   it("denies a sender when either recording is inaccessible and never loads transcripts", async () => {
