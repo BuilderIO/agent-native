@@ -1033,6 +1033,17 @@ async function scaffoldRequiredPackages(
             }
           }
         }
+        // These packages' `exports` maps point at `./dist/*`, and `dist/` is
+        // gitignored (never committed), so a scaffolded workspace must build
+        // it on install. pnpm always runs `prepare` for workspace packages,
+        // unlike `postinstall`, so this is the reliable hook.
+        if (
+          pkg.scripts &&
+          typeof pkg.scripts.build === "string" &&
+          !pkg.scripts.prepare
+        ) {
+          pkg.scripts.prepare = "npm run build";
+        }
         fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n");
       } catch {}
     }

@@ -701,6 +701,30 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     }
   });
 
+  it("adds a prepare script so scaffolded packages self-build on install", async () => {
+    // These packages' `exports` maps point at `./dist/*`, and `dist/` is
+    // gitignored, so a clean `pnpm install` in the generated workspace must
+    // build it. pnpm always runs `prepare` for workspace packages, so every
+    // scaffolded package with a `build` script needs a `prepare` script too.
+    const wsDir = await scaffoldWorkspace("my-ws", [
+      "chat",
+      "design",
+      "slides",
+    ]);
+    const packagesDir = path.join(wsDir, "packages");
+    const packageNames = fs.readdirSync(packagesDir);
+    expect(packageNames.length).toBeGreaterThan(0);
+
+    for (const packageName of packageNames) {
+      const pkg = readPkg(path.join(packagesDir, packageName));
+      if (typeof pkg.scripts?.build !== "string") continue;
+      expect(
+        typeof pkg.scripts?.prepare === "string" && pkg.scripts.prepare !== "",
+        `packages/${packageName} has a build script but no prepare script`,
+      ).toBe(true);
+    }
+  });
+
   it("preserves non-core workspace:* deps in app package.json", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const calPkg = readPkg(path.join(wsDir, "apps", "calendar"));
