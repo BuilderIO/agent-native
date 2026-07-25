@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   utimes,
   writeFile,
@@ -59,6 +60,30 @@ describe("transactional email store", () => {
         "utf8",
       ),
     ).toContain("first-view:share-1");
+  });
+
+  it("never exposes an interrupted initial publication as a final job", async () => {
+    const root = await testRoot();
+    const interruptedStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterInitialJobTempSynced: async () => {
+          throw new Error("simulated publication interruption");
+        },
+      },
+    });
+
+    await expect(
+      interruptedStore.enqueue("first-view:share-1", firstViewPayload),
+    ).rejects.toThrow("simulated publication interruption");
+    await expect(interruptedStore.listJobs()).resolves.toEqual([]);
+    expect(await readdir(path.join(root, "jobs"))).toEqual([]);
+
+    const recoveredStore = createTransactionalEmailStore({ root });
+    await expect(
+      recoveredStore.enqueue("first-view:share-1", firstViewPayload),
+    ).resolves.toMatchObject({ created: true });
+    await expect(recoveredStore.listJobs()).resolves.toHaveLength(1);
   });
 
   it("validates payload shape and never accepts transcript excerpts", async () => {
@@ -254,6 +279,139 @@ describe("transactional email store", () => {
     await expect(
       store.transition("first-view:share-1", ["pending"], "ready"),
     ).resolves.toMatchObject({ state: "ready" });
+  });
+
+  it("allows only one of two stale-lock reclaimers to enter", async () => {
+    const root = await testRoot();
+    const setupStore = createTransactionalEmailStore({ root });
+    await setupStore.enqueue("first-view:share-1", firstViewPayload);
+    const locksDirectory = path.join(root, "locks");
+    await mkdir(locksDirectory, { recursive: true });
+    const lock = path.join(
+      locksDirectory,
+      `${createHash("sha256").update("first-view:share-1").digest("hex")}.lock`,
+    );
+    await writeFile(lock, "stale owner", "utf8");
+    const staleTime = new Date(Date.now() - 31_000);
+    await utimes(lock, staleTime, staleTime);
+
+    let releaseFirstSnapshot: (() => void) | undefined;
+    const firstSnapshotPaused = new Promise<void>((resolve) => {
+      releaseFirstSnapshot = resolve;
+    });
+    let firstSawStaleLock: (() => void) | undefined;
+    const firstSawStaleLockPromise = new Promise<void>((resolve) => {
+      firstSawStaleLock = resolve;
+    });
+    let entered = 0;
+    const firstStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterStaleLockSnapshot: async () => {
+          firstSawStaleLock?.();
+          await firstSnapshotPaused;
+        },
+        afterJobLockAcquired: async () => {
+          entered += 1;
+        },
+      },
+    });
+    const secondStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterJobLockAcquired: async () => {
+          entered += 1;
+        },
+      },
+    });
+
+    const first = firstStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    await firstSawStaleLockPromise;
+    const second = await secondStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    releaseFirstSnapshot?.();
+
+    await expect(first).resolves.toMatchObject({ state: "ready" });
+    expect(second).toBeNull();
+    expect(entered).toBe(1);
+    expect(await readdir(locksDirectory)).toEqual([]);
+  });
+
+  it("does not release a replacement lock owned by a stale reclaimer", async () => {
+    const root = await testRoot();
+    const setupStore = createTransactionalEmailStore({ root });
+    await setupStore.enqueue("first-view:share-1", firstViewPayload);
+    const lock = path.join(
+      root,
+      "locks",
+      `${createHash("sha256").update("first-view:share-1").digest("hex")}.lock`,
+    );
+
+    let releaseOriginal: (() => void) | undefined;
+    const originalPaused = new Promise<void>((resolve) => {
+      releaseOriginal = resolve;
+    });
+    let originalAcquired: (() => void) | undefined;
+    const originalAcquiredPromise = new Promise<void>((resolve) => {
+      originalAcquired = resolve;
+    });
+    const originalStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterJobLockAcquired: async () => {
+          originalAcquired?.();
+          await originalPaused;
+        },
+      },
+    });
+    const original = originalStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    await originalAcquiredPromise;
+    const staleTime = new Date(Date.now() - 31_000);
+    await utimes(lock, staleTime, staleTime);
+
+    let releaseReplacement: (() => void) | undefined;
+    const replacementPaused = new Promise<void>((resolve) => {
+      releaseReplacement = resolve;
+    });
+    let replacementAcquired: (() => void) | undefined;
+    const replacementAcquiredPromise = new Promise<void>((resolve) => {
+      replacementAcquired = resolve;
+    });
+    const replacementStore = createTransactionalEmailStore({
+      root,
+      testHooks: {
+        afterJobLockAcquired: async () => {
+          replacementAcquired?.();
+          await replacementPaused;
+        },
+      },
+    });
+    const replacement = replacementStore.transition(
+      "first-view:share-1",
+      ["pending"],
+      "ready",
+    );
+    await replacementAcquiredPromise;
+
+    releaseOriginal?.();
+    await expect(original).resolves.toBeNull();
+    await expect(
+      setupStore.transition("first-view:share-1", ["pending"], "cancelled"),
+    ).resolves.toBeNull();
+
+    releaseReplacement?.();
+    await expect(replacement).resolves.toMatchObject({ state: "ready" });
   });
 
   it("creates enabledAt exclusively and preserves the first timestamp", async () => {

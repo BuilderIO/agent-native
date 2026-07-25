@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  link,
   mkdir,
   open,
   readFile,
@@ -7,6 +8,7 @@ import {
   rename,
   rm,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -166,6 +168,11 @@ export type TransactionalEmailJob = z.infer<typeof transactionalEmailJobSchema>;
 export type TransactionalEmailStoreOptions = {
   root?: string;
   now?: () => Date;
+  testHooks?: {
+    afterInitialJobTempSynced?: () => Promise<void>;
+    afterStaleLockSnapshot?: () => Promise<void>;
+    afterJobLockAcquired?: () => Promise<void>;
+  };
 };
 
 const LOCK_STALE_MS = 30_000;
@@ -218,6 +225,7 @@ export function createTransactionalEmailStore(
   const locksDirectory = path.join(root, "locks");
   const configFile = path.join(root, "config.json");
   const now = options.now ?? (() => new Date());
+  const testHooks = options.testHooks;
 
   const jobFile = (logicalKey: string) =>
     path.join(jobsDirectory, `${jobHash(logicalKey)}.json`);
@@ -271,6 +279,41 @@ export function createTransactionalEmailStore(
     }
   }
 
+  async function publishJsonExclusive(
+    file: string,
+    value: unknown,
+  ): Promise<boolean> {
+    const temporaryFile = path.join(
+      path.dirname(file),
+      `.${path.basename(file)}.${process.pid}.${randomUUID()}.tmp`,
+    );
+    let handle;
+    try {
+      handle = await open(temporaryFile, "wx", 0o600);
+      await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await handle.sync();
+      await handle.close();
+      handle = undefined;
+      await testHooks?.afterInitialJobTempSynced?.();
+      try {
+        await link(temporaryFile, file);
+        const directoryHandle = await open(path.dirname(file), "r");
+        try {
+          await directoryHandle.sync();
+        } finally {
+          await directoryHandle.close();
+        }
+        return true;
+      } catch (error) {
+        if (isNodeError(error, "EEXIST")) return false;
+        throw error;
+      }
+    } finally {
+      await handle?.close().catch(() => undefined);
+      await rm(temporaryFile, { force: true }).catch(() => undefined);
+    }
+  }
+
   async function readJob(
     logicalKey: string,
   ): Promise<TransactionalEmailJob | null> {
@@ -315,34 +358,127 @@ export function createTransactionalEmailStore(
     );
   }
 
+  type FileIdentity = { dev: number; ino: number };
+
+  function identityOf(value: { dev: number; ino: number }): FileIdentity {
+    return { dev: value.dev, ino: value.ino };
+  }
+
+  function sameIdentity(
+    left: FileIdentity | null,
+    right: FileIdentity | null,
+  ): boolean {
+    return (
+      left !== null &&
+      right !== null &&
+      left.dev === right.dev &&
+      left.ino === right.ino
+    );
+  }
+
+  async function fileIdentity(file: string): Promise<FileIdentity | null> {
+    const value = await stat(file).catch((error: unknown) => {
+      if (isNodeError(error, "ENOENT")) return null;
+      throw error;
+    });
+    return value ? identityOf(value) : null;
+  }
+
+  async function unlinkIfIdentity(
+    file: string,
+    expected: FileIdentity,
+  ): Promise<boolean> {
+    if (!sameIdentity(await fileIdentity(file), expected)) return false;
+    try {
+      await unlink(file);
+      return true;
+    } catch (error) {
+      if (isNodeError(error, "ENOENT")) return false;
+      throw error;
+    }
+  }
+
+  async function createLockOwner(file: string): Promise<FileIdentity> {
+    const handle = await open(file, "wx", 0o600);
+    try {
+      await handle.sync();
+      return identityOf(await handle.stat());
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async function acquireTakeoverMarker(
+    ownerFile: string,
+    takeoverFile: string,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await link(ownerFile, takeoverFile);
+        return true;
+      } catch (error) {
+        if (!isNodeError(error, "EEXIST")) throw error;
+        const existing = await stat(takeoverFile).catch(() => null);
+        if (!existing || Date.now() - existing.mtimeMs <= LOCK_STALE_MS) {
+          return false;
+        }
+        await unlinkIfIdentity(takeoverFile, identityOf(existing));
+      }
+    }
+    return false;
+  }
+
   async function withJobLock<T>(
     logicalKey: string,
     operation: () => Promise<T>,
   ): Promise<T | null> {
     await ensureDirectories();
     const file = lockFile(logicalKey);
-    let handle;
+    const ownerFile = `${file}.${process.pid}.${randomUUID()}.owner`;
+    const takeoverFile = `${file}.takeover`;
+    const ownerIdentity = await createLockOwner(ownerFile);
+    let acquired = false;
+    let ownsTakeover = false;
     try {
-      handle = await open(file, "wx", 0o600);
-    } catch (error) {
-      if (!isNodeError(error, "EEXIST")) throw error;
-      const lockStat = await stat(file).catch(() => null);
-      if (!lockStat || Date.now() - lockStat.mtimeMs <= LOCK_STALE_MS) {
-        return null;
-      }
-      await rm(file, { force: true });
+      if ((await fileIdentity(takeoverFile)) !== null) return null;
       try {
-        handle = await open(file, "wx", 0o600);
-      } catch (retryError) {
-        if (isNodeError(retryError, "EEXIST")) return null;
-        throw retryError;
+        await link(ownerFile, file);
+        acquired = true;
+        if ((await fileIdentity(takeoverFile)) !== null) return null;
+      } catch (error) {
+        if (!isNodeError(error, "EEXIST")) throw error;
+        ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
+        if (!ownsTakeover) return null;
+        const lockStat = await stat(file).catch(() => null);
+        if (!lockStat || Date.now() - lockStat.mtimeMs <= LOCK_STALE_MS) {
+          return null;
+        }
+        const staleIdentity = identityOf(lockStat);
+        await testHooks?.afterStaleLockSnapshot?.();
+        if (!sameIdentity(await fileIdentity(file), staleIdentity)) return null;
+        if (!(await unlinkIfIdentity(file, staleIdentity))) return null;
+        try {
+          await link(ownerFile, file);
+          acquired = true;
+        } catch (retryError) {
+          if (isNodeError(retryError, "EEXIST")) return null;
+          throw retryError;
+        }
       }
-    }
-    try {
+      await testHooks?.afterJobLockAcquired?.();
+      if (!sameIdentity(await fileIdentity(file), ownerIdentity)) return null;
       return await operation();
     } finally {
-      await handle.close();
-      await rm(file, { force: true });
+      if (acquired && !ownsTakeover) {
+        ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
+      }
+      if (acquired && ownsTakeover) {
+        await unlinkIfIdentity(file, ownerIdentity);
+      }
+      if (ownsTakeover) {
+        await unlinkIfIdentity(takeoverFile, ownerIdentity);
+      }
+      await rm(ownerFile, { force: true });
     }
   }
 
@@ -365,21 +501,14 @@ export function createTransactionalEmailStore(
       lastError: null,
       leaseUntil: null,
     });
-    try {
-      await writeFile(jobFile(parsedKey), `${JSON.stringify(job, null, 2)}\n`, {
-        encoding: "utf8",
-        flag: "wx",
-        mode: 0o600,
-      });
+    if (await publishJsonExclusive(jobFile(parsedKey), job)) {
       return { created: true, job };
-    } catch (error) {
-      if (!isNodeError(error, "EEXIST")) throw error;
-      const existing = await readJob(parsedKey);
-      if (!existing) {
-        throw new Error(`Transactional email job disappeared for ${parsedKey}`);
-      }
-      return { created: false, job: existing };
     }
+    const existing = await readJob(parsedKey);
+    if (!existing) {
+      throw new Error(`Transactional email job disappeared for ${parsedKey}`);
+    }
+    return { created: false, job: existing };
   }
 
   async function enqueueOrConvergeFirstImport(
