@@ -5,6 +5,8 @@ import {
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { useEffect, useRef } from "react";
 
+export const TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS = 60_000;
+
 export type TransactionalEmailContextPacket = {
   recordingId: string;
   title: string;
@@ -58,8 +60,15 @@ export async function dispatchClaimedTransactionalEmailAiRequests(
   for (const request of result?.requests ?? []) {
     if (dispatched.has(request.jobId)) continue;
     dispatched.add(request.jobId);
-    send(buildTransactionalEmailChatOptions(request));
-    dispatchCount += 1;
+    try {
+      send(buildTransactionalEmailChatOptions(request));
+      dispatchCount += 1;
+    } catch (error) {
+      console.error(
+        `Failed to dispatch transactional email AI job ${request.jobId}`,
+        error,
+      );
+    }
   }
   return dispatchCount;
 }
@@ -70,17 +79,20 @@ export function useTransactionalEmailBridge(): void {
   const inflight = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    if (inflight.current) return;
-    inflight.current = true;
-    void dispatchClaimedTransactionalEmailAiRequests(dispatched.current)
-      .catch(() => undefined)
-      .finally(() => {
-        if (!cancelled) inflight.current = false;
-      });
-    return () => {
-      cancelled = true;
-      inflight.current = false;
+    const tick = () => {
+      if (inflight.current) return;
+      inflight.current = true;
+      void dispatchClaimedTransactionalEmailAiRequests(dispatched.current)
+        .catch(() => undefined)
+        .finally(() => {
+          inflight.current = false;
+        });
     };
+
+    tick();
+    // The transactional email queue is file-backed, so background worker writes
+    // do not emit SQL/action change events that this browser can observe.
+    const timer = setInterval(tick, TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [actionVersion]);
 }

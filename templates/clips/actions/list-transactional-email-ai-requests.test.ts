@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   listJobs: vi.fn(),
   claimAwaitingAi: vi.fn(),
   resolveAccess: vi.fn(),
+  readConfig: vi.fn(),
+  gte: vi.fn((...args: unknown[]) => args),
   select: vi.fn(),
 }));
 
@@ -18,6 +20,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
+  gte: (...args: unknown[]) => mocks.gte(...args),
   inArray: (...args: unknown[]) => args,
 }));
 vi.mock("../server/lib/recordings.js", () => ({
@@ -26,6 +29,7 @@ vi.mock("../server/lib/recordings.js", () => ({
 vi.mock("../server/lib/transactional-email-store.js", () => ({
   transactionalEmailStore: {
     listJobs: (...args: unknown[]) => mocks.listJobs(...args),
+    readConfig: (...args: unknown[]) => mocks.readConfig(...args),
     claimAwaitingAi: (...args: unknown[]) => mocks.claimAwaitingAi(...args),
   },
 }));
@@ -71,7 +75,7 @@ const job = {
   leaseUntil: null,
 };
 
-function setupContextRows() {
+function setupContextRows(shareRows?: Record<string, string>[]) {
   const rows = [
     [
       {
@@ -89,7 +93,7 @@ function setupContextRows() {
       { recordingId: "recording-1", fullText: "A".repeat(1_500) },
       { recordingId: "recording-2", fullText: "Second transcript" },
     ],
-    [
+    shareRows ?? [
       {
         id: "share-1",
         recordingId: "recording-1",
@@ -121,6 +125,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.claimant = "recipient@example.test";
   mocks.listJobs.mockResolvedValue([job]);
+  mocks.readConfig.mockResolvedValue({
+    enabledAt: "2026-08-01T00:00:00.000Z",
+  });
   mocks.claimAwaitingAi.mockResolvedValue({
     ...job,
     state: "ai_dispatched",
@@ -158,6 +165,61 @@ describe("list-transactional-email-ai-requests", () => {
         transcriptExcerpt: "Second transcript",
       }),
     ]);
+  });
+
+  it("does not let unrelated global jobs starve a later eligible claim", async () => {
+    const unrelatedJobs = Array.from({ length: 11 }, (_, index) => ({
+      ...job,
+      logicalKey: `two-clips:unrelated-${index}@example.test`,
+      recipient: `unrelated-${index}@example.test`,
+      requestedBy: `sender-${index}@example.test`,
+    }));
+    mocks.listJobs.mockResolvedValue([...unrelatedJobs, job]);
+
+    const result = await claimTransactionalEmailAiRequests(mocks.claimant);
+
+    expect(result.requests).toHaveLength(1);
+    expect(mocks.claimAwaitingAi).toHaveBeenCalledWith(
+      job.logicalKey,
+      mocks.claimant,
+    );
+  });
+
+  it("ignores direct-share sender identities created before enabledAt", async () => {
+    mocks.select.mockReset();
+    setupContextRows([
+      {
+        id: "share-old",
+        recordingId: "recording-1",
+        principalId: "recipient@example.test",
+        createdBy: "old-sender@example.test",
+        createdAt: "2026-07-31T23:59:59.999Z",
+      },
+      {
+        id: "share-new",
+        recordingId: "recording-1",
+        principalId: "recipient@example.test",
+        createdBy: "first-sender@example.test",
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+      {
+        id: "share-2",
+        recordingId: "recording-2",
+        principalId: "recipient@example.test",
+        createdBy: "second-sender@example.test",
+        createdAt: "2026-08-02T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await claimTransactionalEmailAiRequests(mocks.claimant);
+
+    expect(mocks.gte).toHaveBeenCalledWith(
+      "shares.createdAt",
+      "2026-08-01T00:00:00.000Z",
+    );
+    expect(result.requests[0].contextPackets[0].senderEmail).toBe(
+      "first-sender@example.test",
+    );
   });
 
   it("lets the requestedBy sender claim only with viewer access to both recordings", async () => {

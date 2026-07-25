@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, inArray, eq } from "drizzle-orm";
+import { and, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -57,6 +57,7 @@ async function claimantMayClaim(
 
 async function loadContextPackets(
   job: TransactionalEmailJob,
+  enabledAt: string,
 ): Promise<
   [TransactionalEmailContextPacket, TransactionalEmailContextPacket] | null
 > {
@@ -99,6 +100,7 @@ async function loadContextPackets(
         and(
           eq(schema.recordingShares.principalType, "user"),
           inArray(schema.recordingShares.resourceId, job.recordingIds),
+          gte(schema.recordingShares.createdAt, enabledAt),
         ),
       ),
   ]);
@@ -110,7 +112,11 @@ async function loadContextPackets(
   const recipient = normalizeEmail(job.recipient);
   const senderByRecordingId = new Map<string, string>();
   for (const share of shares
-    .filter((row) => normalizeEmail(row.principalId) === recipient)
+    .filter(
+      (row) =>
+        normalizeEmail(row.principalId) === recipient &&
+        row.createdAt >= enabledAt,
+    )
     .sort(
       (left, right) =>
         left.createdAt.localeCompare(right.createdAt) ||
@@ -150,19 +156,24 @@ export async function claimTransactionalEmailAiRequests(
   limit = MAX_CLAIMS,
 ): Promise<{ requests: ClaimedTransactionalEmailAiRequest[] }> {
   const claimant = normalizeEmail(claimantEmail);
-  const candidates = (await transactionalEmailStore.listJobs())
-    .filter(
-      (job) =>
-        job.type === "two-clips" &&
-        job.state === "awaiting_ai" &&
-        job.recordingIds.length === 2,
-    )
-    .slice(0, Math.min(Math.max(limit, 1), MAX_CLAIMS));
+  const claimLimit = Math.min(Math.max(limit, 1), MAX_CLAIMS);
+  const config = await transactionalEmailStore.readConfig();
+  if (!config) return { requests: [] };
+  const candidates = (await transactionalEmailStore.listJobs()).filter(
+    (job) =>
+      job.type === "two-clips" &&
+      job.state === "awaiting_ai" &&
+      job.recordingIds.length === 2,
+  );
   const requests: ClaimedTransactionalEmailAiRequest[] = [];
 
   for (const candidate of candidates) {
+    if (requests.length >= claimLimit) break;
     if (!(await claimantMayClaim(candidate, claimant))) continue;
-    const contextPackets = await loadContextPackets(candidate);
+    const contextPackets = await loadContextPackets(
+      candidate,
+      config.enabledAt,
+    );
     if (!contextPackets) continue;
     const claimed = await transactionalEmailStore.claimAwaitingAi(
       candidate.logicalKey,

@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
@@ -16,7 +20,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 import {
   buildTransactionalEmailChatOptions,
   dispatchClaimedTransactionalEmailAiRequests,
+  TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS,
   type ClaimedTransactionalEmailAiRequest,
+  useTransactionalEmailBridge,
 } from "./use-transactional-email-bridge";
 
 const request: ClaimedTransactionalEmailAiRequest = {
@@ -41,9 +47,24 @@ const request: ClaimedTransactionalEmailAiRequest = {
   ],
 };
 
+let root: Root | null = null;
+
+function BridgeHarness() {
+  useTransactionalEmailBridge();
+  return null;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.callAction.mockResolvedValue({ requests: [request] });
+});
+
+afterEach(async () => {
+  if (root) {
+    await act(async () => root?.unmount());
+    root = null;
+  }
+  vi.useRealTimers();
 });
 
 describe("transactional email bridge", () => {
@@ -88,5 +109,49 @@ describe("transactional email bridge", () => {
     expect(mocks.sendToAgentChat).toHaveBeenCalledWith(
       buildTransactionalEmailChatOptions(request),
     );
+  });
+
+  it("wakes up every 60 seconds for file-backed worker writes", async () => {
+    vi.useFakeTimers();
+    mocks.callAction.mockResolvedValue({ requests: [] });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(BridgeHarness));
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TRANSACTIONAL_EMAIL_BRIDGE_INTERVAL_MS);
+    });
+    expect(mocks.callAction).toHaveBeenCalledTimes(2);
+    container.remove();
+  });
+
+  it("logs a send failure once and never retries the ai_dispatched job", async () => {
+    const error = new Error("chat unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    mocks.sendToAgentChat.mockImplementationOnce(() => {
+      throw error;
+    });
+    const dispatched = new Set<string>();
+
+    await expect(
+      dispatchClaimedTransactionalEmailAiRequests(dispatched),
+    ).resolves.toBe(0);
+    await expect(
+      dispatchClaimedTransactionalEmailAiRequests(dispatched),
+    ).resolves.toBe(0);
+
+    expect(mocks.sendToAgentChat).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalledWith(
+      `Failed to dispatch transactional email AI job ${request.jobId}`,
+      error,
+    );
+    consoleError.mockRestore();
   });
 });
