@@ -67,6 +67,34 @@ describe("durable integration dispatch", () => {
     );
   });
 
+  it("uses the durable handoff when only Netlify's runtime SITE_ID is present", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_LOCAL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("SITE_ID", "00000000-0000-0000-0000-000000000000");
+    vi.stubEnv("A2A_SECRET", "test-secret");
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES", "slack:C123");
+    const { dispatchPendingIntegrationTask } =
+      await import("./integration-durable-dispatch.js");
+
+    await expect(
+      dispatchPendingIntegrationTask({
+        taskId: "task-runtime-site-id",
+        task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+        baseUrl: "https://app.test",
+      }),
+    ).resolves.toBe("background-acknowledged");
+
+    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/.netlify/functions/server-agent-background",
+        awaitResponse: true,
+      }),
+    );
+  });
+
   it("does not broaden a scoped rollout", async () => {
     vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
     vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES", "slack:C999");

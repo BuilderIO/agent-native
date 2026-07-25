@@ -404,6 +404,8 @@ function SignInCta() {
 
 Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/_agent-native/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
+How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/deployment#ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
+
 ### Behind the scenes: Google OAuth
 
 Both flows (the explicit `/_agent-native/sign-in` entrypoint and the bookmarked-path case) thread the return URL through the OAuth state. The state is HMAC-signed, so it can't be forged in transit. On the callback, the return URL is re-validated as same-origin before the redirect — so a leaked signing key still can't be turned into an open-redirect oracle.

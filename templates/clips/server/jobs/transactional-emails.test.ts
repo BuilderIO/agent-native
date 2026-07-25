@@ -404,9 +404,7 @@ describe("transactional email worker", () => {
           ["recording-1", recording("recording-1", "sender@example.com")],
         ]),
         displayNames: new Map([["sender@example.com", "Alex Rivera"]]),
-        brandLogoUrls: new Map([
-          ["org-1", "/clips/api/media/org-logo.png"],
-        ]),
+        brandLogoUrls: new Map([["org-1", "/clips/api/media/org-logo.png"]]),
       }),
       now: clock.now,
       emailConfigured: async () => true,

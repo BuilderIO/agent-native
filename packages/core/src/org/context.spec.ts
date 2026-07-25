@@ -163,7 +163,9 @@ describe("getOrgContext", () => {
     expect(ctx.orgId).toBe("second");
     expect(ctx.role).toBe("member");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    // Memberships + the domain scan: none of these orgs claims b.com, so the
+    // user is still a candidate for a domain org that may appear later.
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to first membership when active-org-id points to a non-membership", async () => {
@@ -183,7 +185,7 @@ describe("getOrgContext", () => {
     const ctx = await getOrgContext(EVENT);
     expect(ctx.orgId).toBe("only");
     expect(mockGetUserSetting).toHaveBeenCalledWith("a@b.com", "active-org-id");
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it("honors an explicit Personal choice for a user in exactly one org", async () => {
@@ -225,9 +227,16 @@ describe("getOrgContext", () => {
     expect(mockGetUserSetting).toHaveBeenCalledTimes(1);
   });
 
-  it("does not run domain auto-join for a single non-personal org", async () => {
+  it("does not run domain auto-join once the user is in their domain org", async () => {
     mockGetSession.mockResolvedValue({ email: "member@builder.io" });
-    queueSelect([{ orgId: "builder", role: "member", orgName: "Builder.io" }]);
+    queueSelect([
+      {
+        orgId: "builder",
+        role: "member",
+        orgName: "Builder.io",
+        allowedDomain: "builder.io",
+      },
+    ]);
 
     const ctx = await getOrgContext(EVENT);
 
@@ -238,6 +247,98 @@ describe("getOrgContext", () => {
       role: "member",
     });
     expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(mockPutUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("auto-joins a renamed personal workspace that no longer matches the name heuristic", async () => {
+    // The regression this guards: recognizing the personal workspace by name
+    // stranded users whose display name or workspace name had since changed.
+    mockGetSession.mockResolvedValue({
+      email: "brent@builder.io",
+      name: "Brent Locks",
+    });
+    mockGetUserSetting.mockResolvedValue({ orgId: "personal_org" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Rocket Ship HQ",
+          allowedDomain: null,
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "builder_io" }] }); // domain scan
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "personal_org",
+          role: "owner",
+          orgName: "Rocket Ship HQ",
+          allowedDomain: null,
+        },
+        {
+          orgId: "builder_io",
+          role: "member",
+          orgName: "Builder.io",
+          allowedDomain: "builder.io",
+        },
+      ],
+    }); // refreshed memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ memberCount: 1 }] }); // solo-owner check
+
+    expect(await getOrgContext(EVENT)).toEqual({
+      email: "brent@builder.io",
+      orgId: "builder_io",
+      orgName: "Builder.io",
+      role: "member",
+    });
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "brent@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+  });
+
+  it("joins the domain org without moving a user out of a shared team", async () => {
+    mockGetSession.mockResolvedValue({ email: "consultant@builder.io" });
+    mockGetUserSetting.mockResolvedValue({ orgId: "acme" });
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "acme",
+          role: "member",
+          orgName: "Acme Co",
+          allowedDomain: null,
+        },
+      ],
+    }); // memberships
+    mockExecute.mockResolvedValueOnce({ rows: [{ orgId: "builder_io" }] }); // domain scan
+    mockExecute.mockResolvedValueOnce({ rows: [] }); // INSERT org_members
+    mockExecute.mockResolvedValueOnce({
+      rows: [
+        {
+          orgId: "acme",
+          role: "member",
+          orgName: "Acme Co",
+          allowedDomain: null,
+        },
+        {
+          orgId: "builder_io",
+          role: "member",
+          orgName: "Builder.io",
+          allowedDomain: "builder.io",
+        },
+      ],
+    }); // refreshed memberships
+
+    expect(await getOrgContext(EVENT)).toEqual({
+      email: "consultant@builder.io",
+      orgId: "acme",
+      orgName: "Acme Co",
+      role: "member",
+    });
     expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
@@ -274,8 +375,11 @@ describe("getOrgContext", () => {
       orgName: "Builder.io",
       role: "member",
     });
+    // Written under the session email verbatim — the same spelling every
+    // other read/write of `active-org-id` uses. `settings` keys are
+    // case-sensitive, so lowercasing only here would hide the activation.
     expect(mockPutUserSetting).toHaveBeenCalledWith(
-      "existing@builder.io",
+      "existing@Builder.IO",
       "active-org-id",
       { orgId: "builder_io" },
     );
@@ -428,7 +532,7 @@ describe("getOrgContext", () => {
       expect(ctx1).toBe(ctx2); // identical reference, not just deep-equal
       // Only one membership lookup, with no request-time domain scan for an
       // existing non-personal org.
-      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(mockExecute).toHaveBeenCalledTimes(2);
     });
 
     it("does NOT share the cache between two different event objects", async () => {
@@ -450,7 +554,7 @@ describe("getOrgContext", () => {
 
       expect(ctxA.orgId).toBe("org-a");
       expect(ctxB.orgId).toBe("org-b");
-      expect(mockExecute).toHaveBeenCalledTimes(2);
+      expect(mockExecute).toHaveBeenCalledTimes(4);
     });
   });
 

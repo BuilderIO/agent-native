@@ -412,9 +412,7 @@ function defaultRepository(): TransactionalEmailRepository {
       const [settings] = await db
         .select({ brandLogoUrl: schema.organizationSettings.brandLogoUrl })
         .from(schema.organizationSettings)
-        .where(
-          eq(schema.organizationSettings.organizationId, organizationId),
-        )
+        .where(eq(schema.organizationSettings.organizationId, organizationId))
         .limit(1);
       return settings?.brandLogoUrl?.trim() || null;
     },

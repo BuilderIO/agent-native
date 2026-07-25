@@ -615,6 +615,16 @@ state or tracker context, but docs traffic is not app usage and should not appea
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
 
+## Template Catalog And Demo Dashboards
+
+`list-dashboard-templates` / `install-dashboard-template` install shipped
+dashboard templates (Node Exporter, the canonical Agent Native observability
+dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
+on first app open. See
+`references/template-catalog-and-demo.md` for the canonical-dashboard panel
+rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
+(source routing, env var overrides, tombstoning, reset).
+
 ## Building Large First-Party Dashboards (compose-dashboard)
 
 For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-authoring a big `update-dashboard` config. You name the metrics; the SERVER expands each into a full, validated panel (SQL + chart config) from the shipped metric catalog and saves them in ONE atomic call. This avoids the failure mode where the agent must stream a giant multi-panel `update-dashboard` argument inside the ~40s budget — that big tool-call can't be resumed mid-stream and is all-or-nothing on validation, so the agent thrashes (repeated update-dashboard + tool-search, never landing).

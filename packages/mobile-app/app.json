@@ -75,7 +75,8 @@
       "./plugins/with-mobile-companion",
       "./plugins/with-ios-app-intents",
       "./plugins/with-ios-companion",
-      "./plugins/with-android-capture-tile"
+      "./plugins/with-android-capture-tile",
+      "./plugins/with-android-oauth-deeplink"
     ],
     "extra": {
       "router": {},

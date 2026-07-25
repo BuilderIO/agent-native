@@ -86,8 +86,8 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
@@ -159,6 +159,7 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -1429,6 +1430,8 @@ export function createCoreRoutesPlugin(
         `${P}/realtime-token`,
         createRealtimeTokenHandler(),
       );
+      // Sharee visibility check for the hosted gateway
+      getH3App(nitroApp).use(`${P}/can-see`, createGatewayAccessCheckHandler());
 
       // SSE
       if (!options.disableSSE) {
@@ -1611,7 +1614,7 @@ export function createCoreRoutesPlugin(
             "application/speculationrules+json; charset=utf-8",
           );
           for (const [name, value] of Object.entries(
-            DEFAULT_SSR_CACHE_HEADERS,
+            resolveSsrCacheHeaders(),
           )) {
             setResponseHeader(event, name, value);
           }

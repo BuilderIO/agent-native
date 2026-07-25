@@ -205,3 +205,15 @@ descriptions narrow the guidance further when working with structured values.
 | "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.
+
+## Reference Files
+
+- **`references/document-behavior.md`** — self-documenting descriptions,
+  `pull-document`'s collab-flush handshake vs `get-document`, versions, image
+  blocks, and the sharing/visibility model (`/page/<id>` vs `/p/<id>`,
+  discoverability, the read-only public chat). Read it before touching
+  descriptions, external ingest, or a document's visibility.
+- **`references/databases.md`** — full behavioral reference for Content
+  databases: property types, Blocks fields, and every view type (table,
+  list, gallery, board, calendar, timeline, form). Read it before building or
+  modifying database views, properties, or forms.

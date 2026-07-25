@@ -310,6 +310,26 @@ describe("transactional email store", () => {
     ).resolves.toMatchObject({ state: "ready" });
   });
 
+  it("recovers a stale takeover marker after a crashed reclaimer", async () => {
+    const root = await testRoot();
+    const store = createTransactionalEmailStore({ root });
+    await store.enqueue("first-view:share-1", firstViewPayload);
+    const locksDirectory = path.join(root, "locks");
+    const lock = path.join(
+      locksDirectory,
+      `${createHash("sha256").update("first-view:share-1").digest("hex")}.lock`,
+    );
+    const takeover = `${lock}.takeover`;
+    await writeFile(takeover, "crashed reclaimer", "utf8");
+    const staleTime = new Date(Date.now() - 31_000);
+    await utimes(takeover, staleTime, staleTime);
+
+    await expect(
+      store.transition("first-view:share-1", ["pending"], "ready"),
+    ).resolves.toMatchObject({ state: "ready" });
+    expect(await readdir(locksDirectory)).toEqual([]);
+  });
+
   it("allows only one of two stale-lock reclaimers to enter", async () => {
     const root = await testRoot();
     const setupStore = createTransactionalEmailStore({ root });

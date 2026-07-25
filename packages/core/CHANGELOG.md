@@ -1,5 +1,170 @@
 # @agent-native/core
 
+## 0.122.0
+
+### Minor Changes
+
+- 231aca6: Add `agent-native template` — pull later upstream first-party template changes into an app that was generated from a template, via a real per-file 3-way merge.
+
+  `agent-native create` now records what a later merge needs in `agent-native.scaffold`: the exact `templateRef` the template came from, its `templateSource` (`github` / `bundled` / `local-checkout`), the `coreVersion`, and the app `shape`. The pristine upstream tree is stored as a git ref under `refs/agent-native/template-baseline/<app-path>` written entirely with plumbing and a throwaway index, so HEAD, the index, and the working tree are never touched.
+
+  Commands:
+  - `agent-native template status [app]` — recorded ref, latest ref, baseline health, and counts of upstream-changed and locally-modified files.
+  - `agent-native template diff [app] [--to <ref>]` — read-only unified diff of what upstream changed.
+  - `agent-native template sync [app] [--to <ref>] [--dry-run] [--force]` — 3-way merge upstream changes into the app. `--to` defaults to the ref matching the installed `@agent-native/core`, so `agent-native upgrade` followed by `agent-native template sync` is the coherent story.
+  - `agent-native template baseline [app] [--ref <ref>] [--template <name>]` — record a baseline for an app scaffolded before provenance existed.
+  - `agent-native template accept [app]` — advance the baseline after resolving conflicts.
+
+  Secrets, lockfiles, generated output, pending changelog entries, and `learnings.md` are never merged; binary files are never marker-merged; and the baseline only advances when the merge came out clean.
+
+- 231aca6: The runtime agent can now actually read skill `references/*.md` sub-files it is told about. Previously only `SKILL.md` content was bundled — sub-file names were advertised in the skills prompt block and via `docs-search`, but their content was never read into the bundle, so `docs-search --slug "skill-<name>"` could never return them. `readSkillsDir` now inlines eligible text sub-files (`.md`/`.txt`/`.json`, capped at 64KB/file and 256KB/skill) into a new `Skill.files` map, `docs-search` exposes each one under a resolvable `skill-<name>--<subpath>` slug, the skills prompt block hints at those resolvable slugs instead of bare filenames, and the Vite dev-server HMR watcher invalidates the bundle for any file under a skills directory (not just `SKILL.md`).
+- 231aca6: Add `AGENT_NATIVE_SSR_CACHE`, a deployment-wide override for the SSR shell cache
+  policy. The default is unchanged: SSR HTML and React Router `.data` are still
+  stamped `public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600`
+  because the shell is impersonal — cookies are stripped before render and all
+  personalization happens on the client. Set the variable to `off` for `no-store`,
+  or to a duration such as `30s` / `5m` for a shorter freshness (the
+  `stale-while-revalidate` window mirrors the chosen `max-age`, so a short
+  freshness does not hand back a seven-day stale window). Unrecognized values warn
+  and keep the default, so a typo cannot silently disable the CDN.
+
+  Use it when your host does not purge its CDN on deploy, or when loaders return
+  mutable public data and a post-mutation `useRevalidator()` re-reads a cached
+  `.data` copy. The override is deliberately deployment-wide rather than
+  per-route: a cache policy that varies per request is how one visitor's payload
+  lands in another visitor's shared CDN entry. Turning it off shortens caching
+  only — it does not make SSR personalized, and mutation-fresh app data still
+  belongs in actions read through `useActionQuery` / `useActionMutation` with
+  `useDbSync()` polling.
+
+### Patch Changes
+
+- 231aca6: Keep delegated agent (A2A) response text visible instead of flashing and
+  vanishing. Remote response text is now tracked as ordered segments interleaved
+  with the sub-agent's reasoning and tool calls, so nested "Asking <agent>" output
+  reads like top-level chat output — markdown text, tools, and thinking in the
+  order they happened.
+- 231aca6: Add `creative-context` to the Analytics template's `requiredPackages` metadata. The Analytics template's `package.json` already depends on `@agent-native/creative-context` as a `workspace:*` dep, but the scaffolder's template metadata didn't list it, so scaffolding a workspace with Analytics but none of the other creative-context-dependent templates produced a dangling `workspace:*` reference and `pnpm install` failed with `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`.
+- 231aca6: Attribute Builder agent branches to the requesting user instead of the connected credential's `BUILDER_USER_ID`, falling back to that user only when the caller's email is not a Space member.
+- 231aca6: Stop an upstream provider error from reporting the Builder connection as broken.
+  A gateway error arriving inside an already-authenticated stream is now only
+  treated as a credential failure when the message names the credential; a bare
+  "Unauthorized" is surfaced as `builder_model_unauthorized` ("the provider behind
+  this model rejected the request") without recording an auth-failure marker.
+  Builder auth-failure markers also expire after 15 minutes, matching provider
+  markers, so a signed-in user can no longer be pinned to "not connected"
+  indefinitely.
+- 231aca6: Stop `render-data-widget` from stalling on large result sets. The tool is a pure
+  echo — the model authors every row as tool-call arguments — so an uncapped table
+  cost minutes of argument decode before anything rendered, and a 211-row answer
+  was observed stalling for six minutes until the run heartbeat died. Rows are now
+  clamped server-side (50 table rows, 200 chart points) with the existing
+  `totalRows`/`sampledRows`/`truncated` flags set, and both the tool description
+  and the framework prompts state the ceiling instead of asking for "compact real
+  data" and forbidding markdown tables outright.
+- 231aca6: Stop telling users "The agent stopped without sending a final message" while the
+  agent is still working. A run row at a continuation chunk boundary is also
+  `status: "completed"`, and SQL run subscriptions synthesized a bare `done` for
+  it, so a client that reattached past the boundary event concluded the turn had
+  ended while the chained successor run was still going. Subscriptions now re-emit
+  the run's real terminal event (or an `auto_continue` derived from its
+  `terminal_reason`) so the client keeps following the turn. The chat notice also
+  waits for the stopped-without-text state to hold for a beat, so transport
+  re-attach gaps no longer flash it.
+- 231aca6: Expose `@agent-native/core/client/clipboard` as a public subpath so apps can use
+  `writeClipboardText` (desktop bridge + `execCommand` fallback, returns whether
+  the write landed) instead of hand-rolling `navigator.clipboard` calls that fail
+  silently on insecure origins or an unfocused document.
+- 231aca6: Fix `agent-native create --template design` scaffolding a workspace where every `/design` page 500'd. `shouldSkipScaffoldEntry` skipped the entire `.generated` directory, including `templates/design/.generated/bridge/*.generated.ts` — 10 git-tracked files that `DesignCanvas.tsx` and friends import at module load. `.generated/bridge` is now copied while ephemeral dev-time siblings like `actions-registry.ts` and `action-types.d.ts` are still skipped.
+- 231aca6: Resolve Builder credentials through an email-based org fallback and a solo-workspace fallback so a transient org-context dropout no longer reports a connected Builder account as "not configured", and surface credential-store read failures as retryable.
+- 231aca6: Fix the chat "Revert to here" action doing nothing when clicked. The menu item
+  was shown whenever Code mode was on, regardless of whether a checkpoint had
+  actually been saved for that turn, and every failure path reset the button to
+  idle without any feedback. The action now only appears for turns that have a
+  real checkpoint, restores by run id in a single request, and surfaces the
+  server's error instead of failing silently.
+- 231aca6: Create app now offers a "Connect Builder" action when Builder isn't connected, instead of dead-end prose. The create-app flow (popover and full-page NewWorkspaceAppFlow) tracks the structured `builder-unavailable` failure reason from `start-workspace-app-creation`, gives hard failures a destructive-styled affordance instead of the neutral muted box used for informational states, adds a "Try again" control for `builder-error`/`credential-store-unavailable`, and wires the "Connect Builder" button through the shared `useBuilderConnectFlow` hook so users can connect and retry without leaving the flow.
+- 231aca6: Add an instruction-size check to `guard:agent-chat-context`. The compact prompt
+  hard-slices each injected resource at 6,000 characters with no build-time
+  signal, so template `AGENTS.md` files were silently losing their back half —
+  analytics lost 39%, including its entire deep-analysis workflow section. The
+  guard now reports every template's instruction size, fails on a new or growing
+  overflow, and warns on the templates already over the cap.
+- 231aca6: Teach the provider API substrate that a Notion token's `/users/me` name is a Notion-side integration label, not the caller's workspace, so agents stop reporting an unrelated product name when a page was simply never shared. Provider presets can now declare `accessErrorGuidance`, which is appended to request guidance on 401/403/404 responses.
+- 231aca6: Fix existing users being stranded in their personal workspace instead of their company org.
+
+  Request-time domain auto-join decided whether a user was still in a default workspace by
+  comparing the workspace name to a name recomputed from the current session. Sessions minted
+  by the framework's own Google OAuth and identity-SSO paths carry no display name while Better
+  Auth sessions do, so the same account could match on one sign-in path and not another — and a
+  renamed workspace, a changed provider display name, or any second org membership disabled the
+  auto-join permanently. It now keys off whether the user already belongs to an org whose
+  `allowed_domain` matches their email domain, which is the durable signal.
+
+  Joining is now also separated from activating: the company org is always joined, but the user
+  is only switched into it when their current workspace is one they solely own. Members of a
+  shared team stay where they are.
+
+  Also fixes two recovery paths that hid the manual way in: Settings → Team now shows the
+  "Join your team" card even when the user already has a (personal) workspace, and the Dispatch
+  sidebar keeps an icon-only workspace switcher when collapsed instead of dropping it.
+
+- 231aca6: Fix scaffolded workspace packages (pinpoint, embedding, creative-context,
+  scheduling) never building their `dist/` on install, which broke the Slides
+  deck editor and Design app with unresolved `@agent-native/*` imports.
+  `scaffoldRequiredPackages()` now adds a `prepare` script alongside each
+  package's existing `build` script, so pnpm builds it during `pnpm install`.
+- 231aca6: Scope developer-workflow skills (design-exploration, visual-answer, visual-edit, visual-plan, visual-recap, visualize-repo) to `dev` only so they no longer load into the in-app runtime agent's context.
+- 231aca6: Let org service tokens (`svc-<name>@service.<orgId>`) resolve an implicit
+  `member` role for their own org via `implicitServiceOrgRole`, so templates that
+  authorize against `org_members` can accept them for org-scoped actions instead
+  of returning 403. The role is always `member` and requires the request's org id
+  to independently corroborate the target org, so admin-gated operations —
+  including minting or revoking further service tokens — stay closed.
+- 231aca6: Fix messaging-integration (Slack) runs that answered "The model finished without a visible answer" and whose **Open thread** button landed on an empty Dispatch chat.
+  - **Research-shaped asks no longer die at 40s.** `processIntegrationTask` hardcoded the 40s foreground soft-timeout even when durable dispatch had routed the task to the emitted Netlify `-background` function (~15min budget). Any multi-source request — sweep Gong, HubSpot, a Slack channel and Pylon, then summarize — was aborted at a continuation boundary with no user-facing text. The run now takes the background ceiling when `isInBackgroundFunctionRuntime()` proves it is inside that function, so the ~60s synchronous wall still governs everywhere it actually applies.
+  - **A cut-off run says so.** A run that stops at an `auto_continue` boundary is no longer reported as a model that answered with nothing; it now says it ran out of time, points at the thread for the work it did gather, and suggests asking in smaller pieces.
+  - **The Open thread deep link resolves.** A channel conversation runs as the integration service principal, so its thread is owned by `integration@<platform>` and the deep link 404'd for the human who asked — Dispatch silently rendered a brand-new empty chat instead. Each verified participant is now granted an explicit editor share on the thread they are driving (`grantThreadUserShare`, idempotent and never downgrading an existing stronger role), so the button opens the real conversation and it appears in their Dispatch history.
+
+- 231aca6: Fix every `pnpm action` in a Slides app failing with "nitroApp.h3 is not available" — the Slides db plugin now skips readiness-gate middleware registration when invoked by the CLI runner, which supplies no h3 app.
+- 231aca6: Cut the "Generative UI and Extensions" block in the in-app runtime agent's system prompt down to a short pointer. The removed prose (helper API list, `update-extension` operation contract, get-extension/list-extensions/legacy-`tools`-table guidance, the 7-row extension-vs-code-change routing table, and worked examples) already exists verbatim in the `render-inline-extension`/`create-extension`/`update-extension`/`connect-builder` tool descriptions, in `shared-rules.ts`'s single copy of the db-tools rule, and in the `extensions`/`generative-ui` skills — this only removes the duplicate copy from the prompt paid on every turn. Kept in place: the app-native-artifact-first rule, the "don't send existing extension edits to `connect-builder`" guardrail, and the extension-can't-reach-native-chrome boundary sentence, none of which have another home.
+
+  Full base prompt's extension block: ~7.7KB → ~1.8KB. Compact base prompt's extension block: ~4.2KB → ~1.6KB (the compact base prompt shrinks by about 2.5KB total, roughly 14% of its prior size).
+
+- 231aca6: Remove duplicated guidance from the in-app runtime agent's system prompt. Anthropic's guidance is that overlapping/conflicting instructions are handled worse by modern models than a single clear statement, and that tool-level detail belongs in tool descriptions rather than being repeated in the system prompt.
+  - Production (tool) mode no longer re-lists every action's name and truncated description in `## Available Actions` — the native tool schemas already carry that. Only native-chat-widget annotations and a `tool-search` pointer for actions outside the initial tool set remain (dev/CLI mode, where template actions are invoked via `pnpm action` and are not native tools, is unchanged).
+  - The Navigation Rule, previously stated once as a numbered core rule and again in its own section, is now stated once.
+  - The three overlapping anti-fabrication / no-fake-success / verify-before-claiming-done rules are consolidated into one rule with three clearly labeled sub-behaviors (don't fabricate data, don't fabricate success, recover instead of giving up), removing a rule that existed only to explain how it differed from the other two.
+  - The "Extended Capabilities" section no longer repeats "call `get-framework-context` with key X" once per capability for capabilities the tool's own topic list already documents; it collapses to one line, keeping only the agent-teams delegation-intent guidance and the call-agent warning that carry unique, non-redundant behavior.
+
+  Full framework core prompt shrinks by roughly 1.8 KB (~10%); the already-condensed compact variant shrinks by a smaller amount since it had less of this duplication to begin with. The tool-mode `## Available Actions` block shrinks by an amount proportional to the number of registered actions (roughly 85%+ for typical action counts), since it stops repeating what the native tool schema already tells the model.
+
+## 0.121.2
+
+### Patch Changes
+
+- 302cac7: Rewrite getting started guide based on hands-on walkthrough
+
+## 0.121.1
+
+### Patch Changes
+
+- 99997d8: Recognize Netlify's documented Function runtime marker so opted-in durable background work reaches its generated worker instead of falling back to a short synchronous route.
+
+## 0.121.0
+
+### Minor Changes
+
+- 4e64dd1: Realtime sync: two hosted-gateway follow-ups. Both are opt-in and leave apps without hosted-realtime config unchanged.
+  - Hosted SSE reconnect now sends the client's cursor (`&since=`) on the gateway stream URL, so the gateway's connect-time catch-up replays events written during the reconnect gap immediately instead of deferring them to the next poll. First connect (cursor 0) is unaffected. Because a `since=` only takes effect when a new `EventSource` is constructed (the browser's own auto-reconnect reuses the URL frozen at construction), the hosted transport now owns reconnects: on a stream error it closes the stream and schedules its own reconnect so the next connect rebuilds the URL from the current cursor, keeping the token on transient errors and reminting on a closed stream. A late error from a replaced (stale) stream is ignored so it cannot tear down the current one. Local mode keeps native EventSource reconnect.
+  - New gateway access-check tokens (`signGatewayAccessToken`/`verifyGatewayAccessToken`, exported from `./server/short-lived-token`): per-project HMAC key, a `typ` discriminator (not interchangeable with subscribe or media tokens), and the full access query (`resourceType`/`resourceId`/`userEmail`/`orgId`) bound into the signature so the app authenticates the params, not just the caller. `verifyGatewayAccessToken` also accepts an optional expected `projectId` to bind the channel (mirroring `verifyRealtimeSubscribeToken`); the `can-see` endpoint passes its own project id when known.
+  - New endpoint `GET /_agent-native/can-see` mounted by core-routes. The hosted Realtime Gateway has no copy of an app's shareable-resource registry, so it calls this to resolve sharee visibility: the endpoint verifies a gateway access-check token against the app's per-project secret, runs the app's registry-based `resolveAccess`, and returns `{ allowed }`. Fails closed (`allowed: false`) on an unknown resource type or lookup error; 404 when the app has no realtime secret; `Cache-Control: private, no-store`.
+  - New `AppSyncStateOptions.dbAssignedVersions` (default off): allocate durable-event versions from the app's Postgres DB — a one-row allocator advanced with `GREATEST(v + 1, epoch_ms_now)` inside the same autocommit insert statement — instead of the per-writer in-memory clock counter. Hosted realtime has multiple writers per app DB (the app's serverless instances plus gateway instances), where clock skew can assign a LOWER version to a LATER event and a client whose cursor passed the higher value filters the later event out permanently; DB allocation serializes on the allocator row's lock so version order equals commit order across all writers. Buffer/emit defer until the allocated version returns (no provisional version ever reaches clients); a deterministic-id dedupe loser adopts the winner's version via `ON CONFLICT DO UPDATE ... RETURNING`; on DB failure the writer falls back to clock allocation (logged) so the in-process fast path never stalls. Versions stay epoch-ms scale, so existing cursors, seeds, and lag metrics are unaffected. The default instance enables this automatically when `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` with a gateway URL; self-hosted apps are byte-identical. Postgres only; ignored on SQLite.
+
+### Patch Changes
+
+- 3adc377: Explicitly disable dependency bundling for generated self-contained Netlify keep-warm functions.
+
 ## 0.120.4
 
 ### Patch Changes

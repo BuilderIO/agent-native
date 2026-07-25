@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 
 const CLIPS_BRAND_NAME = "Clips";
+const EMAIL_SEND_TIMEOUT_MS = 60_000;
 const FRIENDLY_REPLY_TO = "hello@agent-native.com";
 const UNTITLED_CLIP = "Untitled Clip";
 
@@ -124,9 +125,7 @@ function resolveBrandLogoUrl(
 
 function validReplyTo(value: string | null | undefined): string | undefined {
   const candidate = singleLine(value).toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)
-    ? candidate
-    : undefined;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : undefined;
 }
 
 export function renderClipsTransactionalEmail(
@@ -260,8 +259,9 @@ export async function sendClipsTransactionalEmail(
       : undefined,
     replyTo:
       input.kind === "unviewed-reminder"
-        ? validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO
+        ? (validReplyTo(input.senderEmail) ?? FRIENDLY_REPLY_TO)
         : FRIENDLY_REPLY_TO,
+    timeoutMs: EMAIL_SEND_TIMEOUT_MS,
   });
 }
 

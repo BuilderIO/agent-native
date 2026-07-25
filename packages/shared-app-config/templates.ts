@@ -77,6 +77,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -101,7 +102,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "creative-context"],
     core: true,
   },
   {
@@ -139,6 +140,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -187,7 +189,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "embedding"],
+    requiredPackages: ["pinpoint", "embedding", "creative-context"],
     core: true,
   },
   {
@@ -201,7 +203,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     defaultAgent: true,
-    requiredPackages: ["embedding"],
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
   },
   {

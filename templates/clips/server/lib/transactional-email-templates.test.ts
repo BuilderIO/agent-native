@@ -244,11 +244,9 @@ describe("renderClipsTransactionalEmail", () => {
       reminder.html.indexOf("Watch the Clip Manually"),
     );
     expect(reminder.html).toContain(
-      'border:1px solid #3f3f46; border-radius:10px; background:#0a0a0c;',
+      "border:1px solid #3f3f46; border-radius:10px; background:#0a0a0c;",
     );
-    expect(reminder.html).toContain(
-      '>https://clips.example/r/rec-2</a>',
-    );
+    expect(reminder.html).toContain(">https://clips.example/r/rec-2</a>");
     expect(
       reminder.html.match(/href="https:\/\/clips\.example\/r\/rec-2"/g),
     ).toHaveLength(2);
@@ -264,9 +262,7 @@ describe("renderClipsTransactionalEmail", () => {
     expect(firstImport.html.indexOf(importIntro)).toBeGreaterThan(
       firstImport.html.indexOf("Open your Agent-Native Clip"),
     );
-    expect(firstImport.html).toContain(
-      '>https://clips.example/r/rec-3</a>',
-    );
+    expect(firstImport.html).toContain(">https://clips.example/r/rec-3</a>");
   });
 
   it("escapes a hostile generated summary instead of trusting it as HTML", () => {
@@ -312,6 +308,7 @@ describe("sendClipsTransactionalEmail", () => {
       ),
       fromName: undefined,
       replyTo: "hello@agent-native.com",
+      timeoutMs: 60_000,
     });
   });
 
@@ -337,6 +334,7 @@ describe("sendClipsTransactionalEmail", () => {
       text: expect.stringContaining("Alex Rivera shared a Clip with you"),
       fromName: "Alex Rivera (via Agent-Native Clips)",
       replyTo: "alex@example.com",
+      timeoutMs: 60_000,
     });
   });
 });

@@ -81,7 +81,7 @@ import {
 } from "../mcp/route-paths.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
+import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -1658,8 +1658,9 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
         // template roots do not invoke origin just to render anonymous login UI.
         // The login markup is env-INDEPENDENT (a Google-only app always renders
         // a working button); the analytics script is public build configuration,
-        // not user/session state. Never downgrade this to private/no-store.
-        ...DEFAULT_SSR_CACHE_HEADERS,
+        // not user/session state. Never vary this per request — the
+        // deployment-wide override inside the resolver is the only knob.
+        ...resolveSsrCacheHeaders(),
         "X-Robots-Tag": "noindex, nofollow",
       },
     },

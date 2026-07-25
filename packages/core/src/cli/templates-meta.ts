@@ -112,6 +112,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {

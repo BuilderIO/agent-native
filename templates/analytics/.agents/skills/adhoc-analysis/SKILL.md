@@ -68,11 +68,10 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
   associated companies/contacts/tickets/notes/emails, Gong call detail, compact
   transcript excerpts, coverage counts, and gaps. Use targeted `hubspot-records`
   or `gong-calls` follow-ups only when that bundle leaves a specific gap.
-- Structure named deal/account reports like Fusion Analytics: executive summary,
-  company/deal overview, key contacts and roles, dated timeline, Gong evidence
-  with call dates/titles, current state, risks/blockers, recommended next steps,
-  and methodology/gaps. Do not answer from an all-deals dump or Gong metadata
-  alone.
+- Structure named deal/account reports as: executive summary, company/deal
+  overview, key contacts and roles, dated timeline, Gong evidence with call
+  dates/titles, current state, risks/blockers, recommended next steps, and
+  methodology/gaps. Do not answer from an all-deals dump or Gong metadata alone.
 - Use action filters such as `query`, `properties`, `objectType`, `company`, and
   `limit` to narrow results before cross-referencing
 - For HubSpot deal cohorts, use `hubspot-deals` structured filters (`product`,

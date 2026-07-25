@@ -15,7 +15,7 @@ import {
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { VideoPlayer, type VideoPlayerHandle } from "./video-player";
+import { clampSeek, VideoPlayer, type VideoPlayerHandle } from "./video-player";
 
 vi.mock("@agent-native/core/client/analytics", () => ({
   // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
@@ -253,5 +253,47 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("clampSeek", () => {
+  const videoWith = (duration: number): HTMLVideoElement =>
+    ({ duration, seekable: { length: 0 } }) as unknown as HTMLVideoElement;
+
+  it("returns integer millisecond inputs unchanged", () => {
+    const v = videoWith(600);
+    // Clamping used to route through seconds (ms / 1000 -> Math.floor(sec *
+    // 1000)), which loses 1ms for ~1% of integers. The timeupdate handler
+    // treated that delta as a real seek target and pulled playback backwards,
+    // flushing the decoder and replaying the last fraction of a second.
+    for (let ms = 0; ms <= 600_000; ms++) {
+      if (clampSeek(ms, v, 600_000) !== ms) {
+        throw new Error(`clampSeek(${ms}) === ${clampSeek(ms, v, 600_000)}`);
+      }
+    }
+    expect(clampSeek(1001, v, 600_000)).toBe(1001);
+  });
+
+  it("clamps past the end to the resolved duration", () => {
+    const v = videoWith(600);
+    expect(clampSeek(700_000, v, 600_000)).toBe(600_000);
+  });
+
+  it("falls back to video duration, then seekable, when duration is unresolved", () => {
+    expect(clampSeek(700_000, videoWith(600), 0)).toBe(600_000);
+
+    const seekableOnly = {
+      duration: Number.POSITIVE_INFINITY,
+      seekable: { length: 1, end: () => 30 },
+    } as unknown as HTMLVideoElement;
+    expect(clampSeek(90_000, seekableOnly, 0)).toBe(30_000);
+  });
+
+  it("floors a fractional bound rather than exceeding it", () => {
+    expect(clampSeek(90_000, videoWith(30.0005), 0)).toBe(30_000);
+  });
+
+  it("never returns a negative time", () => {
+    expect(clampSeek(-5, videoWith(600), 600_000)).toBe(0);
   });
 });

@@ -850,6 +850,29 @@ const migrations = runMigrations(
         `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
       ].join("; "),
     },
+    // -------------------------------------------------------------------------
+    // Agent views — external agents polling a public clip's agent context,
+    // transcript, or frame APIs. Kept in its own table so human view counts
+    // cannot accidentally include agents.
+    // -------------------------------------------------------------------------
+    {
+      version: 51,
+      name: "recording-agent-views",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_agent_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          agent_key TEXT NOT NULL,
+          agent_label TEXT,
+          view_session_id TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          request_count INTEGER NOT NULL DEFAULT 1
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
+        `CREATE INDEX IF NOT EXISTS recording_agent_views_recording_idx ON recording_agent_views (recording_id, last_seen_at)`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

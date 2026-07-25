@@ -9,6 +9,28 @@ import {
   signA2AToken,
 } from "./client.js";
 
+// ssrfSafeFetch does a REAL node:dns lookup before calling fetch. Under fake
+// timers that wall-clock work can take seconds on CI resolvers (agent.test is
+// not a real host), so fake time races past request timeouts and deadlines
+// before the stubbed fetch is ever reached. Keep the synchronous private-host
+// check (the blocking test relies on it; IP literals need no DNS) and skip
+// only the DNS phase — full SSRF behavior is covered by url-safety's own spec.
+vi.mock("../extensions/url-safety.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../extensions/url-safety.js")>();
+  return {
+    ...original,
+    ssrfSafeFetch: async (url: string, init?: RequestInit) => {
+      if (original.isBlockedExtensionUrl(url)) {
+        throw new Error(
+          `SSRF blocked: refusing to fetch private/internal address (${url})`,
+        );
+      }
+      return fetch(url, init);
+    },
+  };
+});
+
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
 
@@ -248,7 +270,17 @@ describe("A2AClient", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       { timeoutMs: 60_000, pollIntervalMs: 1_000 },
     );
-    const assertion = expect(result).resolves.toMatchObject({
+    // Attach a handler before advancing timers so an unexpected rejection is
+    // never reported as unhandled while the fake clock is moving.
+    void result.catch(() => undefined);
+
+    // Same coarse-interval pacing rationale as the hung-poll test above.
+    await vi.waitFor(() => expect(taskReads).toBeGreaterThan(0), {
+      interval: 100,
+      timeout: 5_000,
+    });
+    await vi.runAllTimersAsync();
+    await expect(result).resolves.toMatchObject({
       status: {
         state: "completed",
         message: {
@@ -258,10 +290,6 @@ describe("A2AClient", () => {
         },
       },
     });
-
-    while (taskReads === 0) await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(16_000);
-    await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
   }, 30_000);

@@ -416,6 +416,16 @@ export function createTransactionalEmailStore(
     }
   }
 
+  async function takeoverMarkerBlocks(file: string): Promise<boolean> {
+    const existing = await stat(file).catch((error: unknown) => {
+      if (isNodeError(error, "ENOENT")) return null;
+      throw error;
+    });
+    if (!existing) return false;
+    if (Date.now() - existing.mtimeMs <= LOCK_STALE_MS) return true;
+    return !(await unlinkIfIdentity(file, identityOf(existing)));
+  }
+
   async function acquireTakeoverMarker(
     ownerFile: string,
     takeoverFile: string,
@@ -426,11 +436,7 @@ export function createTransactionalEmailStore(
         return true;
       } catch (error) {
         if (!isNodeError(error, "EEXIST")) throw error;
-        const existing = await stat(takeoverFile).catch(() => null);
-        if (!existing || Date.now() - existing.mtimeMs <= LOCK_STALE_MS) {
-          return false;
-        }
-        await unlinkIfIdentity(takeoverFile, identityOf(existing));
+        if (await takeoverMarkerBlocks(takeoverFile)) return false;
       }
     }
     return false;
@@ -448,11 +454,11 @@ export function createTransactionalEmailStore(
     let acquired = false;
     let ownsTakeover = false;
     try {
-      if ((await fileIdentity(takeoverFile)) !== null) return null;
+      if (await takeoverMarkerBlocks(takeoverFile)) return null;
       try {
         await link(ownerFile, file);
         acquired = true;
-        if ((await fileIdentity(takeoverFile)) !== null) return null;
+        if (await takeoverMarkerBlocks(takeoverFile)) return null;
       } catch (error) {
         if (!isNodeError(error, "EEXIST")) throw error;
         ownsTakeover = await acquireTakeoverMarker(ownerFile, takeoverFile);
