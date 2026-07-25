@@ -15,8 +15,9 @@ describe("VideoNode source panel state", () => {
 
     editor.commands.insertContent({
       type: "video",
-      attrs: { src: null, sourcePanelOpen: true },
+      attrs: { src: null, sourcePanelOpen: true, sourceTab: "upload" },
     });
+    editor.commands.updateAttributes("video", { sourceTab: "link" });
 
     const video = editor
       .getJSON()
@@ -24,6 +25,7 @@ describe("VideoNode source panel state", () => {
     expect(video?.attrs).toMatchObject({
       src: null,
       sourcePanelOpen: true,
+      sourceTab: "link",
     });
     expect(editor.getHTML()).not.toContain("sourcePanelOpen");
 

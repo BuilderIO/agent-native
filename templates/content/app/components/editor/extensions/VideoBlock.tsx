@@ -152,7 +152,6 @@ export function VideoBlock({
   const t = useT();
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
-  const [sourceTab, setSourceTab] = useState<VideoSourceTab>("upload");
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -165,6 +164,8 @@ export function VideoBlock({
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
+  const sourceTab: VideoSourceTab =
+    node.attrs.sourceTab === "link" ? "link" : "upload";
   const poster = (node.attrs.poster as string) || "";
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedVideoWidth(node.attrs.width);
@@ -174,6 +175,10 @@ export function VideoBlock({
 
   function setSourcePanelOpen(open: boolean) {
     updateAttributes({ sourcePanelOpen: open });
+  }
+
+  function setSourceTab(tab: VideoSourceTab) {
+    updateAttributes({ sourcePanelOpen: true, sourceTab: tab });
   }
 
   useEffect(() => {
@@ -214,10 +219,9 @@ export function VideoBlock({
   }
 
   function openReplacePanel() {
-    setSourceTab("upload");
     setVideoUrl("");
     setSourcePanelDismissed(false);
-    setSourcePanelOpen(true);
+    updateAttributes({ sourcePanelOpen: true, sourceTab: "upload" });
   }
 
   function handleLightboxOpenChange(open: boolean) {
@@ -380,7 +384,11 @@ export function VideoBlock({
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
       const nextSrc = await uploadVideoFile(file);
-      updateAttributes({ src: nextSrc, sourcePanelOpen: false });
+      updateAttributes({
+        src: nextSrc,
+        sourcePanelOpen: false,
+        sourceTab: "upload",
+      });
       toast.success(t("editor.media.videoAdded"), { id: toastId });
     } catch (error) {
       toast.error(videoUploadErrorMessage(error), { id: toastId });
@@ -402,7 +410,11 @@ export function VideoBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc, sourcePanelOpen: false });
+    updateAttributes({
+      src: nextSrc,
+      sourcePanelOpen: false,
+      sourceTab: "upload",
+    });
     setVideoUrl("");
   }
 

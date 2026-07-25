@@ -123,6 +123,11 @@ export const VideoNode = Node.create<ContentVideoOptions>({
         parseHTML: () => false,
         renderHTML: () => ({}),
       },
+      sourceTab: {
+        default: "upload",
+        parseHTML: () => "upload",
+        renderHTML: () => ({}),
+      },
     };
   },
 
