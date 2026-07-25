@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import {
   runWithRequestContext,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import {
   defineEventHandler,
   readBody,
@@ -37,6 +39,8 @@ const bodySchema = z.object({
   retryAttempt: z.number().int().min(1).max(10).optional(),
   regenerate: z.boolean().optional(),
 });
+
+const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
 
 export default defineEventHandler(async (event: H3Event) => {
   const parsed = bodySchema.safeParse(await readBody(event).catch(() => null));
@@ -121,9 +125,42 @@ export default defineEventHandler(async (event: H3Event) => {
       }
 
       if (kind === "loom-import") {
+        const claimId = randomUUID();
+        const claimStartedAt = new Date().toISOString();
+        const claimExpiredBefore = new Date(
+          Date.now() - LOOM_IMPORT_LEASE_MS,
+        ).toISOString();
+        const [claimed] = await getDb()
+          .update(schema.recordings)
+          .set({
+            loomImportClaimId: claimId,
+            loomImportClaimedAt: claimStartedAt,
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              eq(schema.recordings.status, "processing"),
+              or(
+                isNull(schema.recordings.loomImportClaimId),
+                isNull(schema.recordings.loomImportClaimedAt),
+                lt(schema.recordings.loomImportClaimedAt, claimExpiredBefore),
+              ),
+            ),
+          )
+          .returning({ id: schema.recordings.id });
+        if (!claimed) {
+          return {
+            ok: true,
+            recordingId,
+            kind,
+            skipped: true,
+            reason: "loom-import-already-running",
+          };
+        }
         const result = await runLoomImportJob({
           recordingId,
           ownerEmail: recording.ownerEmail,
+          claimId,
         });
         return { ok: true, kind, result };
       }

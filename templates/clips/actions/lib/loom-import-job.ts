@@ -1,6 +1,6 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
@@ -22,19 +22,43 @@ export type LoomImportJobResult = {
 export async function failLoomImport(
   recordingId: string,
   failureReason: string,
+  claimId?: string,
 ): Promise<LoomImportJobResult> {
   const now = new Date().toISOString();
-  await getDb()
+  const [updated] = await getDb()
     .update(schema.recordings)
-    .set({ status: "failed", failureReason, updatedAt: now })
-    .where(eq(schema.recordings.id, recordingId));
-  await writeAppState(`recording-upload-${recordingId}`, {
-    recordingId,
-    status: "failed",
-    failureReason,
-    updatedAt: now,
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
+    .set({
+      status: "failed",
+      failureReason,
+      loomImportClaimId: null,
+      loomImportClaimedAt: null,
+      updatedAt: now,
+    })
+    .where(
+      claimId
+        ? and(
+            eq(schema.recordings.id, recordingId),
+            eq(schema.recordings.loomImportClaimId, claimId),
+          )
+        : eq(schema.recordings.id, recordingId),
+    )
+    .returning({ id: schema.recordings.id });
+  if (!updated) return { status: "failed", failureReason };
+
+  try {
+    await writeAppState(`recording-upload-${recordingId}`, {
+      recordingId,
+      status: "failed",
+      failureReason,
+      updatedAt: now,
+    });
+    await writeAppState("refresh-signal", { ts: Date.now() });
+  } catch (err) {
+    console.warn("[clips] Loom failure state update failed", {
+      recordingId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
   return { status: "failed", failureReason };
 }
 
@@ -47,9 +71,11 @@ export async function failLoomImport(
 export async function runLoomImportJob({
   recordingId,
   ownerEmail,
+  claimId,
 }: {
   recordingId: string;
   ownerEmail: string;
+  claimId: string;
 }): Promise<LoomImportJobResult> {
   const db = getDb();
   const [recording] = await db
@@ -57,16 +83,23 @@ export async function runLoomImportJob({
       id: schema.recordings.id,
       durationMs: schema.recordings.durationMs,
       sourceWindowTitle: schema.recordings.sourceWindowTitle,
+      loomImportClaimId: schema.recordings.loomImportClaimId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId));
 
   const shareUrl = normalizeLoomShareUrl(recording?.sourceWindowTitle ?? "");
   const loomId = shareUrl ? extractLoomVideoId(shareUrl) : null;
-  if (!recording || !shareUrl || !loomId) {
+  if (
+    !recording ||
+    recording.loomImportClaimId !== claimId ||
+    !shareUrl ||
+    !loomId
+  ) {
     return failLoomImport(
       recordingId,
       "This Loom recording is missing its source URL.",
+      claimId,
     );
   }
 
@@ -77,6 +110,7 @@ export async function runLoomImportJob({
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
+      claimId,
     );
   }
 
@@ -93,11 +127,12 @@ export async function runLoomImportJob({
       return failLoomImport(
         recordingId,
         "File upload returned no URL. Check your storage provider configuration.",
+        claimId,
       );
     }
 
     const now = new Date().toISOString();
-    await db
+    const [mediaReady] = await db
       .update(schema.recordings)
       .set({
         videoUrl: upload.url,
@@ -106,7 +141,19 @@ export async function runLoomImportJob({
         failureReason: null,
         updatedAt: now,
       })
-      .where(eq(schema.recordings.id, recordingId));
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          eq(schema.recordings.loomImportClaimId, claimId),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+    if (!mediaReady) {
+      return {
+        status: "failed",
+        failureReason: "The Loom import lease was lost before media was saved.",
+      };
+    }
 
     void queueBuilderMediaCompression({
       recordingId,
@@ -123,59 +170,91 @@ export async function runLoomImportJob({
       });
     });
 
-    let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
     try {
-      transcript = await fetchLoomTranscript({
-        shareUrl,
-        durationMs: recording.durationMs,
-      });
-    } catch (err) {
-      console.warn(
-        `[clips] Loom transcript import skipped for ${loomId}:`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+      let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
+      try {
+        transcript = await fetchLoomTranscript({
+          shareUrl,
+          durationMs: recording.durationMs,
+        });
+      } catch (err) {
+        console.warn(
+          `[clips] Loom transcript import skipped for ${loomId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
 
-    const transcriptValues = {
-      ownerEmail,
-      language: transcript?.language ?? "en",
-      segmentsJson: transcript ? JSON.stringify(transcript.segments) : "[]",
-      fullText: transcript?.fullText ?? "",
-      status: transcript ? ("ready" as const) : ("failed" as const),
-      failureReason: transcript ? null : loomTranscriptUnavailableMessage(),
-      updatedAt: now,
-    };
-    const [existingTranscript] = await db
-      .select({ recordingId: schema.recordingTranscripts.recordingId })
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-    if (existingTranscript) {
-      await db
-        .update(schema.recordingTranscripts)
-        .set(transcriptValues)
+      const transcriptValues = {
+        ownerEmail,
+        language: transcript?.language ?? "en",
+        segmentsJson: transcript ? JSON.stringify(transcript.segments) : "[]",
+        fullText: transcript?.fullText ?? "",
+        status: transcript ? ("ready" as const) : ("failed" as const),
+        failureReason: transcript ? null : loomTranscriptUnavailableMessage(),
+        updatedAt: now,
+      };
+      const [existingTranscript] = await db
+        .select({ recordingId: schema.recordingTranscripts.recordingId })
+        .from(schema.recordingTranscripts)
         .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-    } else {
-      await db.insert(schema.recordingTranscripts).values({
+      if (existingTranscript) {
+        await db
+          .update(schema.recordingTranscripts)
+          .set(transcriptValues)
+          .where(eq(schema.recordingTranscripts.recordingId, recordingId));
+      } else {
+        await db.insert(schema.recordingTranscripts).values({
+          recordingId,
+          ...transcriptValues,
+          createdAt: now,
+        });
+      }
+    } catch (err) {
+      console.warn("[clips] Loom transcript persistence skipped", {
         recordingId,
-        ...transcriptValues,
-        createdAt: now,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
 
-    await writeAppState(`recording-upload-${recordingId}`, {
-      recordingId,
-      status: "ready",
-      progress: 100,
-      videoUrl: upload.url,
-      updatedAt: now,
-    });
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    try {
+      await writeAppState(`recording-upload-${recordingId}`, {
+        recordingId,
+        status: "ready",
+        progress: 100,
+        videoUrl: upload.url,
+        updatedAt: now,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+    } catch (err) {
+      console.warn("[clips] Loom ready state update skipped", {
+        recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    try {
+      await db
+        .update(schema.recordings)
+        .set({ loomImportClaimId: null, loomImportClaimedAt: null })
+        .where(
+          and(
+            eq(schema.recordings.id, recordingId),
+            eq(schema.recordings.loomImportClaimId, claimId),
+          ),
+        );
+    } catch (err) {
+      console.warn("[clips] Loom import lease release failed", {
+        recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     return { status: "ready" };
   } catch (err) {
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
+      claimId,
     );
   }
 }

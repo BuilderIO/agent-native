@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ id: "updated-recording" }]),
+);
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
@@ -34,7 +39,11 @@ vi.mock("@agent-native/core/file-upload", () => ({
 vi.mock("../../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: {
-    recordings: { id: "id", ownerEmail: "ownerEmail" },
+    recordings: {
+      id: "id",
+      ownerEmail: "ownerEmail",
+      loomImportClaimId: "loomImportClaimId",
+    },
     recordingTranscripts: { recordingId: "recordingId" },
   },
 }));
@@ -55,6 +64,7 @@ describe("runLoomImportJob", () => {
   beforeEach(() => {
     mockSelectRows.queue = [];
     mockUpdateWhere.mockClear();
+    mockReturning.mockClear();
     mockUpdateSet.mockClear();
     mockInsertValues.mockClear();
     mockWriteAppState.mockClear();
@@ -74,6 +84,7 @@ describe("runLoomImportJob", () => {
         id: "rec_1",
         durationMs: 5_000,
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_1",
       },
     ]);
     mockDownloadLoomVideo.mockResolvedValue({
@@ -93,6 +104,7 @@ describe("runLoomImportJob", () => {
     const result = await runLoomImportJob({
       recordingId: "rec_1",
       ownerEmail: "owner@example.com",
+      claimId: "claim_1",
     });
 
     expect(result).toEqual({ status: "ready" });
@@ -117,6 +129,7 @@ describe("runLoomImportJob", () => {
         id: "rec_2",
         durationMs: 0,
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_2",
       },
     ]);
     mockDownloadLoomVideo.mockRejectedValue(
@@ -126,6 +139,7 @@ describe("runLoomImportJob", () => {
     const result = await runLoomImportJob({
       recordingId: "rec_2",
       ownerEmail: "owner@example.com",
+      claimId: "claim_2",
     });
 
     expect(result).toEqual({
@@ -147,6 +161,7 @@ describe("runLoomImportJob", () => {
         id: "rec_3",
         durationMs: 0,
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_3",
       },
     ]);
     mockDownloadLoomVideo.mockResolvedValue({
@@ -159,6 +174,7 @@ describe("runLoomImportJob", () => {
     const result = await runLoomImportJob({
       recordingId: "rec_3",
       ownerEmail: "owner@example.com",
+      claimId: "claim_3",
     });
 
     expect(result).toEqual({
@@ -173,12 +189,13 @@ describe("runLoomImportJob", () => {
     );
   });
 
-  it("marks the recording failed when transcript persistence fails", async () => {
+  it("keeps playable media ready when transcript persistence fails", async () => {
     mockSelectRows.queue.push([
       {
         id: "rec_4",
         durationMs: 0,
         sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+        loomImportClaimId: "claim_4",
       },
     ]);
     mockDownloadLoomVideo.mockResolvedValue({
@@ -198,16 +215,14 @@ describe("runLoomImportJob", () => {
     const result = await runLoomImportJob({
       recordingId: "rec_4",
       ownerEmail: "owner@example.com",
+      claimId: "claim_4",
     });
 
-    expect(result).toEqual({
-      status: "failed",
-      failureReason: "database unavailable",
-    });
-    expect(mockUpdateSet).toHaveBeenLastCalledWith(
+    expect(result).toEqual({ status: "ready" });
+    expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: "failed",
-        failureReason: "database unavailable",
+        status: "ready",
+        videoUrl: "https://cdn.example.com/rec_4.mp4",
       }),
     );
   });

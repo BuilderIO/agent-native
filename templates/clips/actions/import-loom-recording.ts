@@ -238,6 +238,8 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: LOOM_STORAGE_SETUP_REQUIRED_REASON,
+            loomImportClaimId: null,
+            loomImportClaimedAt: null,
           })
           .where(eq(schema.recordings.id, id));
       } else {
@@ -307,6 +309,8 @@ export default defineAction({
           status: "processing",
           videoUrl: null,
           failureReason: null,
+          loomImportClaimId: null,
+          loomImportClaimedAt: null,
         })
         .where(eq(schema.recordings.id, id));
     } else {

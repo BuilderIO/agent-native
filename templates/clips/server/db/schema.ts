@@ -166,6 +166,8 @@ export const recordings = table("recordings", {
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
   failureReason: text("failure_reason"),
+  loomImportClaimId: text("loom_import_claim_id"),
+  loomImportClaimedAt: text("loom_import_claimed_at"),
 
   // Non-destructive edits: JSON `{ trims: [{startMs,endMs,excluded}], blurs: [...], speed: [...] }`
   editsJson: text("edits_json").notNull().default("{}"),
