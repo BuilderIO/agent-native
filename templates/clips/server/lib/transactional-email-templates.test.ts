@@ -57,7 +57,7 @@ describe("renderClipsTransactionalEmail", () => {
       },
       subject: "Still need to watch “Launch notes”?",
       heading: "Alex shared a Clip with you",
-      cta: "Watch the Clip: https://clips.example/r/rec-2",
+      cta: "Watch the Clip Manually: https://clips.example/r/rec-2",
     },
     {
       input: {
@@ -77,9 +77,9 @@ describe("renderClipsTransactionalEmail", () => {
         generatedSummary:
           "Alex shared a product walkthrough, and Sam sent a launch update.",
       },
-      subject: "Two Clips in—what would you create?",
+      subject: "You've received two Clips. What would you create?",
       heading: "You’ve received two Agent-Native Clips",
-      cta: "Create your first Clip: https://clips.example/record",
+      cta: "Record an Agent-Native Clip: https://clips.example/record",
     },
   ])(
     "renders the approved $input.kind subject, heading, and CTA",
@@ -141,6 +141,9 @@ describe("renderClipsTransactionalEmail", () => {
     expect(firstView.text).toContain(
       "Someone registered the first view of Untitled Clip.",
     );
+    expect(firstView.text).toContain(
+      "Clips tracks advanced analytics on your viewers' activity, and can even tell you whether your recipient took AI actions with your link. Come back to Clips to view analytics, or configure Clips AI to take agentic actions on your behalf.",
+    );
 
     const reminder = render({
       kind: "unviewed-reminder",
@@ -156,35 +159,71 @@ describe("renderClipsTransactionalEmail", () => {
     expect(twoClips.text).toContain("Two people shared Clips with you");
   });
 
-  it("includes concise Agent-Native benefits in every email", () => {
-    const variants: ClipsTransactionalEmailInput[] = [
-      {
-        kind: "first-view",
-        to: "owner@example.test",
-        recordingId: "rec-1",
-      },
-      {
-        kind: "unviewed-reminder",
-        to: "viewer@example.test",
-        recordingId: "rec-2",
-      },
-      {
-        kind: "first-import",
-        to: "owner@example.test",
-        recordingId: "rec-3",
-      },
-      {
-        kind: "two-clips",
-        to: "viewer@example.test",
-      },
-    ];
+  it("includes the relevant Agent-Native benefit in every email", () => {
+    const firstView = render({
+      kind: "first-view",
+      to: "owner@example.test",
+      recordingId: "rec-1",
+    });
+    expect(firstView.text).toMatch(/advanced analytics/i);
+    expect(firstView.text).toMatch(/AI actions/i);
 
-    for (const input of variants) {
-      const result = render(input);
-      expect(result.text).toMatch(/agent/i);
-      expect(result.text).toMatch(/speech|spoken/);
-      expect(result.text).toMatch(/on-screen/);
-    }
+    const reminder = render({
+      kind: "unviewed-reminder",
+      to: "viewer@example.test",
+      recordingId: "rec-2",
+    });
+    expect(reminder.text).toMatch(/own AI agent/i);
+    expect(reminder.text).toMatch(/summary/i);
+
+    const firstImport = render({
+      kind: "first-import",
+      to: "owner@example.test",
+      recordingId: "rec-3",
+    });
+    expect(firstImport.text).toMatch(/agent-readable context/i);
+    expect(firstImport.text).toMatch(/speech/i);
+    expect(firstImport.text).toMatch(/on-screen/i);
+
+    const twoClips = render({
+      kind: "two-clips",
+      to: "viewer@example.test",
+    });
+    expect(twoClips.text).toMatch(/human viewing/i);
+    expect(twoClips.text).toMatch(/AI agent use/i);
+  });
+
+  it("places treated Clip URLs around CTAs as requested", () => {
+    const reminder = render({
+      kind: "unviewed-reminder",
+      to: "viewer@example.test",
+      recordingId: "rec-2",
+      title: "Launch notes",
+    });
+    const reminderIntro =
+      "Don't have a moment to spare? Share the below link with your own AI agent and ask it for a summary:";
+    expect(reminder.text).toContain(reminderIntro);
+    expect(reminder.html.indexOf(reminderIntro)).toBeLessThan(
+      reminder.html.indexOf("Watch the Clip Manually"),
+    );
+    expect(reminder.html).toContain(
+      '>https://clips.example/r/rec-2</a>',
+    );
+
+    const firstImport = render({
+      kind: "first-import",
+      to: "owner@example.test",
+      recordingId: "rec-3",
+      title: "Imported demo",
+    });
+    const importIntro = "Or just feed this link to your own AI agent:";
+    expect(firstImport.text).toContain(importIntro);
+    expect(firstImport.html.indexOf(importIntro)).toBeGreaterThan(
+      firstImport.html.indexOf("Open your Agent-Native Clip"),
+    );
+    expect(firstImport.html).toContain(
+      '>https://clips.example/r/rec-3</a>',
+    );
   });
 
   it("escapes a hostile generated summary instead of trusting it as HTML", () => {

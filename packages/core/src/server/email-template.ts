@@ -27,6 +27,12 @@ export interface EmailCta {
   url: string;
 }
 
+export interface EmailLinkBlock {
+  intro: string;
+  url: string;
+  placement?: "before-cta" | "after-cta";
+}
+
 export interface RenderEmailArgs {
   /** Short preview text shown by email clients next to the subject. */
   preheader?: string;
@@ -36,6 +42,8 @@ export interface RenderEmailArgs {
   paragraphs: string[];
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
+  /** A treated, copyable URL shown before or after the CTA. */
+  linkBlock?: EmailLinkBlock;
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /** Optional app name shown beside the framework logo. */
@@ -91,6 +99,19 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
         `<p style="margin:0 0 16px 0; font-size:16px; line-height:1.6; color:#d4d4d8;">${p}</p>`,
     )
     .join("");
+
+  const linkBlockHtml = args.linkBlock
+    ? `
+      <p style="margin:24px 0 12px 0; font-size:15px; line-height:1.6; color:#d4d4d8;">${escapeHtml(args.linkBlock.intro)}</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0; border:1px solid #3f3f46; border-radius:10px; background:#0a0a0c;">
+        <tr>
+          <td style="padding:14px 16px;">
+            <a href="${escapeAttr(args.linkBlock.url)}" style="display:block; color:#d4d4d8; font-family:'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size:13px; line-height:1.5; text-decoration:none; word-break:break-all; overflow-wrap:anywhere;">${escapeHtml(args.linkBlock.url)}</a>
+          </td>
+        </tr>
+      </table>
+    `
+    : "";
 
   const ctaHtml = args.cta
     ? `
@@ -151,7 +172,9 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
+                ${args.linkBlock?.placement !== "after-cta" ? linkBlockHtml : ""}
                 ${ctaHtml}
+                ${args.linkBlock?.placement === "after-cta" ? linkBlockHtml : ""}
                 ${footerHtml}
               </td>
             </tr>
@@ -169,8 +192,18 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     textLines.push(stripTags(p));
     textLines.push("");
   }
+  if (args.linkBlock && args.linkBlock.placement !== "after-cta") {
+    textLines.push(args.linkBlock.intro);
+    textLines.push(args.linkBlock.url);
+    textLines.push("");
+  }
   if (args.cta) {
     textLines.push(`${args.cta.label}: ${args.cta.url}`);
+    textLines.push("");
+  }
+  if (args.linkBlock?.placement === "after-cta") {
+    textLines.push(args.linkBlock.intro);
+    textLines.push(args.linkBlock.url);
     textLines.push("");
   }
   if (args.footer) {

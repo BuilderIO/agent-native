@@ -121,7 +121,7 @@ export function renderClipsTransactionalEmail(
         heading: "Someone watched your Clip",
         paragraphs: [
           `${emailStrong(viewer)} registered the first view of ${emailStrong(title!)}.`,
-          "The same Clip also gives an agent timestamped speech and on-screen visual context, so it can understand more than playback alone.",
+          "Clips tracks advanced analytics on your viewers' activity, and can even tell you whether your recipient took AI actions with your link. Come back to Clips to view analytics, or configure Clips AI to take agentic actions on your behalf.",
         ],
         cta: {
           label: "See Clip activity",
@@ -136,18 +136,23 @@ export function renderClipsTransactionalEmail(
     case "unviewed-reminder": {
       const sender = normalizeEmailDisplayName(input.senderEmail, "Someone");
       const subject = `Still need to watch “${title}”?`;
+      const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandColor: CLIPS_BRAND_COLOR,
         preheader: subject,
         heading: `${sender} shared a Clip with you`,
         paragraphs: [
-          `${emailStrong(title!)} is waiting whenever you have a moment—there's no rush.`,
-          "Clips are easy for people to watch and Agent-Native, so an agent can help you find or act on an exact spoken or on-screen moment.",
+          `${emailStrong(title!)} is waiting whenever you have a moment.`,
         ],
+        linkBlock: {
+          intro:
+            "Don't have a moment to spare? Share the below link with your own AI agent and ask it for a summary:",
+          url,
+        },
         cta: {
-          label: "Watch the Clip",
-          url: clipUrl(input.recordingId, options),
+          label: "Watch the Clip Manually",
+          url,
         },
         footer: `You received this reminder because ${sender} shared this Clip with you two days ago.`,
       });
@@ -156,6 +161,7 @@ export function renderClipsTransactionalEmail(
 
     case "first-import": {
       const subject = "Your first imported video is now Agent-Native";
+      const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandColor: CLIPS_BRAND_COLOR,
@@ -167,7 +173,12 @@ export function renderClipsTransactionalEmail(
         ],
         cta: {
           label: "Open your Agent-Native Clip",
-          url: clipUrl(input.recordingId, options),
+          url,
+        },
+        linkBlock: {
+          intro: "Or just feed this link to your own AI agent:",
+          url,
+          placement: "after-cta",
         },
         footer:
           "You received this one-time note because your first imported video is ready.",
@@ -179,7 +190,7 @@ export function renderClipsTransactionalEmail(
       const summary =
         singleLine(input.generatedSummary) ||
         "Two people shared Clips with you, giving you a quick look at what Agent-Native video can do.";
-      const subject = "Two Clips in—what would you create?";
+      const subject = "You've received two Clips. What would you create?";
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
         brandColor: CLIPS_BRAND_COLOR,
@@ -187,10 +198,10 @@ export function renderClipsTransactionalEmail(
         heading: "You’ve received two Agent-Native Clips",
         paragraphs: [
           emailStrong(summary),
-          "Clips stay human-friendly video while their speech and on-screen context become usable by an agent. What would you create with yours?",
+          "Clips are screen recordings that are friendly for both human viewing and AI agent use. What would you create with yours?",
         ],
         cta: {
-          label: "Create your first Clip",
+          label: "Record an Agent-Native Clip",
           url: recordUrl(options),
         },
         footer:
