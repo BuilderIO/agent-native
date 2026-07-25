@@ -5,6 +5,10 @@ import { join } from "node:path";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
+import { Table } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
 import { EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, createElement } from "react";
@@ -146,6 +150,61 @@ describe("slash command menu trigger", () => {
       await act(async () => Promise.resolve());
 
       expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
+
+  it("executes an exact slash command on Enter when the menu is not visible", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit, Table, TableRow, TableHeader, TableCell],
+      content: "<p>/table</p>",
+    });
+    editor.commands.focus("end");
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).not.toContain("/table");
+      expect(editor.view.dom.querySelectorAll("table")).toHaveLength(1);
     } finally {
       await act(async () => root.unmount());
       editor.destroy();

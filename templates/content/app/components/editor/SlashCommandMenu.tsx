@@ -924,6 +924,14 @@ export function SlashCommandMenu({
     localComponentCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands = mediaCommands.filter(commandMatchesQuery);
+  const allCommands = [
+    ...aiCommands,
+    ...blockCommands,
+    ...registryCommands,
+    ...localComponentCommands,
+    ...mediaCommands,
+    ...pageCommands,
+  ];
   const filteredCommands = [
     ...filteredAiCommands,
     ...filteredBlockCommands,
@@ -986,6 +994,33 @@ export function SlashCommandMenu({
     if (!editor) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === "Enter" &&
+        !e.shiftKey &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const slashRange = getActiveSlashCommandRange(editor);
+        const liveQuery = slashRange
+          ? editor.state.doc
+              .textBetween(slashRange.from + 1, slashRange.to, "\n")
+              .trim()
+              .toLowerCase()
+          : "";
+        const exactCommand = liveQuery
+          ? allCommands.find(
+              (command) => command.title.toLowerCase() === liveQuery,
+            )
+          : undefined;
+        if (exactCommand) {
+          e.preventDefault();
+          e.stopPropagation();
+          void executeCommand(exactCommand);
+          return;
+        }
+      }
+
       if (!isOpen) {
         if (
           e.key === "Enter" &&
@@ -1052,6 +1087,7 @@ export function SlashCommandMenu({
     openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
+    allCommands,
   ]);
 
   useEffect(() => {
