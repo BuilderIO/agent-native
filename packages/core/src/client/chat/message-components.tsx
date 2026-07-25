@@ -1056,7 +1056,7 @@ export function shouldShowMissingFinalResponse({
  */
 const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
 
-function useSettledFlag(active: boolean, delayMs: number): boolean {
+export function useSettledFlag(active: boolean, delayMs: number): boolean {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
     if (!active || delayMs <= 0) {
