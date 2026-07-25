@@ -142,7 +142,7 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
-  it("gives an idempotent first-party read a 30 second, single-attempt budget", async () => {
+  it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
     await queryFirstPartyAnalytics(
@@ -150,10 +150,36 @@ describe("queryFirstPartyAnalytics", () => {
       { userEmail: "alice@example.com", orgId: null },
     );
 
+    expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        timeoutMs: 30_000,
+        timeoutMs: 45_000,
         maxAttempts: 1,
+      }),
+    );
+  });
+
+  it("caches dashboard-panel reads only when explicitly requested", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(1);
+    execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("first_party_analytics_cache")
+        ? { rows: [], rowsAffected: 0 }
+        : { rows: [{ count: "1" }], rowsAffected: 0 },
+    );
+
+    try {
+      const query = "SELECT COUNT(*) AS count FROM analytics_events";
+      const scope = { userEmail: "cached@example.com", orgId: null };
+      await queryFirstPartyAnalytics(query, scope, { cache: true });
+      await queryFirstPartyAnalytics(query, scope, { cache: true });
+    } finally {
+      random.mockRestore();
+    }
+
+    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("first_party_analytics_cache"),
       }),
     );
   });
