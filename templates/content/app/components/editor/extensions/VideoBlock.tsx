@@ -151,7 +151,6 @@ export function VideoBlock({
 }: NodeViewProps) {
   const t = useT();
   const [isHovered, setIsHovered] = useState(false);
-  const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
   const [sourceTab, setSourceTab] = useState<VideoSourceTab>("upload");
   const [videoUrl, setVideoUrl] = useState("");
@@ -165,12 +164,17 @@ export function VideoBlock({
   const resizeStateRef = useRef<VideoResizeState | null>(null);
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
+  const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
   const poster = (node.attrs.poster as string) || "";
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedVideoWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
   const options = extension.options as ContentVideoOptions;
+
+  function setSourcePanelOpen(open: boolean) {
+    updateAttributes({ sourcePanelOpen: open });
+  }
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -376,8 +380,7 @@ export function VideoBlock({
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
       const nextSrc = await uploadVideoFile(file);
-      updateAttributes({ src: nextSrc });
-      setSourcePanelOpen(false);
+      updateAttributes({ src: nextSrc, sourcePanelOpen: false });
       toast.success(t("editor.media.videoAdded"), { id: toastId });
     } catch (error) {
       toast.error(videoUploadErrorMessage(error), { id: toastId });
@@ -399,9 +402,8 @@ export function VideoBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc });
+    updateAttributes({ src: nextSrc, sourcePanelOpen: false });
     setVideoUrl("");
-    setSourcePanelOpen(false);
   }
 
   function renderSourcePanel(replace = false) {
