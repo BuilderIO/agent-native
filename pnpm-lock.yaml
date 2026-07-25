@@ -1112,6 +1112,9 @@ importers:
       '@tabler/icons-react':
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
+      '@tanstack/react-query':
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.1
