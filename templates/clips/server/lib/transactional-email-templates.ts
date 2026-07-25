@@ -6,7 +6,6 @@ import {
 } from "@agent-native/core/server";
 
 const CLIPS_BRAND_NAME = "Clips";
-const CLIPS_BRAND_COLOR = "#18181B";
 const UNTITLED_CLIP = "Untitled Clip";
 
 interface TransactionalEmailBase {
@@ -116,7 +115,7 @@ export function renderClipsTransactionalEmail(
       const subject = `Your Clip “${title}” got its first view`;
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-        brandColor: CLIPS_BRAND_COLOR,
+
         preheader: subject,
         heading: "Someone watched your Clip",
         paragraphs: [
@@ -139,7 +138,7 @@ export function renderClipsTransactionalEmail(
       const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-        brandColor: CLIPS_BRAND_COLOR,
+
         preheader: subject,
         heading: `${sender} shared a Clip with you`,
         paragraphs: [
@@ -164,7 +163,7 @@ export function renderClipsTransactionalEmail(
       const url = clipUrl(input.recordingId, options);
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-        brandColor: CLIPS_BRAND_COLOR,
+
         preheader: subject,
         heading: "Your video is ready for more than playback",
         paragraphs: [
@@ -193,7 +192,7 @@ export function renderClipsTransactionalEmail(
       const subject = "You've received two Clips. What would you create?";
       const rendered = renderEmail({
         brandName: CLIPS_BRAND_NAME,
-        brandColor: CLIPS_BRAND_COLOR,
+
         preheader: subject,
         heading: "You’ve received two Agent-Native Clips",
         paragraphs: [

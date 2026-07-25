@@ -93,6 +93,36 @@ describe("renderClipsTransactionalEmail", () => {
     },
   );
 
+  it("uses light high-contrast CTA buttons in every email", () => {
+    const variants: ClipsTransactionalEmailInput[] = [
+      {
+        kind: "first-view",
+        to: "owner@example.test",
+        recordingId: "rec-1",
+      },
+      {
+        kind: "unviewed-reminder",
+        to: "viewer@example.test",
+        recordingId: "rec-2",
+      },
+      {
+        kind: "first-import",
+        to: "owner@example.test",
+        recordingId: "rec-3",
+      },
+      {
+        kind: "two-clips",
+        to: "viewer@example.test",
+      },
+    ];
+
+    for (const input of variants) {
+      const { html } = render(input);
+      expect(html).toContain("background:#fafafa;");
+      expect(html).toContain("color:#0a0a0c;");
+    }
+  });
+
   it("builds absolute URLs without losing or duplicating an app base path", () => {
     const input: ClipsTransactionalEmailInput = {
       kind: "first-view",
@@ -207,8 +237,14 @@ describe("renderClipsTransactionalEmail", () => {
       reminder.html.indexOf("Watch the Clip Manually"),
     );
     expect(reminder.html).toContain(
+      'border:1px solid #3f3f46; border-radius:10px; background:#0a0a0c;',
+    );
+    expect(reminder.html).toContain(
       '>https://clips.example/r/rec-2</a>',
     );
+    expect(
+      reminder.html.match(/href="https:\/\/clips\.example\/r\/rec-2"/g),
+    ).toHaveLength(2);
 
     const firstImport = render({
       kind: "first-import",
