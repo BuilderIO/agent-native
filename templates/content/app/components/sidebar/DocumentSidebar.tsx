@@ -34,7 +34,6 @@ import type {
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
-  IconHierarchy2,
   IconFolder,
   IconFolderOpen,
   IconPlus,
@@ -637,7 +636,6 @@ export function DocumentSidebar({
   }, [setStoredCollapsedSections]);
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
-  const agentActive = location.pathname.startsWith("/agent");
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1326,23 +1324,6 @@ export function DocumentSidebar({
     />
   );
 
-  const renderAgentNavButton = () => (
-    <Link
-      to="/agent"
-      className={cn(
-        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-        agentActive
-          ? "bg-accent text-accent-foreground"
-          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-      )}
-    >
-      <IconHierarchy2 size={15} className="shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-start">
-        {t("settings.agentTitle")}
-      </span>
-    </Link>
-  );
-
   const toggleSection = (id: SidebarSectionId) => {
     setStoredCollapsedSections((current) => {
       const normalized = normalizeCollapsedSections(current);
@@ -1884,22 +1865,6 @@ export function DocumentSidebar({
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
-              to="/agent"
-              className={cn(
-                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
-                agentActive
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <IconHierarchy2 size={16} />
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent>{t("settings.agentTitle")}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Link
               to="/settings"
               className={cn(
                 "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
@@ -2091,10 +2056,7 @@ export function DocumentSidebar({
       </ScrollArea>
 
       <div className="shrink-0 px-3 py-2">
-        <div className="space-y-1">
-          {renderAgentNavButton()}
-          {renderSettingsNavButton()}
-        </div>
+        <div className="space-y-1">{renderSettingsNavButton()}</div>
       </div>
 
       <div className="shrink-0">

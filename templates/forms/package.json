@@ -1,6 +1,6 @@
 {
   "name": "forms",
-  "displayName": "Agent-Native Forms",
+  "displayName": "Forms",
   "private": true,
   "type": "module",
   "scripts": {

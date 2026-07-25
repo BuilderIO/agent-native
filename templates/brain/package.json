@@ -1,6 +1,6 @@
 {
   "name": "brain",
-  "displayName": "Agent-Native Brain",
+  "displayName": "Brain",
   "private": true,
   "type": "module",
   "scripts": {

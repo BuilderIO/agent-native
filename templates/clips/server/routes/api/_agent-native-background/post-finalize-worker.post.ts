@@ -14,6 +14,7 @@ import { z } from "zod";
 import exportToBrain from "../../../../actions/export-to-brain.js";
 import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
+import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
 import {
@@ -24,7 +25,13 @@ import {
 
 const bodySchema = z.object({
   recordingId: z.string().min(1).max(200),
-  kind: z.enum(["media-ready", "seekable", "transcript", "brain-export"]),
+  kind: z.enum([
+    "media-ready",
+    "seekable",
+    "transcript",
+    "brain-export",
+    "loom-import",
+  ]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
@@ -63,7 +70,8 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { ok: false, error: "Recording not found" };
   }
-  const requiredStatus = kind === "media-ready" ? "processing" : "ready";
+  const requiredStatus =
+    kind === "media-ready" || kind === "loom-import" ? "processing" : "ready";
   if (recording.status !== requiredStatus) {
     return {
       ok: true,
@@ -108,6 +116,14 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await finalizeRecording.run({
           id: recordingId,
           mediaVerificationRetryAttempt: retryAttempt ?? 1,
+        });
+        return { ok: true, kind, result };
+      }
+
+      if (kind === "loom-import") {
+        const result = await runLoomImportJob({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
         });
         return { ok: true, kind, result };
       }

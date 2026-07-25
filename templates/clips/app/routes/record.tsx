@@ -1850,6 +1850,11 @@ export default function RecordRoute() {
             description: t("recordRoute.connectStorageToRetryLoom"),
             duration: 12_000,
           });
+        } else if (result?.status === "processing") {
+          // The video download + reupload run as a background job (see
+          // import-loom-recording.ts) so this request stays fast regardless of
+          // Loom video length; the recording page polls until it is ready.
+          toast.info(t("recordingPage.importingLoom"));
         } else {
           showSavedToast(
             t("recordRoute.loomImported"),

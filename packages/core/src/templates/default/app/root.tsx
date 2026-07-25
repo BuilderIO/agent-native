@@ -327,7 +327,7 @@ export function ErrorBoundary() {
           {copy.goHome}
         </Link>
         <ErrorReportActions
-          appName="Agent Native"
+          appName="{{APP_TITLE}}"
           title={title}
           details={details}
           status={status}

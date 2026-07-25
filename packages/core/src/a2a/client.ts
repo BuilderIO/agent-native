@@ -1,6 +1,45 @@
 import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+
+/**
+ * A workspace serves every app from one gateway on loopback, so sibling A2A
+ * targets are private addresses by construction and the SSRF guard cannot tell
+ * them apart from an attack. Trust only origins this deployment configured for
+ * itself — never a value that arrived on a request.
+ */
+function workspacePrivateOrigins(): string[] {
+  const origins = [
+    process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+  ].filter((value): value is string => !!value);
+
+  // The gateway also hands each child the sibling manifest, and siblings are
+  // reached on their own loopback ports rather than through the gateway.
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const apps = Array.isArray(parsed?.apps)
+        ? parsed.apps
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
+      for (const app of apps) {
+        const url = app?.url ?? app?.origin ?? app?.baseUrl;
+        if (typeof url === "string" && url) origins.push(url);
+        const port = app?.port;
+        if (typeof port === "number" && Number.isFinite(port)) {
+          origins.push(`http://127.0.0.1:${port}`);
+        }
+      }
+    } catch {
+      // A malformed manifest must not disable the SSRF guard.
+    }
+  }
+  return origins;
+}
 import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
   A2AApprovedAction,
@@ -138,7 +177,7 @@ export class A2AClient {
         const res = await ssrfSafeFetch(
           endpoint,
           { method: "OPTIONS" },
-          { maxRedirects: 3 },
+          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -237,7 +276,7 @@ export class A2AClient {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
       {},
-      { maxRedirects: 3 },
+      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -548,7 +587,7 @@ export class A2AClient {
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
       );
     } finally {
       if (timer) clearTimeout(timer);

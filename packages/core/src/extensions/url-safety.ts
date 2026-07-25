@@ -264,10 +264,37 @@ export async function ssrfSafeFetch(
     maxRedirects?: number;
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
+    /**
+     * Exact origins that may resolve to a private address. A workspace runs
+     * every app on loopback behind one gateway, so sibling A2A calls are
+     * private by construction; without this they are indistinguishable from an
+     * SSRF attempt and get blocked. Only ever pass origins the deployment
+     * itself configured (never a request-supplied value).
+     */
+    allowedPrivateOrigins?: readonly string[];
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+  const allowedPrivateOrigins = new Set(
+    (options.allowedPrivateOrigins ?? [])
+      .map((origin) => {
+        try {
+          return new URL(origin).origin;
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean),
+  );
+  const isAllowedPrivateOrigin = (candidate: string): boolean => {
+    if (allowedPrivateOrigins.size === 0) return false;
+    try {
+      return allowedPrivateOrigins.has(new URL(candidate).origin);
+    } catch {
+      return false;
+    }
+  };
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
@@ -277,7 +304,10 @@ export async function ssrfSafeFetch(
         `SSRF blocked: refusing to fetch non-HTTPS address (${currentUrl})`,
       );
     }
-    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
+    if (
+      !isAllowedPrivateOrigin(currentUrl) &&
+      (await isBlockedExtensionUrlWithDns(currentUrl))
+    ) {
       throw new Error(
         `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,
       );

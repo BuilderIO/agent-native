@@ -7,7 +7,6 @@ import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconStack2,
-  IconHierarchy2,
   IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
@@ -33,7 +32,6 @@ const navItems = [
 ];
 
 const bottomNavItems = [
-  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
