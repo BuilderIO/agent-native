@@ -36,6 +36,7 @@ import {
   uploadAndInsertVideoFiles,
   shouldApplyExternalContentSync,
   shouldPersistEffectivelyEmptyEditorUpdate,
+  shouldPersistCollaborativeEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
@@ -89,6 +90,45 @@ describe("placeholder ancestry", () => {
     } finally {
       editor.destroy();
     }
+  });
+});
+
+describe("collaborative update persistence", () => {
+  it("rejects unfocused normalization without user intent", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: false,
+        userInitiated: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps focused commands and explicit user edits persistable", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: true,
+        userInitiated: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: true,
+        editorFocused: false,
+        userInitiated: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not change non-collaborative persistence", () => {
+    expect(
+      shouldPersistCollaborativeEditorUpdate({
+        collab: false,
+        editorFocused: false,
+        userInitiated: false,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -932,6 +932,24 @@ export function shouldPersistLocalFileEditorUpdate({
   return Boolean(transactionUiEvent);
 }
 
+export function shouldPersistCollaborativeEditorUpdate({
+  collab,
+  editorFocused,
+  userInitiated,
+}: {
+  collab: boolean;
+  editorFocused: boolean;
+  userInitiated: boolean;
+}) {
+  // Collaborative mount/reconcile normalization can produce a local-looking
+  // transaction after the remote Y.Doc has loaded. If the editor is not
+  // focused and no human input event preceded the transaction, it has no
+  // authority to overwrite SQL. Focused commands and explicit user-intent
+  // transactions remain persistable; structural/media actions additionally
+  // use their immediate proof-of-save callbacks.
+  return !collab || editorFocused || userInitiated;
+}
+
 function isEffectivelyEmptyEditorContent(value: string): boolean {
   const normalized = value.trim();
   return normalized === "" || normalized === "<empty-block/>";
@@ -2095,13 +2113,23 @@ export function VisualEditor({
       ) {
         return;
       }
+      const userInitiated =
+        transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
+        Date.now() - lastUserEditIntentAtRef.current < 2000 ||
+        Boolean(transaction.getMeta("uiEvent"));
+      if (
+        !shouldPersistCollaborativeEditorUpdate({
+          collab: !!ydoc,
+          editorFocused: editor.isFocused,
+          userInitiated,
+        })
+      ) {
+        return;
+      }
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
       persistEditorContent(editor, {
-        userInitiated:
-          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
-          Date.now() - lastUserEditIntentAtRef.current < 2000 ||
-          Boolean(transaction.getMeta("uiEvent")),
+        userInitiated,
       });
     },
   });
