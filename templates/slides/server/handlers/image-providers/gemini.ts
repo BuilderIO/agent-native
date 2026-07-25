@@ -74,9 +74,12 @@ export class GeminiProvider implements ImageProvider {
       imageConfig.aspectRatio = config.aspectRatio;
     }
 
+    // Google retired the "-preview" aliases (shut down 2026-06-25); the GA
+    // model ids dropped the suffix. Sending the old preview ids 404s every
+    // call before falling through to gemini-2.5-flash-image.
     const geminiModels = [
-      "gemini-3.1-flash-image-preview",
-      "gemini-3-pro-image-preview",
+      "gemini-3.1-flash-image",
+      "gemini-3-pro-image",
       "gemini-2.5-flash-image",
     ];
     let lastError: Error | null = null;

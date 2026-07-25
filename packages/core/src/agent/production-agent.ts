@@ -3369,6 +3369,59 @@ function normalizeOptionalToolPlaceholders(
   return { input: normalized, changed: true };
 }
 
+/**
+ * Models routinely JSON-encode a field's value into a string when the tool
+ * schema wants an object/array — e.g. `config: "{\"name\":...}"` instead of
+ * `config: {name:...}`, or `operations: "[...]"` instead of `operations: [...]`.
+ * Seen across every app profiled in the 2026-07-25 reliability sweep
+ * (brain's `update-source` config, analytics' `mutate-dashboard`/
+ * `update-dashboard` operations/ops/config) and the model does NOT
+ * self-correct across repeated identical retries — it burns the full
+ * `MAX_IDENTICAL_TOOL_ERRORS` retry budget on the same wrong shape every
+ * time. Evidence-gated exactly like `normalizeOptionalToolPlaceholders`:
+ * only coerce a field whose CURRENT value fails schema validation (so a
+ * legitimate string value is never touched — a field schema-valid as a
+ * string is never also schema-valid as object/array) and whose parsed form
+ * passes. Never touches values that are already the right shape.
+ */
+function coerceStringifiedJsonToolValues(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): { input: unknown; changed: boolean } {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+
+  let normalized: Record<string, unknown> | null = null;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value !== "string" || value.trim().length === 0) continue;
+    const propertySchema = schema.properties[key];
+    if (!propertySchema || typeof propertySchema !== "object") continue;
+    const expectedType = (propertySchema as { type?: unknown }).type;
+    const expectsObjectOrArray =
+      expectedType === "object" ||
+      expectedType === "array" ||
+      (Array.isArray(expectedType) &&
+        (expectedType.includes("object") || expectedType.includes("array")));
+    if (!expectsObjectOrArray) continue;
+    if (schemaAcceptsToolValue(propertySchema, value)) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      continue;
+    }
+    if (typeof parsed !== "object" || parsed === null) continue;
+    if (!schemaAcceptsToolValue(propertySchema, parsed)) continue;
+    normalized ??= { ...(input as Record<string, unknown>) };
+    normalized[key] = parsed;
+  }
+  return normalized
+    ? { input: normalized, changed: true }
+    : { input, changed: false };
+}
+
 function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
   const cached = rawToolInputValidatorCache.get(schema);
   if (cached) return cached;
@@ -4354,6 +4407,17 @@ export async function runAgentLoop(opts: {
       if (placeholderNormalization.changed) {
         toolCall = { ...toolCall, input: placeholderNormalization.input };
       }
+      const jsonStringCoercion = actionEntry
+        ? coerceStringifiedJsonToolValues(
+            actionEntry.tool.parameters,
+            toolCall.input,
+          )
+        : { input: toolCall.input, changed: false };
+      if (jsonStringCoercion.changed) {
+        toolCall = { ...toolCall, input: jsonStringCoercion.input };
+      }
+      const toolInputNormalized =
+        placeholderNormalization.changed || jsonStringCoercion.changed;
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
@@ -4776,7 +4840,7 @@ export async function runAgentLoop(opts: {
       });
 
       const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-      if (toolCallSchemaError && !placeholderNormalization.changed) {
+      if (toolCallSchemaError && !toolInputNormalized) {
         const result = finalizeToolErrorResult(
           toolInputSchemaErrorResult(
             toolCall.name,

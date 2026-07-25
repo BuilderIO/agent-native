@@ -331,7 +331,11 @@ export async function writeInlineSourceFile(args: {
       args.expectedVersionHash &&
       args.expectedVersionHash !== current.versionHash
     ) {
-      throw new Error(
+      // Typed so callers can catch-and-retry the same way they already do for
+      // the other two conflict sites below (see apply-shader-fill.ts /
+      // apply-component-prop-edit.ts / edit-design.ts) instead of only
+      // matching on message text.
+      throw new SourceWorkspaceEditConflictError(
         "Source file changed since it was read. Re-read the file and retry.",
       );
     }
