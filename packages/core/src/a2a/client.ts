@@ -927,7 +927,16 @@ async function buildA2AApiKeyAttempts(
 
 function normalizeA2AAudience(url: string): string {
   const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
-  return (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  const base = (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  // Receivers derive their expected audience from APP_URL, which carries no
+  // app path. In a workspace every app is mounted under one gateway origin, so
+  // signing the path-qualified URL yields an audience the receiver can never
+  // match. The origin is the identifier both sides agree on.
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
 }
 
 function isA2AAuthRejection(err: unknown): boolean {

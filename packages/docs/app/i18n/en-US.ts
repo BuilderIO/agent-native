@@ -110,7 +110,7 @@ const enUS = {
     },
     actionSurface: {
       eyebrow: "Deeply agentic, not AI-adjacent",
-      title: "One action gives you the whole app surface",
+      title: "One action gives you the whole surface",
       body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
       buildAction: "Build an action",
       benefits: {

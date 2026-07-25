@@ -1043,7 +1043,14 @@ html.dark .shiki span {
   display: none;
 }
 
-/* Comparison table */
+/* Comparison media */
+.homepage-comparison-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
 .approaches-table-wrapper {
   margin: 0 auto;
   max-width: 900px;

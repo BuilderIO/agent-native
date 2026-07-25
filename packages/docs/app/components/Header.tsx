@@ -190,14 +190,18 @@ export default function Header() {
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
               loading="lazy"
               decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
               loading="lazy"
               decoding="async"
             />
