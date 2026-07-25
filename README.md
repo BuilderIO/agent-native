@@ -1,7 +1,5 @@
 # Agent-Native
 
-<!-- Agent-Native apps are both UI and agent surfaces. -->
-
 ## The framework for agentic apps
 
 Don't pick between apps or agents. Agent-Native apps are both.
