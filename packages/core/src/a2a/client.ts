@@ -13,7 +13,12 @@ function workspacePrivateOrigins(): string[] {
     process.env.WORKSPACE_GATEWAY_URL,
     process.env.APP_URL,
     process.env.BETTER_AUTH_URL,
-  ].filter((value): value is string => !!value);
+    // Escape hatch for contexts that never receive the gateway manifest (the
+    // action CLI, one-off scripts). Comma-separated origins.
+    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value);
 
   // The gateway also hands each child the sibling manifest, and siblings are
   // reached on their own loopback ports rather than through the gateway.
