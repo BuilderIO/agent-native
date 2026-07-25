@@ -431,6 +431,11 @@ export function VideoBlock({
             role="tab"
             aria-selected={sourceTab === "upload"}
             className="media-source-panel__tab"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSourceTab("upload");
+            }}
             onClick={() => setSourceTab("upload")}
           >
             {t("editor.media.upload")}
@@ -440,6 +445,11 @@ export function VideoBlock({
             role="tab"
             aria-selected={sourceTab === "link"}
             className="media-source-panel__tab"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSourceTab("link");
+            }}
             onClick={() => setSourceTab("link")}
           >
             {t("editor.media.link")}
