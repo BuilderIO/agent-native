@@ -321,6 +321,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     <BubbleMenu
       editor={editor}
       className="bubble-toolbar"
+      updateDelay={0}
       shouldShow={shouldShowBubbleToolbar}
     >
       {showLinkInput ? (
@@ -331,6 +332,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
           <input
             autoFocus
             type="url"
+            aria-label={t("editor.pasteLink")}
             placeholder={t("editor.pasteLink")}
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
@@ -377,6 +379,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                 <TooltipTrigger asChild>
                   <button
                     onClick={action}
+                    aria-label={title}
                     className={cn(
                       "p-2 rounded",
                       isActive()

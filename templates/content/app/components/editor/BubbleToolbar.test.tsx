@@ -17,10 +17,16 @@ vi.mock("@tiptap/react/menus", () => ({
   BubbleMenu: ({
     children,
     className,
+    updateDelay,
   }: {
     children: ReactNode;
     className?: string;
-  }) => <div className={className}>{children}</div>,
+    updateDelay?: number;
+  }) => (
+    <div className={className} data-update-delay={updateDelay}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
@@ -59,6 +65,12 @@ describe("BubbleToolbar link shortcut", () => {
 
     root = createRoot(toolbarElement);
     act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    expect(
+      toolbarElement.querySelector('.bubble-toolbar[data-update-delay="0"]'),
+    ).not.toBeNull();
+    expect(
+      toolbarElement.querySelector('button[aria-label="editor.link"]'),
+    ).not.toBeNull();
     act(() => {
       editor!.view.dom.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -72,6 +84,9 @@ describe("BubbleToolbar link shortcut", () => {
 
     expect(
       toolbarElement.querySelector('input[placeholder="editor.pasteLink"]'),
+    ).not.toBeNull();
+    expect(
+      toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
     ).not.toBeNull();
 
     const menu = toolbarElement.querySelector<HTMLElement>(".bubble-toolbar");
