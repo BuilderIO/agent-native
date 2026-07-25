@@ -139,6 +139,18 @@ describe("first-party dashboard time scope", () => {
     ).toBeNull();
   });
 
+  it("parses quoted CTE identifiers when checking their analytics bounds", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: 'WITH "recent events" AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL \'30 days\') SELECT COUNT(*) FROM "recent events"',
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toBeNull();
+  });
+
   it("ignores parentheses inside quoted CTE text", () => {
     expect(
       validateFirstPartyDashboardTimeScope(

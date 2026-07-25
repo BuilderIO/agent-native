@@ -67,7 +67,7 @@ function hasExplicitLowerBound(sql: string): boolean {
 const ANALYTICS_SCAN_RE = /\b(?:FROM|JOIN)\s+analytics_events\b/gi;
 const TOP_LEVEL_CTE_HEAD_RE = /^\s*WITH\b/i;
 const CTE_NAME_RE =
-  /^\s*([A-Za-z_]\w*)\s*(?:\([^)]*\)\s*)?AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(/i;
+  /^\s*((?:[A-Za-z_]\w*|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[(?:[^\]]|\]\])*\]))\s*(?:\([^)]*\)\s*)?AS\s*(?:(?:NOT\s+)?MATERIALIZED\s*)?\(/i;
 
 type TopLevelCte = { name: string; bodyStart: number; bodyEnd: number };
 

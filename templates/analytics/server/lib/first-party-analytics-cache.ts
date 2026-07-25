@@ -33,6 +33,10 @@ const l1Cache = new Map<string, L1Entry>();
 // so only one of them actually hits the database.
 const inFlight = new Map<string, Promise<AnalyticsQueryResult>>();
 
+function inFlightKey(key: string, timeoutMs?: number): string {
+  return `${key}:${timeoutMs ?? "unbounded"}`;
+}
+
 export interface FirstPartyCacheOptions {
   timeoutMs?: number;
 }
@@ -136,7 +140,10 @@ export async function withFirstPartyCache(
   const l1Hit = getL1(key);
   if (l1Hit) return l1Hit;
 
-  const existing = inFlight.get(key);
+  // A report prewarm may have a shorter deadline than a normal panel request;
+  // never let those callers inherit one another's database timeout.
+  const requestKey = inFlightKey(key, options.timeoutMs);
+  const existing = inFlight.get(requestKey);
   if (existing) return existing;
 
   // Register the in-flight promise synchronously (before any `await`) so two
@@ -153,8 +160,8 @@ export async function withFirstPartyCache(
     await setL2(key, sql, result, options.timeoutMs);
     return result;
   })().finally(() => {
-    inFlight.delete(key);
+    inFlight.delete(requestKey);
   });
-  inFlight.set(key, promise);
+  inFlight.set(requestKey, promise);
   return promise;
 }
