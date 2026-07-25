@@ -3,7 +3,7 @@
 
 ## The framework for agentic apps
 
-Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.
+Don't pick between apps or agents. Agent-Native apps are both.
 
 ```ts
 // One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
@@ -23,22 +23,7 @@ export default defineAction({
 - **[Backend agnostic](https://agent-native.com/docs/database)**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 - **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
-## Don't pick between apps or agents.
-
-
-
 https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
-
-
-
-Agent-native apps are both
-
-|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native App        |
-| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
-| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
-| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
-| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
-| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
 
 ## Try an Agent-Native app
 
@@ -130,7 +115,7 @@ pnpm install
 pnpm dev
 ```
 
-Prefer flags? `create my-app --template mail`, `--headless`, or `--standalone` skip the prompt.
+Prefer flags? `create my-app --template chat`, `--headless`, or `--standalone` skip the prompt.
 
 See the full [getting started docs](https://agent-native.com/docs).
 

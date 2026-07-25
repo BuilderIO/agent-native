@@ -7,8 +7,7 @@ import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
-const SEO_TITLE =
-  "Agent-Native Content - Open Source, agent-friendly Obsidian alternative";
+const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
 const SEO_DESCRIPTION =
   "Open Source MDX editor for local docs, knowledge bases, and content systems, with custom blocks and agent-assisted editing.";
 

@@ -13,7 +13,7 @@ export default createAuthPlugin({
     "/_agent-native/actions/get-public-status-page",
   ],
   marketing: {
-    appName: "Agent-Native Analytics",
+    appName: "Analytics",
     tagline:
       "Your AI agent queries your data sources, builds dashboards, and answers business questions alongside you.",
     features: [

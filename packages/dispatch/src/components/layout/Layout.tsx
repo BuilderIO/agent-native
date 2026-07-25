@@ -8,7 +8,6 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -243,12 +242,6 @@ function pageOwnsToolbar(pathname: string): boolean {
   return false;
 }
 
-interface WorkspaceInfo {
-  name: string | null;
-  displayName: string | null;
-  appCount: number;
-}
-
 function sectionFor(item: DispatchNavItem): DispatchNavSection {
   return item.section ?? "operations";
 }
@@ -478,13 +471,6 @@ export function NavContent({
   const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: workspace } = useActionQuery(
-    "get-workspace-info",
-    {},
-    { staleTime: 60_000 },
-  );
-  const ws = workspace as WorkspaceInfo | undefined;
-  const workspaceLabel = ws?.displayName ?? ws?.name ?? null;
   const extensionNavItems = extensions?.navItems ?? EMPTY_NAV_ITEMS;
   const primaryNavItems = [
     ...PRIMARY_NAV_ITEMS,
@@ -681,7 +667,7 @@ export function NavContent({
               />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-lg font-bold tracking-tight text-foreground">
-                  {workspaceLabel ?? "Dispatch"}
+                  Dispatch
                 </div>
               </div>
             </>
@@ -745,16 +731,13 @@ export function NavContent({
               {BOTTOM_NAV_ITEMS.map(renderNavItem)}
             </ul>
           </nav>
-        </div>
-
-        <div className="mt-auto shrink-0">
           <div
             className={cn(
               "py-2",
               collapsed ? "flex justify-center px-1" : "px-3",
             )}
           >
-            <OrgSwitcher compact={collapsed} />
+            <OrgSwitcher compact={collapsed} reserveSpace />
           </div>
         </div>
         <SidebarFooterActions

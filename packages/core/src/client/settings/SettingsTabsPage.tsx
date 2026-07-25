@@ -1,5 +1,6 @@
 import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
+  IconArrowUpRight,
   IconHistory,
   IconSearch,
   IconSettings,
@@ -216,6 +217,8 @@ export function SettingsTabsPage({
     const hasOrganizationTab = extraTabs.some(
       (tab) => tab.id === "organization",
     );
+    const inlineTabs = extraTabs.filter((tab) => !tab.href);
+    const linkedTabs = extraTabs.filter((tab) => tab.href);
     const next: SettingsTabItem[] = [
       {
         id: "general",
@@ -234,7 +237,7 @@ export function SettingsTabsPage({
         keywords: "profile photo avatar identity signed in email name",
       });
     }
-    next.push(...extraTabs);
+    next.push(...inlineTabs);
     if (team && !hasOrganizationTab) {
       next.push({
         id: "team",
@@ -249,10 +252,11 @@ export function SettingsTabsPage({
         id: "whats-new",
         label: whatsNewLabel,
         icon: IconHistory,
-        group: "updates",
+        group: next.at(-1)?.group ?? "app",
         content: whatsNew,
       });
     }
+    next.push(...linkedTabs);
     return next;
   }, [
     account,
@@ -615,6 +619,12 @@ export function SettingsTabsPage({
                           />
                         ) : null}
                         <span className="truncate">{tab.label}</span>
+                        {tab.href ? (
+                          <IconArrowUpRight
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0 text-muted-foreground/80"
+                          />
+                        ) : null}
                       </>
                     );
                     if (tab.href) {

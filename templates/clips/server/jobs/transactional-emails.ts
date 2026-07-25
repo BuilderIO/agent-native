@@ -176,6 +176,7 @@ export function isSuppressedTransactionalRecipient(
   value: string | null | undefined,
 ): boolean {
   const email = normalizedEmail(value);
+  // guard:allow-localhost-fallback — Suppress the retired dev identity; never use it as an owner.
   if (!email || email === "local@localhost") return true;
   const at = email.lastIndexOf("@");
   const local = email.slice(0, at);

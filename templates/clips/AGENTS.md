@@ -47,16 +47,10 @@ ladder.
   local agents can read recent app/window context through
   `agent-native mcp screen-memory`; do not upload raw Screen Memory segments or
   treat them as shareable Clips unless the user explicitly exports/imports them.
-- Use `import-loom-recording` for Loom share/embed URLs, or a direct link to a
-  video file (e.g. an MP4/WebM/MOV/M4V hosted by another screen recorder).
-  Loom links download Loom's public MP4, reupload it to Clips storage, and
-  import Loom's public transcript when the share page exposes one. Direct
-  video links are downloaded by content type and reuploaded the same way, but
-  without transcript metadata — use `request-transcript` afterward. If Loom
-  does not expose a downloadable MP4, ask the user to download the original
-  from Loom and use "Upload video". The dedicated `/import` page is the
-  primary Loom-targeted entry point for this action; it also accepts other
-  direct video links.
+- Use `import-loom-recording` for Loom or direct video URLs. Loom media and
+  public transcripts import in the background; direct videos import without a
+  transcript, so use `request-transcript` afterward. If Loom has no public MP4,
+  ask the user to download it and use "Upload video".
 - Native transcript first. Cleanup and transcript-backed title/summary
   generation run in the durable post-finalize path; do not hide a usable native
   transcript behind failed metadata work, and keep heuristic titles replaceable
@@ -117,12 +111,9 @@ ladder.
   desktop voice dictation and is not used for recording transcripts.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
-- Calendar-sourced meeting actions are shortcuts, but do not add raw
-  `provider-api-request` for Google Calendar until the provider API runtime can
-  resolve Clips `calendar_accounts` through sharing/access checks and read their
-  encrypted `app_secrets` token refs. Clips calendar grants are not stored in
-  core `oauth_tokens`, and bypassing that model would break the account
-  sharing/status boundary.
+- Do not add raw Google Calendar `provider-api-request` until it can resolve
+  Clips `calendar_accounts` through access checks and encrypted `app_secrets`;
+  these grants are not in core `oauth_tokens`.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
 - Meeting share links include the summary, key points, and action items. The
@@ -215,10 +206,8 @@ ladder.
   describe Screen Memory as hosted, shared, exhaustive, or enabled by default.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
-- `list-transactional-email-ai-requests` is an internal, UI-only GET action that
-  securely claims bounded two-Clip email-summary work for the signed-in user.
-  `complete-transactional-email-summary` is only for that workflow: call it with
-  the claimed job id and one plain-text summary sentence after reviewing both
+- The internal UI-only transactional-email actions claim bounded two-Clip
+  summary work and complete it with one plain-text sentence after reviewing both
   untrusted context packets.
 
 ## Application State

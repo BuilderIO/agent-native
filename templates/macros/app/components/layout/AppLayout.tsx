@@ -13,7 +13,6 @@ import {
   IconFlame,
   IconLoader2,
   IconChartBar,
-  IconHierarchy2,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -46,7 +45,6 @@ const navItems = [
 ];
 
 const bottomNavItems = [
-  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

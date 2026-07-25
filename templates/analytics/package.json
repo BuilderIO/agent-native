@@ -1,6 +1,6 @@
 {
   "name": "analytics",
-  "displayName": "Agent-Native Analytics",
+  "displayName": "Analytics",
   "private": true,
   "type": "module",
   "scripts": {

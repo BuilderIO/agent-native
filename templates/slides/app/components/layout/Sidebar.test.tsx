@@ -107,7 +107,6 @@ describe("<Sidebar collapsed>", () => {
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
-    expect(screen.getByLabelText("Manage agent")).toBeDefined();
   });
 });
 
@@ -123,7 +122,6 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
-    expect(screen.getByText("Manage agent")).toBeDefined();
 
     const collapseBtn = screen.getByLabelText("Collapse sidebar");
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -169,7 +167,6 @@ describe("<Sidebar> accessibility", () => {
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
-    expect(screen.getByLabelText("Manage agent")).toBeDefined();
   });
 
   it("labels the Collapse button in the expanded layout", () => {

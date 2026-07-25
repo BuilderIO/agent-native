@@ -1,5 +1,12 @@
 # @agent-native/dispatch
 
+## 0.15.22
+
+### Patch Changes
+
+- c8a0bcf: Keep Dispatch navigation and workspace branding aligned with the first-party app surfaces.
+- c8a0bcf: Improve Dispatch workspace navigation and branding.
+
 ## 0.15.21
 
 ### Patch Changes

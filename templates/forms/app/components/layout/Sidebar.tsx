@@ -17,7 +17,6 @@ import {
   IconMenu2,
   IconX,
   IconMessageCircle,
-  IconHierarchy2,
   IconSettings,
   IconForms,
   IconLayoutSidebarLeftCollapse,
@@ -320,26 +319,6 @@ export function Sidebar() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Link
-                  to="/agent"
-                  aria-label={t("settings.agentTitle")}
-                  className={cn(
-                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                    location.pathname.startsWith("/agent")
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                >
-                  <IconHierarchy2 className="h-4 w-4" />
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {t("settings.agentTitle")}
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
                   to="/settings"
                   aria-label={t("navigation.settings")}
                   className={cn(
@@ -465,20 +444,6 @@ export function Sidebar() {
 
       {/* Pinned nav + footer */}
       <div className="shrink-0 px-3 py-1.5">
-        <Link
-          to="/agent"
-          onClick={() => isMobile && setMobileOpen(false)}
-          className={cn(
-            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-            location.pathname.startsWith("/agent")
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <IconHierarchy2 size={14} className="shrink-0" />
-          <span>{t("settings.agentTitle")}</span>
-        </Link>
-
         <Link
           to="/settings"
           onClick={() => isMobile && setMobileOpen(false)}

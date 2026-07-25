@@ -81,10 +81,9 @@ const hiIN = {
   },
   home: {
     hero: {
-      badge: "ओपन सोर्स framework",
       titleLine1: "agentic apps के लिए",
       titleAccent: "framework",
-      body: "Agent-Native एक ओपन-सोर्स framework है, जो agents को कोर में रखकर मज़बूत applications तेज़ी से बनाने के लिए है।",
+      body: "ऐप्स या एजेंट्स में से किसी एक को न चुनें। Agent-Native apps दोनों हैं।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
     },
@@ -98,7 +97,7 @@ const hiIN = {
     },
     actionSurface: {
       eyebrow: "ऊपर से चिपकाई AI नहीं, सच में agentic",
-      title: "एक action पूरी app surface खोल देता है",
+      title: "एक action पूरी surface देता है",
       body: "एक operation एक बार define करें। Agent-Native उसे UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check और audit trail में बदल देता है।",
       buildAction: "एक action बनाएं",
       benefits: {

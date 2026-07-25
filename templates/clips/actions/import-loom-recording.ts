@@ -4,11 +4,12 @@ import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
 import { extractLoomVideoId, normalizeLoomShareUrl } from "@shared/loom.js";
-import { and, asc, eq, gte, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { queueBuilderMediaCompression } from "../server/lib/builder-media-compression.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
   getOrganizationDefaultVisibility,
@@ -18,17 +19,17 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { transactionalEmailStore } from "../server/lib/transactional-email-store.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
   isCandidateDirectVideoUrl,
 } from "./lib/direct-video.js";
 import {
-  fetchLoomTranscript,
-  loomTranscriptUnavailableMessage,
-} from "./lib/loom-transcript.js";
-import { downloadLoomVideo } from "./lib/loom-video.js";
+  enqueueFirstImportEmailIfEligible,
+  failLoomImport,
+} from "./lib/loom-import-job.js";
+
+export { enqueueFirstImportEmailIfEligible };
 
 const LoomOembedSchema = z
   .object({
@@ -114,35 +115,6 @@ function boundedDurationMs(value: number | null | undefined): number {
   );
 }
 
-export async function enqueueFirstImportEmailIfEligible(
-  input: { recordingId: string; ownerEmail: string; createdAt: string },
-  db: ReturnType<typeof getDb> = getDb(),
-): Promise<void> {
-  const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
-  if (input.createdAt < enabledAt) return;
-
-  const [firstReadyImport] = await db
-    .select({ id: schema.recordings.id })
-    .from(schema.recordings)
-    .where(
-      and(
-        ownerEmailMatches(schema.recordings.ownerEmail, input.ownerEmail),
-        eq(schema.recordings.status, "ready"),
-        inArray(schema.recordings.sourceAppName, ["Loom", "Video link"]),
-        gte(schema.recordings.createdAt, enabledAt),
-      ),
-    )
-    .orderBy(asc(schema.recordings.createdAt), asc(schema.recordings.id))
-    .limit(1);
-  if (firstReadyImport?.id !== input.recordingId) return;
-
-  await transactionalEmailStore.enqueueOrConvergeFirstImport(
-    input.ownerEmail,
-    input.recordingId,
-    input.ownerEmail,
-  );
-}
-
 async function fetchLoomOembed(shareUrl: string) {
   const endpoint = new URL("https://www.loom.com/v1/oembed");
   endpoint.searchParams.set("url", shareUrl);
@@ -170,7 +142,7 @@ async function fetchLoomOembed(shareUrl: string) {
 
 export default defineAction({
   description:
-    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links download Loom's public MP4 and import Loom's public transcript when available. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
+    "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 plus import Loom's public transcript in the background, since Loom's CDN plus a reupload can take longer than a single request should block on. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
   run: async (args) => {
     const loomId = extractLoomVideoId(args.url);
@@ -220,9 +192,21 @@ export default defineAction({
         !existingRecording.videoUrl &&
         existingRecording.failureReason === storageSetupReason &&
         existingRecording.sourceWindowTitle === sourceUrl;
-      if (!isWaitingStorageRetry) {
+      const isRetryableLoomImport =
+        isLoom &&
+        !existingRecording.videoUrl &&
+        existingRecording.sourceWindowTitle === sourceUrl &&
+        (existingRecording.status === "processing" ||
+          existingRecording.status === "failed" ||
+          isWaitingStorageRetry);
+      const isRetryable = isLoom
+        ? isRetryableLoomImport
+        : isWaitingStorageRetry;
+      if (!isRetryable) {
         throw new Error(
-          "Only a waiting-storage import can be retried in place.",
+          isLoom
+            ? "Only an incomplete Loom import can be retried in place."
+            : "Only a waiting-storage import can be retried in place.",
         );
       }
     }
@@ -295,6 +279,8 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
+            loomImportClaimId: null,
+            loomImportClaimedAt: null,
           })
           .where(eq(schema.recordings.id, id));
       } else {
@@ -347,9 +333,87 @@ export default defineAction({
       );
     }
 
-    const media = isLoom
-      ? await downloadLoomVideo({ loomId: loomId!, shareUrl: loomShareUrl! })
-      : await downloadDirectVideo(sourceUrl);
+    if (isLoom) {
+      // Storage is connected: create/refresh the row now and hand the slow
+      // Loom download + reupload + transcript off to a durable background
+      // job (post-finalize-worker.post.ts's "loom-import" kind /
+      // runLoomImportJob). Loom's CDN plus a reupload can outlast a single
+      // request; the worker claims the row (loomImportClaimId) and moves it
+      // to "ready" or "failed" once done.
+      const recordingValues = buildRecordingValues(
+        existingRecording?.videoSizeBytes ?? 0,
+      );
+      if (existingRecording) {
+        await db
+          .update(schema.recordings)
+          .set({
+            ...recordingValues,
+            status: "processing",
+            videoUrl: null,
+            failureReason: null,
+            loomImportClaimId: null,
+            loomImportClaimedAt: null,
+          })
+          .where(eq(schema.recordings.id, id));
+      } else {
+        await db.insert(schema.recordings).values({
+          id,
+          ...recordingValues,
+          videoUrl: null,
+          status: "processing",
+          failureReason: null,
+          ownerEmail,
+          createdAt,
+        });
+      }
+
+      await writeAppState(`recording-upload-${id}`, {
+        recordingId: id,
+        status: "processing",
+        progress: 100,
+        provider: providerId,
+        sourceUrl,
+        durationMs,
+        width,
+        height,
+        hasAudio: true,
+        hasCamera: false,
+        updatedAt: now,
+      });
+      await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState("navigate", { view: "recording", recordingId: id });
+
+      try {
+        await dispatchPostFinalizeJob({
+          recordingId: id,
+          kind: "loom-import",
+          requireAccepted: true,
+        });
+      } catch (err) {
+        const failureReason = `Could not start the Loom import: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        await failLoomImport(id, failureReason);
+        throw new Error(failureReason);
+      }
+
+      return {
+        recordingId: id,
+        title,
+        status: "processing" as const,
+        provider: providerId,
+        sourceUrl,
+        thumbnailUrl: oembed?.thumbnail_url ?? null,
+        durationMs,
+        importMode: "reuploaded" as const,
+        note: "Downloading and importing this Loom recording in the background.",
+      };
+    }
+
+    // Direct video links stay synchronous: they typically download and
+    // reupload well within a single request, and this keeps
+    // request-transcript as the deliberate next step for a transcript.
+    const media = await downloadDirectVideo(sourceUrl);
     const upload = await uploadFile({
       data: media.bytes,
       filename: `${id}.mp4`,
@@ -359,11 +423,9 @@ export default defineAction({
       recordAsset: false,
     });
 
-    const recordingValues = buildRecordingValues(media.sizeBytes);
     if (upload === null) {
       return await saveWaitingForStorage(media.sizeBytes);
     }
-
     if (!upload?.url) {
       throw new Error(
         "File upload returned no URL. Check your storage provider configuration.",
@@ -371,14 +433,17 @@ export default defineAction({
     }
 
     const videoUrl = upload.url;
+    const recordingValues = buildRecordingValues(media.sizeBytes);
     if (existingRecording) {
       await db
         .update(schema.recordings)
         .set({
           ...recordingValues,
-          videoUrl,
           status: "ready",
+          videoUrl,
           failureReason: null,
+          loomImportClaimId: null,
+          loomImportClaimedAt: null,
         })
         .where(eq(schema.recordings.id, id));
     } else {
@@ -408,32 +473,14 @@ export default defineAction({
       });
     });
 
-    let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
-    if (isLoom) {
-      try {
-        transcript = await fetchLoomTranscript({
-          shareUrl: loomShareUrl!,
-          durationMs,
-        });
-      } catch (err) {
-        console.warn(
-          `[clips] Loom transcript import skipped for ${loomId}:`,
-          (err as Error)?.message ?? String(err),
-        );
-      }
-    }
-
     const transcriptValues = {
       ownerEmail,
-      language: transcript?.language ?? "en",
-      segmentsJson: transcript ? JSON.stringify(transcript.segments) : "[]",
-      fullText: transcript?.fullText ?? "",
-      status: transcript ? ("ready" as const) : ("failed" as const),
-      failureReason: transcript
-        ? null
-        : isLoom
-          ? loomTranscriptUnavailableMessage()
-          : "Transcript import isn't available for direct video links yet. Use request-transcript to transcribe the uploaded media.",
+      language: "en",
+      segmentsJson: "[]",
+      fullText: "",
+      status: "failed" as const,
+      failureReason:
+        "Transcript import isn't available for direct video links yet. Use request-transcript to transcribe the uploaded media.",
       updatedAt: now,
     };
     const [existingTranscript] = await db
@@ -465,6 +512,20 @@ export default defineAction({
       });
     }
 
+    await writeAppState(`recording-upload-${id}`, {
+      recordingId: id,
+      status: "ready",
+      progress: 100,
+      videoUrl,
+      provider: providerId,
+      sourceUrl,
+      durationMs,
+      width,
+      height,
+      hasAudio: true,
+      hasCamera: false,
+      updatedAt: now,
+    });
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState("navigate", { view: "recording", recordingId: id });
 
@@ -478,18 +539,10 @@ export default defineAction({
       embedUrl: videoUrl,
       thumbnailUrl: oembed?.thumbnail_url ?? null,
       durationMs,
-      transcriptStatus: transcript
-        ? ("ready" as const)
-        : ("unavailable" as const),
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,
       videoSizeBytes: media.sizeBytes,
-      note:
-        transcript && isLoom
-          ? "Imported as a Clips-hosted MP4 with Loom's public transcript."
-          : isLoom
-            ? "Imported as a Clips-hosted MP4. Loom did not expose an importable transcript; use request-transcript to transcribe the uploaded media."
-            : "Imported as a Clips-hosted MP4. Use request-transcript to transcribe the uploaded media.",
+      note: "Imported as a Clips-hosted MP4. Use request-transcript to transcribe the uploaded media.",
     };
   },
   link: ({ result }) => {

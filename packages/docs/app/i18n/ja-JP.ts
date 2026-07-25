@@ -82,10 +82,9 @@ const jaJP = {
   },
   home: {
     hero: {
-      badge: "オープンソース framework",
       titleLine1: "agentic apps のための",
       titleAccent: "framework",
-      body: "Agent-Native は、agent を中心に堅牢なアプリケーションを迅速に構築するためのオープンソース framework です。",
+      body: "アプリとエージェントのどちらかを選ぶ必要はありません。Agent-Native アプリはその両方です。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
     },
@@ -99,7 +98,7 @@ const jaJP = {
     },
     actionSurface: {
       eyebrow: "後付けAIではなく、深くエージェント指向",
-      title: "ひとつのアクションでアプリ全体の面を開く",
+      title: "ひとつのアクションで全体のサーフェスを使える",
       body: "操作を一度だけ定義します。Agent-Native はそれを UI アクション、agent ツール、HTTP エンドポイント、MCP/A2A 面、CLI コマンド、権限チェック、監査証跡にします。",
       buildAction: "アクションを作る",
       benefits: {

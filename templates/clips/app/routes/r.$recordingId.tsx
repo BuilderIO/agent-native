@@ -598,6 +598,12 @@ export default function RecordingPage() {
         });
         return;
       }
+      if (isUrlImportRetry && result?.status === "processing") {
+        // Download + reupload now run as a background job; this request only
+        // confirms the retry was accepted, not that the clip is ready yet.
+        toast.info(t("recordingPage.importingLoom"));
+        return;
+      }
       toast.success(
         isUrlImportRetry
           ? t("recordingPage.loomImportResumed")
