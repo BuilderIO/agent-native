@@ -19,6 +19,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
+  transactionalEmailRecipientSchema,
   transactionalEmailStore,
   type TransactionalEmailJob,
 } from "../lib/transactional-email-store.js";
@@ -81,6 +82,7 @@ export type TransactionalEmailStore = Pick<
   | "listJobs"
   | "transition"
   | "acquireSendingLease"
+  | "transitionSending"
   | "updateReconciliationCursor"
   | "enqueueOrConvergeFirstImport"
 >;
@@ -162,9 +164,8 @@ export interface TransactionalEmailWorkerResult {
 
 function normalizedEmail(value: string | null | undefined): string | null {
   const email = value?.trim().toLowerCase() ?? "";
-  const at = email.lastIndexOf("@");
-  if (at <= 0 || at === email.length - 1 || /\s/.test(email)) return null;
-  return email;
+  const parsed = transactionalEmailRecipientSchema.safeParse(email);
+  return parsed.success ? parsed.data : null;
 }
 
 export function isSuppressedTransactionalRecipient(
@@ -894,19 +895,31 @@ export async function runTransactionalEmailsOnce(
     const maxAttempts = dependencies.maxAttempts ?? MAX_ATTEMPTS;
     for (const candidate of deliveryCandidates) {
       if (candidate.attempts >= maxAttempts) {
-        if (
-          await store.transition(
-            candidate.logicalKey,
-            [candidate.state],
-            "failed",
-            {
-              lastError:
-                candidate.lastError ?? "Maximum delivery attempts reached",
-            },
-          )
-        ) {
-          result.failed += 1;
-        }
+        const lastError =
+          candidate.lastError ?? "Maximum delivery attempts reached";
+        const failed =
+          candidate.state === "sending"
+            ? await (async () => {
+                const reclaimed = await store.acquireSendingLease(
+                  candidate.logicalKey,
+                  dependencies.leaseDurationMs ?? SENDING_LEASE_MS,
+                );
+                return reclaimed?.leaseToken
+                  ? store.transitionSending(
+                      candidate.logicalKey,
+                      reclaimed.leaseToken,
+                      "failed",
+                      { lastError },
+                    )
+                  : null;
+              })()
+            : await store.transition(
+                candidate.logicalKey,
+                [candidate.state],
+                "failed",
+                { lastError },
+              );
+        if (failed) result.failed += 1;
         continue;
       }
       const leased = await store.acquireSendingLease(
@@ -915,10 +928,16 @@ export async function runTransactionalEmailsOnce(
       );
       if (!leased) continue;
 
+      const leaseToken = leased.leaseToken;
+      if (!leaseToken) continue;
       const input = await makeSendInput(leased, repository, config.enabledAt);
       if (!input) {
         if (
-          await store.transition(leased.logicalKey, ["sending"], "cancelled")
+          await store.transitionSending(
+            leased.logicalKey,
+            leaseToken,
+            "cancelled",
+          )
         ) {
           result.cancelled += 1;
         }
@@ -927,7 +946,9 @@ export async function runTransactionalEmailsOnce(
 
       try {
         await (dependencies.send ?? sendClipsTransactionalEmail)(input);
-        if (await store.transition(leased.logicalKey, ["sending"], "sent")) {
+        if (
+          await store.transitionSending(leased.logicalKey, leaseToken, "sent")
+        ) {
           result.sent += 1;
         }
       } catch (error) {
@@ -936,16 +957,22 @@ export async function runTransactionalEmailsOnce(
         ).slice(0, 4_000);
         if (leased.attempts >= maxAttempts) {
           if (
-            await store.transition(leased.logicalKey, ["sending"], "failed", {
-              lastError: message,
-            })
+            await store.transitionSending(
+              leased.logicalKey,
+              leaseToken,
+              "failed",
+              { lastError: message },
+            )
           ) {
             result.failed += 1;
           }
         } else if (
-          await store.transition(leased.logicalKey, ["sending"], "ready", {
-            lastError: message,
-          })
+          await store.transitionSending(
+            leased.logicalKey,
+            leaseToken,
+            "ready",
+            { lastError: message },
+          )
         ) {
           result.retried += 1;
         }

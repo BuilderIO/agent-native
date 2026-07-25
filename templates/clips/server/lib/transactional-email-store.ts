@@ -17,7 +17,8 @@ import { z } from "zod";
 
 const timestampSchema = z.string().datetime({ offset: true });
 const nonEmptyStringSchema = z.string().trim().min(1);
-const recipientSchema = z.string().email();
+export const transactionalEmailRecipientSchema = z.string().email();
+const recipientSchema = transactionalEmailRecipientSchema;
 const recordingIdSchema = nonEmptyStringSchema;
 
 export const transactionalEmailStateSchema = z.enum([

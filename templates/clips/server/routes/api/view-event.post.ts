@@ -33,11 +33,15 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, not, or, sql } from "drizzle-orm";
 import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../../db/index.js";
-import { nanoid, shouldCountView } from "../../lib/recordings.js";
+import {
+  nanoid,
+  ownerEmailMatches,
+  shouldCountView,
+} from "../../lib/recordings.js";
 import { transactionalEmailStore } from "../../lib/transactional-email-store.js";
 
 interface ViewEventBody {
@@ -417,12 +421,45 @@ export default defineEventHandler(async (event) => {
         viewerEmail!.trim().toLowerCase() === ownerEmail!.toLowerCase();
       if (transitionedToCountedView && ownerEmail && !viewerIsOwner) {
         try {
-          await transactionalEmailStore.enqueue(`first-view:${recordingId}`, {
-            type: "first-view",
-            recipient: ownerEmail,
-            recordingIds: [recordingId],
-            requestedBy: ownerEmail,
-          });
+          const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
+          const [firstNonOwnerView] = await db
+            .select({
+              id: schema.recordingViews.id,
+              viewerKey: schema.recordingViews.viewerKey,
+              viewSessionId: schema.recordingViews.viewSessionId,
+              viewedAt: schema.recordingViews.viewedAt,
+            })
+            .from(schema.recordingViews)
+            .where(
+              and(
+                eq(schema.recordingViews.recordingId, recordingId),
+                or(
+                  isNull(schema.recordingViews.viewerEmail),
+                  not(
+                    ownerEmailMatches(
+                      schema.recordingViews.viewerEmail,
+                      ownerEmail,
+                    ),
+                  ),
+                ),
+              ),
+            )
+            .orderBy(
+              asc(schema.recordingViews.viewedAt),
+              asc(schema.recordingViews.id),
+            )
+            .limit(1);
+          const isCurrentCountedView =
+            firstNonOwnerView?.viewerKey === viewerKey &&
+            firstNonOwnerView.viewSessionId === countedViewSessionId;
+          if (isCurrentCountedView && firstNonOwnerView.viewedAt >= enabledAt) {
+            await transactionalEmailStore.enqueue(`first-view:${recordingId}`, {
+              type: "first-view",
+              recipient: ownerEmail,
+              recordingIds: [recordingId],
+              requestedBy: ownerEmail,
+            });
+          }
         } catch (err) {
           console.warn("[view-event] first-view email enqueue failed:", err);
         }

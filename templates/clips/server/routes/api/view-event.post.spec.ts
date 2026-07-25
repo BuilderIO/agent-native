@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   emit: vi.fn(),
   enqueueTransactionalEmail: vi.fn(),
+  ensureTransactionalEmailEnabled: vi.fn(),
+  ownerEmailMatches: vi.fn(),
 }));
 
 const tables = vi.hoisted(() => ({
@@ -27,7 +29,15 @@ const tables = vi.hoisted(() => ({
     ctaClicked: "recording_viewers.cta_clicked",
   },
   recordingEvents: { table: "recording_events" },
-  recordingViews: { table: "recording_views" },
+  recordingViews: {
+    table: "recording_views",
+    id: "recording_views.id",
+    recordingId: "recording_views.recording_id",
+    viewerKey: "recording_views.viewer_key",
+    viewSessionId: "recording_views.view_session_id",
+    viewerEmail: "recording_views.viewer_email",
+    viewedAt: "recording_views.viewed_at",
+  },
 }));
 
 vi.mock("h3", () => ({
@@ -41,6 +51,8 @@ vi.mock("drizzle-orm", () => ({
   asc: (column: unknown) => ({ type: "asc", column }),
   eq: (left: unknown, right: unknown) => ({ type: "eq", left, right }),
   isNull: (column: unknown) => ({ type: "is-null", column }),
+  not: (condition: unknown) => ({ type: "not", condition }),
+  or: (...conditions: unknown[]) => ({ type: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     strings,
     values,
@@ -76,6 +88,7 @@ vi.mock("../../db/index.js", () => ({
 
 vi.mock("../../lib/recordings.js", () => ({
   nanoid: () => mocks.nanoid(),
+  ownerEmailMatches: (...args: unknown[]) => mocks.ownerEmailMatches(...args),
   shouldCountView: (
     totalWatchMs: number,
     completedPct: number,
@@ -86,6 +99,8 @@ vi.mock("../../lib/recordings.js", () => ({
 vi.mock("../../lib/transactional-email-store.js", () => ({
   transactionalEmailStore: {
     enqueue: (...args: unknown[]) => mocks.enqueueTransactionalEmail(...args),
+    ensureEnabledAt: (...args: unknown[]) =>
+      mocks.ensureTransactionalEmailEnabled(...args),
   },
 }));
 
@@ -121,11 +136,14 @@ function makeEvent(
   };
 }
 
-function createStatefulDb(initialViewer: FakeViewer | null = null) {
+function createStatefulDb(
+  initialViewer: FakeViewer | null = null,
+  initialCountedViews: Array<Record<string, unknown>> = [],
+) {
   const state = {
     viewer: initialViewer,
     events: [] as Array<Record<string, unknown>>,
-    countedViews: [] as Array<Record<string, unknown>>,
+    countedViews: [...initialCountedViews],
   };
 
   function select(projection: Record<string, unknown>) {
@@ -150,6 +168,15 @@ function createStatefulDb(initialViewer: FakeViewer | null = null) {
         }
         if ("countedView" in projection) {
           return [{ countedView: state.viewer.countedView }];
+        }
+        if ("viewSessionId" in projection) {
+          return [...state.countedViews]
+            .sort(
+              (left, right) =>
+                String(left.viewedAt).localeCompare(String(right.viewedAt)) ||
+                String(left.id).localeCompare(String(right.id)),
+            )
+            .slice(0, 1);
         }
         return state.viewer.viewerKey === null ? [{ id: state.viewer.id }] : [];
       }),
@@ -279,6 +306,10 @@ describe("POST /api/view-event", () => {
       resource: { ownerEmail: "owner@example.com" },
     });
     mocks.enqueueTransactionalEmail.mockResolvedValue({ created: true });
+    mocks.ensureTransactionalEmailEnabled.mockResolvedValue({
+      enabledAt: "2000-01-01T00:00:00.000Z",
+    });
+    mocks.ownerEmailMatches.mockReturnValue({ type: "owner-email-match" });
   });
 
   it("rejects declared and actual oversized bodies before database access", async () => {
@@ -457,29 +488,72 @@ describe("POST /api/view-event", () => {
     expect(mocks.enqueueTransactionalEmail).not.toHaveBeenCalled();
   });
 
-  it("uses the stable recording key when later viewer rows qualify", async () => {
-    for (const sessionId of ["first-session", "later-session"]) {
-      const { db } = createStatefulDb({
-        id: `viewer-${sessionId}`,
+  it("does not enqueue when a historical first non-owner view predates enablement", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"));
+    mocks.ensureTransactionalEmailEnabled.mockResolvedValue({
+      enabledAt: "2026-01-01T00:00:00.000Z",
+    });
+    const { db } = createStatefulDb(
+      {
+        id: "viewer-later",
         recordingId: "rec-example",
-        viewerKey: `anon:${sessionId}`,
+        viewerKey: "anon:later-session",
         viewerEmail: null,
-        viewerName: `anon:${sessionId}`,
+        viewerName: "anon:later-session",
         totalWatchMs: 0,
         completedPct: 0,
         countedView: false,
         ctaClicked: false,
-      });
-      mocks.getDb.mockReturnValue(db);
-      await handler(makeEvent({ sessionId, totalWatchMs: 5000 }) as any);
-    }
+      },
+      [
+        {
+          id: "historical-view",
+          recordingId: "rec-example",
+          viewerKey: "anon:historical-session",
+          viewSessionId: "legacy:historical-session",
+          viewerEmail: null,
+          viewedAt: "2025-12-31T23:59:59.000Z",
+        },
+      ],
+    );
+    mocks.getDb.mockReturnValue(db);
 
-    expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledTimes(2);
-    expect(
-      mocks.enqueueTransactionalEmail.mock.calls.map(
-        ([logicalKey]) => logicalKey,
-      ),
-    ).toEqual(["first-view:rec-example", "first-view:rec-example"]);
+    await handler(
+      makeEvent({ sessionId: "later-session", totalWatchMs: 5000 }) as any,
+    );
+
+    expect(mocks.enqueueTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it("enqueues the genuine first post-enabled non-owner counted view", async () => {
+    const { db } = createStatefulDb({
+      id: "viewer-first",
+      recordingId: "rec-example",
+      viewerKey: "anon:first-session",
+      viewerEmail: null,
+      viewerName: "anon:first-session",
+      totalWatchMs: 0,
+      completedPct: 0,
+      countedView: false,
+      ctaClicked: false,
+    });
+    mocks.getDb.mockReturnValue(db);
+
+    await handler(
+      makeEvent({ sessionId: "first-session", totalWatchMs: 5000 }) as any,
+    );
+
+    expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(mocks.enqueueTransactionalEmail).toHaveBeenCalledWith(
+      "first-view:rec-example",
+      {
+        type: "first-view",
+        recipient: "owner@example.com",
+        recordingIds: ["rec-example"],
+        requestedBy: "owner@example.com",
+      },
+    );
   });
 
   it("concurrent first events share one viewer and preserve monotonic flags", async () => {

@@ -375,6 +375,48 @@ describe("transactional email worker", () => {
     expect(await clock.store.readJob("unviewed-reminder:qa")).toBeNull();
   });
 
+  it("skips malformed share recipients without wedging the due cursor", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:01.000Z");
+    const shares: Share[] = [
+      {
+        id: "share-malformed",
+        recordingId: "recording-malformed",
+        recipient: "bob@localhost",
+        createdBy: "sender@example.com",
+        createdAt: "2026-08-01T00:00:00.000Z",
+      },
+      {
+        id: "share-valid",
+        recordingId: "recording-valid",
+        recipient: "valid@example.com",
+        createdBy: "sender@example.com",
+        createdAt: "2026-08-01T00:00:01.000Z",
+      },
+    ];
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({ shares, recordings: new Map() }),
+      now: clock.now,
+      reconciliationBatchSize: 2,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("unviewed-reminder:share-malformed"),
+    ).toBeNull();
+    expect(
+      await clock.store.readJob("unviewed-reminder:share-valid"),
+    ).toMatchObject({ state: "ready", recipient: "valid@example.com" });
+    expect(await clock.store.readConfig()).toMatchObject({
+      reminderCursor: {
+        createdAt: "2026-08-01T00:00:01.000Z",
+        id: "share-valid",
+      },
+    });
+  });
+
   it.each(["viewed", "unshared", "trashed"] as const)(
     "cancels a stale reminder when the Clip is %s",
     async (reason) => {
@@ -835,6 +877,74 @@ describe("transactional email worker", () => {
       enabledAt: "2026-08-01T00:00:00.000Z",
       shareDiscoveryCursor: null,
       reminderCursor: null,
+    });
+  });
+
+  it("cannot finalize a send with an old lease after another worker reclaims it", async () => {
+    const clock = await setup();
+    const imported = {
+      ...recording("import-stale-lease", "owner@example.com"),
+      sourceAppName: "Video link",
+    };
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[imported.id, imported]]),
+      imports: [imported],
+    });
+    await clock.store.enqueue("first-import:owner@example.com", {
+      type: "first-import",
+      recipient: "owner@example.com",
+      recordingIds: [imported.id],
+      requestedBy: "owner@example.com",
+    });
+    let reclaimedLeaseToken: string | null = null;
+    const transitionSending = vi.fn(
+      async (
+        logicalKey: string,
+        staleLeaseToken: string,
+        nextState: "sent" | "ready" | "cancelled" | "failed",
+        changes?: { lastError?: string | null },
+      ) => {
+        clock.setNow("2026-08-01T00:00:01.000Z");
+        const reclaimed = await clock.store.acquireSendingLease(
+          logicalKey,
+          1_000,
+        );
+        reclaimedLeaseToken = reclaimed?.leaseToken ?? null;
+        expect(reclaimedLeaseToken).not.toBe(staleLeaseToken);
+        await expect(
+          clock.store.transitionSending(
+            logicalKey,
+            staleLeaseToken,
+            nextState,
+            changes,
+          ),
+        ).resolves.toBeNull();
+        return null;
+      },
+    );
+
+    const result = await runTransactionalEmailsOnce({
+      store: { ...clock.store, transitionSending },
+      repository,
+      now: clock.now,
+      leaseDurationMs: 1_000,
+      emailConfigured: async () => true,
+      send: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(result.sent).toBe(0);
+    expect(transitionSending).toHaveBeenCalledWith(
+      "first-import:owner@example.com",
+      expect.any(String),
+      "sent",
+    );
+    expect(
+      await clock.store.readJob("first-import:owner@example.com"),
+    ).toMatchObject({
+      state: "sending",
+      leaseToken: reclaimedLeaseToken,
+      attempts: 2,
     });
   });
 
