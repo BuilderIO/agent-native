@@ -20,7 +20,7 @@ import {
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   Tooltip,
@@ -88,6 +88,11 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
+  const openLinkInput = useCallback(() => {
+    setLinkUrl(editor.getAttributes("link").href || "");
+    setShowLinkInput(true);
+  }, [editor]);
+
   useEffect(() => {
     const plugin = new Plugin<SelectionFillRange | null>({
       key: selectionFillPluginKey,
@@ -105,6 +110,29 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
         },
       },
       props: {
+        handleKeyDown(_view, event) {
+          if (
+            !(event.metaKey || event.ctrlKey) ||
+            event.shiftKey ||
+            event.altKey ||
+            event.key.toLowerCase() !== "k"
+          ) {
+            return false;
+          }
+
+          const { state } = editor;
+          const { from, to } = state.selection;
+          if (
+            from === to ||
+            selectionIncludesBubbleToolbarExcludedNode(state, from, to)
+          ) {
+            return false;
+          }
+
+          event.preventDefault();
+          openLinkInput();
+          return true;
+        },
         decorations(state) {
           const range = selectionFillPluginKey.getState(state);
           if (!range || range.from === range.to) return DecorationSet.empty;
@@ -153,7 +181,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       editor.off("blur", syncSelectionFill);
       editor.unregisterPlugin(selectionFillPluginKey);
     };
-  }, [editor]);
+  }, [editor, openLinkInput]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {
@@ -175,9 +203,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       editor.chain().focus().unsetLink().run();
       return;
     }
-    const previousUrl = editor.getAttributes("link").href || "";
-    setLinkUrl(previousUrl);
-    setShowLinkInput(true);
+    openLinkInput();
   };
 
   const items = [

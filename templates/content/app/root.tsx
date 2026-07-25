@@ -555,12 +555,7 @@ export default function Root() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
-  useCommandMenuShortcut(
-    useCallback(() => setCmdkOpen(true), []),
-    {
-      allowContentEditable: true,
-    },
-  );
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
   // so crawlers and unauthenticated visitors receive full markup on first visit.
