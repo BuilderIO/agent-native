@@ -92,7 +92,8 @@ vi.mock("../server/lib/recordings.js", () => ({
 vi.mock("../server/lib/transactional-email-store.js", () => ({
   transactionalEmailStore: {
     ensureEnabledAt: (...args: unknown[]) => mocks.ensureEnabledAt(...args),
-    enqueue: (...args: unknown[]) => mocks.enqueue(...args),
+    enqueueOrConvergeFirstImport: (...args: unknown[]) =>
+      mocks.enqueue(...args),
   },
 }));
 
@@ -171,13 +172,9 @@ describe("first imported recording transactional email", () => {
       { column: "recordings.id", direction: "asc" },
     );
     expect(mocks.enqueue).toHaveBeenCalledWith(
-      "first-import:owner@example.com",
-      {
-        type: "first-import",
-        recipient: "Owner@Example.com",
-        recordingIds: ["recording-first"],
-        requestedBy: "Owner@Example.com",
-      },
+      "Owner@Example.com",
+      "recording-first",
+      "Owner@Example.com",
     );
   });
 

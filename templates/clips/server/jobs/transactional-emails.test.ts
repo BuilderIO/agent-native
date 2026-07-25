@@ -66,12 +66,92 @@ function createRepository(state: {
         )
         .slice(0, limit);
     },
-    async listRecipientShares(recipient, enabledAt, limit) {
+    async listDueDirectShares(enabledAt, dueBefore, cursor, limit) {
+      return state.shares
+        .filter(
+          (share) =>
+            share.createdAt >= enabledAt &&
+            share.createdAt <= dueBefore &&
+            (!cursor ||
+              share.createdAt > cursor.createdAt ||
+              (share.createdAt === cursor.createdAt && share.id > cursor.id)),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, limit);
+    },
+    async listRecipientDistinctShares(recipient, enabledAt, limit) {
+      const seen = new Set<string>();
       return state.shares
         .filter(
           (share) =>
             share.recipient.trim().toLowerCase() === recipient &&
             Date.parse(share.createdAt) >= Date.parse(enabledAt),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .filter((share) => {
+          if (seen.has(share.recordingId)) return false;
+          seen.add(share.recordingId);
+          return true;
+        })
+        .slice(0, limit);
+    },
+    async listCountedNonOwnerViews(enabledAt, cursor, limit) {
+      const countedViews: Map<
+        string,
+        Array<string | null>
+      > = state.countedViews ?? new Map();
+      const views = [...countedViews.entries()].flatMap(
+        ([recordingId, emails]) => {
+          const clip = state.recordings.get(recordingId);
+          if (!clip) return [];
+          return emails.map((viewerEmail, index) => ({
+            id: `view-${recordingId}-${String(index).padStart(3, "0")}`,
+            viewedAt: new Date(
+              Date.parse(enabledAt) + index * 1000,
+            ).toISOString(),
+            viewerEmail,
+            recordingId,
+            ownerEmail: clip.ownerEmail,
+          }));
+        },
+      );
+      return views
+        .filter(
+          (view) =>
+            (view.viewerEmail === null ||
+              view.viewerEmail.trim().toLowerCase() !==
+                view.ownerEmail.trim().toLowerCase()) &&
+            (!cursor ||
+              view.viewedAt > cursor.createdAt ||
+              (view.viewedAt === cursor.createdAt && view.id > cursor.id)),
+        )
+        .sort(
+          (left, right) =>
+            left.viewedAt.localeCompare(right.viewedAt) ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, limit);
+    },
+    async listReadyImports(enabledAt, cursor, limit) {
+      return (state.imports ?? [...state.recordings.values()])
+        .filter(
+          (candidate) =>
+            candidate.status === "ready" &&
+            candidate.createdAt >= enabledAt &&
+            (candidate.sourceAppName === "Loom" ||
+              candidate.sourceAppName === "Video link") &&
+            (!cursor ||
+              candidate.createdAt > cursor.createdAt ||
+              (candidate.createdAt === cursor.createdAt &&
+                candidate.id > cursor.id)),
         )
         .sort(
           (left, right) =>
@@ -107,14 +187,21 @@ function createRepository(state: {
       return state.viewed?.has(recipientKey(recipient, recordingId)) ?? false;
     },
     async getFirstNonOwnerCountedView(recordingId, ownerEmail) {
-      const viewerEmail = state.countedViews
-        ?.get(recordingId)
-        ?.find(
-          (email) =>
-            email === null ||
-            email.trim().toLowerCase() !== ownerEmail.trim().toLowerCase(),
-        );
-      return viewerEmail === undefined ? null : { viewerEmail };
+      const views = state.countedViews?.get(recordingId) ?? [];
+      const index = views.findIndex(
+        (email) =>
+          email === null ||
+          email.trim().toLowerCase() !== ownerEmail.trim().toLowerCase(),
+      );
+      return index < 0
+        ? null
+        : {
+            id: `view-${recordingId}-${String(index).padStart(3, "0")}`,
+            viewedAt: new Date(
+              Date.parse("2026-08-01T00:00:00.000Z") + index * 1000,
+            ).toISOString(),
+            viewerEmail: views[index],
+          };
     },
     async isFirstImport(candidate, recipient, enabledAt) {
       const firstImport = (state.imports ?? [candidate])
@@ -457,6 +544,251 @@ describe("transactional email worker", () => {
     },
   );
 
+  it("finds the second distinct Clip after more than 100 duplicate shares", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-01T01:00:00.000Z");
+    const duplicates: Share[] = Array.from({ length: 125 }, (_, index) => ({
+      id: `duplicate-${String(index).padStart(3, "0")}`,
+      recordingId: "recording-1",
+      recipient: "person@example.com",
+      createdBy: "first-sender@example.com",
+      createdAt: new Date(
+        Date.parse("2026-08-01T00:01:00.000Z") + index,
+      ).toISOString(),
+    }));
+    const second: Share = {
+      id: "second-distinct",
+      recordingId: "recording-2",
+      recipient: "person@example.com",
+      createdBy: "second-sender@example.com",
+      createdAt: "2026-08-01T00:02:00.000Z",
+    };
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [...duplicates, second],
+        recordings: new Map(),
+      }),
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("two-clips:person@example.com"),
+    ).toMatchObject({
+      recordingIds: ["recording-1", "recording-2"],
+      shareId: "second-distinct",
+      requestedBy: "second-sender@example.com",
+    });
+  });
+
+  it("discovers shares as they age while timely share pages keep arriving", async () => {
+    const clock = await setup();
+    const shares: Share[] = ["a", "b"].map((suffix, index) => ({
+      id: `early-${suffix}`,
+      recordingId: `recording-early-${suffix}`,
+      recipient: `early-${suffix}@example.com`,
+      createdBy: "sender@example.com",
+      createdAt: `2026-08-01T00:0${index + 1}:00.000Z`,
+    }));
+    const repository = createRepository({ shares, recordings: new Map() });
+
+    clock.setNow("2026-08-01T02:00:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      reconciliationBatchSize: 2,
+      emailConfigured: async () => false,
+    });
+    shares.push(
+      ...["a", "b"].map((suffix, index) => ({
+        id: `middle-${suffix}`,
+        recordingId: `recording-middle-${suffix}`,
+        recipient: `middle-${suffix}@example.com`,
+        createdBy: "sender@example.com",
+        createdAt: `2026-08-01T02:0${index + 1}:00.000Z`,
+      })),
+    );
+
+    clock.setNow("2026-08-03T00:02:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      reconciliationBatchSize: 2,
+      emailConfigured: async () => false,
+    });
+    expect(await clock.store.readJob("unviewed-reminder:early-b")).toBeTruthy();
+    expect(await clock.store.readJob("unviewed-reminder:middle-a")).toBeNull();
+
+    shares.push({
+      id: "latest",
+      recordingId: "recording-latest",
+      recipient: "latest@example.com",
+      createdBy: "sender@example.com",
+      createdAt: "2026-08-03T00:03:00.000Z",
+    });
+    clock.setNow("2026-08-03T02:02:00.000Z");
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      reconciliationBatchSize: 2,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("unviewed-reminder:middle-a"),
+    ).toBeTruthy();
+    expect(
+      await clock.store.readJob("unviewed-reminder:middle-b"),
+    ).toBeTruthy();
+    expect(await clock.store.readJob("unviewed-reminder:latest")).toBeNull();
+  });
+
+  it("recovers a missing first-view job after the immediate enqueue failed", async () => {
+    const clock = await setup();
+    const clip = recording("recording-recovery", "owner@example.com");
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[clip.id, clip]]),
+      countedViews: new Map([[clip.id, ["viewer@example.com"]]]),
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(await clock.store.readJob(`first-view:${clip.id}`)).toMatchObject({
+      state: "ready",
+      recordingIds: [clip.id],
+    });
+    expect(
+      (await clock.store.listJobs()).filter(
+        (job) => job.logicalKey === `first-view:${clip.id}`,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("recovers a missing first-import job after the immediate enqueue failed", async () => {
+    const clock = await setup();
+    const imported = {
+      ...recording("import-recovery", "owner@example.com"),
+      sourceAppName: "Loom",
+    };
+    const repository = createRepository({
+      shares: [],
+      recordings: new Map([[imported.id, imported]]),
+      imports: [imported],
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("first-import:owner@example.com"),
+    ).toMatchObject({ state: "ready", recordingIds: [imported.id] });
+    expect(
+      (await clock.store.listJobs()).filter(
+        (job) => job.logicalKey === "first-import:owner@example.com",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("converges reverse-completed imports on the canonical earliest recording", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const older = {
+      ...recording("import-older", ownerEmail),
+      sourceAppName: "Loom",
+    };
+    const newer = {
+      ...recording("import-newer", ownerEmail),
+      sourceAppName: "Video link",
+      createdAt: "2026-08-01T00:01:00.000Z",
+    };
+    await clock.store.enqueue("first-import:owner@example.com", {
+      type: "first-import",
+      recipient: ownerEmail,
+      recordingIds: [newer.id],
+      requestedBy: ownerEmail,
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([
+          [older.id, older],
+          [newer.id, newer],
+        ]),
+        imports: [newer, older],
+      }),
+      now: clock.now,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("first-import:owner@example.com"),
+    ).toMatchObject({ state: "ready", recordingIds: [older.id] });
+  });
+
+  it("logs stale AI dispatches without retrying or reclaiming them", async () => {
+    const clock = await setup();
+    await clock.store.enqueue(
+      "two-clips:person@example.com",
+      {
+        type: "two-clips",
+        recipient: "person@example.com",
+        recordingIds: ["recording-1", "recording-2"],
+        requestedBy: "sender@example.com",
+      },
+      "awaiting_ai",
+    );
+    await clock.store.claimNextAwaitingAi();
+    clock.setNow("2026-08-01T00:30:00.000Z");
+    const warn = vi.fn();
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({ shares: [], recordings: new Map() }),
+      now: clock.now,
+      emailConfigured: async () => false,
+      warn,
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[transactional-emails] AI dispatch remains unresolved",
+      expect.objectContaining({
+        logicalKey: "two-clips:person@example.com",
+      }),
+    );
+    expect(
+      await clock.store.readJob("two-clips:person@example.com"),
+    ).toMatchObject({ state: "ai_dispatched", attempts: 0 });
+  });
+
   it("durably advances past a full direct-share batch and wraps safely", async () => {
     const clock = await setup();
     clock.setNow("2026-08-03T00:00:00.000Z");
@@ -482,7 +814,7 @@ describe("transactional email worker", () => {
     expect(await clock.store.readJob("unviewed-reminder:share-101")).toBeNull();
     expect(await clock.store.readConfig()).toMatchObject({
       enabledAt: "2026-08-01T00:00:00.000Z",
-      reconciliationCursor: {
+      shareDiscoveryCursor: {
         createdAt: "2026-08-01T00:00:00.000Z",
         id: "share-100",
       },
@@ -501,7 +833,8 @@ describe("transactional email worker", () => {
     ).toMatchObject({ state: "ready" });
     expect(await clock.store.readConfig()).toMatchObject({
       enabledAt: "2026-08-01T00:00:00.000Z",
-      reconciliationCursor: null,
+      shareDiscoveryCursor: null,
+      reminderCursor: null,
     });
   });
 

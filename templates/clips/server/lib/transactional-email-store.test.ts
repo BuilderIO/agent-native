@@ -121,30 +121,20 @@ describe("transactional email store", () => {
     ).rejects.toThrow("Invalid transactional email transition");
 
     const [firstClaim, secondClaim] = await Promise.all([
-      store.claimAwaitingAi("first-view:share-1", "viewer@example.com"),
-      store.claimAwaitingAi("first-view:share-1", "viewer@example.com"),
+      store.claimNextAwaitingAi(),
+      store.claimNextAwaitingAi(),
     ]);
     expect([firstClaim, secondClaim].filter(Boolean)).toHaveLength(1);
-    expect(firstClaim ?? secondClaim).toMatchObject({
-      state: "ai_dispatched",
-      aiClaimedBy: "viewer@example.com",
-    });
+    expect((firstClaim ?? secondClaim)?.state).toBe("ai_dispatched");
 
-    await expect(
-      store.completeClaimedAi(
-        "first-view:share-1",
-        "other@example.com",
-        "Wrong claimant.",
-      ),
-    ).resolves.toBeNull();
-    const ready = await store.completeClaimedAi(
+    const ready = await store.transition(
       "first-view:share-1",
-      "VIEWER@example.com",
-      "A concise generated summary.",
+      ["ai_dispatched"],
+      "ready",
+      { generatedSummary: "A concise generated summary." },
     );
     expect(ready).toMatchObject({
       state: "ready",
-      aiClaimedBy: "viewer@example.com",
       generatedSummary: "A concise generated summary.",
       leaseUntil: null,
     });
@@ -152,6 +142,54 @@ describe("transactional email store", () => {
     await expect(
       store.transition("first-view:share-1", ["pending"], "cancelled"),
     ).resolves.toBeNull();
+  });
+
+  it("allows one claimant-scoped AI completion without reclaiming", async () => {
+    const root = await testRoot();
+    const store = createTransactionalEmailStore({ root });
+    await store.enqueue(
+      "two-clips:recipient@example.com",
+      {
+        type: "two-clips",
+        recipient: "recipient@example.com",
+        recordingIds: ["recording-1", "recording-2"],
+        requestedBy: "sender@example.com",
+      },
+      "awaiting_ai",
+    );
+
+    await expect(
+      store.claimAwaitingAi(
+        "two-clips:recipient@example.com",
+        "claimant@example.com",
+      ),
+    ).resolves.toMatchObject({
+      state: "ai_dispatched",
+      aiClaimedBy: "claimant@example.com",
+    });
+    await expect(
+      store.claimAwaitingAi(
+        "two-clips:recipient@example.com",
+        "other@example.com",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      store.completeClaimedAi(
+        "two-clips:recipient@example.com",
+        "other@example.com",
+        "One sentence.",
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      store.completeClaimedAi(
+        "two-clips:recipient@example.com",
+        "claimant@example.com",
+        "One sentence.",
+      ),
+    ).resolves.toMatchObject({
+      state: "ready",
+      generatedSummary: "One sentence.",
+    });
   });
 
   it("acquires a sending lease and reclaims only expired leases", async () => {
@@ -239,6 +277,38 @@ describe("transactional email store", () => {
     expect(await firstStore.readConfig()).toEqual(first);
   });
 
+  it("converges an unsent first-import job on the canonical recording", async () => {
+    const root = await testRoot();
+    const store = createTransactionalEmailStore({ root });
+    await store.enqueue("first-import:owner@example.com", {
+      type: "first-import",
+      recipient: "owner@example.com",
+      recordingIds: ["recording-newer"],
+      requestedBy: "owner@example.com",
+    });
+    await store.transition(
+      "first-import:owner@example.com",
+      ["pending"],
+      "cancelled",
+    );
+
+    const converged = await store.enqueueOrConvergeFirstImport(
+      "owner@example.com",
+      "recording-older",
+      "owner@example.com",
+    );
+
+    expect(converged).toMatchObject({
+      created: false,
+      job: {
+        state: "pending",
+        recordingIds: ["recording-older"],
+        attempts: 0,
+        cancelledAt: undefined,
+      },
+    });
+  });
+
   it("validates and atomically persists the reconciliation cursor", async () => {
     const root = await testRoot();
     const store = createTransactionalEmailStore({
@@ -248,24 +318,27 @@ describe("transactional email store", () => {
     await store.ensureEnabledAt();
 
     await expect(
-      store.updateReconciliationCursor({
+      store.updateReconciliationCursor("reminderCursor", {
         createdAt: "2026-08-03T10:00:00.000Z",
         id: "share-100",
       }),
     ).resolves.toEqual({
       enabledAt: "2026-08-02T10:00:00.000Z",
-      reconciliationCursor: {
+      reminderCursor: {
         createdAt: "2026-08-03T10:00:00.000Z",
         id: "share-100",
       },
     });
 
     await expect(
-      store.updateReconciliationCursor({ createdAt: "invalid", id: "" }),
+      store.updateReconciliationCursor("reminderCursor", {
+        createdAt: "invalid",
+        id: "",
+      }),
     ).rejects.toThrow();
     expect(await store.readConfig()).toEqual({
       enabledAt: "2026-08-02T10:00:00.000Z",
-      reconciliationCursor: {
+      reminderCursor: {
         createdAt: "2026-08-03T10:00:00.000Z",
         id: "share-100",
       },

@@ -10,8 +10,10 @@ import {
   isNotNull,
   isNull,
   lte,
+  min,
   not,
   or,
+  sql,
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -27,12 +29,13 @@ import {
 
 const JOB_INTERVAL_MS = 60_000;
 const RECONCILIATION_BATCH_SIZE = 100;
-const RECIPIENT_SHARE_BATCH_SIZE = 100;
+const RECIPIENT_SHARE_BATCH_SIZE = 2;
 const DELIVERY_BATCH_SIZE = 25;
 const REMINDER_DELAY_MS = 48 * 60 * 60 * 1000;
 const SENDING_LEASE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 60_000;
+const STALE_AI_DISPATCH_MS = 30 * 60 * 1000;
 let skippingLogged = false;
 
 type DirectShare = {
@@ -56,7 +59,14 @@ type RecordingState = {
 };
 
 type CountedView = {
+  id: string;
+  viewedAt: string;
   viewerEmail: string | null;
+};
+
+type FirstViewCandidate = CountedView & {
+  recordingId: string;
+  ownerEmail: string;
 };
 
 type ReconciliationCursor = {
@@ -72,6 +82,7 @@ export type TransactionalEmailStore = Pick<
   | "transition"
   | "acquireSendingLease"
   | "updateReconciliationCursor"
+  | "enqueueOrConvergeFirstImport"
 >;
 
 export interface TransactionalEmailRepository {
@@ -80,11 +91,27 @@ export interface TransactionalEmailRepository {
     cursor: ReconciliationCursor | null,
     limit: number,
   ): Promise<DirectShare[]>;
-  listRecipientShares(
+  listDueDirectShares(
+    enabledAt: string,
+    dueBefore: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<DirectShare[]>;
+  listRecipientDistinctShares(
     recipient: string,
     enabledAt: string,
     limit: number,
   ): Promise<DirectShare[]>;
+  listCountedNonOwnerViews(
+    enabledAt: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<FirstViewCandidate[]>;
+  listReadyImports(
+    enabledAt: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<RecordingState[]>;
   getRecording(recordingId: string): Promise<RecordingState | null>;
   recipientOwnsRecording(recipient: string): Promise<boolean>;
   recipientHasShare(
@@ -122,6 +149,7 @@ export interface TransactionalEmailWorkerDependencies {
   leaseDurationMs?: number;
   maxAttempts?: number;
   retryBaseDelayMs?: number;
+  warn?: (message: string, details?: unknown) => void;
 }
 
 export interface TransactionalEmailWorkerResult {
@@ -188,6 +216,7 @@ function defaultRepository(): TransactionalEmailRepository {
     limit: number,
     recipient?: string,
     cursor?: ReconciliationCursor | null,
+    dueBefore?: string,
   ): Promise<DirectShare[]> => {
     const rows = await db
       .select({
@@ -205,6 +234,9 @@ function defaultRepository(): TransactionalEmailRepository {
             ? ownerEmailMatches(schema.recordingShares.principalId, recipient)
             : undefined,
           gte(schema.recordingShares.createdAt, enabledAt),
+          dueBefore
+            ? lte(schema.recordingShares.createdAt, dueBefore)
+            : undefined,
           cursor
             ? or(
                 gt(schema.recordingShares.createdAt, cursor.createdAt),
@@ -227,8 +259,127 @@ function defaultRepository(): TransactionalEmailRepository {
   return {
     listDirectShares: (enabledAt, cursor, limit) =>
       selectShares(enabledAt, limit, undefined, cursor),
-    listRecipientShares: (recipient, enabledAt, limit) =>
-      selectShares(enabledAt, limit, recipient),
+    listDueDirectShares: (enabledAt, dueBefore, cursor, limit) =>
+      selectShares(enabledAt, limit, undefined, cursor, dueBefore),
+    async listRecipientDistinctShares(recipient, enabledAt, limit) {
+      const distinctRecordings = await db
+        .select({
+          recordingId: schema.recordingShares.resourceId,
+          firstSharedAt: min(schema.recordingShares.createdAt),
+        })
+        .from(schema.recordingShares)
+        .where(
+          and(
+            eq(schema.recordingShares.principalType, "user"),
+            ownerEmailMatches(schema.recordingShares.principalId, recipient),
+            gte(schema.recordingShares.createdAt, enabledAt),
+          ),
+        )
+        .groupBy(schema.recordingShares.resourceId)
+        .orderBy(
+          asc(min(schema.recordingShares.createdAt)),
+          asc(schema.recordingShares.resourceId),
+        )
+        .limit(limit);
+      const shares: DirectShare[] = [];
+      for (const distinct of distinctRecordings) {
+        const [share] = await db
+          .select({
+            id: schema.recordingShares.id,
+            recordingId: schema.recordingShares.resourceId,
+            recipient: schema.recordingShares.principalId,
+            createdBy: schema.recordingShares.createdBy,
+            createdAt: schema.recordingShares.createdAt,
+          })
+          .from(schema.recordingShares)
+          .where(
+            and(
+              eq(schema.recordingShares.principalType, "user"),
+              ownerEmailMatches(schema.recordingShares.principalId, recipient),
+              eq(schema.recordingShares.resourceId, distinct.recordingId),
+              eq(schema.recordingShares.createdAt, distinct.firstSharedAt!),
+            ),
+          )
+          .orderBy(asc(schema.recordingShares.id))
+          .limit(1);
+        if (share) shares.push(share);
+      }
+      return shares;
+    },
+    async listCountedNonOwnerViews(enabledAt, cursor, limit) {
+      return db
+        .select({
+          id: schema.recordingViews.id,
+          viewedAt: schema.recordingViews.viewedAt,
+          viewerEmail: schema.recordingViews.viewerEmail,
+          recordingId: schema.recordingViews.recordingId,
+          ownerEmail: schema.recordings.ownerEmail,
+        })
+        .from(schema.recordingViews)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.recordingViews.recordingId),
+        )
+        .where(
+          and(
+            gte(schema.recordingViews.viewedAt, enabledAt),
+            or(
+              isNull(schema.recordingViews.viewerEmail),
+              sql`lower(${schema.recordingViews.viewerEmail}) <> lower(${schema.recordings.ownerEmail})`,
+            ),
+            cursor
+              ? or(
+                  gt(schema.recordingViews.viewedAt, cursor.createdAt),
+                  and(
+                    eq(schema.recordingViews.viewedAt, cursor.createdAt),
+                    gt(schema.recordingViews.id, cursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(
+          asc(schema.recordingViews.viewedAt),
+          asc(schema.recordingViews.id),
+        )
+        .limit(limit);
+    },
+    async listReadyImports(enabledAt, cursor, limit) {
+      return db
+        .select({
+          id: schema.recordings.id,
+          ownerEmail: schema.recordings.ownerEmail,
+          title: schema.recordings.title,
+          titleSource: schema.recordings.titleSource,
+          sourceAppName: schema.recordings.sourceAppName,
+          createdAt: schema.recordings.createdAt,
+          status: schema.recordings.status,
+          archivedAt: schema.recordings.archivedAt,
+          trashedAt: schema.recordings.trashedAt,
+        })
+        .from(schema.recordings)
+        .where(
+          and(
+            eq(schema.recordings.status, "ready"),
+            gte(schema.recordings.createdAt, enabledAt),
+            or(
+              eq(schema.recordings.sourceAppName, "Loom"),
+              eq(schema.recordings.sourceAppName, "Video link"),
+            ),
+            cursor
+              ? or(
+                  gt(schema.recordings.createdAt, cursor.createdAt),
+                  and(
+                    eq(schema.recordings.createdAt, cursor.createdAt),
+                    gt(schema.recordings.id, cursor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(asc(schema.recordings.createdAt), asc(schema.recordings.id))
+        .limit(limit);
+    },
     async getRecording(recordingId) {
       const [recording] = await db
         .select({
@@ -270,45 +421,46 @@ function defaultRepository(): TransactionalEmailRepository {
       return normalizedEmail(share?.recipient) === recipient;
     },
     async recipientHasShares(recipient, recordingIds) {
-      if (recordingIds.length === 0) return false;
+      const requiredIds = new Set(recordingIds);
+      if (requiredIds.size !== 2) return false;
       const rows = await db
-        .select({
-          recordingId: schema.recordingShares.resourceId,
-          recipient: schema.recordingShares.principalId,
-        })
+        .select({ recordingId: schema.recordingShares.resourceId })
         .from(schema.recordingShares)
         .where(
           and(
             eq(schema.recordingShares.principalType, "user"),
-            inArray(schema.recordingShares.resourceId, [...recordingIds]),
+            ownerEmailMatches(schema.recordingShares.principalId, recipient),
+            inArray(schema.recordingShares.resourceId, [...requiredIds]),
           ),
         )
-        .limit(Math.max(recordingIds.length * 4, recordingIds.length));
-      const sharedIds = new Set(
-        rows
-          .filter((share) => normalizedEmail(share.recipient) === recipient)
-          .map((share) => share.recordingId),
+        .groupBy(schema.recordingShares.resourceId);
+      const sharedIds = new Set(rows.map((share) => share.recordingId));
+      return (
+        sharedIds.size === requiredIds.size &&
+        [...requiredIds].every((recordingId) => sharedIds.has(recordingId))
       );
-      return recordingIds.every((recordingId) => sharedIds.has(recordingId));
     },
     async recipientHasCountedView(recipient, recordingId) {
-      const views = await db
-        .select({ viewerEmail: schema.recordingViews.viewerEmail })
+      const [view] = await db
+        .select({ id: schema.recordingViews.id })
         .from(schema.recordingViews)
         .where(
           and(
             eq(schema.recordingViews.recordingId, recordingId),
             isNotNull(schema.recordingViews.viewerEmail),
+            ownerEmailMatches(schema.recordingViews.viewerEmail, recipient),
           ),
         )
-        .limit(100);
-      return views.some(
-        (view) => normalizedEmail(view.viewerEmail) === recipient,
-      );
+        .limit(1);
+      return Boolean(view);
     },
     async getFirstNonOwnerCountedView(recordingId, ownerEmail) {
       const [view] = await db
-        .select({ viewerEmail: schema.recordingViews.viewerEmail })
+        .select({
+          id: schema.recordingViews.id,
+          viewedAt: schema.recordingViews.viewedAt,
+          viewerEmail: schema.recordingViews.viewerEmail,
+        })
         .from(schema.recordingViews)
         .where(
           and(
@@ -359,12 +511,11 @@ function defaultRepository(): TransactionalEmailRepository {
   };
 }
 
-async function reconcileShares(
+async function reconcileShareDiscovery(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
   enabledAt: string,
   cursor: ReconciliationCursor | null,
-  now: Date,
   limit: number,
 ): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
   const page = await repository.listDirectShares(enabledAt, cursor, limit);
@@ -373,23 +524,10 @@ async function reconcileShares(
     .filter((share): share is DirectShare => share !== null);
   let enqueued = 0;
 
-  for (const share of shares) {
-    if (now.getTime() - Date.parse(share.createdAt) >= REMINDER_DELAY_MS) {
-      const result = await store.enqueue(`unviewed-reminder:${share.id}`, {
-        type: "unviewed-reminder",
-        recipient: share.recipient,
-        recordingIds: [share.recordingId],
-        shareId: share.id,
-        requestedBy: share.createdBy,
-      });
-      if (result.created) enqueued += 1;
-    }
-  }
-
   for (const recipient of new Set(shares.map((share) => share.recipient))) {
     if (await repository.recipientOwnsRecording(recipient)) continue;
     const recipientShares = (
-      await repository.listRecipientShares(
+      await repository.listRecipientDistinctShares(
         recipient,
         enabledAt,
         RECIPIENT_SHARE_BATCH_SIZE,
@@ -432,6 +570,121 @@ async function reconcileShares(
     nextCursor:
       page.length >= limit && lastShare
         ? { createdAt: lastShare.createdAt, id: lastShare.id }
+        : null,
+  };
+}
+
+async function reconcileDueReminders(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  cursor: ReconciliationCursor | null,
+  now: Date,
+  limit: number,
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const dueBefore = new Date(now.getTime() - REMINDER_DELAY_MS).toISOString();
+  const page = await repository.listDueDirectShares(
+    enabledAt,
+    dueBefore,
+    cursor,
+    limit,
+  );
+  let enqueued = 0;
+  for (const rawShare of page) {
+    const share = normalizeShare(rawShare);
+    if (!share) continue;
+    const result = await store.enqueue(`unviewed-reminder:${share.id}`, {
+      type: "unviewed-reminder",
+      recipient: share.recipient,
+      recordingIds: [share.recordingId],
+      shareId: share.id,
+      requestedBy: share.createdBy,
+    });
+    if (result.created) enqueued += 1;
+  }
+  const lastShare = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastShare
+        ? { createdAt: lastShare.createdAt, id: lastShare.id }
+        : null,
+  };
+}
+
+async function reconcileFirstViews(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  cursor: ReconciliationCursor | null,
+  limit: number,
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const page = await repository.listCountedNonOwnerViews(
+    enabledAt,
+    cursor,
+    limit,
+  );
+  let enqueued = 0;
+  for (const candidate of page) {
+    const ownerEmail = normalizedEmail(candidate.ownerEmail);
+    if (!ownerEmail || isSuppressedTransactionalRecipient(ownerEmail)) continue;
+    const firstView = await repository.getFirstNonOwnerCountedView(
+      candidate.recordingId,
+      ownerEmail,
+    );
+    if (
+      !firstView ||
+      firstView.id !== candidate.id ||
+      firstView.viewedAt < enabledAt
+    ) {
+      continue;
+    }
+    const result = await store.enqueue(`first-view:${candidate.recordingId}`, {
+      type: "first-view",
+      recipient: ownerEmail,
+      recordingIds: [candidate.recordingId],
+      requestedBy: ownerEmail,
+    });
+    if (result.created) enqueued += 1;
+  }
+  const lastView = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastView
+        ? { createdAt: lastView.viewedAt, id: lastView.id }
+        : null,
+  };
+}
+
+async function reconcileFirstImports(
+  repository: TransactionalEmailRepository,
+  store: TransactionalEmailStore,
+  enabledAt: string,
+  cursor: ReconciliationCursor | null,
+  limit: number,
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const page = await repository.listReadyImports(enabledAt, cursor, limit);
+  let enqueued = 0;
+  for (const recording of page) {
+    const ownerEmail = normalizedEmail(recording.ownerEmail);
+    if (!ownerEmail || isSuppressedTransactionalRecipient(ownerEmail)) continue;
+    if (!(await repository.isFirstImport(recording, ownerEmail, enabledAt))) {
+      continue;
+    }
+    const result = await store.enqueueOrConvergeFirstImport(
+      ownerEmail,
+      recording.id,
+      ownerEmail,
+    );
+    if (result.created) enqueued += 1;
+  }
+  const lastImport = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastImport
+        ? { createdAt: lastImport.createdAt, id: lastImport.id }
         : null,
   };
 }
@@ -545,18 +798,72 @@ export async function runTransactionalEmailsOnce(
     };
     const config = await store.ensureEnabledAt();
     const currentTime = now();
-    const reconciliation = await reconcileShares(
+    const reconciliationLimit =
+      dependencies.reconciliationBatchSize ?? RECONCILIATION_BATCH_SIZE;
+    const shareDiscovery = await reconcileShareDiscovery(
       repository,
       store,
       config.enabledAt,
-      config.reconciliationCursor ?? null,
-      currentTime,
-      dependencies.reconciliationBatchSize ?? RECONCILIATION_BATCH_SIZE,
+      config.shareDiscoveryCursor ?? null,
+      reconciliationLimit,
     );
-    result.enqueued = reconciliation.enqueued;
-    await store.updateReconciliationCursor(reconciliation.nextCursor);
+    result.enqueued += shareDiscovery.enqueued;
+    await store.updateReconciliationCursor(
+      "shareDiscoveryCursor",
+      shareDiscovery.nextCursor,
+    );
+    const reminders = await reconcileDueReminders(
+      repository,
+      store,
+      config.enabledAt,
+      config.reminderCursor ?? null,
+      currentTime,
+      reconciliationLimit,
+    );
+    result.enqueued += reminders.enqueued;
+    await store.updateReconciliationCursor(
+      "reminderCursor",
+      reminders.nextCursor,
+    );
+    const firstViews = await reconcileFirstViews(
+      repository,
+      store,
+      config.enabledAt,
+      config.firstViewCursor ?? null,
+      reconciliationLimit,
+    );
+    result.enqueued += firstViews.enqueued;
+    await store.updateReconciliationCursor(
+      "firstViewCursor",
+      firstViews.nextCursor,
+    );
+    const firstImports = await reconcileFirstImports(
+      repository,
+      store,
+      config.enabledAt,
+      config.firstImportCursor ?? null,
+      reconciliationLimit,
+    );
+    result.enqueued += firstImports.enqueued;
+    await store.updateReconciliationCursor(
+      "firstImportCursor",
+      firstImports.nextCursor,
+    );
 
     const jobs = await store.listJobs();
+    const warn = dependencies.warn ?? console.warn;
+    for (const job of jobs) {
+      const dispatchedAt = job.aiDispatchedAt ?? job.updatedAt;
+      if (
+        job.state === "ai_dispatched" &&
+        currentTime.getTime() - Date.parse(dispatchedAt) >= STALE_AI_DISPATCH_MS
+      ) {
+        warn("[transactional-emails] AI dispatch remains unresolved", {
+          logicalKey: job.logicalKey,
+          aiDispatchedAt: dispatchedAt,
+        });
+      }
+    }
     for (const job of jobs) {
       if (
         job.state === "pending" &&

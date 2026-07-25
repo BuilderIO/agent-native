@@ -136,14 +136,10 @@ export async function enqueueFirstImportEmailIfEligible(
     .limit(1);
   if (firstReadyImport?.id !== input.recordingId) return;
 
-  await transactionalEmailStore.enqueue(
-    `first-import:${input.ownerEmail.trim().toLowerCase()}`,
-    {
-      type: "first-import",
-      recipient: input.ownerEmail,
-      recordingIds: [input.recordingId],
-      requestedBy: input.ownerEmail,
-    },
+  await transactionalEmailStore.enqueueOrConvergeFirstImport(
+    input.ownerEmail,
+    input.recordingId,
+    input.ownerEmail,
   );
 }
 

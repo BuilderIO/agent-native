@@ -66,19 +66,32 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const reconciliationCursorSchema = z
+  .object({
+    createdAt: timestampSchema,
+    id: nonEmptyStringSchema,
+  })
+  .strict()
+  .nullable()
+  .optional();
+
 export const transactionalEmailConfigSchema = z
   .object({
     enabledAt: timestampSchema,
-    reconciliationCursor: z
-      .object({
-        createdAt: timestampSchema,
-        id: nonEmptyStringSchema,
-      })
-      .strict()
-      .nullable()
-      .optional(),
+    reconciliationCursor: reconciliationCursorSchema,
+    shareDiscoveryCursor: reconciliationCursorSchema,
+    reminderCursor: reconciliationCursorSchema,
+    firstViewCursor: reconciliationCursorSchema,
+    firstImportCursor: reconciliationCursorSchema,
   })
   .strict();
+
+export const transactionalEmailCursorNameSchema = z.enum([
+  "shareDiscoveryCursor",
+  "reminderCursor",
+  "firstViewCursor",
+  "firstImportCursor",
+]);
 
 export const transactionalEmailJobSchema = z
   .object({
@@ -95,11 +108,11 @@ export const transactionalEmailJobSchema = z
     shareId: nonEmptyStringSchema.optional(),
     requestedBy: nonEmptyStringSchema.optional(),
     generatedSummary: z.string().max(20_000).optional(),
-    aiClaimedBy: recipientSchema.optional(),
     attempts: z.number().int().nonnegative(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
     aiDispatchedAt: timestampSchema.optional(),
+    aiClaimedBy: recipientSchema.optional(),
     readyAt: timestampSchema.optional(),
     sendingAt: timestampSchema.optional(),
     sentAt: timestampSchema.optional(),
@@ -369,13 +382,58 @@ export function createTransactionalEmailStore(
     }
   }
 
+  async function enqueueOrConvergeFirstImport(
+    recipient: string,
+    recordingId: string,
+    requestedBy: string,
+  ): Promise<{ created: boolean; job: TransactionalEmailJob }> {
+    const logicalKey = `first-import:${recipient.trim().toLowerCase()}`;
+    const enqueued = await enqueue(logicalKey, {
+      type: "first-import",
+      recipient,
+      recordingIds: [recordingId],
+      requestedBy,
+    });
+    if (enqueued.created || enqueued.job.state === "sent") return enqueued;
+
+    const converged = await withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      if (
+        !job ||
+        job.type !== "first-import" ||
+        !["pending", "ready", "cancelled"].includes(job.state)
+      ) {
+        return null;
+      }
+      if (job.recordingIds[0] === recordingId) return job;
+      const timestamp = now().toISOString();
+      const updated = transactionalEmailJobSchema.parse({
+        ...job,
+        recipient,
+        recordingIds: [recordingId],
+        requestedBy,
+        state: "pending",
+        attempts: 0,
+        updatedAt: timestamp,
+        readyAt: undefined,
+        sendingAt: undefined,
+        cancelledAt: undefined,
+        failedAt: undefined,
+        lastError: null,
+        leaseUntil: null,
+      });
+      await writeJsonAtomic(jobFile(logicalKey), updated);
+      return updated;
+    });
+    return { created: false, job: converged ?? enqueued.job };
+  }
+
   async function transition(
     logicalKey: string,
     expectedStates: readonly TransactionalEmailState[],
     nextState: TransactionalEmailState,
     changes: {
       generatedSummary?: string;
-      aiClaimedBy?: string;
       lastError?: string | null;
     } = {},
   ): Promise<TransactionalEmailJob | null> {
@@ -406,8 +464,22 @@ export function createTransactionalEmailStore(
     logicalKey: string,
     claimantEmail: string,
   ): Promise<TransactionalEmailJob | null> {
-    return transition(logicalKey, ["awaiting_ai"], "ai_dispatched", {
-      aiClaimedBy: recipientSchema.parse(claimantEmail.trim().toLowerCase()),
+    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
+    return withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      if (!job || job.type !== "two-clips" || job.state !== "awaiting_ai") {
+        return null;
+      }
+      const timestamp = now().toISOString();
+      const claimed = transactionalEmailJobSchema.parse({
+        ...job,
+        state: "ai_dispatched",
+        aiClaimedBy: claimant,
+        aiDispatchedAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await writeJsonAtomic(jobFile(logicalKey), claimed);
+      return claimed;
     });
   }
 
@@ -416,30 +488,43 @@ export function createTransactionalEmailStore(
     claimantEmail: string,
     generatedSummary: string,
   ): Promise<TransactionalEmailJob | null> {
-    const normalizedClaimant = recipientSchema.parse(
-      claimantEmail.trim().toLowerCase(),
-    );
+    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
     return withJobLock(logicalKey, async () => {
       const job = await readJob(logicalKey);
       if (
         !job ||
+        job.type !== "two-clips" ||
         job.state !== "ai_dispatched" ||
-        job.aiClaimedBy !== normalizedClaimant
+        job.aiClaimedBy !== claimant
       ) {
         return null;
       }
       const timestamp = now().toISOString();
-      const updated = transactionalEmailJobSchema.parse({
+      const completed = transactionalEmailJobSchema.parse({
         ...job,
         state: "ready",
         generatedSummary,
         readyAt: timestamp,
         updatedAt: timestamp,
-        leaseUntil: null,
       });
-      await writeJsonAtomic(jobFile(logicalKey), updated);
-      return updated;
+      await writeJsonAtomic(jobFile(logicalKey), completed);
+      return completed;
     });
+  }
+
+  async function claimNextAwaitingAi(): Promise<TransactionalEmailJob | null> {
+    const candidates = (await listJobs()).filter(
+      (job) => job.state === "awaiting_ai",
+    );
+    for (const candidate of candidates) {
+      const claimed = await transition(
+        candidate.logicalKey,
+        ["awaiting_ai"],
+        "ai_dispatched",
+      );
+      if (claimed) return claimed;
+    }
+    return null;
   }
 
   async function acquireSendingLease(
@@ -499,14 +584,14 @@ export function createTransactionalEmailStore(
   }
 
   async function updateReconciliationCursor(
+    cursorName: z.infer<typeof transactionalEmailCursorNameSchema>,
     reconciliationCursor: NonNullable<
       TransactionalEmailConfig["reconciliationCursor"]
     > | null,
   ): Promise<TransactionalEmailConfig> {
-    const parsedCursor =
-      transactionalEmailConfigSchema.shape.reconciliationCursor.parse(
-        reconciliationCursor,
-      );
+    const parsedCursorName =
+      transactionalEmailCursorNameSchema.parse(cursorName);
+    const parsedCursor = reconciliationCursorSchema.parse(reconciliationCursor);
     const updated = await withJobLock(
       "transactional-email-config",
       async () => {
@@ -517,7 +602,7 @@ export function createTransactionalEmailStore(
         );
         const nextConfig = transactionalEmailConfigSchema.parse({
           ...config,
-          reconciliationCursor: parsedCursor,
+          [parsedCursorName]: parsedCursor,
         });
         await writeJsonAtomic(configFile, nextConfig);
         return nextConfig;
@@ -545,11 +630,13 @@ export function createTransactionalEmailStore(
   return {
     root,
     enqueue,
+    enqueueOrConvergeFirstImport,
     readJob,
     listJobs,
     transition,
     claimAwaitingAi,
     completeClaimedAi,
+    claimNextAwaitingAi,
     acquireSendingLease,
     ensureEnabledAt,
     updateReconciliationCursor,
