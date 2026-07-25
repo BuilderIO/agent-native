@@ -378,7 +378,14 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
               <Tooltip key={title}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={action}
+                    onPointerDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      action();
+                    }}
+                    onClick={(event) => {
+                      if (event.detail === 0) action();
+                    }}
                     aria-label={title}
                     className={cn(
                       "p-2 rounded",

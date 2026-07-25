@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import Link from "@tiptap/extension-link";
 import { Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, type ReactNode } from "react";
@@ -58,7 +57,7 @@ describe("BubbleToolbar link shortcut", () => {
     document.body.append(editorElement, toolbarElement);
     editor = new Editor({
       element: editorElement,
-      extensions: [StarterKit, Link],
+      extensions: [StarterKit],
       content: "<p>Builder link</p>",
     });
     editor.commands.setTextSelection({ from: 1, to: 8 });
@@ -102,5 +101,50 @@ describe("BubbleToolbar link shortcut", () => {
         to: editor.state.selection.to,
       }),
     ).toBe(true);
+
+    const input = toolbarElement.querySelector<HTMLInputElement>(
+      'input[aria-label="editor.pasteLink"]',
+    )!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "https://www.builder.io/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const applyButton = [...toolbarElement.querySelectorAll("button")].find(
+      (button) => button.textContent === "editor.apply",
+    );
+    act(() => applyButton!.click());
+
+    expect(editor.getHTML()).toContain(
+      '<a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a>',
+    );
+  });
+
+  it("opens the link input on pointer-down before the menu can reconcile", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Builder link</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    const linkButton = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.link"]',
+    )!;
+    act(() => {
+      linkButton.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+
+    expect(
+      toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
+    ).not.toBeNull();
   });
 });
