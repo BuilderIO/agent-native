@@ -65,40 +65,94 @@ function hasExplicitLowerBound(sql: string): boolean {
 }
 
 const ANALYTICS_SCAN_RE = /\b(?:FROM|JOIN)\s+analytics_events\b/i;
-const TOP_LEVEL_CTE_HEAD_RE = /^\s*WITH\s+/i;
-const CTE_NAME_RE = /^\s*([A-Za-z_]\w*)\s+AS\s*\(/i;
+const TOP_LEVEL_CTE_HEAD_RE = /^\s*WITH(?:\s+RECURSIVE)?\s+/i;
+const CTE_NAME_RE = /^\s*([A-Za-z_]\w*)\s*(?:\([^)]*\)\s*)?AS\s*\(/i;
+
+type TopLevelCte = { name: string; bodyStart: number; bodyEnd: number };
+
+type TopLevelCteParse = {
+  ctes: TopLevelCte[];
+  outerQueryStart: number;
+};
+
+function findClosingParenthesis(sql: string, bodyStart: number): number {
+  let depth = 1;
+  let quote: "'" | '"' | "`" | null = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let i = bodyStart; i < sql.length; i += 1) {
+    const char = sql[i];
+    const next = sql[i + 1];
+
+    if (lineComment) {
+      if (char === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === "*" && next === "/") {
+        blockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (char === quote) {
+        if (next === quote) {
+          i += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (char === "-" && next === "-") {
+      lineComment = true;
+      i += 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      blockComment = true;
+      i += 1;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "(") depth += 1;
+    else if (char === ")") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+}
 
 /** One top-level `name AS (...)` common-table-expression's body span. */
-function topLevelCtes(
-  sql: string,
-): Array<{ name: string; bodyStart: number; bodyEnd: number }> {
+function topLevelCtes(sql: string): TopLevelCteParse | null {
   const head = TOP_LEVEL_CTE_HEAD_RE.exec(sql);
-  if (!head) return [];
-  const ctes: Array<{ name: string; bodyStart: number; bodyEnd: number }> = [];
+  if (!head) return null;
+  const ctes: TopLevelCte[] = [];
   let i = head[0].length;
   while (i < sql.length) {
     const nameMatch = CTE_NAME_RE.exec(sql.slice(i));
-    if (!nameMatch) break;
+    if (!nameMatch) return null;
     const name = nameMatch[1];
     const bodyStart = i + nameMatch[0].length;
-    let depth = 1;
-    let j = bodyStart;
-    while (j < sql.length && depth > 0) {
-      if (sql[j] === "(") depth += 1;
-      else if (sql[j] === ")") depth -= 1;
-      j += 1;
-    }
-    const bodyEnd = j - 1;
+    const bodyEnd = findClosingParenthesis(sql, bodyStart);
+    if (bodyEnd === -1) return null;
     ctes.push({ name, bodyStart, bodyEnd });
-    let k = j;
+    let k = bodyEnd + 1;
     while (k < sql.length && /\s/.test(sql[k])) k += 1;
     if (sql[k] === ",") {
       i = k + 1;
       continue;
     }
-    break;
+    return { ctes, outerQueryStart: k };
   }
-  return ctes;
+  return null;
 }
 
 function hasAnyTimeBound(text: string): boolean {
@@ -125,10 +179,15 @@ function hasAnyTimeBound(text: string): boolean {
  * and over-flagging it would make this check untrustworthy.
  */
 function everyScanIsBounded(sql: string): boolean {
-  const ctes = topLevelCtes(sql);
-  if (ctes.length === 0) return hasAnyTimeBound(sql);
-  return ctes.every(({ bodyStart, bodyEnd }) => {
-    const body = sql.slice(bodyStart, bodyEnd);
+  const parsed = topLevelCtes(sql);
+  if (!parsed) return hasAnyTimeBound(sql);
+  const units = [
+    ...parsed.ctes.map(({ bodyStart, bodyEnd }) =>
+      sql.slice(bodyStart, bodyEnd),
+    ),
+    sql.slice(parsed.outerQueryStart),
+  ];
+  return units.every((body) => {
     if (body.search(ANALYTICS_SCAN_RE) === -1) return true;
     return hasAnyTimeBound(body);
   });

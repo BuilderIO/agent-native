@@ -102,4 +102,52 @@ describe("first-party dashboard time scope", () => {
       ),
     ).toBeNull();
   });
+
+  it("rejects an unbounded analytics scan in the outer query after a bounded CTE", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH bounded AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days') SELECT COUNT(*) FROM analytics_events",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toMatch(/at least one analytics_events read/);
+  });
+
+  it("parses recursive CTEs when checking their analytics bounds", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH RECURSIVE bounded AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days') SELECT COUNT(*) FROM bounded",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("parses CTE column lists when checking their analytics bounds", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH bounded(day) AS (SELECT event_date FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days') SELECT COUNT(*) FROM bounded",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("ignores parentheses inside quoted CTE text", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH unbounded AS (SELECT 'literal ) still in this CTE' AS label FROM analytics_events), recent AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days') SELECT COUNT(*) FROM recent",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toMatch(/at least one analytics_events read/);
+  });
 });
