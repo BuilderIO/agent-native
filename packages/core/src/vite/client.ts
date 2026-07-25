@@ -2414,6 +2414,10 @@ type NitroModuleGraph = {
 
 const NITRO_STARTUP_SETTLE_MS = 1_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
+const NITRO_STARTUP_RETRY_KEY = "__agent_native_nitro_startup_retry";
+const NITRO_STARTUP_RETRY_MAX = 5;
+const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
+const NITRO_STARTUP_RETRY_RESET_MS = 15_000;
 
 function nitroModuleGraphSignature(environment: unknown): string | null {
   const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
@@ -2456,9 +2460,66 @@ function sendNitroStartingResponse(
     res.end();
     return;
   }
-  res.end(
-    '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
-  );
+  res.end(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dev server restarting…</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 16px/1.5 system-ui, sans-serif; color: #171717; background: #fafafa; }
+      main { width: min(560px, calc(100vw - 48px)); }
+      h1 { margin: 0 0 8px; font-size: 1.25rem; }
+      p { margin: 0; color: #737373; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Dev server is restarting…</h1>
+      <p id="agent-native-nitro-retry-status">Checking again shortly.</p>
+    </main>
+    <script>
+      (() => {
+        const key = ${JSON.stringify(NITRO_STARTUP_RETRY_KEY)};
+        const maxRetries = ${NITRO_STARTUP_RETRY_MAX};
+        const resetAfterMs = ${NITRO_STARTUP_RETRY_RESET_MS};
+        const retryDelayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
+        const status = document.getElementById("agent-native-nitro-retry-status");
+        const now = Date.now();
+        let count = 0;
+        let lastAttemptAt = 0;
+
+        try {
+          const stored = JSON.parse(sessionStorage.getItem(key) || "null");
+          if (stored && typeof stored === "object") {
+            count = Number.isFinite(stored.count) ? stored.count : 0;
+            lastAttemptAt = Number.isFinite(stored.at) ? stored.at : 0;
+          }
+        } catch (error) {
+          // A blocked session store is handled below by showing a manual retry.
+        }
+
+        if (now - lastAttemptAt > resetAfterMs) count = 0;
+        if (count >= maxRetries) {
+          if (status) status.textContent = "The server is still unavailable. Refresh when it is ready.";
+          return;
+        }
+
+        const nextState = JSON.stringify({ count: count + 1, at: now });
+        try {
+          sessionStorage.setItem(key, nextState);
+          if (sessionStorage.getItem(key) !== nextState) throw new Error("unavailable");
+        } catch (error) {
+          if (status) status.textContent = "Refresh manually when the server is ready.";
+          return;
+        }
+
+        if (status) status.textContent = "Retrying in one second…";
+        setTimeout(() => window.location.reload(), retryDelayMs);
+      })();
+    </script>
+  </body>
+</html>`);
 }
 
 function nitroStartupGate(

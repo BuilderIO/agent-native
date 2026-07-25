@@ -498,23 +498,10 @@ function ActionSurfaceSection({
 }
 
 function ComparisonSection() {
-  const t = useT();
-
   return (
-    <section className="relative z-10 border-t border-[var(--docs-border)] px-6 py-20">
+    <section className="relative z-10 px-6 pb-20">
       <div className="mx-auto max-w-[1200px]">
-        <div className="mb-6 text-center">
-          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-            {t("home.comparison.titleLine1")}
-          </h2>
-          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-            <span className="font-semibold text-[var(--docs-accent)]">
-              {t("home.comparison.titleAccent")}
-            </span>
-          </p>
-        </div>
-
-        <div className="mx-auto max-w-[900px] overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black">
+        <div className="mx-auto max-w-[900px]">
           <video
             className="homepage-comparison-video"
             src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
@@ -623,7 +610,7 @@ export default defineAction({
 
           {/* Hero */}
           <section
-            className="hero-section relative z-10 mx-auto flex min-h-[85vh] max-w-[1200px] items-center justify-center px-6"
+            className="hero-section relative z-10 mx-auto flex min-h-[80vh] max-w-[1200px] items-center justify-center px-6"
             style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
           >
             <div
@@ -635,11 +622,6 @@ export default defineAction({
               }}
             />
             <div className="relative z-10 hero-content">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
-                <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-                {t("home.hero.badge")}
-              </div>
-
               <h1 className="mx-auto max-w-3xl">
                 {t("home.hero.titleLine1")} <br className="hidden md:inline" />
                 <span className="hero-gradient-text">
