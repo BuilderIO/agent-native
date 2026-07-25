@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.122.1
+
+### Patch Changes
+
+- c8a0bcf: Sign the A2A identity token's audience as the target's origin. Receivers derive their expected audience from `APP_URL`, which carries no app path, so a path-qualified audience could never match — every direct `actions/invoke` between workspace apps failed with "Invalid or expired A2A token".
+- c8a0bcf: Allow agent-to-agent calls between apps in a locally running workspace. The gateway serves every app on loopback, so sibling A2A targets are private addresses by construction and `ssrfSafeFetch` rejected them as SSRF — making cross-app delegation fail locally with "refusing to fetch private/internal address". `ssrfSafeFetch` now accepts an `allowedPrivateOrigins` list and the A2A client passes the deployment's own gateway origin (never a request-supplied value).
+- c8a0bcf: Bound Nitro dev-server startup recovery so a failed restart stops refreshing forever.
+- c8a0bcf: Keep Manage agent as a dedicated linked destination at the bottom of settings navigation.
+
 ## 0.122.0
 
 ### Minor Changes
