@@ -33,6 +33,10 @@ const l1Cache = new Map<string, L1Entry>();
 // so only one of them actually hits the database.
 const inFlight = new Map<string, Promise<AnalyticsQueryResult>>();
 
+export interface FirstPartyCacheOptions {
+  timeoutMs?: number;
+}
+
 export function firstPartyCacheKey(
   scopedSql: string,
   args: Array<string | null>,
@@ -60,13 +64,17 @@ function setL1(key: string, result: AnalyticsQueryResult): void {
   l1Cache.set(key, { result, createdAt: Date.now() });
 }
 
-async function getL2(key: string): Promise<AnalyticsQueryResult | null> {
+async function getL2(
+  key: string,
+  timeoutMs?: number,
+): Promise<AnalyticsQueryResult | null> {
   try {
     const db = getDbExec();
     const nowIso = new Date().toISOString();
     const { rows } = await db.execute({
       sql: "SELECT result FROM first_party_analytics_cache WHERE key = ? AND expires_at > ?",
       args: [key, nowIso],
+      timeoutMs,
     });
     if (!rows.length) return null;
     const raw = (rows[0] as { result: string }).result;
@@ -81,6 +89,7 @@ async function setL2(
   key: string,
   sql: string,
   result: AnalyticsQueryResult,
+  timeoutMs?: number,
 ): Promise<void> {
   try {
     const db = getDbExec();
@@ -91,10 +100,12 @@ async function setL2(
     await db.execute({
       sql: "DELETE FROM first_party_analytics_cache WHERE key = ?",
       args: [key],
+      timeoutMs,
     });
     await db.execute({
       sql: "INSERT INTO first_party_analytics_cache (key, sql, result, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
       args: [key, sql, serialized, now.toISOString(), expiresAt.toISOString()],
+      timeoutMs,
     });
     // Opportunistically prune expired rows so the table doesn't grow
     // unbounded — the keyspace is effectively every distinct panel/filter
@@ -103,6 +114,7 @@ async function setL2(
       await db.execute({
         sql: "DELETE FROM first_party_analytics_cache WHERE expires_at <= ?",
         args: [now.toISOString()],
+        timeoutMs,
       });
     }
   } catch (err) {
@@ -119,6 +131,7 @@ export async function withFirstPartyCache(
   key: string,
   sql: string,
   compute: () => Promise<AnalyticsQueryResult>,
+  options: FirstPartyCacheOptions = {},
 ): Promise<AnalyticsQueryResult> {
   const l1Hit = getL1(key);
   if (l1Hit) return l1Hit;
@@ -130,14 +143,14 @@ export async function withFirstPartyCache(
   // callers racing on the same key can't both slip past the check above and
   // both hit L2/compute.
   const promise = (async () => {
-    const l2Hit = await getL2(key);
+    const l2Hit = await getL2(key, options.timeoutMs);
     if (l2Hit) {
       setL1(key, l2Hit);
       return l2Hit;
     }
     const result = await compute();
     setL1(key, result);
-    await setL2(key, sql, result);
+    await setL2(key, sql, result, options.timeoutMs);
     return result;
   })().finally(() => {
     inFlight.delete(key);

@@ -537,8 +537,8 @@ const PREWARM_MAX_BUDGET_MS = 45_000;
  * before it existed. Bounded to a fraction of the remaining report deadline
  * so prewarming can't starve the capture itself of time.
  * The per-panel timeout only bounds how long a worker waits before logging;
- * the original query is still awaited before this function returns so a
- * timed-out database request cannot overlap the capture.
+ * it is also passed to the database/cache layers, and the original query is
+ * still awaited before this function returns so it cannot overlap capture.
  */
 async function prewarmFirstPartyPanelCache(
   sub: DashboardReportSubscription,
@@ -572,7 +572,14 @@ async function prewarmFirstPartyPanelCache(
         failClosedTimeVariables: true,
       });
       if (!sql.trim()) continue;
-      const query = queryFirstPartyAnalytics(sql, scope);
+      const panelTimeoutMs = Math.max(
+        1,
+        Math.min(PREWARM_PANEL_TIMEOUT_MS, prewarmDeadline - Date.now()),
+      );
+      const query = queryFirstPartyAnalytics(sql, scope, {
+        cache: true,
+        timeoutMs: panelTimeoutMs,
+      });
       let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
@@ -580,7 +587,7 @@ async function prewarmFirstPartyPanelCache(
           new Promise<never>((_, reject) => {
             timeout = setTimeout(
               () => reject(new Error("prewarm panel timeout")),
-              PREWARM_PANEL_TIMEOUT_MS,
+              panelTimeoutMs,
             );
             timeout.unref?.();
           }),

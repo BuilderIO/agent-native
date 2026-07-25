@@ -33,6 +33,13 @@ export interface AnalyticsQueryResult {
   schema: { name: string; type: string }[];
 }
 
+export interface AnalyticsQueryOptions {
+  /** Cache only callers with a stable dashboard-panel lifecycle. */
+  cache?: boolean;
+  /** Bound the database work for callers with a smaller delivery deadline. */
+  timeoutMs?: number;
+}
+
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
 const FIRST_PARTY_QUERY_TABLES = new Set([
@@ -640,23 +647,30 @@ function inferSchema(rows: Record<string, unknown>[]): {
 export async function queryFirstPartyAnalytics(
   sql: string,
   scope: AnalyticsScope,
+  options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSql(sql);
   const scoped = scopedAnalyticsSql(sql, scope);
   const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const timeoutMs = Math.max(
+    1,
+    options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+  );
   // The cache key is the fully scoped SQL + args, which already embeds
   // org_id/owner_email (see scopeClause) — a cache hit can only ever return
   // rows the same tenant was already entitled to query.
   const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
-  return withFirstPartyCache(cacheKey, wrappedSql, async () => {
+  const compute = async (): Promise<AnalyticsQueryResult> => {
     const exec = getDbExec();
     const result = await exec.execute({
       sql: wrappedSql,
       args: scoped.args,
-      timeoutMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+      timeoutMs,
       maxAttempts: 1,
     });
     const rows = result.rows as Record<string, unknown>[];
     return { rows, schema: inferSchema(rows) };
-  });
+  };
+  if (!options.cache) return compute();
+  return withFirstPartyCache(cacheKey, wrappedSql, compute, { timeoutMs });
 }

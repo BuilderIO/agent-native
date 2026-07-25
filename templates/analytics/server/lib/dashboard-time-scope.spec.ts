@@ -150,4 +150,40 @@ describe("first-party dashboard time scope", () => {
       ),
     ).toMatch(/at least one analytics_events read/);
   });
+
+  it("fails closed when one CTE contains multiple analytics scans", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH mixed AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days' UNION ALL SELECT * FROM analytics_events) SELECT COUNT(*) FROM mixed",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toMatch(/at least one analytics_events read/);
+  });
+
+  it("parses materialized CTE modifiers", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH bounded AS NOT MATERIALIZED (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days') SELECT COUNT(*) FROM bounded",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toBeNull();
+  });
+
+  it("skips comments between CTE declarations", () => {
+    expect(
+      validateFirstPartyDashboardTimeScope(
+        panel({
+          sql: "WITH bounded AS (SELECT * FROM analytics_events WHERE event_date >= CURRENT_DATE - INTERVAL '30 days'), /* another CTE follows */ unbounded AS (SELECT * FROM analytics_events) SELECT COUNT(*) FROM bounded",
+        }),
+        { filters: [] },
+        0,
+      ),
+    ).toMatch(/at least one analytics_events read/);
+  });
 });
