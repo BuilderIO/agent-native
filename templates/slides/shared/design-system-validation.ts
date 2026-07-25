@@ -19,7 +19,9 @@ const REQUIRED_TYPOGRAPHY_KEYS = [
  * The Design Systems page and slide renderers read data.colors.* and
  * data.typography.* unconditionally (no optional chaining). A syntactically
  * valid but incomplete `data` payload — e.g. from an interrupted generation —
- * would otherwise persist and crash on the very next read.
+ * would otherwise persist and crash on the very next read. Shared between the
+ * create/update actions (write-time validation) and the Design Systems page
+ * (read-time validation of rows written before this check existed).
  */
 export function missingDesignSystemDataFields(value: unknown): string[] {
   const missing: string[] = [];

@@ -24,6 +24,14 @@ export interface UploadedAsset {
   provider?: string;
 }
 
+export interface ListedUploadedAsset {
+  id: string;
+  url: string;
+  filename: string;
+  size: number;
+  createdAt: string;
+}
+
 async function requireSession(event: Parameters<typeof getSession>[0]) {
   const session = await getSession(event).catch(() => null);
   if (!session?.email) {
@@ -214,8 +222,9 @@ export const listAssets = defineEventHandler(async (event) => {
     return { error: "Unauthorized" };
   }
   const db = getDb();
-  const rows = await db
+  const rows: ListedUploadedAsset[] = await db
     .select({
+      id: schema.uploadedAssets.id,
       url: schema.uploadedAssets.url,
       filename: schema.uploadedAssets.filename,
       size: schema.uploadedAssets.size,
@@ -228,27 +237,28 @@ export const listAssets = defineEventHandler(async (event) => {
 });
 
 /**
- * DELETE /api/assets/:filename — removes the upload from this user's asset
- * library index. The underlying file may still exist with the storage
- * provider (Builder.io, S3, etc.) — deleting it there requires that
- * provider's own API — but it no longer appears in this app's library.
+ * DELETE /api/assets/:id — removes the upload from this user's asset library
+ * index. Keyed by the row's unique id (not filename) since two uploads can
+ * share the same original filename. The underlying file may still exist with
+ * the storage provider (Builder.io, S3, etc.) — deleting it there requires
+ * that provider's own API — but it no longer appears in this app's library.
  */
 export const deleteAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
     return { error: "Unauthorized" };
   }
-  const filename = getRouterParam(event, "filename");
-  if (!filename) {
+  const id = getRouterParam(event, "id");
+  if (!id) {
     setResponseStatus(event, 400);
-    return { error: "Filename is required" };
+    return { error: "Asset id is required" };
   }
   const db = getDb();
   await db
     .delete(schema.uploadedAssets)
     .where(
       and(
-        eq(schema.uploadedAssets.filename, decodeURIComponent(filename)),
+        eq(schema.uploadedAssets.id, decodeURIComponent(id)),
         eq(schema.uploadedAssets.ownerEmail, session.email),
       ),
     );

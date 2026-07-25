@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 interface Asset {
+  id: string;
   url: string;
   filename: string;
   size: number;
@@ -100,10 +101,10 @@ export default function AssetLibraryPanel({
     }
   };
 
-  const handleDelete = async (filename: string) => {
+  const handleDelete = async (id: string) => {
     try {
       const res = await fetch(
-        `${appBasePath()}/api/assets/${encodeURIComponent(filename)}`,
+        `${appBasePath()}/api/assets/${encodeURIComponent(id)}`,
         {
           method: "DELETE",
         },
@@ -112,7 +113,7 @@ export default function AssetLibraryPanel({
         toast.error(t("raw.assetDeleteFailed"));
         return;
       }
-      setAssets((prev) => prev.filter((a) => a.filename !== filename));
+      setAssets((prev) => prev.filter((a) => a.id !== id));
     } catch {
       toast.error(t("raw.assetDeleteFailed"));
     }
@@ -207,7 +208,7 @@ export default function AssetLibraryPanel({
           <div className="grid grid-cols-3 gap-2">
             {assets.map((asset) => (
               <div
-                key={asset.filename}
+                key={asset.id}
                 className="group relative aspect-square rounded-md overflow-hidden border border-border bg-muted"
               >
                 <button
@@ -226,7 +227,7 @@ export default function AssetLibraryPanel({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDelete(asset.filename);
+                    handleDelete(asset.id);
                   }}
                   className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/70 text-white/70 hover:text-red-400 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={`Delete ${asset.filename}`}

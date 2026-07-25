@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { missingDesignSystemDataFields } from "../server/lib/design-system-data-validation.js";
+import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
 
 export default defineAction({
   description:
