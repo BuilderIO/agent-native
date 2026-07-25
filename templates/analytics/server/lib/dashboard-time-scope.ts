@@ -14,7 +14,7 @@ type DashboardFilterLike = {
   default?: unknown;
 };
 
-type DashboardPanelLike = {
+export type DashboardPanelLike = {
   id?: unknown;
   title?: unknown;
   chartType?: unknown;
@@ -62,6 +62,76 @@ function hasExplicitLowerBound(sql: string): boolean {
   return /\b(?:event_date|timestamp|started_at|ended_at|cohort_date|created_at|date)\b[\s\S]{0,100}?(?:>=|>)\s*[\s\S]{0,160}?(?:CURRENT_DATE|CURRENT_TIMESTAMP|NOW\s*\(|INTERVAL\s*['"]|DATE\s*['"]|TIMESTAMP\s*['"]|\b20\d{2}-\d{2}-\d{2}\b)/i.test(
     sql,
   );
+}
+
+const ANALYTICS_SCAN_RE = /\b(?:FROM|JOIN)\s+analytics_events\b/i;
+const TOP_LEVEL_CTE_HEAD_RE = /^\s*WITH\s+/i;
+const CTE_NAME_RE = /^\s*([A-Za-z_]\w*)\s+AS\s*\(/i;
+
+/** One top-level `name AS (...)` common-table-expression's body span. */
+function topLevelCtes(
+  sql: string,
+): Array<{ name: string; bodyStart: number; bodyEnd: number }> {
+  const head = TOP_LEVEL_CTE_HEAD_RE.exec(sql);
+  if (!head) return [];
+  const ctes: Array<{ name: string; bodyStart: number; bodyEnd: number }> = [];
+  let i = head[0].length;
+  while (i < sql.length) {
+    const nameMatch = CTE_NAME_RE.exec(sql.slice(i));
+    if (!nameMatch) break;
+    const name = nameMatch[1];
+    const bodyStart = i + nameMatch[0].length;
+    let depth = 1;
+    let j = bodyStart;
+    while (j < sql.length && depth > 0) {
+      if (sql[j] === "(") depth += 1;
+      else if (sql[j] === ")") depth -= 1;
+      j += 1;
+    }
+    const bodyEnd = j - 1;
+    ctes.push({ name, bodyStart, bodyEnd });
+    let k = j;
+    while (k < sql.length && /\s/.test(sql[k])) k += 1;
+    if (sql[k] === ",") {
+      i = k + 1;
+      continue;
+    }
+    break;
+  }
+  return ctes;
+}
+
+function hasAnyTimeBound(text: string): boolean {
+  // .search() ignores the shared global-flagged regex's lastIndex state,
+  // unlike .test(), which would otherwise give wrong results across calls.
+  return (
+    text.search(TEMPORAL_VARIABLE_RE) !== -1 || hasExplicitLowerBound(text)
+  );
+}
+
+/**
+ * True if every `analytics_events` scan in `sql` has its own time bound.
+ *
+ * `hasExplicitLowerBound`/time-variable checks used to run against the whole
+ * SQL string: a multi-CTE panel with a bound ANYWHERE (e.g. only on the
+ * final SELECT, or only on one of several sibling CTEs) passed validation
+ * even though an earlier, unbounded sibling CTE still did a full-table scan
+ * — the exact shape of several production incidents (2026-07-25 org-wide
+ * audit). This only tightens the check for that specific shape: sibling
+ * top-level CTEs each need their own bound. It deliberately does NOT require
+ * every nested subquery to be independently bounded — a correlated lookup
+ * nested inside an already-bounded outer query (e.g. "has this id EVER
+ * appeared as a referrer") is a legitimate, intentionally all-time pattern,
+ * and over-flagging it would make this check untrustworthy.
+ */
+function everyScanIsBounded(sql: string): boolean {
+  const ctes = topLevelCtes(sql);
+  if (ctes.length === 0) return hasAnyTimeBound(sql);
+  return ctes.every(({ bodyStart, bodyEnd }) => {
+    const body = sql.slice(bodyStart, bodyEnd);
+    if (body.search(ANALYTICS_SCAN_RE) === -1) return true;
+    return hasAnyTimeBound(body);
+  });
 }
 
 function hasIntentionalHistoryDescription(
@@ -164,6 +234,20 @@ export function validateFirstPartyDashboardTimeScope(
 
   if (!scope && !hasDashboardBinding && !hasLowerBound) {
     return `panel[${index}] ${label} reads first-party analytics without a time bound; use {{timeRange}} with a non-empty default filter, or explicitly set config.timeScope to "cohort-history" or "all-time" for intentional history scans`;
+  }
+
+  // A bound anywhere in the SQL text (checked above) is not the same as
+  // every CTE/subquery that reads analytics_events having its own bound — a
+  // multi-CTE panel can look bound overall while an earlier CTE still does a
+  // full-table scan. Skip this for "all-time" and "cohort-history": both are
+  // explicit escape hatches, and a cohort-defining CTE (e.g. "first ever
+  // active date per user") is legitimately unbounded by design.
+  if (
+    scope !== "all-time" &&
+    scope !== "cohort-history" &&
+    !everyScanIsBounded(sql)
+  ) {
+    return `panel[${index}] ${label} has at least one analytics_events read (in a CTE or subquery) without its own time bound — a {{timeRange}} reference or literal bound elsewhere in the SQL does not cover it; add a bound to every analytics_events scan, or set config.timeScope to "all-time" for an intentional full-history scan`;
   }
 
   return null;

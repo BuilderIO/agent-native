@@ -1,8 +1,12 @@
-import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
-
 import type { SqlPanel } from "./types";
 
-export const REPORT_PANEL_CHUNK_SIZE = MAX_CONCURRENT_SQL_QUERIES;
+// Panel count per emailed report screenshot window. This is a capture-layer
+// batching knob (fixed page navigations within a serverless time budget), not
+// a live-browser query concurrency limit — do not couple it to
+// MAX_CONCURRENT_SQL_QUERIES. A smaller value multiplies per-window
+// navigation/auth/render overhead across more sequential page loads and can
+// blow the sweep's total capture budget before later windows even start.
+export const REPORT_PANEL_CHUNK_SIZE = 8;
 
 export function listReportablePanelIds(panels: SqlPanel[]): string[] {
   return panels

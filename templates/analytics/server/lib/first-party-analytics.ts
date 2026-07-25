@@ -8,6 +8,10 @@ import {
   ingestAnalyticsExceptionEvents,
   type DerivedExceptionFields,
 } from "./error-capture.js";
+import {
+  firstPartyCacheKey,
+  withFirstPartyCache,
+} from "./first-party-analytics-cache.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -639,13 +643,20 @@ export async function queryFirstPartyAnalytics(
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSql(sql);
   const scoped = scopedAnalyticsSql(sql, scope);
-  const exec = getDbExec();
-  const result = await exec.execute({
-    sql: `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`,
-    args: scoped.args,
-    timeoutMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
-    maxAttempts: 1,
+  const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  // The cache key is the fully scoped SQL + args, which already embeds
+  // org_id/owner_email (see scopeClause) — a cache hit can only ever return
+  // rows the same tenant was already entitled to query.
+  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
+  return withFirstPartyCache(cacheKey, wrappedSql, async () => {
+    const exec = getDbExec();
+    const result = await exec.execute({
+      sql: wrappedSql,
+      args: scoped.args,
+      timeoutMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+      maxAttempts: 1,
+    });
+    const rows = result.rows as Record<string, unknown>[];
+    return { rows, schema: inferSchema(rows) };
   });
-  const rows = result.rows as Record<string, unknown>[];
-  return { rows, schema: inferSchema(rows) };
 }

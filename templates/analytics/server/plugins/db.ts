@@ -8,7 +8,10 @@ import {
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
+import {
+  repairPersistedFirstPartyDashboardQueries,
+  repairUnboundedFirstPartyPanelsAcrossDashboards,
+} from "../lib/first-party-dashboard-repair.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1284,6 +1287,29 @@ const runAnalyticsMigrations = runMigrations(
         ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_error TEXT;
       `,
     },
+    // First-party dashboard panel result cache. Same shape/pattern as
+    // bigquery_cache above, short TTL (set in first-party-analytics-cache.ts)
+    // since this is the app's own live data, not an immutable warehouse
+    // result. See first-party-analytics-cache.ts for why this exists: panel
+    // queries had no cache at all, so every dashboard render and every daily
+    // report screenshot recomputed from scratch and stacked concurrent load
+    // on the same rows, which is what was blowing report/panel timeouts.
+    {
+      version: 124,
+      name: "first-party-analytics-cache-table",
+      sql: `CREATE TABLE IF NOT EXISTS first_party_analytics_cache (
+      key TEXT PRIMARY KEY,
+      sql TEXT NOT NULL,
+      result TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    )`,
+    },
+    {
+      version: 125,
+      name: "first-party-analytics-cache-expires-idx",
+      sql: `CREATE INDEX IF NOT EXISTS first_party_analytics_cache_expires_at_idx ON first_party_analytics_cache (expires_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1309,6 +1335,20 @@ export default async (nitroApp: any): Promise<void> => {
   } catch (err) {
     console.warn(
       "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
+  try {
+    const repairedCount =
+      await repairUnboundedFirstPartyPanelsAcrossDashboards();
+    if (repairedCount > 0) {
+      console.info(
+        `[db] Repaired ${repairedCount} dashboard(s) with unbounded first-party panel SQL.`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] Failed to repair unbounded first-party panels across dashboards (non-fatal):",
       err instanceof Error ? err.message : err,
     );
   }

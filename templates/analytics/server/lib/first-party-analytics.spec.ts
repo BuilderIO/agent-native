@@ -142,7 +142,7 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
-  it("gives an idempotent first-party read a 30 second, single-attempt budget", async () => {
+  it("gives an idempotent first-party read a 45 second, single-attempt budget", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
     await queryFirstPartyAnalytics(
@@ -152,7 +152,7 @@ describe("queryFirstPartyAnalytics", () => {
 
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        timeoutMs: 30_000,
+        timeoutMs: 45_000,
         maxAttempts: 1,
       }),
     );
