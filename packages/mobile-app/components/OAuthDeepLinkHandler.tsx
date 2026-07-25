@@ -24,17 +24,22 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
     AsyncStorage.getItem(OAUTH_OWNER_KEY_KEY),
     AsyncStorage.getItem(OAUTH_BASE_URL_KEY),
   ]);
+  const token = await completeOAuthCallback(url, {
+    tokenKey,
+    ownerKeyName,
+    baseUrl,
+  });
+  // Only consume the persisted context once a matching callback is accepted. A
+  // stale or forged agentnative://oauth-complete fails state validation and
+  // returns null; clearing here would erase the route/Clips context the real
+  // redirect still needs.
+  if (!token) return;
   await AsyncStorage.multiRemove([
     OAUTH_RETURN_PATH_KEY,
     OAUTH_TOKEN_STORE_KEY,
     OAUTH_OWNER_KEY_KEY,
     OAUTH_BASE_URL_KEY,
   ]);
-  const token = await completeOAuthCallback(url, {
-    tokenKey,
-    ownerKeyName,
-    baseUrl,
-  });
   console.log("[oauth] deep link handler. token saved:", !!token, returnPath);
   // Close the Custom Tab left open by openBrowserAsync (Android) so the app is
   // visible again. No-op if nothing is open.

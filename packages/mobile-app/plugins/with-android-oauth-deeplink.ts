@@ -60,7 +60,18 @@ const withOnNewIntent: ConfigPlugin = (config) =>
       );
     }
     let contents = cfg.modResults.contents;
-    if (contents.includes("onNewIntent")) return cfg;
+    // Skip only when an existing override already forwards the intent. If
+    // onNewIntent is present but never calls setIntent, the singleTask launch
+    // intent stays stale and getInitialURL() returns null — fail loud rather
+    // than silently omit the fix, since blindly appending a second override
+    // would not compile.
+    if (contents.includes("setIntent(intent)")) return cfg;
+    if (/\boverride\s+fun\s+onNewIntent\b/.test(contents)) {
+      throw new Error(
+        "with-android-oauth-deeplink: MainActivity already overrides onNewIntent " +
+          "without calling setIntent(intent); update that override to forward the intent.",
+      );
+    }
 
     if (!contents.includes("import android.content.Intent")) {
       contents = contents.replace(
