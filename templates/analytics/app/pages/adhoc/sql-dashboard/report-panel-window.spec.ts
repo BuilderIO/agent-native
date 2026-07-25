@@ -57,7 +57,7 @@ describe("report panel windows", () => {
   it("only enables the report window when both offset and limit are present", () => {
     expect(parseReportPanelWindow(null, "8")).toBeNull();
     expect(parseReportPanelWindow("0", null)).toBeNull();
-    expect(parseReportPanelWindow("8", "8")).toEqual({ offset: 8, limit: 8 });
+    expect(parseReportPanelWindow("8", "8")).toEqual({ offset: 8, limit: 4 });
   });
 
   it("splits eight reportable panels into two concurrency-sized query waves", () => {

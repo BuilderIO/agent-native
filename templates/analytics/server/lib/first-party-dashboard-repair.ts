@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { getDialect } from "@agent-native/core/db";
 import { recordChange } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 
@@ -157,6 +158,7 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
   // known-bad SQL string under the same optimistic (config, updatedAt) fence
   // used by the canonical repair above, so a concurrent edit always wins.
   const db = getDb() as any;
+  const dialect = getDialect();
   const rows = await db
     .select({
       id: schema.dashboards.id,
@@ -175,9 +177,8 @@ export async function repairUnboundedFirstPartyPanelsAcrossDashboards(): Promise
   for (const row of rows as DashboardRepairRow[]) {
     if (typeof row.config !== "string") continue;
     try {
-      const wasRepaired = await applyRepairToDashboardRow(
-        row,
-        repairUnboundedFirstPartyPanels,
+      const wasRepaired = await applyRepairToDashboardRow(row, (config) =>
+        repairUnboundedFirstPartyPanels(config, dialect),
       );
       if (wasRepaired) repairedCount += 1;
     } catch (err) {

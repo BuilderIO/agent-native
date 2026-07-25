@@ -1,12 +1,8 @@
 import type { SqlPanel } from "./types";
 
-// Panel count per emailed report screenshot window. This is a capture-layer
-// batching knob (fixed page navigations within a serverless time budget), not
-// a live-browser query concurrency limit — do not couple it to
-// MAX_CONCURRENT_SQL_QUERIES. A smaller value multiplies per-window
-// navigation/auth/render overhead across more sequential page loads and can
-// blow the sweep's total capture budget before later windows even start.
-export const REPORT_PANEL_CHUNK_SIZE = 8;
+// Keep each report window within the browser-side SQL query concurrency limit
+// so a cold window does not serialize into multiple waves before readiness.
+export const REPORT_PANEL_CHUNK_SIZE = 4;
 
 export function listReportablePanelIds(panels: SqlPanel[]): string[] {
   return panels

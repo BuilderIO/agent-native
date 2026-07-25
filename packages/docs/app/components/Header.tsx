@@ -277,7 +277,6 @@ export default function Header() {
             </div>
             <div className="hidden shrink-0 items-center lg:flex">
               <DocsLanguagePicker />
-              <DocsLanguageSuggestion />
             </div>
             <div className="hidden lg:block">
               <ThemeToggle />
@@ -302,6 +301,7 @@ export default function Header() {
             >
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
             </button>
+            <DocsLanguageSuggestion />
           </div>
         </nav>
 
@@ -318,7 +318,6 @@ export default function Header() {
                 placeholder={t("header.searchPlaceholder")}
               />
               <DocsLanguagePicker />
-              <DocsLanguageSuggestion />
               <ThemeToggle />
             </div>
             <NavLink
