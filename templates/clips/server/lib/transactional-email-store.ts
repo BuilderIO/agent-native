@@ -95,6 +95,7 @@ export const transactionalEmailJobSchema = z
     shareId: nonEmptyStringSchema.optional(),
     requestedBy: nonEmptyStringSchema.optional(),
     generatedSummary: z.string().max(20_000).optional(),
+    aiClaimedBy: recipientSchema.optional(),
     attempts: z.number().int().nonnegative(),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
@@ -374,6 +375,7 @@ export function createTransactionalEmailStore(
     nextState: TransactionalEmailState,
     changes: {
       generatedSummary?: string;
+      aiClaimedBy?: string;
       lastError?: string | null;
     } = {},
   ): Promise<TransactionalEmailJob | null> {
@@ -400,19 +402,44 @@ export function createTransactionalEmailStore(
     });
   }
 
-  async function claimNextAwaitingAi(): Promise<TransactionalEmailJob | null> {
-    const candidates = (await listJobs()).filter(
-      (job) => job.state === "awaiting_ai",
+  async function claimAwaitingAi(
+    logicalKey: string,
+    claimantEmail: string,
+  ): Promise<TransactionalEmailJob | null> {
+    return transition(logicalKey, ["awaiting_ai"], "ai_dispatched", {
+      aiClaimedBy: recipientSchema.parse(claimantEmail.trim().toLowerCase()),
+    });
+  }
+
+  async function completeClaimedAi(
+    logicalKey: string,
+    claimantEmail: string,
+    generatedSummary: string,
+  ): Promise<TransactionalEmailJob | null> {
+    const normalizedClaimant = recipientSchema.parse(
+      claimantEmail.trim().toLowerCase(),
     );
-    for (const candidate of candidates) {
-      const claimed = await transition(
-        candidate.logicalKey,
-        ["awaiting_ai"],
-        "ai_dispatched",
-      );
-      if (claimed) return claimed;
-    }
-    return null;
+    return withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      if (
+        !job ||
+        job.state !== "ai_dispatched" ||
+        job.aiClaimedBy !== normalizedClaimant
+      ) {
+        return null;
+      }
+      const timestamp = now().toISOString();
+      const updated = transactionalEmailJobSchema.parse({
+        ...job,
+        state: "ready",
+        generatedSummary,
+        readyAt: timestamp,
+        updatedAt: timestamp,
+        leaseUntil: null,
+      });
+      await writeJsonAtomic(jobFile(logicalKey), updated);
+      return updated;
+    });
   }
 
   async function acquireSendingLease(
@@ -521,7 +548,8 @@ export function createTransactionalEmailStore(
     readJob,
     listJobs,
     transition,
-    claimNextAwaitingAi,
+    claimAwaitingAi,
+    completeClaimedAi,
     acquireSendingLease,
     ensureEnabledAt,
     updateReconciliationCursor,

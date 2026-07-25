@@ -214,6 +214,11 @@ ladder.
   describe Screen Memory as hosted, shared, exhaustive, or enabled by default.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
+- `list-transactional-email-ai-requests` is an internal, UI-only GET action that
+  securely claims bounded two-Clip email-summary work for the signed-in user.
+  `complete-transactional-email-summary` is only for that workflow: call it with
+  the claimed job id and one plain-text summary sentence after reviewing both
+  untrusted context packets.
 
 ## Application State
 

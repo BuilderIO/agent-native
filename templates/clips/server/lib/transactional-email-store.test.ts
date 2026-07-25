@@ -121,20 +121,30 @@ describe("transactional email store", () => {
     ).rejects.toThrow("Invalid transactional email transition");
 
     const [firstClaim, secondClaim] = await Promise.all([
-      store.claimNextAwaitingAi(),
-      store.claimNextAwaitingAi(),
+      store.claimAwaitingAi("first-view:share-1", "viewer@example.com"),
+      store.claimAwaitingAi("first-view:share-1", "viewer@example.com"),
     ]);
     expect([firstClaim, secondClaim].filter(Boolean)).toHaveLength(1);
-    expect((firstClaim ?? secondClaim)?.state).toBe("ai_dispatched");
+    expect(firstClaim ?? secondClaim).toMatchObject({
+      state: "ai_dispatched",
+      aiClaimedBy: "viewer@example.com",
+    });
 
-    const ready = await store.transition(
+    await expect(
+      store.completeClaimedAi(
+        "first-view:share-1",
+        "other@example.com",
+        "Wrong claimant.",
+      ),
+    ).resolves.toBeNull();
+    const ready = await store.completeClaimedAi(
       "first-view:share-1",
-      ["ai_dispatched"],
-      "ready",
-      { generatedSummary: "A concise generated summary." },
+      "VIEWER@example.com",
+      "A concise generated summary.",
     );
     expect(ready).toMatchObject({
       state: "ready",
+      aiClaimedBy: "viewer@example.com",
       generatedSummary: "A concise generated summary.",
       leaseUntil: null,
     });
