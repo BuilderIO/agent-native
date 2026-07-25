@@ -136,7 +136,12 @@ export function insertMediaPlaceholder(
   editor: Editor,
   type: MediaPlaceholderType,
 ) {
-  const attrs = type === "image" ? { src: null, alt: "" } : { src: null };
+  const attrs =
+    type === "image"
+      ? { src: null, alt: "" }
+      : type === "video"
+        ? { src: null, sourcePanelOpen: true }
+        : { src: null };
   return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 

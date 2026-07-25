@@ -162,6 +162,13 @@ describe("media draft persistence", () => {
         editor.commands.deleteRange({ from: 1, to: 2 });
         insertMediaPlaceholder(editor, type);
 
+        if (type === "video") {
+          const video = editor
+            .getJSON()
+            .content?.find((node) => node.type === "video");
+          expect(video?.attrs?.sourcePanelOpen).toBe(true);
+        }
+
         persistDraft();
         expect(persisted).toEqual([]);
 
