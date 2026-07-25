@@ -163,7 +163,32 @@ export async function isBlockedExtensionUrlWithDns(
  * runtimes); the caller should fall back to the regular `fetch` path —
  * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
  */
-export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
+function normalizeLookupHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function normalizeAllowedPrivateOriginKeys(
+  origins: readonly string[],
+): Set<string> {
+  const keys = new Set<string>();
+  for (const origin of origins) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+      keys.add(`${normalizeLookupHostname(parsed.hostname)}:${port}`);
+    } catch {
+      // Ignore malformed deployment configuration and retain the private-IP guard.
+    }
+  }
+  return keys;
+}
+
+export async function createSsrfSafeDispatcher(
+  allowedPrivateOrigins: readonly string[] = [],
+): Promise<unknown | null> {
   // Keep the optional undici import opaque to Vite/Rolldown. A static
   // `import("undici")` makes browser builds try to resolve and bundle undici
   // even though this dispatcher is only useful in Node server runtimes.
@@ -182,6 +207,9 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
 
   const { Agent } = undici;
   const { lookup } = dnsModule;
+  const allowedPrivateOriginKeys = normalizeAllowedPrivateOriginKeys(
+    allowedPrivateOrigins,
+  );
   if (!Agent || !lookup) return null;
 
   return new Agent({
@@ -209,7 +237,10 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
               ? addresses
               : [{ address: addresses, family: 4 }];
             for (const record of list) {
-              if (isPrivateHost(record.address)) {
+              const allowedOrigin = allowedPrivateOriginKeys.has(
+                `${normalizeLookupHostname(hostname)}:${String(options?.port ?? "")}`,
+              );
+              if (isPrivateHost(record.address) && !allowedOrigin) {
                 const e = new Error(
                   `Connect blocked: ${hostname} resolved to private address ${record.address}`,
                 ) as NodeJS.ErrnoException;
@@ -275,7 +306,9 @@ export async function ssrfSafeFetch(
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
-  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+  const dispatcher =
+    (await createSsrfSafeDispatcher(options.allowedPrivateOrigins)) ??
+    undefined;
   const allowedPrivateOrigins = new Set(
     (options.allowedPrivateOrigins ?? [])
       .map((origin) => {

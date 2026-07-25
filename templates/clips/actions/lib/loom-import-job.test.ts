@@ -140,4 +140,75 @@ describe("runLoomImportJob", () => {
     );
     expect(mockUploadFile).not.toHaveBeenCalled();
   });
+
+  it("marks the recording failed instead of throwing when upload fails", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_3",
+        durationMs: 0,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      },
+    ]);
+    mockDownloadLoomVideo.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      mimeType: "video/mp4",
+      sizeBytes: 1,
+    });
+    mockUploadFile.mockRejectedValue(new Error("storage unavailable"));
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_3",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      failureReason: "storage unavailable",
+    });
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureReason: "storage unavailable",
+      }),
+    );
+  });
+
+  it("marks the recording failed when transcript persistence fails", async () => {
+    mockSelectRows.queue.push([
+      {
+        id: "rec_4",
+        durationMs: 0,
+        sourceWindowTitle: "https://www.loom.com/share/abcDEF_123456",
+      },
+    ]);
+    mockDownloadLoomVideo.mockResolvedValue({
+      bytes: new Uint8Array([1]),
+      mimeType: "video/mp4",
+      sizeBytes: 1,
+    });
+    mockUploadFile.mockResolvedValue({
+      url: "https://cdn.example.com/rec_4.mp4",
+      provider: "builder",
+      id: "asset_4",
+    });
+    mockFetchLoomTranscript.mockResolvedValue(null);
+    mockSelectRows.queue.push([]);
+    mockInsertValues.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const result = await runLoomImportJob({
+      recordingId: "rec_4",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      failureReason: "database unavailable",
+    });
+    expect(mockUpdateSet).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureReason: "database unavailable",
+      }),
+    );
+  });
 });

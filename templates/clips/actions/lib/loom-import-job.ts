@@ -19,7 +19,7 @@ export type LoomImportJobResult = {
   failureReason?: string;
 };
 
-async function failLoomImport(
+export async function failLoomImport(
   recordingId: string,
   failureReason: string,
 ): Promise<LoomImportJobResult> {
@@ -80,95 +80,102 @@ export async function runLoomImportJob({
     );
   }
 
-  const upload = await uploadFile({
-    data: media.bytes,
-    filename: `${recordingId}.mp4`,
-    mimeType: media.mimeType,
-    ownerEmail,
-    stableUrl: true,
-    recordAsset: false,
-  });
-  if (!upload?.url) {
+  try {
+    const upload = await uploadFile({
+      data: media.bytes,
+      filename: `${recordingId}.mp4`,
+      mimeType: media.mimeType,
+      ownerEmail,
+      stableUrl: true,
+      recordAsset: false,
+    });
+    if (!upload?.url) {
+      return failLoomImport(
+        recordingId,
+        "File upload returned no URL. Check your storage provider configuration.",
+      );
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .update(schema.recordings)
+      .set({
+        videoUrl: upload.url,
+        videoSizeBytes: media.sizeBytes,
+        status: "ready",
+        failureReason: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.recordings.id, recordingId));
+
+    void queueBuilderMediaCompression({
+      recordingId,
+      ownerEmail,
+      videoUrl: upload.url,
+      mimeType: media.mimeType,
+      providerId: upload.provider,
+      assetDbId: upload.id,
+      sourceSizeBytes: media.sizeBytes,
+    }).catch((err) => {
+      console.warn("[clips] Loom media compression queue failed", {
+        recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+
+    let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
+    try {
+      transcript = await fetchLoomTranscript({
+        shareUrl,
+        durationMs: recording.durationMs,
+      });
+    } catch (err) {
+      console.warn(
+        `[clips] Loom transcript import skipped for ${loomId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    const transcriptValues = {
+      ownerEmail,
+      language: transcript?.language ?? "en",
+      segmentsJson: transcript ? JSON.stringify(transcript.segments) : "[]",
+      fullText: transcript?.fullText ?? "",
+      status: transcript ? ("ready" as const) : ("failed" as const),
+      failureReason: transcript ? null : loomTranscriptUnavailableMessage(),
+      updatedAt: now,
+    };
+    const [existingTranscript] = await db
+      .select({ recordingId: schema.recordingTranscripts.recordingId })
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, recordingId));
+    if (existingTranscript) {
+      await db
+        .update(schema.recordingTranscripts)
+        .set(transcriptValues)
+        .where(eq(schema.recordingTranscripts.recordingId, recordingId));
+    } else {
+      await db.insert(schema.recordingTranscripts).values({
+        recordingId,
+        ...transcriptValues,
+        createdAt: now,
+      });
+    }
+
+    await writeAppState(`recording-upload-${recordingId}`, {
+      recordingId,
+      status: "ready",
+      progress: 100,
+      videoUrl: upload.url,
+      updatedAt: now,
+    });
+    await writeAppState("refresh-signal", { ts: Date.now() });
+
+    return { status: "ready" };
+  } catch (err) {
     return failLoomImport(
       recordingId,
-      "File upload returned no URL. Check your storage provider configuration.",
-    );
-  }
-
-  const now = new Date().toISOString();
-  await db
-    .update(schema.recordings)
-    .set({
-      videoUrl: upload.url,
-      videoSizeBytes: media.sizeBytes,
-      status: "ready",
-      failureReason: null,
-      updatedAt: now,
-    })
-    .where(eq(schema.recordings.id, recordingId));
-
-  void queueBuilderMediaCompression({
-    recordingId,
-    ownerEmail,
-    videoUrl: upload.url,
-    mimeType: media.mimeType,
-    providerId: upload.provider,
-    assetDbId: upload.id,
-    sourceSizeBytes: media.sizeBytes,
-  }).catch((err) => {
-    console.warn("[clips] Loom media compression queue failed", {
-      recordingId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
-
-  let transcript: Awaited<ReturnType<typeof fetchLoomTranscript>> = null;
-  try {
-    transcript = await fetchLoomTranscript({
-      shareUrl,
-      durationMs: recording.durationMs,
-    });
-  } catch (err) {
-    console.warn(
-      `[clips] Loom transcript import skipped for ${loomId}:`,
       err instanceof Error ? err.message : String(err),
     );
   }
-
-  const transcriptValues = {
-    ownerEmail,
-    language: transcript?.language ?? "en",
-    segmentsJson: transcript ? JSON.stringify(transcript.segments) : "[]",
-    fullText: transcript?.fullText ?? "",
-    status: transcript ? ("ready" as const) : ("failed" as const),
-    failureReason: transcript ? null : loomTranscriptUnavailableMessage(),
-    updatedAt: now,
-  };
-  const [existingTranscript] = await db
-    .select({ recordingId: schema.recordingTranscripts.recordingId })
-    .from(schema.recordingTranscripts)
-    .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-  if (existingTranscript) {
-    await db
-      .update(schema.recordingTranscripts)
-      .set(transcriptValues)
-      .where(eq(schema.recordingTranscripts.recordingId, recordingId));
-  } else {
-    await db.insert(schema.recordingTranscripts).values({
-      recordingId,
-      ...transcriptValues,
-      createdAt: now,
-    });
-  }
-
-  await writeAppState(`recording-upload-${recordingId}`, {
-    recordingId,
-    status: "ready",
-    progress: 100,
-    videoUrl: upload.url,
-    updatedAt: now,
-  });
-  await writeAppState("refresh-signal", { ts: Date.now() });
-
-  return { status: "ready" };
 }

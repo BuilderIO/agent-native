@@ -18,6 +18,7 @@ import {
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
+import { failLoomImport } from "./lib/loom-import-job.js";
 
 const LoomOembedSchema = z
   .object({
@@ -157,15 +158,17 @@ export default defineAction({
       const existingSourceUrl = normalizeLoomShareUrl(
         existingRecording.sourceWindowTitle ?? "",
       );
-      const isWaitingStorageRetry =
-        existingRecording.status === "uploading" &&
+      const isRetryableLoomImport =
         !existingRecording.videoUrl &&
-        existingRecording.failureReason ===
-          LOOM_STORAGE_SETUP_REQUIRED_REASON &&
-        existingSourceUrl === shareUrl;
-      if (!isWaitingStorageRetry) {
+        existingSourceUrl === shareUrl &&
+        (existingRecording.status === "processing" ||
+          existingRecording.status === "failed" ||
+          (existingRecording.status === "uploading" &&
+            existingRecording.failureReason ===
+              LOOM_STORAGE_SETUP_REQUIRED_REASON));
+      if (!isRetryableLoomImport) {
         throw new Error(
-          "Only a waiting-storage Loom import can be retried in place.",
+          "Only an incomplete Loom import can be retried in place.",
         );
       }
     }
@@ -334,15 +337,19 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState("navigate", { view: "recording", recordingId: id });
 
-    await dispatchPostFinalizeJob({
-      recordingId: id,
-      kind: "loom-import",
-    }).catch((err: unknown) => {
-      console.error("[clips] Loom import job dispatch failed", {
+    try {
+      await dispatchPostFinalizeJob({
         recordingId: id,
-        error: err instanceof Error ? err.message : String(err),
+        kind: "loom-import",
+        requireAccepted: true,
       });
-    });
+    } catch (err) {
+      const failureReason = `Could not start the Loom import: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
+      await failLoomImport(id, failureReason);
+      throw new Error(failureReason);
+    }
 
     return {
       recordingId: id,
