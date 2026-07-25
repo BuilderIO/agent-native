@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.122.2
+
+### Patch Changes
+
+- 905bdba: Improve tool-input recovery, stale-run handling, and design-system routing reliability.
+
 ## 0.122.1
 
 ### Patch Changes
