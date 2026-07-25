@@ -279,6 +279,9 @@ export default function Header() {
               <DocsLanguagePicker />
             </div>
             <div className="hidden lg:block">
+              <DocsLanguageSuggestion />
+            </div>
+            <div className="hidden lg:block">
               <ThemeToggle />
             </div>
             <button
@@ -301,7 +304,6 @@ export default function Header() {
             >
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
             </button>
-            <DocsLanguageSuggestion />
           </div>
         </nav>
 

@@ -384,6 +384,14 @@ function boundedStageTimeout(capMs: number, deadlineAt?: number): number {
   return Math.max(1, Math.min(capMs, remainingMs));
 }
 
+function reportDeliveryReserveMs(recipientCount: number): number {
+  return (
+    MAX_CAPTURE_CLEANUP_RESERVE_MS +
+    recipientCount * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS +
+    DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS
+  );
+}
+
 async function runWithinCaptureDeadline<T>(
   operation: () => Promise<T>,
   deadlineAt?: number,
@@ -534,8 +542,8 @@ const PREWARM_MAX_BUDGET_MS = 45_000;
  * what was pushing panels past their capture timeout. Best-effort: a panel
  * that fails or times out here is simply computed cold by the capture later,
  * exactly as it always was, so this can never make a report worse than
- * before it existed. Bounded to a fraction of the remaining report deadline
- * so prewarming can't starve the capture itself of time.
+ * before it existed. Bounded to time left after reserving the full chunked
+ * capture attempt and delivery tail, so prewarming cannot starve capture.
  * The per-panel timeout only bounds how long a worker waits before logging;
  * it is also passed to the database/cache layers, and the original query is
  * still awaited before this function returns so it cannot overlap capture.
@@ -544,6 +552,7 @@ async function prewarmFirstPartyPanelCache(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
   deadlineAt?: number,
+  recipientCount = 0,
 ): Promise<void> {
   const panels = (snapshot.panels ?? []).filter(
     (panel) => panel.source === "first-party" && panel.sql != null,
@@ -553,7 +562,14 @@ async function prewarmFirstPartyPanelCache(
   const remaining = deadlineAt ? deadlineAt - Date.now() : Infinity;
   const budgetMs = Math.max(
     0,
-    Math.min(PREWARM_MAX_BUDGET_MS, remaining * 0.3),
+    Math.min(
+      PREWARM_MAX_BUDGET_MS,
+      deadlineAt
+        ? remaining -
+            SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS -
+            reportDeliveryReserveMs(recipientCount)
+        : PREWARM_MAX_BUDGET_MS,
+    ),
   );
   if (budgetMs <= 0) return;
   const prewarmDeadline = Date.now() + budgetMs;
@@ -1463,7 +1479,12 @@ export async function sendDashboardReportSubscription(
     options.deadlineAt,
   );
   try {
-    await prewarmFirstPartyPanelCache(sub, snapshot, options.deadlineAt);
+    await prewarmFirstPartyPanelCache(
+      sub,
+      snapshot,
+      options.deadlineAt,
+      recipients.length,
+    );
   } catch (err) {
     console.warn(
       "[dashboard-report] panel cache prewarm failed (non-fatal):",
@@ -1475,9 +1496,7 @@ export async function sendDashboardReportSubscription(
         SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
         options.deadlineAt -
           Date.now() -
-          MAX_CAPTURE_CLEANUP_RESERVE_MS -
-          recipients.length * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS -
-          DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS,
+          reportDeliveryReserveMs(recipients.length),
       )
     : undefined;
   const capture = await captureDashboardPngWithFallback(
