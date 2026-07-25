@@ -7,14 +7,20 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BubbleToolbar } from "./BubbleToolbar";
+import { BubbleToolbar, shouldShowBubbleToolbar } from "./BubbleToolbar";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
 vi.mock("@tiptap/react/menus", () => ({
-  BubbleMenu: ({ children }: { children: ReactNode }) => children,
+  BubbleMenu: ({
+    children,
+    className,
+  }: {
+    children: ReactNode;
+    className?: string;
+  }) => <div className={className}>{children}</div>,
 }));
 
 vi.mock("@/components/ui/tooltip", () => ({
@@ -67,5 +73,19 @@ describe("BubbleToolbar link shortcut", () => {
     expect(
       toolbarElement.querySelector('input[placeholder="editor.pasteLink"]'),
     ).not.toBeNull();
+
+    const menu = toolbarElement.querySelector<HTMLElement>(".bubble-toolbar");
+    expect(document.activeElement).toBe(
+      toolbarElement.querySelector('input[placeholder="editor.pasteLink"]'),
+    );
+    expect(
+      shouldShowBubbleToolbar({
+        editor,
+        element: menu!,
+        state: editor.state,
+        from: editor.state.selection.from,
+        to: editor.state.selection.to,
+      }),
+    ).toBe(true);
   });
 });

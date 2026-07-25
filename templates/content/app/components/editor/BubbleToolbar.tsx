@@ -83,6 +83,25 @@ function selectionIncludesBubbleToolbarExcludedNode(
   return includesExcludedNode;
 }
 
+export function shouldShowBubbleToolbar({
+  editor,
+  element,
+  state,
+  from,
+  to,
+}: {
+  editor: Editor;
+  element: HTMLElement;
+  state: EditorState;
+  from: number;
+  to: number;
+}) {
+  const focusBelongsToToolbar = element.contains(document.activeElement);
+  if (!editor.view.hasFocus() && !focusBelongsToToolbar) return false;
+  if (from === to) return false;
+  return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
+}
+
 export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
@@ -302,12 +321,7 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     <BubbleMenu
       editor={editor}
       className="bubble-toolbar"
-      shouldShow={({ editor, state, from, to }) => {
-        if (!editor.isFocused) return false;
-        const isSelection = from !== to;
-        if (!isSelection) return false;
-        return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
-      }}
+      shouldShow={shouldShowBubbleToolbar}
     >
       {showLinkInput ? (
         <div
