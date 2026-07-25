@@ -20,7 +20,12 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
-import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
+import {
+  CLIP_SHARE_REF,
+  DASHBOARD_REDIRECT_PARAM,
+  DASHBOARD_REDIRECT_VALUE,
+  REF_PARAM,
+} from "@shared/share-attribution";
 import {
   IconShare3,
   IconArrowLeft,
@@ -381,8 +386,11 @@ export default function RecordingPage() {
   // password.
   useEffect(() => {
     if (!recordingId || !playerDataForbidden) return;
+    const shareParams = new URLSearchParams();
+    shareParams.set(REF_PARAM, CLIP_SHARE_REF);
+    shareParams.set(DASHBOARD_REDIRECT_PARAM, DASHBOARD_REDIRECT_VALUE);
     navigate(
-      `/share/${encodeURIComponent(recordingId)}?${REF_PARAM}=${CLIP_SHARE_REF}`,
+      `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
       {
         replace: true,
       },
