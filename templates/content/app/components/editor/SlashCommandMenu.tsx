@@ -130,6 +130,18 @@ export interface CommandItem {
   ) => void | boolean | Promise<void>;
 }
 
+export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
+  primaryCommands: readonly T[],
+  candidateCommands: readonly T[],
+): T[] {
+  const primaryTitles = new Set(
+    primaryCommands.map((command) => command.title.trim().toLocaleLowerCase()),
+  );
+  return candidateCommands.filter(
+    (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
+  );
+}
+
 export type MediaPlaceholderType = "image" | "video" | "audio";
 
 export function insertMediaPlaceholder(
@@ -908,6 +920,10 @@ export function SlashCommandMenu({
     ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
     ...equationCommands,
   ];
+  const uniqueRegistryCommands = excludeCommandsWithDuplicateTitles(
+    blockCommands,
+    registryCommands,
+  );
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
   const mediaCommands = isTurnInto
     ? []
@@ -919,7 +935,8 @@ export function SlashCommandMenu({
     cmd.searchText?.toLowerCase().includes(normalizedQuery);
   const filteredAiCommands = aiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands = blockCommands.filter(commandMatchesQuery);
-  const filteredRegistryCommands = registryCommands.filter(commandMatchesQuery);
+  const filteredRegistryCommands =
+    uniqueRegistryCommands.filter(commandMatchesQuery);
   const filteredLocalComponentCommands =
     localComponentCommands.filter(commandMatchesQuery);
   const filteredPageCommands = pageCommands.filter(commandMatchesQuery);
@@ -927,7 +944,7 @@ export function SlashCommandMenu({
   const allCommands = [
     ...aiCommands,
     ...blockCommands,
-    ...registryCommands,
+    ...uniqueRegistryCommands,
     ...localComponentCommands,
     ...mediaCommands,
     ...pageCommands,

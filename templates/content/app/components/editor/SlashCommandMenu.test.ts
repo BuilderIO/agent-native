@@ -21,6 +21,7 @@ import {
   CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
+  excludeCommandsWithDuplicateTitles,
   getEquationInsertionRange,
   inlineDatabaseBlockContent,
   insertEquation,
@@ -80,6 +81,23 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("keeps native commands when registry commands have the same visible title", () => {
+    const native = [
+      { title: "Callout" },
+      { title: "Table" },
+      { title: "Code block" },
+    ];
+    const registry = [
+      { title: " callout " },
+      { title: "TABLE" },
+      { title: "API endpoint" },
+    ];
+
+    expect(excludeCommandsWithDuplicateTitles(native, registry)).toEqual([
+      { title: "API endpoint" },
+    ]);
+  });
+
   it("persists structural slash-command results immediately", () => {
     const source = readSlashCommandMenuSource();
 
