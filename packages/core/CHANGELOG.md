@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.122.3
+
+### Patch Changes
+
+- 6dd7ee0: Recover long-running messaging integrations across hosted function boundaries while preserving one logical agent turn and one final platform reply.
+
 ## 0.122.2
 
 ### Patch Changes
