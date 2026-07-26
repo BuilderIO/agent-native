@@ -25,11 +25,28 @@ export type AcceptanceEnvironmentKeys = {
   a2aSecret: string;
 };
 
+export type RuntimeAuthorityProvisioner =
+  | { kind: "unconfigured" }
+  | {
+      kind: "trusted-lease-v1";
+      profileMapVariable: "ACCEPTANCE_AUTHORITY_PROFILES_JSON";
+    };
+
+export type AcceptanceDirectoryFixture = {
+  origin: string;
+  siteIdVariable: string;
+  withdrawnMemberId: string;
+};
+
 export type TrustedAcceptanceMember = {
   template: string;
   origin: string;
   siteIdVariable: string;
   environment: AcceptanceEnvironmentKeys;
+  inference?: {
+    provider: "openrouter";
+    engine: "ai-sdk:openrouter";
+  };
   build: AcceptanceBuild;
   paths: AcceptancePaths;
 };
@@ -39,8 +56,9 @@ export type TrustedAcceptanceWorkspace = {
   enabled: boolean;
   runtimeAuthority: {
     lifecycle: "ephemeral-per-run";
-    provisioner: "unconfigured";
+    provisioner: RuntimeAuthorityProvisioner;
   };
+  directoryFixture?: AcceptanceDirectoryFixture;
   assertions: string[];
   members: TrustedAcceptanceMember[];
 };
@@ -144,11 +162,23 @@ export function validateTrustedAcceptanceConfig(
         message: "must require disposable per-run runtime authority",
       });
     }
-    if (workspace.runtimeAuthority?.provisioner !== "unconfigured") {
+    const provisioner = workspace.runtimeAuthority?.provisioner;
+    if (
+      !provisioner ||
+      (provisioner.kind !== "unconfigured" &&
+        provisioner.kind !== "trusted-lease-v1")
+    ) {
       issues.push({
         path: `${workspacePath}.runtimeAuthority.provisioner`,
-        message:
-          "must remain unconfigured until a trusted lease provider is implemented",
+        message: "must name a supported trusted lease provisioner",
+      });
+    } else if (
+      provisioner.kind === "trusted-lease-v1" &&
+      provisioner.profileMapVariable !== "ACCEPTANCE_AUTHORITY_PROFILES_JSON"
+    ) {
+      issues.push({
+        path: `${workspacePath}.runtimeAuthority.provisioner.profileMapVariable`,
+        message: "must use the protected generic authority profile map",
       });
     }
     if (workspace.assertions.length === 0) {
@@ -237,6 +267,16 @@ export function validateTrustedAcceptanceConfig(
           message: "must be an acceptance-scoped A2A_SECRET key name",
         });
       }
+      if (
+        member.inference &&
+        (member.inference.provider !== "openrouter" ||
+          member.inference.engine !== "ai-sdk:openrouter")
+      ) {
+        issues.push({
+          path: `${memberPath}.inference`,
+          message: "must use the bounded OpenRouter acceptance engine",
+        });
+      }
       if (member.build.command !== `pnpm --filter ${member.template} build`) {
         issues.push({
           path: `${memberPath}.build.command`,
@@ -264,6 +304,44 @@ export function validateTrustedAcceptanceConfig(
           });
         }
       }
+    }
+
+    if (workspace.directoryFixture) {
+      const fixturePath = `${workspacePath}.directoryFixture`;
+      if (!isAcceptanceOrigin(workspace.directoryFixture.origin)) {
+        issues.push({
+          path: `${fixturePath}.origin`,
+          message: "must be a stable non-production acceptance HTTPS origin",
+        });
+      }
+      if (
+        !isAcceptanceSiteVariable(workspace.directoryFixture.siteIdVariable)
+      ) {
+        issues.push({
+          path: `${fixturePath}.siteIdVariable`,
+          message: "must be an acceptance-scoped NETLIFY_SITE_ID variable name",
+        });
+      }
+      if (!templates.has(workspace.directoryFixture.withdrawnMemberId)) {
+        issues.push({
+          path: `${fixturePath}.withdrawnMemberId`,
+          message: "must identify a declared workspace member",
+        });
+      }
+      if (origins.has(workspace.directoryFixture.origin)) {
+        issues.push({
+          path: `${fixturePath}.origin`,
+          message: "must not duplicate a workspace member origin",
+        });
+      }
+      if (siteIdVariables.has(workspace.directoryFixture.siteIdVariable)) {
+        issues.push({
+          path: `${fixturePath}.siteIdVariable`,
+          message: "must not duplicate a workspace member site variable",
+        });
+      }
+      origins.add(workspace.directoryFixture.origin);
+      siteIdVariables.add(workspace.directoryFixture.siteIdVariable);
     }
   }
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
@@ -312,7 +390,7 @@ export function createTrustedAcceptancePlan(
   }
   if (
     !allowDisabled &&
-    workspace.runtimeAuthority.provisioner === "unconfigured"
+    workspace.runtimeAuthority.provisioner.kind === "unconfigured"
   ) {
     return {
       ok: false,
@@ -410,6 +488,25 @@ export type TrustedAcceptanceReceipt = {
   rollbackTarget: string | null;
   priorKnownGoodSha: string | null;
   currentKnownGoodSha: string | null;
+  lease?: {
+    id: string;
+    issuedAt: string;
+    expiresAt: string;
+    revokedAt: string | null;
+    state: "active" | "revoking" | "revoked" | "failed";
+  };
+  cleanup?: {
+    inferenceAuthority: "verified-absent" | "pending" | "failed";
+    databaseBranches: "verified-absent" | "pending" | "failed";
+    runtimeConfiguration: "verified-absent" | "pending" | "failed";
+    tombstoneDeployIds: string[];
+    verifiedAt: string | null;
+  };
+  scenarios?: {
+    stableDiscovery: AcceptanceAssertionState;
+    discoveryWithdrawal: AcceptanceAssertionState;
+    taskRouteContinuity: AcceptanceAssertionState;
+  };
 };
 
 const sensitiveFieldPattern =
@@ -609,6 +706,96 @@ export function validateTrustedAcceptanceReceipt(
       path: "priorKnownGoodSha",
       message: "must equal the rollback target for a passing receipt",
     });
+  }
+  if (receipt.lease) {
+    if (!receipt.lease.id.trim()) {
+      issues.push({ path: "lease.id", message: "must be non-empty" });
+    }
+    for (const key of ["issuedAt", "expiresAt"] as const) {
+      if (Number.isNaN(Date.parse(receipt.lease[key]))) {
+        issues.push({
+          path: `lease.${key}`,
+          message: "must be an ISO timestamp",
+        });
+      }
+    }
+    if (
+      receipt.lease.revokedAt !== null &&
+      Number.isNaN(Date.parse(receipt.lease.revokedAt))
+    ) {
+      issues.push({
+        path: "lease.revokedAt",
+        message: "must be an ISO timestamp or null",
+      });
+    }
+    if (
+      Date.parse(receipt.lease.expiresAt) <= Date.parse(receipt.lease.issuedAt)
+    ) {
+      issues.push({
+        path: "lease.expiresAt",
+        message: "must be later than the issue timestamp",
+      });
+    }
+  }
+  if (receipt.cleanup) {
+    if (
+      receipt.cleanup.verifiedAt !== null &&
+      Number.isNaN(Date.parse(receipt.cleanup.verifiedAt))
+    ) {
+      issues.push({
+        path: "cleanup.verifiedAt",
+        message: "must be an ISO timestamp or null",
+      });
+    }
+    if (
+      receipt.cleanup.tombstoneDeployIds.some((id) => !id.trim()) ||
+      new Set(receipt.cleanup.tombstoneDeployIds).size !==
+        receipt.cleanup.tombstoneDeployIds.length
+    ) {
+      issues.push({
+        path: "cleanup.tombstoneDeployIds",
+        message: "must contain unique non-empty opaque deployment IDs",
+      });
+    }
+  }
+  if (
+    receipt.scenarios &&
+    Object.values(receipt.scenarios).some(
+      (state) => !["pass", "fail", "blocked"].includes(state),
+    )
+  ) {
+    issues.push({
+      path: "scenarios",
+      message: "must contain valid assertion states",
+    });
+  }
+  if (receipt.result === "pass") {
+    if (
+      receipt.lease?.state !== "revoked" ||
+      !receipt.lease.revokedAt ||
+      receipt.cleanup?.inferenceAuthority !== "verified-absent" ||
+      receipt.cleanup.databaseBranches !== "verified-absent" ||
+      receipt.cleanup.runtimeConfiguration !== "verified-absent" ||
+      !receipt.cleanup.verifiedAt ||
+      receipt.cleanup.tombstoneDeployIds.length !== receipt.members.length
+    ) {
+      issues.push({
+        path: "cleanup",
+        message:
+          "passing receipts require verified lease revocation, database and runtime cleanup, and one trusted tombstone deploy per member",
+      });
+    }
+    if (
+      receipt.scenarios?.stableDiscovery !== "pass" ||
+      receipt.scenarios.discoveryWithdrawal !== "pass" ||
+      receipt.scenarios.taskRouteContinuity !== "pass"
+    ) {
+      issues.push({
+        path: "scenarios",
+        message:
+          "passing receipts require stable and withdrawn-directory route-continuity evidence",
+      });
+    }
   }
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
 }

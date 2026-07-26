@@ -266,9 +266,6 @@ jobs:
     needs: [plan, build]
     runs-on: ubuntu-latest
     environment: trusted-acceptance
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -283,76 +280,122 @@ jobs:
           node-version-file: .nvmrc
 
       - name: Install pinned deployment client before credentials enter the job
-        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
-
-      - name: Resolve isolated acceptance site before credentials enter the step
-        id: site
-        env:
-          SITE_ID: ${{ vars[matrix.siteIdVariable] }}
-          TEMPLATE: ${{ matrix.template }}
         run: |
-          if [[ -z "$SITE_ID" ]]; then
-            echo "The trusted-acceptance environment has no site ID for $TEMPLATE." >&2
-            exit 1
-          fi
-          node - <<'NODE'
-          const fs = require("node:fs");
-          const productionSites = Object.values(JSON.parse(fs.readFileSync("scripts/netlify-sites.json", "utf8")));
-          if (productionSites.includes(process.env.SITE_ID)) {
-            throw new Error("Acceptance deployment resolved to a known production site ID");
-          }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `site_id=${process.env.SITE_ID}\n`);
-          NODE
+          pnpm install --frozen-lockfile --ignore-scripts
+          npm install --global netlify-cli@27.0.0 --ignore-scripts
 
-      - name: Download inert candidate artifact
+      - name: Download every inert candidate artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: trusted-acceptance-build-${{ matrix.template }}
-          path: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
+          pattern: trusted-acceptance-build-*
+          path: ${{ runner.temp }}/acceptance-artifacts
 
-      - name: Verify artifact provenance before credentials enter the step
+      - name: Verify every artifact provenance before credentials enter the step
         env:
           EXPECTED_SHA: ${{ needs.plan.outputs.effective_sha }}
-          TEMPLATE: ${{ matrix.template }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
         run: |
           node - <<'NODE'
           const fs = require("node:fs");
-          const path = `${process.env.RUNNER_TEMP}/acceptance-artifact/${process.env.TEMPLATE}/build-metadata.json`;
-          const metadata = JSON.parse(fs.readFileSync(path, "utf8"));
-          if (metadata.sha !== process.env.EXPECTED_SHA || metadata.template !== process.env.TEMPLATE) {
-            throw new Error("Candidate artifact provenance mismatch");
+          const path = require("node:path");
+          for (const member of JSON.parse(process.env.MATRIX).include) {
+            const artifact = path.join(process.env.RUNNER_TEMP, "acceptance-artifacts", `trusted-acceptance-build-${member.template}`);
+            const metadata = JSON.parse(fs.readFileSync(path.join(artifact, "build-metadata.json"), "utf8"));
+            if (metadata.sha !== process.env.EXPECTED_SHA || metadata.template !== member.template || !fs.statSync(path.join(artifact, "publish")).isDirectory()) {
+              throw new Error(`Candidate artifact provenance mismatch for ${member.template}`);
+            }
           }
           NODE
           mkdir -p "$RUNNER_TEMP/trusted-acceptance-deploy"
 
-      - name: Deploy inert artifact to isolated acceptance site
-        working-directory: ${{ runner.temp }}/trusted-acceptance-deploy
+      # This file is a trusted, redacted resource allowlist, not a credential
+      # container. It is intentionally materialized only after provenance is
+      # verified and only in the protected environment.
+      - name: Materialize trusted authority profile after provenance verification
         env:
-          ARTIFACT_DIR: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
-          NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
-          SITE_ID: ${{ steps.site.outputs.site_id }}
-          TEMPLATE: ${{ matrix.template }}
+          AUTHORITY_PROFILES_JSON: ${{ vars.ACCEPTANCE_AUTHORITY_PROFILES_JSON }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          WORKSPACE: ${{ inputs.workspace }}
         run: |
-          if [[ -z "$NETLIFY_AUTH_TOKEN" ]]; then
-            echo "The trusted-acceptance environment is not provisioned for $TEMPLATE." >&2
+          if [[ -z "$AUTHORITY_PROFILES_JSON" ]]; then
+            echo "The trusted-acceptance environment has no configured authority profiles." >&2
             exit 1
           fi
-          raw_result="$(mktemp)"
-          trap 'rm -f "$raw_result"' EXIT
-          netlify deploy --prod --no-build --json --auth "$NETLIFY_AUTH_TOKEN" --site "$SITE_ID" --dir "$ARTIFACT_DIR/publish" --functions "$ARTIFACT_DIR/.netlify/functions-internal" > "$raw_result"
-          node - "$raw_result" "$RUNNER_TEMP/deploy-$TEMPLATE.json" <<'NODE'
+          node - <<'NODE'
           const fs = require("node:fs");
-          const result = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-          const deployId = result.deploy_id ?? result.id;
-          if (!deployId) throw new Error("Netlify did not return a deploy ID");
-          fs.writeFileSync(process.argv[3], JSON.stringify({template: process.env.TEMPLATE, deployId}));
+          const profiles = JSON.parse(process.env.AUTHORITY_PROFILES_JSON);
+          const profile = profiles[process.env.WORKSPACE];
+          if (!profile || profile.workspace !== process.env.WORKSPACE) throw new Error("No exact trusted authority profile exists for this workspace");
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-authority-profile.json", JSON.stringify(profile));
           NODE
+          pnpm tsx scripts/trusted-acceptance/controller.ts validate-profile --profile "$RUNNER_TEMP/trusted-authority-profile.json"
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const profile = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/trusted-authority-profile.json", "utf8"));
+          const expected = new Set(JSON.parse(process.env.MATRIX).include.map(({template}) => template));
+          const runtime = new Map(profile.runtime.members.map((member) => [member.id, member]));
+          const productionSiteIds = new Set(Object.values(JSON.parse(fs.readFileSync("scripts/netlify-sites.json", "utf8"))));
+          const members = profile.members.map(({id}) => {
+            if (!expected.has(id) || !runtime.has(id)) throw new Error(`Profile member ${id} is not an expected artifact`);
+            if (productionSiteIds.has(runtime.get(id).netlifySiteId)) throw new Error(`Profile member ${id} resolves to a known production site ID`);
+            const artifact = path.join(process.env.RUNNER_TEMP, "acceptance-artifacts", `trusted-acceptance-build-${id}`);
+            if (!fs.existsSync(artifact)) throw new Error(`Missing verified artifact for ${id}`);
+            return {id, siteId: runtime.get(id).netlifySiteId, artifact};
+          });
+          if (members.length !== expected.size) throw new Error("Profile must deploy the entire configured workspace");
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-deploy-manifest.json", JSON.stringify(members));
+          NODE
+
+      - name: Acquire one whole-workspace disposable lease
+        env:
+          ACCEPTANCE_NEON_API_KEY: ${{ secrets.ACCEPTANCE_NEON_API_KEY }}
+          ACCEPTANCE_NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
+          ACCEPTANCE_OPENROUTER_API_KEY: ${{ secrets.ACCEPTANCE_OPENROUTER_API_KEY }}
+        run: |
+          pnpm tsx scripts/trusted-acceptance/controller.ts acquire --profile "$RUNNER_TEMP/trusted-authority-profile.json" --journal "$RUNNER_TEMP/trusted-acceptance-lease.json"
+
+      - name: Deploy every preverified inert artifact
+        working-directory: ${{ runner.temp }}/trusted-acceptance-deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
+        run: |
+          node -e 'const fs=require("node:fs"); for (const member of JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/trusted-deploy-manifest.json", "utf8"))) process.stdout.write(`${member.id}\t${member.siteId}\t${member.artifact}\n`)' | while IFS=$'\t' read -r template site_id artifact_dir; do
+            raw_result="$(mktemp)"
+            trap 'rm -f "$raw_result"' EXIT
+            netlify deploy --prod --no-build --json --auth "$NETLIFY_AUTH_TOKEN" --site "$site_id" --dir "$artifact_dir/publish" --functions "$artifact_dir/.netlify/functions-internal" > "$raw_result"
+            node - "$raw_result" "$RUNNER_TEMP/deploy-$template.json" "$template" <<'NODE'
+            const fs = require("node:fs");
+            const result = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+            const deployId = result.deploy_id ?? result.id;
+            if (!deployId) throw new Error("Netlify did not return a deploy ID");
+            fs.writeFileSync(process.argv[3], JSON.stringify({template: process.argv[4], deployId}));
+            NODE
+          done
+
+      - name: Revoke one whole-workspace disposable lease
+        if: ${{ always() }}
+        env:
+          ACCEPTANCE_NEON_API_KEY: ${{ secrets.ACCEPTANCE_NEON_API_KEY }}
+          ACCEPTANCE_NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
+          ACCEPTANCE_OPENROUTER_API_KEY: ${{ secrets.ACCEPTANCE_OPENROUTER_API_KEY }}
+        run: pnpm tsx scripts/trusted-acceptance/controller.ts revoke --profile "$RUNNER_TEMP/trusted-authority-profile.json" --journal "$RUNNER_TEMP/trusted-acceptance-lease.json"
+
+      - name: Upload current redacted lease journal and controller receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trusted-acceptance-lease-state-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/trusted-acceptance-lease.json
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Upload redacted deployment result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: trusted-acceptance-deploy-${{ matrix.template }}
-          path: ${{ runner.temp }}/deploy-${{ matrix.template }}.json
+          name: trusted-acceptance-deploy-results
+          path: ${{ runner.temp }}/deploy-*.json
           if-no-files-found: error
           retention-days: 30
 

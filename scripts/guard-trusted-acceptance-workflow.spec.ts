@@ -2,10 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
-import { validateTrustedAcceptanceWorkflow } from "./guard-trusted-acceptance-workflow.ts";
+import {
+  validateRuntimeAuthorityConfiguration,
+  validateTrustedAcceptanceReaper,
+  validateTrustedAcceptanceWorkflow,
+} from "./guard-trusted-acceptance-workflow.ts";
 
 const workflow = readFileSync(
   ".github/workflows/trusted-acceptance.yml",
+  "utf8",
+);
+const reaper = readFileSync(
+  ".github/workflows/trusted-acceptance-reaper.yml",
   "utf8",
 );
 
@@ -104,5 +112,58 @@ describe("trusted acceptance workflow boundary", () => {
     const result = validateTrustedAcceptanceWorkflow(unsafe);
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("controller SHA")));
+  });
+});
+
+describe("trusted acceptance reaper boundary", () => {
+  it("uses generic profiles and serializes against each workspace", () => {
+    assert.deepEqual(validateTrustedAcceptanceReaper(reaper), {
+      ok: true,
+      issues: [],
+    });
+  });
+
+  it("rejects a reaper that does not share workspace custody", () => {
+    const unsafe = reaper.replace(
+      "group: trusted-acceptance-${{ matrix.workspace }}",
+      "group: trusted-acceptance-reaper",
+    );
+    const result = validateTrustedAcceptanceReaper(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("serialize")));
+  });
+});
+
+describe("trusted acceptance runtime authority boundary", () => {
+  it("permits a disabled workspace to declare the implemented lease contract", () => {
+    assert.deepEqual(
+      validateRuntimeAuthorityConfiguration([
+        {
+          enabled: false,
+          runtimeAuthority: {
+            lifecycle: "ephemeral-per-run",
+            provisioner: {
+              kind: "trusted-lease-v1",
+              profileMapVariable: "ACCEPTANCE_AUTHORITY_PROFILES_JSON",
+            },
+          },
+        },
+      ]),
+      { ok: true, issues: [] },
+    );
+  });
+
+  it("fails closed if an enabled workspace has no configured provisioner", () => {
+    const result = validateRuntimeAuthorityConfiguration([
+      {
+        enabled: true,
+        runtimeAuthority: {
+          lifecycle: "ephemeral-per-run",
+          provisioner: { kind: "unconfigured" },
+        },
+      },
+    ]);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("remain disabled")));
   });
 });
