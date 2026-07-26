@@ -884,14 +884,18 @@ const migrations = runMigrations(
     {
       version: 53,
       name: "recording-upload-lease",
-      // Backfill every pre-lease in-progress recording with an already-expired
-      // lease so the reaper can reach rows the old session-keyed sweeps could
-      // never select. Idempotent: the UPDATE only touches NULL leases.
+      // Grant every pre-lease in-progress recording one full lease horizon so
+      // the reaper can reach rows the old session-keyed sweeps could never
+      // select. Backfilling `updated_at` instead would hand a live upload an
+      // already-expired lease and reap it before its next chunk lands, so
+      // pre-lease rows get the same horizon any other row gets. Long-stranded
+      // rows are terminated one horizon after this runs.
+      // Idempotent: the UPDATE only touches NULL leases.
       // guard:allow-unscoped — startup migration backfills every owner's rows.
       sql: [
         `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_lease_expires_at TEXT`,
         `CREATE INDEX IF NOT EXISTS recordings_upload_lease_idx ON recordings (status, upload_lease_expires_at)`,
-        `UPDATE recordings SET upload_lease_expires_at = updated_at WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
+        `UPDATE recordings SET upload_lease_expires_at = '${uploadLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
       ].join("; "),
     },
   ],

@@ -147,7 +147,7 @@ export async function reapExpiredUploads(
     args: [nowIso],
   });
 
-  const expired: ReapedUpload[] = (
+  let expired: ReapedUpload[] = (
     (probe.rows as Array<Record<string, unknown>>) ?? []
   ).map((row) => ({
     id: String(row.id),
@@ -166,12 +166,24 @@ export async function reapExpiredUploads(
                 updated_at = ${p(2)}
             WHERE status IN ('uploading', 'processing')
               AND upload_lease_expires_at < ${p(3)}
-              AND id IN (${ids.map((_, i) => p(i + 4)).join(", ")})`,
+              AND id IN (${ids.map((_, i) => p(i + 4)).join(", ")})
+            RETURNING id`,
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
-    failed = result.rowsAffected ?? 0;
 
-    for (const id of ids) {
+    // The probe is a snapshot. A lease renewed between it and this
+    // compare-and-set keeps its row, so only what the UPDATE actually claimed
+    // may be reported or have its session state swept — reading the probe
+    // list here would tear down a live streaming upload's session.
+    const terminated = new Set(
+      ((result.rows as Array<{ id?: unknown }>) ?? []).map((row) =>
+        String(row.id),
+      ),
+    );
+    expired = expired.filter((row) => terminated.has(row.id));
+    failed = terminated.size;
+
+    for (const id of terminated) {
       await exec.execute({
         sql: `DELETE FROM application_state WHERE key = ${p(1)}`,
         args: [`resumable-session-${id}`],
