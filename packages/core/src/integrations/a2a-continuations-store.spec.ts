@@ -807,6 +807,52 @@ describe("A2A continuations store", () => {
     expect(querySql(recoveryCall![0])).not.toContain("completed_at");
   });
 
+  it("lists due/stale scheduler recovery ids without claiming terminal rows", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("SELECT id FROM integration_a2a_continuations")) {
+          return {
+            rows: [{ id: "cont-due" }, { id: "cont-stale-processing" }],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    await expect(recoverDueA2AContinuationIds(2)).resolves.toEqual([
+      "cont-due",
+      "cont-stale-processing",
+    ]);
+
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("attempts = attempts + 1"),
+      ),
+    ).toBe(false);
+    const selection = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SELECT id FROM integration_a2a_continuations"),
+    );
+    expect(querySql(selection![0])).toContain("status = 'pending'");
+    expect(querySql(selection![0])).not.toContain("completed");
+    expect(queryArgs(selection![0])).toHaveLength(2);
+  });
+
+  it("limits durable scheduler recovery updates to eligible task scopes", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await recoverDueA2AContinuationIds(5, ["task-canary"]);
+
+    const recoveryQueries = executeMock.mock.calls.slice(-3);
+    for (const [query] of recoveryQueries) {
+      expect(querySql(query)).toContain("integration_task_id IN (?)");
+      expect(queryArgs(query)).toContain("task-canary");
+    }
+  });
+
   it("recovers processing continuations with stale next checks during due sweeps", async () => {
     const { claimDueA2AContinuations } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });

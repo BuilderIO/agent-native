@@ -418,6 +418,20 @@ export async function getA2AContinuationForIntegrationTask(
   return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
 }
 
+export async function hasActiveA2AContinuationsForIntegrationTask(
+  integrationTaskId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 AS active FROM integration_a2a_continuations
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'delivering')
+          LIMIT 1`,
+    args: [integrationTaskId],
+  });
+  return rows.length > 0;
+}
+
 export async function getA2AContinuationsForIntegrationTaskAgent(
   integrationTaskId: string,
   agentUrl: string,
@@ -532,40 +546,92 @@ export async function claimA2AContinuation(
 export async function claimDueA2AContinuations(
   limit = 5,
 ): Promise<A2AContinuation[]> {
+  const ids = await recoverDueA2AContinuationIds(limit);
+  const claimed: A2AContinuation[] = [];
+  for (const id of ids) {
+    const continuation = await claimA2AContinuation(id);
+    if (continuation) claimed.push(continuation);
+  }
+  return claimed;
+}
+
+/**
+ * Makes stale leases eligible again and returns a bounded set of due ids.
+ *
+ * This intentionally does not claim anything. Durable schedulers use it only
+ * to wake the normal processor, whose atomic claim remains the sole progress
+ * and delivery owner under overlapping scheduler/self-dispatch executions.
+ */
+export async function recoverDueA2AContinuationIds(
+  limit = 5,
+  integrationTaskIds?: string[],
+): Promise<string[]> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
   const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
+  if (integrationTaskIds && integrationTaskIds.length === 0) return [];
+  const taskFilter = integrationTaskIds?.length
+    ? ` AND integration_task_id IN (${integrationTaskIds.map(() => "?").join(", ")})`
+    : "";
+  const taskArgs = integrationTaskIds ?? [];
   // If a processor dies while holding a delivery claim, retry the final send.
   // The stale cutoff preserves the in-flight delivery guard while keeping
   // final integration replies at-least-once.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE status = 'delivering' AND updated_at <= ?`,
-    args: ["pending", now, now, now - 5 * 60 * 1000],
+          WHERE status = 'delivering' AND updated_at <= ?${taskFilter}`,
+    args: ["pending", now, now, now - 5 * 60 * 1000, ...taskArgs],
   });
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
           WHERE status = 'processing'
-            AND (updated_at <= ? OR next_check_at <= ?)`,
-    args: ["pending", now, now, processingCutoff, staleNextCheckCutoff],
+            AND (updated_at <= ? OR next_check_at <= ?)${taskFilter}`,
+    args: [
+      "pending",
+      now,
+      now,
+      processingCutoff,
+      staleNextCheckCutoff,
+      ...taskArgs,
+    ],
   });
   const { rows } = await client.execute({
     sql: `SELECT id FROM integration_a2a_continuations
-          WHERE status = 'pending' AND next_check_at <= ?
+          WHERE status = 'pending' AND next_check_at <= ?${taskFilter}
           ORDER BY next_check_at ASC
           LIMIT ?`,
-    args: [now, limit],
+    args: [now, ...taskArgs, limit],
   });
-  const claimed: A2AContinuation[] = [];
-  for (const row of rows) {
-    const continuation = await claimA2AContinuation(row.id as string);
-    if (continuation) claimed.push(continuation);
-  }
-  return claimed;
+  return rows.map((row) => row.id as string);
+}
+
+export async function listRecoverableA2AIntegrationTaskIds(
+  limit = 50,
+): Promise<string[]> {
+  await ensureTable();
+  const now = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT DISTINCT integration_task_id
+          FROM integration_a2a_continuations
+          WHERE (status = 'pending' AND next_check_at <= ?)
+             OR (status = 'processing' AND
+                 (updated_at <= ? OR next_check_at <= ?))
+             OR (status = 'delivering' AND updated_at <= ?)
+          ORDER BY integration_task_id ASC
+          LIMIT ?`,
+    args: [
+      now,
+      now - PROCESSING_STUCK_AFTER_MS,
+      now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS,
+      now - 5 * 60 * 1000,
+      Math.max(1, Math.min(Math.floor(limit), 200)),
+    ],
+  });
+  return rows.map((row) => String(row.integration_task_id));
 }
 
 export async function claimA2AContinuationDelivery(

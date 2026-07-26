@@ -31,6 +31,16 @@ const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
+const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const scheduleNextIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const heartbeatIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const waitForA2AIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const failExhaustedIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const hasActiveA2AContinuationsMock = vi.hoisted(() => vi.fn());
+const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
@@ -57,6 +67,29 @@ vi.mock("../chat-threads/store.js", () => ({
 
 vi.mock("../agent/durable-background.js", () => ({
   isInBackgroundFunctionRuntime: isInBackgroundFunctionRuntimeMock,
+}));
+
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  appendDurableContinuationContext: appendDurableContinuationContextMock,
+}));
+
+vi.mock("./integration-campaigns-store.js", () => ({
+  createIntegrationCampaign: createIntegrationCampaignMock,
+  claimIntegrationCampaign: claimIntegrationCampaignMock,
+  scheduleNextIntegrationCampaign: scheduleNextIntegrationCampaignMock,
+  completeIntegrationCampaign: completeIntegrationCampaignMock,
+  heartbeatIntegrationCampaign: heartbeatIntegrationCampaignMock,
+  waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
+  failExhaustedIntegrationCampaign: failExhaustedIntegrationCampaignMock,
+}));
+
+vi.mock("./a2a-continuations-store.js", () => ({
+  hasActiveA2AContinuationsForIntegrationTask: hasActiveA2AContinuationsMock,
+}));
+
+vi.mock("./integration-durable-dispatch.js", () => ({
+  dispatchPendingIntegrationTask: dispatchPendingIntegrationTaskMock,
+  integrationDispatchScopeValue: vi.fn(() => null),
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -246,6 +279,36 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    createIntegrationCampaignMock.mockResolvedValue({
+      id: "campaign-qa",
+      integrationTaskId: "task-qa",
+      threadId: "thread-qa",
+      turnId: "integration-turn-task-qa",
+      status: "pending",
+      chunkCount: 0,
+    });
+    claimIntegrationCampaignMock.mockResolvedValue({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-qa",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-qa",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+      },
+    });
+    scheduleNextIntegrationCampaignMock.mockResolvedValue(true);
+    completeIntegrationCampaignMock.mockResolvedValue(true);
+    heartbeatIntegrationCampaignMock.mockResolvedValue(true);
+    waitForA2AIntegrationCampaignMock.mockResolvedValue(true);
+    failExhaustedIntegrationCampaignMock.mockResolvedValue(true);
+    hasActiveA2AContinuationsMock.mockResolvedValue(false);
+    dispatchPendingIntegrationTaskMock.mockResolvedValue(
+      "background-acknowledged",
+    );
+    appendDurableContinuationContextMock.mockResolvedValue(undefined);
     getThreadMappingMock.mockResolvedValue(null);
     saveThreadMappingMock.mockResolvedValue(undefined);
     createThreadMock.mockResolvedValue({ id: "thread-qa" });
@@ -1676,17 +1739,315 @@ describe("integration webhook handler engine resolution", () => {
       });
     });
 
-    await processIntegrationTask(pendingTask({ id: "task-continuation" }), {
-      adapter: createAdapter(sendResponse),
-      systemPrompt: "system",
-      actions: {},
-      model: "claude-sonnet-4-6",
-      apiKey: "",
-      ownerEmail: "dispatch+qa@integration.local",
-    });
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-continuation" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
 
+    expect(result).toEqual({ status: "campaign-pending" });
     expect(sendResponse).not.toHaveBeenCalled();
     expect(updateThreadDataMock).toHaveBeenCalled();
+    expect(waitForA2AIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.objectContaining({ nextRunAt: expect.any(Number) }),
+    );
+    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+  });
+
+  it("checkpoints a durable campaign boundary without posting a cutoff reply", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "Partial research" });
+      send({ type: "auto_continue", reason: "run_timeout" });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-campaign" }),
+      {
+        adapter: {
+          ...createAdapter(sendResponse),
+          startRunProgress: async () => ({
+            ref: { kind: "slack-stream", streamTs: "1719000000.000099" },
+            onEvent,
+            complete,
+          }),
+        },
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-pending" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(scheduleNextIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.objectContaining({
+        progressRef: JSON.stringify({
+          kind: "slack-stream",
+          streamTs: "1719000000.000099",
+        }),
+      }),
+    );
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignContinuation: true }),
+    );
+    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+    const checkpoint = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1] as string,
+    );
+    expect(checkpoint.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringContaining("integration-fake:thread-qa:"),
+          role: "assistant",
+          metadata: expect.not.objectContaining({
+            integrationDeliveryAttempted: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps campaign ownership when the successor checkpoint fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    scheduleNextIntegrationCampaignMock.mockRejectedValueOnce(
+      new Error("checkpoint unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "auto_continue", reason: "run_timeout" });
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-schedule-failure" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-active" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps campaign ownership when the downstream A2A wait transition fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    waitForA2AIntegrationCampaignMock.mockRejectedValueOnce(
+      new Error("wait checkpoint unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nStill working`,
+      });
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-a2a-wait-failure" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-active" });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+  });
+
+  it("resumes the same campaign turn and closes one native progress surface", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-campaign",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-campaign",
+        status: "processing",
+        chunkCount: 2,
+        progressRef: JSON.stringify({
+          kind: "slack-stream",
+          streamTs: "1719000000.000099",
+        }),
+      },
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
+    const resumeRunProgress = vi.fn(async () => ({ onEvent, complete }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "Final answer after continuation" });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-campaign" }),
+      {
+        adapter: {
+          ...createAdapter(sendResponse),
+          resumeRunProgress,
+        },
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "completed" });
+    expect(appendDurableContinuationContextMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "run_timeout",
+      "thread-qa",
+    );
+    expect(resumeRunProgress).toHaveBeenCalledWith(expect.any(Object), {
+      kind: "slack-stream",
+      streamTs: "1719000000.000099",
+    });
+    expect(complete).toHaveBeenCalledOnce();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(scheduleNextIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-qa",
+      expect.any(Object),
+    );
+    expect(startRunMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "thread-qa",
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({ turnId: "integration-turn-task-campaign" }),
+    );
+  });
+
+  it("finishes a waiting campaign only after downstream A2A is terminal", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-qa",
+      status: "waiting",
+      progressRef: null,
+      checkpoint: JSON.stringify({ waitingForA2A: true }),
+    });
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        turnId: "integration-turn-task-a2a",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+        checkpoint: JSON.stringify({ waitingForA2A: true }),
+      },
+    });
+    hasActiveA2AContinuationsMock.mockResolvedValueOnce(false);
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-a2a" }),
+      {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "completed" });
+    expect(hasActiveA2AContinuationsMock).toHaveBeenCalledWith("task-a2a");
+    expect(completeIntegrationCampaignMock).toHaveBeenCalled();
+    expect(startRunMock).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes an exhausted stale campaign without rerunning its tools", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      status: "processing",
+      progressRef: null,
+    });
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "chunk-limit",
+      campaign: { id: "campaign-exhausted", chunkCount: 4 },
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-exhausted" }),
+      {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-failed" });
+    expect(failExhaustedIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-exhausted",
+      expect.objectContaining({ maxChunks: 4 }),
+    );
+    expect(startRunMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves an exhausted campaign failure across a worker crash", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    createIntegrationCampaignMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      status: "failed",
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-exhausted-recovery" }),
+      {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true, continuationInvocation: true },
+    );
+
+    expect(result).toEqual({ status: "campaign-failed" });
+    expect(startRunMock).not.toHaveBeenCalled();
   });
 
   it("keeps a resumable native progress stream open for a queued A2A continuation", async () => {

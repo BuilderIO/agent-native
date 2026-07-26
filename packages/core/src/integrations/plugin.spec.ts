@@ -31,6 +31,7 @@ const resourceListMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
+const getPendingTaskMock = vi.hoisted(() => vi.fn());
 const failTaskDeliveryTransitionMock = vi.hoisted(() => vi.fn());
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
@@ -43,6 +44,8 @@ const getNextPendingTaskForThreadMock = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const recoverDueIntegrationCampaignsMock = vi.hoisted(() => vi.fn());
+const recoverDueA2AContinuationsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -78,6 +81,20 @@ vi.mock("./pending-tasks-retry-job.js", () => ({
   retryStuckPendingTasks: retryStuckPendingTasksMock,
 }));
 
+vi.mock("./integration-campaign-recovery.js", () => ({
+  recoverDueIntegrationCampaigns: recoverDueIntegrationCampaignsMock,
+}));
+
+vi.mock("./a2a-continuation-processor.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./a2a-continuation-processor.js")
+  >("./a2a-continuation-processor.js");
+  return {
+    ...actual,
+    recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
+  };
+});
+
 vi.mock("./integration-durable-dispatch.js", async () => {
   const actual = await vi.importActual<
     typeof import("./integration-durable-dispatch.js")
@@ -110,7 +127,7 @@ vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
   failTaskDeliveryTransition: failTaskDeliveryTransitionMock,
-  getPendingTask: vi.fn(),
+  getPendingTask: getPendingTaskMock,
   getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
   insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: vi.fn(() => false),
@@ -549,6 +566,16 @@ describe("integrations plugin routes", () => {
       limit: 20,
       durableOnly: true,
     });
+    expect(recoverDueIntegrationCampaignsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookBaseUrl: "https://app.test",
+        limit: 20,
+      }),
+    );
+    expect(recoverDueA2AContinuationsMock).toHaveBeenCalledWith({
+      webhookBaseUrl: "https://app.test",
+      limit: 10,
+    });
   });
 
   it("records the durable lease as part of the background worker claim", async () => {
@@ -567,6 +594,73 @@ describe("integrations plugin routes", () => {
     expect(claimPendingTaskMock).toHaveBeenCalledWith("background-task", {
       dispatchOutcome: "background-acknowledged",
     });
+  });
+
+  it("resumes a campaign without reclaiming or completing its pending task", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Parent checkpoint", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "campaign-pending",
+    });
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${task.id}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(202);
+    expect(claimPendingTaskMock).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).toHaveBeenCalledWith(
+      task,
+      expect.any(Object),
+      expect.objectContaining({ continuationInvocation: true }),
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("fails a queued continuation closed after the durable scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    delete process.env.A2A_SECRET;
+    const task = claimedTask(1);
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: true, skipped: "campaign-disabled" });
+    expect(claimPendingTaskMock).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
   it("loads compact owner resources when processing queued integration tasks", async () => {

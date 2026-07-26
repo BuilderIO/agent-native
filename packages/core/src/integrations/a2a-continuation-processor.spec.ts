@@ -8,6 +8,10 @@ import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
+const recoverDueA2AContinuationIdsMock = vi.hoisted(() => vi.fn());
+const listRecoverableA2ATaskIdsMock = vi.hoisted(() => vi.fn());
+const getPendingTaskMock = vi.hoisted(() => vi.fn());
+const durableDispatchEnabledMock = vi.hoisted(() => vi.fn());
 const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -33,7 +37,21 @@ vi.mock("./a2a-continuations-store.js", () => ({
   completeA2AContinuation: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
   getA2AContinuation: getA2AContinuationMock,
+  listRecoverableA2AIntegrationTaskIds: listRecoverableA2ATaskIdsMock,
+  recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
   rescheduleA2AContinuation: rescheduleA2AContinuationMock,
+}));
+
+vi.mock("./pending-tasks-store.js", () => ({
+  getPendingTask: getPendingTaskMock,
+}));
+
+vi.mock("./integration-durable-dispatch.js", () => ({
+  isIntegrationDurableDispatchEnabledForTask: durableDispatchEnabledMock,
+}));
+
+vi.mock("../server/core-routes-plugin.js", () => ({
+  FRAMEWORK_ROUTE_PREFIX: "/_agent-native",
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -135,6 +153,15 @@ describe("A2A continuation processor", () => {
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
     );
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([]);
+    listRecoverableA2ATaskIdsMock.mockResolvedValue(["task-1", "task-2"]);
+    getPendingTaskMock.mockResolvedValue({
+      id: "task-1",
+      platform: "slack",
+      externalThreadId: "slack:team:C123:1",
+      status: "processing",
+    });
+    durableDispatchEnabledMock.mockReturnValue(true);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -194,6 +221,86 @@ describe("A2A continuation processor", () => {
       await dispatch;
     },
   );
+
+  it("recovers a bounded due batch by waking processors without claiming or polling", async () => {
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([
+      "cont-due-1",
+      "cont-due-2",
+    ]);
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations({ limit: 2 })).resolves.toEqual({
+      dispatched: 2,
+      failed: 0,
+    });
+
+    expect(recoverDueA2AContinuationIdsMock).toHaveBeenCalledWith(2, [
+      "task-1",
+      "task-2",
+    ]);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch)).toHaveBeenNthCalledWith(
+      1,
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        body: JSON.stringify({ continuationId: "cont-due-1" }),
+      }),
+    );
+  });
+
+  it("allows one durable wake-up dispatch failure without stranding the rest", async () => {
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([
+      "cont-fail",
+      "cont-healthy",
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error("example dispatch outage"))
+        .mockResolvedValueOnce(new Response("ok", { status: 200 })),
+    );
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).resolves.toEqual({
+      dispatched: 2,
+      failed: 0,
+    });
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not recover A2A work outside the durable canary scope", async () => {
+    durableDispatchEnabledMock.mockReturnValue(false);
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([]);
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).resolves.toEqual({
+      dispatched: 0,
+      failed: 0,
+    });
+    expect(recoverDueA2AContinuationIdsMock).toHaveBeenCalledWith(5, []);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a durable-store failure for the next scheduler run", async () => {
+    recoverDueA2AContinuationIdsMock.mockRejectedValueOnce(
+      new Error("example database timeout"),
+    );
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).rejects.toThrow(
+      "example database timeout",
+    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
 
   it("logs when the continuation processor route rejects dispatch", async () => {
     const consoleError = vi

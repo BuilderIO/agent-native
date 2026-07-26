@@ -36,6 +36,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
+  recoverDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
 import { mergeIntegrationAdapters } from "./adapter-overrides.js";
@@ -69,11 +70,14 @@ import {
   updateIntegrationInstallation,
   upsertIntegrationInstallation,
 } from "./installations-store.js";
+import { recoverDueIntegrationCampaigns } from "./integration-campaign-recovery.js";
 import {
   dispatchPendingIntegrationTask,
+  INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
   isIntegrationDurableDispatchConfigured,
+  isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
   forgetIntegrationMemory,
@@ -90,6 +94,7 @@ import {
   claimPendingTask,
   failTaskDeliveryTransition,
   getNextPendingTaskForThread,
+  getPendingTask,
   insertPendingTask,
   isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
@@ -1627,12 +1632,41 @@ export function createIntegrationsPlugin(
         if (!isIntegrationDurableDispatchConfigured()) {
           return { ok: true, disabled: true };
         }
-        const result = await retryStuckPendingTasks({
-          webhookBaseUrl: getBaseUrl(event),
-          limit: 20,
-          durableOnly: true,
-        });
-        return { ok: true, ...result };
+        const webhookBaseUrl = getBaseUrl(event);
+        const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
+          retryStuckPendingTasks({
+            webhookBaseUrl,
+            limit: 20,
+            durableOnly: true,
+          }).catch((error) => {
+            console.error(
+              "[integrations] Pending-task recovery failed:",
+              error,
+            );
+            return { error: "pending-task-recovery-failed" };
+          }),
+          recoverDueIntegrationCampaigns({
+            event,
+            webhookBaseUrl,
+            limit: 20,
+          }).catch((error) => {
+            console.error("[integrations] Campaign recovery failed:", error);
+            return { error: "campaign-recovery-failed" };
+          }),
+          recoverDueA2AContinuations({
+            webhookBaseUrl,
+            limit: 10,
+          }).catch((error) => {
+            console.error("[integrations] A2A recovery failed:", error);
+            return { error: "a2a-recovery-failed" };
+          }),
+        ]);
+        return {
+          ok: true,
+          pendingTasks,
+          campaigns,
+          a2aContinuations,
+        };
       }),
     );
 
@@ -1653,6 +1687,7 @@ export function createIntegrationsPlugin(
         const body = (await readBody(event)) as {
           taskId?: string;
           [AGENT_BACKGROUND_PROCESSOR_FIELD]?: string;
+          [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]?: boolean;
         };
         const taskId = body?.taskId;
         if (!taskId) {
@@ -1695,10 +1730,30 @@ export function createIntegrationsPlugin(
           AGENT_BACKGROUND_PROCESSOR_INTEGRATION
             ? "background-acknowledged"
             : "portable-unconfirmed";
-        const task = await claimPendingTask(taskId, { dispatchOutcome });
+        const campaignContinuation =
+          body[INTEGRATION_CAMPAIGN_PROCESSOR_FIELD] === true;
+        const task = campaignContinuation
+          ? await getPendingTask(taskId)
+          : await claimPendingTask(taskId, { dispatchOutcome });
         if (!task) {
           setResponseStatus(event, 200);
           return { ok: true, skipped: "already-claimed-or-missing" };
+        }
+        if (campaignContinuation && task.status !== "processing") {
+          setResponseStatus(event, 200);
+          return { ok: true, skipped: "campaign-task-not-processing" };
+        }
+        const durableCampaignEnabled =
+          isIntegrationDurableDispatchEnabledForTask({
+            platform: task.platform,
+            externalThreadId: task.externalThreadId,
+            platformContext: task.dispatchScope
+              ? { channelId: task.dispatchScope }
+              : undefined,
+          });
+        if (campaignContinuation && !durableCampaignEnabled) {
+          setResponseStatus(event, 200);
+          return { ok: true, skipped: "campaign-disabled" };
         }
 
         let deliveryRetryTransitionStarted = false;
@@ -1724,7 +1779,10 @@ export function createIntegrationsPlugin(
                 | IntegrationSystemNoticeTaskPayload
                 | IntegrationResponseDeliveryTaskPayload
                 | { kind?: undefined };
-              if (taskPayload.kind === "system-notice") {
+              if (
+                !campaignContinuation &&
+                taskPayload.kind === "system-notice"
+              ) {
                 if (!adapter.sendSystemNotice) {
                   throw new Error(
                     `Platform ${task.platform} cannot deliver system notices`,
@@ -1749,7 +1807,10 @@ export function createIntegrationsPlugin(
                 );
                 return;
               }
-              if (taskPayload.kind === "response-delivery") {
+              if (
+                !campaignContinuation &&
+                taskPayload.kind === "response-delivery"
+              ) {
                 let receipt: void | PlatformDeliveryReceipt =
                   taskPayload.deliveryReceipt;
                 if (!receipt) {
@@ -1801,17 +1862,24 @@ export function createIntegrationsPlugin(
                 options?.appId,
                 task.orgId,
               );
-              const result = await processIntegrationTask(task, {
-                adapter,
-                systemPrompt: baseSystemPrompt + resources,
-                actions,
-                initialToolNames,
-                model,
-                apiKey: getApiKey(),
-                engine: options?.engine,
-                ownerEmail: task.ownerEmail,
-                appId: options?.appId,
-              });
+              const result = await processIntegrationTask(
+                task,
+                {
+                  adapter,
+                  systemPrompt: baseSystemPrompt + resources,
+                  actions,
+                  initialToolNames,
+                  model,
+                  apiKey: getApiKey(),
+                  engine: options?.engine,
+                  ownerEmail: task.ownerEmail,
+                  appId: options?.appId,
+                },
+                {
+                  enabled: durableCampaignEnabled,
+                  continuationInvocation: campaignContinuation,
+                },
+              );
               if (result?.status === "delivery-pending") {
                 deliveryRetryTransitionStarted = true;
                 await markTaskDeliveryRetryable(
@@ -1821,12 +1889,51 @@ export function createIntegrationsPlugin(
                 );
                 return "delivery-retry" as const;
               }
+              if (
+                result?.status === "campaign-pending" ||
+                result?.status === "campaign-active"
+              ) {
+                return "campaign-active" as const;
+              }
+              if (result?.status === "campaign-failed") {
+                return "campaign-failed" as const;
+              }
               return "completed" as const;
             },
           );
           if (processingResult === "delivery-retry") {
             setResponseStatus(event, 202);
             return { ok: true, taskId, retrying: "response-delivery" };
+          }
+          if (processingResult === "campaign-active") {
+            setResponseStatus(event, 202);
+            return { ok: true, taskId, continuing: true };
+          }
+          if (processingResult === "campaign-failed") {
+            await markTaskFailed(
+              taskId,
+              "Integration campaign exhausted its continuation limit",
+            );
+            const nextTask = await getNextPendingTaskForThread(
+              task.platform,
+              task.externalThreadId,
+            );
+            if (nextTask) {
+              await dispatchPendingIntegrationTask({
+                taskId: nextTask.id,
+                task: {
+                  platform: task.platform,
+                  externalThreadId: task.externalThreadId,
+                  platformContext: nextTask.dispatchScope
+                    ? { channelId: nextTask.dispatchScope }
+                    : undefined,
+                },
+                event,
+                baseUrl: getBaseUrl(event),
+              });
+            }
+            setResponseStatus(event, 200);
+            return { ok: true, taskId, failed: "campaign-exhausted" };
           }
           await markTaskCompleted(taskId);
           const nextTask = await getNextPendingTaskForThread(

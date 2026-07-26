@@ -21,10 +21,14 @@ import {
   completeA2AContinuation,
   failA2AContinuation,
   getA2AContinuation,
+  listRecoverableA2AIntegrationTaskIds,
+  recoverDueA2AContinuationIds,
   rescheduleA2AContinuation,
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
+import { isIntegrationDurableDispatchEnabledForTask } from "./integration-durable-dispatch.js";
 import { signInternalToken } from "./internal-token.js";
+import { getPendingTask } from "./pending-tasks-store.js";
 import { getThreadMapping } from "./thread-mapping-store.js";
 import type {
   OutgoingMessage,
@@ -148,6 +152,57 @@ export async function processDueA2AContinuations(options: {
       ),
     );
   }
+}
+
+/**
+ * Durable scheduler wake-up only: make a bounded set of due/stale rows
+ * eligible, then invoke their normal processors. It never polls remote A2A
+ * tasks or runs a mutation itself, keeping the scheduled route within its
+ * short execution budget. Duplicate wake-ups are safe because each processor
+ * still takes the store's atomic claim before it can progress or deliver.
+ */
+export async function recoverDueA2AContinuations(options?: {
+  limit?: number;
+  webhookBaseUrl?: string;
+}): Promise<{ dispatched: number; failed: number }> {
+  const limit = options?.limit ?? 5;
+  const candidateTaskIds = await listRecoverableA2AIntegrationTaskIds(200);
+  const eligibleTaskIds: string[] = [];
+  for (const taskId of candidateTaskIds) {
+    const task = await getPendingTask(taskId);
+    if (
+      task?.status === "processing" &&
+      isIntegrationDurableDispatchEnabledForTask({
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
+        platformContext: task.dispatchScope
+          ? { channelId: task.dispatchScope }
+          : undefined,
+      })
+    ) {
+      eligibleTaskIds.push(taskId);
+    }
+  }
+  const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
+  let dispatched = 0;
+  let failed = 0;
+
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        await dispatchA2AContinuation(id, options?.webhookBaseUrl);
+        dispatched += 1;
+      } catch (err) {
+        failed += 1;
+        console.error(
+          `[integrations] Failed to recover A2A continuation ${id}:`,
+          err,
+        );
+      }
+    }),
+  );
+
+  return { dispatched, failed };
 }
 
 async function processClaimedContinuation(
