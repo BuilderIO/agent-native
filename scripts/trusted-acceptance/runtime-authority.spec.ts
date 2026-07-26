@@ -83,8 +83,10 @@ function providers(
       },
     },
     openrouter: {
-      async create(expiresAt, maxUsd) {
-        log.push(`openrouter:create:${expiresAt}:${maxUsd}`);
+      async create(leaseId, memberId, expiresAt, maxUsd) {
+        log.push(
+          `openrouter:create:${leaseId}:${memberId}:${expiresAt}:${maxUsd}`,
+        );
         return {
           plaintext: "injected-transient-inference-value",
           hash: "opaque-key-hash",
@@ -138,7 +140,11 @@ describe("disposable runtime authority", () => {
     const log: string[] = [];
     const authority = new DisposableRuntimeAuthority(
       config(),
-      providers(log, { failSet: true }),
+      (() => {
+        const fake = providers(log, { failSet: true });
+        fake.netlify.ownsLease = async () => false;
+        return fake;
+      })(),
       fixedNow,
     );
     await assert.rejects(authority.acquire(60_000), /injected set failure/);
@@ -149,6 +155,67 @@ describe("disposable runtime authority", () => {
     );
     assert.equal(
       log.some((entry) => entry.startsWith("netlify:remove")),
+      false,
+    );
+  });
+
+  it("compensates an ambiguous Netlify write when its exact marker committed", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    fake.netlify.setRuntime = async (_accountId, siteId) => {
+      log.push(`netlify:set:${siteId}:committed`);
+      throw new Error("response lost after commit");
+    };
+    fake.netlify.ownsLease = async () => true;
+    const authority = new DisposableRuntimeAuthority(config(), fake, fixedNow);
+    await assert.rejects(
+      authority.acquire(60_000),
+      /response lost after commit/,
+    );
+    assert.equal(log.includes("netlify:remove:declared-netlify-site"), true);
+    assert.equal(log.includes("netlify:tombstone:declared-netlify-site"), true);
+  });
+
+  it("continues independent cleanup when one Netlify ownership read fails", async () => {
+    const log: string[] = [];
+    const twoMembers = config({
+      members: [
+        config().members[0]!,
+        {
+          ...config().members[0]!,
+          id: "calendar",
+          neonProjectId: "declared-neon-project-2",
+          netlifySiteId: "declared-netlify-site-2",
+          needsInference: false,
+        },
+      ],
+    });
+    const fake = providers(log);
+    const authority = new DisposableRuntimeAuthority(
+      twoMembers,
+      fake,
+      fixedNow,
+    );
+    const { lease } = await authority.acquire(60_000);
+    fake.netlify.ownsLease = async (_accountId, siteId) => {
+      if (siteId === "declared-netlify-site")
+        throw new Error("transient ownership read failure");
+      return true;
+    };
+    await authority.revoke(lease);
+    assert.equal(lease.state, "revoking");
+    assert.equal(
+      log.includes("neon:delete:declared-neon-project:branch-handle"),
+      true,
+    );
+    assert.equal(
+      log.includes("neon:delete:declared-neon-project-2:branch-handle"),
+      true,
+    );
+    assert.equal(log.includes("netlify:remove:declared-netlify-site-2"), true);
+    assert.equal(log.includes("netlify:remove:declared-netlify-site"), false);
+    assert.equal(
+      log.includes("netlify:tombstone:declared-netlify-site"),
       false,
     );
   });
@@ -308,6 +375,7 @@ describe("disposable runtime authority", () => {
     fake.openrouter.listByPrefixAndExpiry = async () => [
       {
         leaseId: "a".repeat(24),
+        memberId: "content",
         hash: "opaque-key-hash",
         expiresAt: "2026-07-26T11:00:30.000Z",
       },
@@ -347,6 +415,61 @@ describe("disposable runtime authority", () => {
     );
   });
 
+  it("reconstructs inference keys by declared member identity", async () => {
+    const log: string[] = [];
+    const twoInferenceMembers = config({
+      members: [
+        config().members[0]!,
+        {
+          ...config().members[0]!,
+          id: "calendar",
+          neonProjectId: "declared-neon-project-2",
+          netlifySiteId: "declared-netlify-site-2",
+        },
+      ],
+    });
+    const fake = providers(log);
+    fake.openrouter.listByPrefixAndExpiry = async () => [
+      {
+        leaseId: "8".repeat(24),
+        memberId: "calendar",
+        hash: "a-sorts-first-but-belongs-to-calendar",
+        expiresAt: "2026-07-26T11:00:00.000Z",
+      },
+      {
+        leaseId: "8".repeat(24),
+        memberId: "content",
+        hash: "z-sorts-last-but-belongs-to-content",
+        expiresAt: "2026-07-26T11:00:00.000Z",
+      },
+    ];
+    const [lease] = await discoverExpiredLeases(
+      twoInferenceMembers,
+      fake,
+      fixedNow(),
+    );
+    assert.equal(
+      lease?.members[0]?.inferenceKeyHash,
+      "z-sorts-last-but-belongs-to-content",
+    );
+    assert.equal(
+      lease?.members[1]?.inferenceKeyHash,
+      "a-sorts-first-but-belongs-to-calendar",
+    );
+    await new DisposableRuntimeAuthority(
+      twoInferenceMembers,
+      fake,
+      fixedNow,
+    ).reapExpired([lease!]);
+    assert.deepEqual(
+      log.filter((entry) => entry.startsWith("openrouter:disable:")).sort(),
+      [
+        "openrouter:disable:a-sorts-first-but-belongs-to-calendar",
+        "openrouter:disable:z-sorts-last-but-belongs-to-content",
+      ],
+    );
+  });
+
   it("excludes active provider resources from discovery", async () => {
     const fake = providers([]);
     fake.neon.listByPrefixAndExpiry = async () => [
@@ -359,6 +482,7 @@ describe("disposable runtime authority", () => {
     fake.openrouter.listByPrefixAndExpiry = async () => [
       {
         leaseId: "b".repeat(24),
+        memberId: "content",
         hash: "active-key",
         expiresAt: "2026-07-26T13:00:00.000Z",
       },
@@ -394,6 +518,7 @@ describe("disposable runtime authority", () => {
     undeclaredInference.openrouter.listByPrefixAndExpiry = async () => [
       {
         leaseId: "f".repeat(24),
+        memberId: "content",
         hash: "unexpected-key",
         expiresAt: "2026-07-26T11:00:00.000Z",
       },
@@ -406,7 +531,7 @@ describe("disposable runtime authority", () => {
         undeclaredInference,
         fixedNow(),
       ),
-      /undeclared inference handles/,
+      /invalid trusted acceptance lease member/,
     );
   });
 
@@ -425,6 +550,7 @@ describe("disposable runtime authority", () => {
     missingMember.openrouter.listByPrefixAndExpiry = async () => [
       {
         leaseId: "1".repeat(24),
+        memberId: "content",
         hash: "opaque-key-hash",
         expiresAt: "2026-07-26T11:00:00.000Z",
       },
@@ -455,6 +581,7 @@ describe("disposable runtime authority", () => {
     orphanKey.openrouter.listByPrefixAndExpiry = async () => [
       {
         leaseId: "d".repeat(24),
+        memberId: "content",
         hash: "orphan-key",
         expiresAt: "2026-07-26T11:00:00.000Z",
       },
@@ -554,6 +681,7 @@ describe("disposable runtime authority", () => {
         fake.openrouter.listByPrefixAndExpiry = async () => [
           {
             leaseId: "e".repeat(24),
+            memberId: "content",
             hash: "expired-key",
             expiresAt: "2026-07-26T11:02:00.000Z",
           },
@@ -655,6 +783,46 @@ describe("disposable runtime authority", () => {
     );
   });
 
+  it("reads every bounded Neon cursor page and rejects cursor cycles", async () => {
+    const requests: string[] = [];
+    const neon = new NeonBranches(async (input) => {
+      requests.push(input);
+      if (input.includes("cursor=page-2"))
+        return Response.json({
+          branches: [
+            {
+              id: "page-two-branch",
+              name: `trusted-acceptance-${"7".repeat(24)}`,
+              expires_at: "2026-07-26T11:00:00.000Z",
+            },
+          ],
+          pagination: {},
+        });
+      return Response.json({ branches: [], pagination: { next: "page-2" } });
+    }, "injected-management-token");
+    assert.deepEqual(
+      await neon.listByPrefixAndExpiry("declared-neon-project"),
+      [
+        {
+          leaseId: "7".repeat(24),
+          branchId: "page-two-branch",
+          expiresAt: "2026-07-26T11:00:00.000Z",
+        },
+      ],
+    );
+    assert.equal(requests.length, 2);
+    assert.match(requests[1]!, /cursor=page-2/);
+
+    const cycling = new NeonBranches(
+      async () => Response.json({ branches: [], pagination: { next: "same" } }),
+      "injected-management-token",
+    );
+    await assert.rejects(
+      cycling.listByPrefixAndExpiry("declared-neon-project"),
+      /repeated pagination cursor/,
+    );
+  });
+
   it("persists redacted events in order using the injected clock", async () => {
     const saved: RuntimeLease[] = [];
     const authority = new DisposableRuntimeAuthority(
@@ -725,10 +893,10 @@ describe("disposable runtime authority", () => {
       );
     };
     const keys = new OpenRouterKeys(fetch, "injected-management-token");
-    await keys.create("lease-id", "2026-07-26T13:00:00.000Z", 0.01);
+    await keys.create("lease-id", "content", "2026-07-26T13:00:00.000Z", 0.01);
     await keys.disableByHash("opaque-key-hash");
     assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {
-      name: "trusted-acceptance-lease-id",
+      name: "trusted-acceptance-lease-id-content",
       limit: 0.01,
       limit_reset: null,
       expires_at: "2026-07-26T13:00:00.000Z",

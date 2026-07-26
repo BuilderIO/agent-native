@@ -52,6 +52,7 @@ export type RuntimeLease = {
     memberId: string;
     neonBranchId?: string;
     netlifySiteId: string;
+    runtimeWriteAttempted?: boolean;
     runtimeOwned?: boolean;
     inferenceKeyHash?: string;
     tombstoneDeployId?: string;
@@ -221,35 +222,55 @@ export class NeonBranches {
   async listByPrefixAndExpiry(
     projectId: string,
   ): Promise<Array<{ leaseId: string; branchId: string; expiresAt: string }>> {
-    const body = await json(
-      await this.fetch(
-        `${NEON_API}/projects/${encodeURIComponent(projectId)}/branches`,
-        { headers: { authorization: `Bearer ${this.token}` } },
-      ),
-    );
-    return ((body.branches ?? []) as Array<Record<string, unknown>>).flatMap(
-      (branch) => {
-        if (typeof branch.name !== "string") return [];
-        if (!branch.name.startsWith("trusted-acceptance-")) return [];
-        const match = /^trusted-acceptance-([a-f0-9]{24})$/.exec(branch.name);
-        if (
-          !match ||
-          typeof branch.id !== "string" ||
-          typeof branch.expires_at !== "string"
-        ) {
-          throw new Error(
-            "Neon returned a malformed trusted acceptance branch",
-          );
-        }
-        return [
-          {
-            leaseId: match[1]!,
-            branchId: branch.id,
-            expiresAt: branch.expires_at,
-          },
-        ];
-      },
-    );
+    const branches: Array<Record<string, unknown>> = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    let pageCount = 0;
+    do {
+      pageCount += 1;
+      if (pageCount > 100)
+        throw new Error(
+          "Neon branch inventory exceeded the bounded page limit",
+        );
+      const query = new URLSearchParams({ limit: "100" });
+      if (cursor) query.set("cursor", cursor);
+      const body = await json(
+        await this.fetch(
+          `${NEON_API}/projects/${encodeURIComponent(projectId)}/branches?${query}`,
+          { headers: { authorization: `Bearer ${this.token}` } },
+        ),
+      );
+      if (!Array.isArray(body.branches))
+        throw new Error("Neon returned a malformed branch inventory");
+      branches.push(...(body.branches as Array<Record<string, unknown>>));
+      const pagination = body.pagination as Record<string, unknown> | undefined;
+      const next = pagination?.next;
+      if (next !== undefined && typeof next !== "string")
+        throw new Error("Neon returned a malformed pagination cursor");
+      if (next && seenCursors.has(next))
+        throw new Error("Neon returned a repeated pagination cursor");
+      if (next) seenCursors.add(next);
+      cursor = next || undefined;
+    } while (cursor);
+    return branches.flatMap((branch) => {
+      if (typeof branch.name !== "string") return [];
+      if (!branch.name.startsWith("trusted-acceptance-")) return [];
+      const match = /^trusted-acceptance-([a-f0-9]{24})$/.exec(branch.name);
+      if (
+        !match ||
+        typeof branch.id !== "string" ||
+        typeof branch.expires_at !== "string"
+      ) {
+        throw new Error("Neon returned a malformed trusted acceptance branch");
+      }
+      return [
+        {
+          leaseId: match[1]!,
+          branchId: branch.id,
+          expiresAt: branch.expires_at,
+        },
+      ];
+    });
   }
 }
 
@@ -261,6 +282,7 @@ export class OpenRouterKeys {
 
   async create(
     leaseId: string,
+    memberId: string,
     expiresAt: string,
     maxUsd: number,
   ): Promise<{ plaintext: string; hash: string }> {
@@ -276,7 +298,7 @@ export class OpenRouterKeys {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          name: `trusted-acceptance-${leaseId}`,
+          name: `trusted-acceptance-${leaseId}-${memberId}`,
           limit: maxUsd,
           limit_reset: null,
           expires_at: expiresAt,
@@ -315,7 +337,12 @@ export class OpenRouterKeys {
   }
 
   async listByPrefixAndExpiry(): Promise<
-    Array<{ leaseId: string; hash: string; expiresAt: string }>
+    Array<{
+      leaseId: string;
+      memberId: string;
+      hash: string;
+      expiresAt: string;
+    }>
   > {
     const body = await json(
       await this.fetch(`${OPENROUTER_API}/keys`, {
@@ -326,7 +353,10 @@ export class OpenRouterKeys {
       (item) => {
         if (typeof item.name !== "string") return [];
         if (!item.name.startsWith("trusted-acceptance-")) return [];
-        const match = /^trusted-acceptance-([a-f0-9]{24})$/.exec(item.name);
+        const match =
+          /^trusted-acceptance-([a-f0-9]{24})-([a-z0-9][a-z0-9-]*)$/.exec(
+            item.name,
+          );
         if (
           !match ||
           typeof item.hash !== "string" ||
@@ -339,6 +369,7 @@ export class OpenRouterKeys {
         return [
           {
             leaseId: match[1]!,
+            memberId: match[2]!,
             hash: item.hash,
             expiresAt: item.expires_at,
           },
@@ -582,7 +613,11 @@ type DiscoveredBranch = {
   branchId: string;
   expiresAt: string;
 };
-type DiscoveredKey = { hash: string; expiresAt: string };
+type DiscoveredKey = {
+  memberId: string;
+  hash: string;
+  expiresAt: string;
+};
 type DiscoveredMarker = { memberId: string; expiresAt: string };
 
 function parsedExpiry(expiresAt: string, source: string): number {
@@ -645,20 +680,27 @@ export async function discoverExpiredLeases(
 
   const keysByLease = new Map<string, DiscoveredKey[]>();
   for (const key of await providers.openrouter.listByPrefixAndExpiry()) {
-    if (!leaseIdPattern.test(key.leaseId) || !key.hash)
+    if (
+      !leaseIdPattern.test(key.leaseId) ||
+      !key.hash ||
+      !config.members.some(
+        (member) => member.id === key.memberId && member.needsInference,
+      )
+    )
       throw new Error(
-        "OpenRouter returned an invalid trusted acceptance lease id",
+        "OpenRouter returned an invalid trusted acceptance lease member",
       );
     const keys = keysByLease.get(key.leaseId) ?? [];
-    if (keys.some((entry) => entry.hash === key.hash))
+    if (
+      keys.some(
+        (entry) => entry.hash === key.hash || entry.memberId === key.memberId,
+      )
+    )
       throw new Error("OpenRouter returned a duplicate trusted acceptance key");
-    keys.push({ hash: key.hash, expiresAt: key.expiresAt });
+    keys.push(key);
     keysByLease.set(key.leaseId, keys);
   }
 
-  const inferenceMembers = config.members.filter(
-    (member) => member.needsInference,
-  );
   const leaseIds = new Set([
     ...branchesByLease.keys(),
     ...markersByLease.keys(),
@@ -677,9 +719,7 @@ export async function discoverExpiredLeases(
   return [...leaseIds].flatMap((id) => {
     const branches = branchesByLease.get(id) ?? [];
     const markers = markersByLease.get(id) ?? [];
-    const keys = (keysByLease.get(id) ?? []).toSorted((left, right) =>
-      left.hash.localeCompare(right.hash),
-    );
+    const keys = keysByLease.get(id) ?? [];
     const expiries = [
       ...branches.map((branch) => parsedExpiry(branch.expiresAt, "Neon")),
       ...markers.map((marker) => parsedExpiry(marker.expiresAt, "Netlify")),
@@ -708,11 +748,7 @@ export async function discoverExpiredLeases(
       throw new Error(
         "trusted acceptance lease has inconsistent provider expiries",
       );
-    if (keys.length > inferenceMembers.length) {
-      throw new Error(
-        "trusted acceptance lease has undeclared inference handles",
-      );
-    }
+    const keysByMember = new Map(keys.map((key) => [key.memberId, key]));
     return [
       {
         id,
@@ -721,17 +757,13 @@ export async function discoverExpiredLeases(
         state: "active" as const,
         members: config.members.map((member) => {
           const branch = branchesByMember.get(member.id);
-          const inferenceIndex = inferenceMembers.findIndex(
-            (candidate) => candidate.id === member.id,
-          );
+          const key = keysByMember.get(member.id);
           return {
             memberId: member.id,
             netlifySiteId: member.netlifySiteId,
             runtimeOwned: markerMembers.has(member.id),
             ...(branch ? { neonBranchId: branch.branchId } : {}),
-            ...(inferenceIndex >= 0 && keys[inferenceIndex]
-              ? { inferenceKeyHash: keys[inferenceIndex].hash }
-              : {}),
+            ...(key ? { inferenceKeyHash: key.hash } : {}),
           };
         }),
         journal: [],
@@ -847,6 +879,7 @@ export class DisposableRuntimeAuthority {
           try {
             key = await this.providers.openrouter.create(
               lease.id,
+              member.id,
               lease.expiresAt,
               this.config.maxInferenceUsd,
             );
@@ -870,6 +903,8 @@ export class DisposableRuntimeAuthority {
           );
         }
         await this.record(lease, "before", "set-netlify-runtime", "pending");
+        durableMember.runtimeWriteAttempted = true;
+        await this.journalStore.save(lease);
         try {
           await this.providers.netlify.setRuntime(
             member.netlifyAccountId,
@@ -952,14 +987,18 @@ export class DisposableRuntimeAuthority {
         );
         inferenceDisabled &&= disabled;
       }
-      if (durableMember.runtimeOwned) {
-        const stillOwned = await this.providers.netlify.ownsLease(
-          member.netlifyAccountId,
-          member.netlifySiteId,
-          lease.id,
-          lease.expiresAt,
-        );
-        if (!stillOwned) {
+      if (durableMember.runtimeOwned || durableMember.runtimeWriteAttempted) {
+        let stillOwned = false;
+        let ownershipVerified = true;
+        try {
+          stillOwned = await this.providers.netlify.ownsLease(
+            member.netlifyAccountId,
+            member.netlifySiteId,
+            lease.id,
+            lease.expiresAt,
+          );
+        } catch {
+          ownershipVerified = false;
           runtimeVariablesAbsent = false;
           tombstoneActive = false;
           await this.record(
@@ -969,7 +1008,8 @@ export class DisposableRuntimeAuthority {
             "failed",
             member.netlifySiteId,
           );
-        } else {
+        }
+        if (stillOwned) {
           const absent = await this.cleanup(
             lease,
             "remove-netlify-runtime",
@@ -997,6 +1037,16 @@ export class DisposableRuntimeAuthority {
             },
           );
           tombstoneActive &&= tombstoned;
+        } else if (ownershipVerified) {
+          runtimeVariablesAbsent = false;
+          tombstoneActive = false;
+          await this.record(
+            lease,
+            "verification",
+            "verify-netlify-lease-owner",
+            "failed",
+            member.netlifySiteId,
+          );
         }
       }
       if (durableMember.neonBranchId) {
