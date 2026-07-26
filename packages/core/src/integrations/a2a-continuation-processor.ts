@@ -955,9 +955,18 @@ async function persistAndFinalizeConfirmedA2ADelivery(
     throw new Error("Confirmed A2A delivery is missing durable history");
   }
   let lastError: unknown;
+  let historyFinalized = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await persistA2AContinuationDelivery(continuation, history);
+      if (!historyFinalized) {
+        await persistA2AContinuationDelivery(continuation, history);
+        await finalizeA2ATerminalHistory(continuation.id);
+        historyFinalized = true;
+        logA2AContinuationTransition(
+          "terminal_history_persisted",
+          continuation,
+        );
+      }
       await completeParentCampaignAfterTerminalA2A({
         ...continuation,
         status:
@@ -965,17 +974,33 @@ async function persistAndFinalizeConfirmedA2ADelivery(
             ? "completed"
             : "failed",
       });
-      await finalizeA2ATerminalHistory(continuation.id);
-      logA2AContinuationTransition("terminal_history_persisted", continuation);
       return;
     } catch (err) {
       lastError = err;
     }
   }
   console.error(
-    `[integrations] A2A continuation ${continuation.id} has a provider receipt but its history remains retryable:`,
+    historyFinalized
+      ? `[integrations] A2A continuation ${continuation.id} finalized history but parent completion remains retryable:`
+      : `[integrations] A2A continuation ${continuation.id} has a provider receipt but its history remains retryable:`,
     lastError instanceof Error ? lastError.name : "persistence_error",
   );
+  if (historyFinalized) {
+    await dispatchPendingIntegrationTask({
+      taskId: continuation.integrationTaskId,
+      task: {
+        platform: continuation.platform,
+        externalThreadId: continuation.externalThreadId,
+        platformContext: continuation.incoming.platformContext,
+      },
+    }).catch((err) => {
+      console.error(
+        `[integrations] Failed to wake A2A parent ${continuation.integrationTaskId} after terminal history finalization:`,
+        err,
+      );
+    });
+    return;
+  }
   await rescheduleAndRedispatchA2AContinuation(continuation.id);
 }
 

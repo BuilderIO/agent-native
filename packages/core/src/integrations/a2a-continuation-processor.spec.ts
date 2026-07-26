@@ -1461,7 +1461,7 @@ describe("A2A continuation processor", () => {
     );
   });
 
-  it("keeps receipt-backed parent completion recoverable before finalizing history", async () => {
+  it("wakes receipt-backed parent recovery after finalizing history", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -1487,13 +1487,18 @@ describe("A2A continuation processor", () => {
     expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledTimes(
       3,
     );
-    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
-    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
-      "cont-1",
-      20_000,
-    );
+    expect(completeA2AContinuationMock).toHaveBeenCalledOnce();
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith({
+      taskId: "task-1",
+      task: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    });
     expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("history remains retryable"),
+      expect.stringContaining("parent completion remains retryable"),
       "Error",
     );
   });

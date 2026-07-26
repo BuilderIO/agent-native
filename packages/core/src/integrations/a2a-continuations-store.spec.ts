@@ -202,10 +202,7 @@ describe("A2A continuations store", () => {
       [{ status: "completed", terminal_delivery_confirmed_at: 10 }],
       "terminal-delivered",
     ],
-    [
-      [{ status: "delivering", terminal_delivery_confirmed_at: 10 }],
-      "terminal-delivered",
-    ],
+    [[{ status: "delivering", terminal_delivery_confirmed_at: 10 }], "active"],
     [
       [
         { status: "delivering", terminal_delivery_confirmed_at: 10 },
