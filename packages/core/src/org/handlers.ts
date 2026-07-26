@@ -43,7 +43,7 @@ import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
@@ -488,7 +488,7 @@ export const acceptInvitationHandler = defineEventHandler(
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
       });
-      await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+      await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
         orgName,
@@ -506,7 +506,7 @@ export const acceptInvitationHandler = defineEventHandler(
       args: [invitationId],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+    await setActiveOrgId(email, invOrgId, "accepted invitation");
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -778,7 +778,7 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
         )
       : null;
 
-  await putUserSetting(ctx.email, "active-org-id", { orgId: nextOrgId });
+  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
 
   return { success: true, orgId: ctx.orgId, nextOrgId };
 });
@@ -792,7 +792,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await putUserSetting(email, "active-org-id", { orgId: null });
+    await setActiveOrgId(email, null, "cleared active organization");
     return { orgId: null, orgName: null, role: null };
   }
 
@@ -812,7 +812,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await putUserSetting(email, "active-org-id", { orgId });
+  await setActiveOrgId(email, orgId, "user switched organization");
 
   const row = membership.rows[0] as any;
   return {
@@ -871,7 +871,7 @@ export const joinByDomainHandler = defineEventHandler(
       args: [nanoid(), orgId, email, Date.now()],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId });
+    await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
     return {
       orgId,

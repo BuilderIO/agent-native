@@ -52,6 +52,35 @@ const LITERAL_RE = /(?:"local@localhost"|'local@localhost'|`local@localhost`)/g;
 
 const SYMBOLIC_FALLBACK_RE = /(?:\?\?|\|\|)\s*DEV_MODE_USER_EMAIL\b/g;
 
+/**
+ * Ambient process identity used as a request-scoped fallback:
+ *
+ *   const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+ *   const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;
+ *
+ * These name the identity of the deployment, not the caller, so a request
+ * handler reading one authorizes whoever the env names — failing open toward
+ * more privilege. Only the `??` / `||` fallback position matches: reading the
+ * same env var to build an admin allowlist asks a different, safe question.
+ */
+const AMBIENT_ENV_FALLBACK_RE =
+  /(?:\?\?|\|\|)\s*process\.env\.(?:AGENT_USER_EMAIL|AGENT_ORG_ID|AGENT_USER_NAME|WORKSPACE_OWNER_EMAIL)\b/g;
+const AMBIENT_HELPER_FALLBACK_RE =
+  /(?:\?\?|\|\|)\s*getAmbient(?:UserEmail|OrgId)\s*\(\s*\)/g;
+
+/** Paths where an ambient identity is correct because no request exists by
+ * construction: CLI entrypoints, cron, seed and QA scripts, tests. */
+const AMBIENT_ALLOWED_PATH_PREDICATES: Array<(rel: string) => boolean> = [
+  (rel) => /(?:^|\/)scripts\//.test(rel),
+  (rel) => /(?:^|\/)src\/cli\//.test(rel),
+  (rel) => /(?:^|\/)src\/scripts\//.test(rel),
+  (rel) => /(?:^|\/)script-(?:helpers|entries)\.ts$/.test(rel),
+  (rel) => /\.spec\.[tj]sx?$/.test(rel),
+  (rel) => /\.test\.[tj]sx?$/.test(rel),
+  (rel) => /\/seed\//.test(rel),
+  (rel) => /\/seeds\//.test(rel),
+];
+
 const SQL_DEFAULT_RE = /\bDEFAULT\s+['"`]local@localhost['"`]/i;
 const DRIZZLE_DEFAULT_RE = /\.default\s*\(\s*['"`]local@localhost['"`]\s*\)/;
 
@@ -82,12 +111,52 @@ export function scanLocalhostFallback(
     if (!/\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(file)) continue;
     if (file.endsWith(".d.ts")) continue;
     const rel = relPosix(root, file);
-    if (isAllowedPath(rel, extraExemptPaths)) continue;
+    const literalAllowed = isAllowedPath(rel, extraExemptPaths);
+    const ambientAllowed = AMBIENT_ALLOWED_PATH_PREDICATES.some((p) => p(rel));
+    if (literalAllowed && ambientAllowed) continue;
 
     const contents = readFileSafe(file);
-    if (contents === null || !contents.includes("local@localhost")) continue;
+    if (contents === null) continue;
 
     const lines = contents.split("\n");
+
+    if (!ambientAllowed) {
+      for (const re of [AMBIENT_ENV_FALLBACK_RE, AMBIENT_HELPER_FALLBACK_RE]) {
+        re.lastIndex = 0;
+        let a: RegExpExecArray | null;
+        while ((a = re.exec(contents)) !== null) {
+          const { line } = lineColForOffset(contents, a.index);
+          const lineText = lines[line - 1] ?? "";
+          if (isCommentLine(lineText)) continue;
+          if (hasValidOptOut(lines, line - 1)) continue;
+          findings.push({
+            file: rel,
+            line,
+            message: `Ambient process identity used as a request-scoped fallback: ${lineText.trim()}. This authorizes whoever the deploy env names, not the signed-in user — fail closed on a missing caller, or call getAmbientUserEmail() from a CLI/cron path.`,
+          });
+        }
+      }
+    }
+
+    if (literalAllowed) continue;
+
+    // Scanned before the literal bail-out below: aliasing is exactly how this
+    // shape hides in a file that never spells out the literal itself.
+    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
+    let s: RegExpExecArray | null;
+    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line } = lineColForOffset(contents, s.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (hasValidOptOut(lines, line - 1)) continue;
+      findings.push({
+        file: rel,
+        line,
+        message: `DEV_MODE_USER_EMAIL used as a fallback identity: ${lineText.trim()}. Throw/401 on missing session instead.`,
+      });
+    }
+
+    if (!contents.includes("local@localhost")) continue;
 
     LITERAL_RE.lastIndex = 0;
     let m: RegExpExecArray | null;

@@ -1,5 +1,5 @@
 import { getDbExec } from "../db/client.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??

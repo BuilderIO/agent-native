@@ -103,9 +103,25 @@ interface Surface {
   protectedPath: string;
   /** A same-origin path that belongs to a DIFFERENT app on this host. */
   siblingPath: string;
-  /** How this row's real end-to-end behaviour is covered. */
+  /**
+   * How this row's real end-to-end behaviour is covered ON TOP of the four
+   * invariants below, which every row asserts against the shipped runtime.
+   *
+   * `"browser"` means `pnpm qa:sign-in` boots this deploy and drives the real
+   * login document. Claim it only for a deploy that smoke actually starts —
+   * a row that says "browser" and is not in `BROWSER_DRIVEN_SURFACES` is a
+   * coverage claim nobody honours, which is the failure this file exists to
+   * make impossible.
+   */
   driver: "browser" | "request";
 }
+
+/**
+ * The surfaces `scripts/qa-sign-in-matrix-smoke.ts` really boots: the root
+ * deploy, the `/chatapp` deploy, and the root deploy inside a cross-origin
+ * iframe. Kept here so a row cannot quietly promote itself to "browser".
+ */
+const BROWSER_DRIVEN_SURFACES = new Set([1, 2, 3]);
 
 const SURFACES: Surface[] = [
   {
@@ -130,6 +146,9 @@ const SURFACES: Surface[] = [
     basePath: "",
     protectedPath: "/decks/42?edit=1",
     siblingPath: "/login",
+    // Browser-driven for WHERE THE FRAME LANDS only. Whether a partitioned
+    // third-party cookie is delivered is a different, still-open problem; the
+    // smoke cannot prove it and does not claim to.
     driver: "browser",
   },
   {
