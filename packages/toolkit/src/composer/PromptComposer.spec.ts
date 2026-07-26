@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -38,6 +40,17 @@ describe("shouldGateComposerForMissingEngine", () => {
         hasSetupComponent: true,
       }),
     ).toBe(false);
+  });
+
+  it("is the only thing besides the host flag that can disable typing", () => {
+    const source = readFileSync("src/composer/PromptComposer.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("disabled={disabled || gateComposer}");
+    // An unresolved status check must never reach `disabled` again — that is
+    // what produced an inert contenteditable box that swallowed keystrokes.
+    expect(source).not.toContain("agentEngineUnavailable");
   });
 });
 
