@@ -905,7 +905,13 @@ export async function syncGrantsToApp(
   }
 
   if (secretsToSync.length === 0) {
-    return { appId, accessMode: access.mode, synced: 0, keys: [] };
+    return {
+      appId,
+      accessMode: access.mode,
+      synced: 0,
+      keys: [],
+      credentialStores: [],
+    };
   }
 
   // `all-apps` mode lists secrets across every org the caller can see, so each

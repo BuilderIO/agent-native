@@ -823,6 +823,91 @@ describe("resolveOrgIdForEmail", () => {
   });
 });
 
+describe("membership fallback ordering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rows: [] });
+    mockGetUserSetting.mockResolvedValue(null);
+    mockGetSetting.mockResolvedValue(null);
+    delete process.env.AUTO_CREATE_DEFAULT_ORG;
+  });
+
+  // A multi-org user with no valid persisted active-org-id falls back to the
+  // "first" membership. Row order for an unordered SELECT is a Postgres plan
+  // detail, so without ORDER BY the same user can land in a different org
+  // between two identical requests — and getSession then freezes that
+  // arbitrary answer into session.orgId.
+  const DETERMINISTIC_ORDER = "ORDER BY joined_at ASC, org_id ASC";
+
+  it("asks the database to order memberships by join time in getOrgContext", async () => {
+    mockGetSession.mockResolvedValue({ email: "multi@b.com" });
+    queueSelect([{ orgId: "oldest", role: "owner", orgName: "Oldest Co" }]);
+
+    await getOrgContext(makeEvent());
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  it("asks the database to order memberships by join time in resolveOrgIdForEmail", async () => {
+    queueSelect([{ org_id: "oldest" }, { org_id: "newest" }]);
+
+    await resolveOrgIdForEmail("multi@b.com");
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  it("asks the database to order memberships by join time in resolveOrgIdForEmailViaEvent", async () => {
+    queueSelect([
+      { orgId: "oldest", role: "owner", orgName: "Oldest Co" },
+      { orgId: "newest", role: "member", orgName: "Newest Co" },
+    ]);
+
+    await resolveOrgIdForEmailViaEvent(makeEvent(), "multi@b.com");
+
+    const { sql } = mockExecute.mock.calls[0][0];
+    expect(sql).toContain("FROM org_members");
+    expect(sql).toContain(DETERMINISTIC_ORDER);
+  });
+
+  // The three resolvers must not disagree: session backfill writes
+  // session.orgId from one of them, and getOrgContext then honors it forever.
+  it("resolves the same org from every entry point for a multi-org user", async () => {
+    mockGetSession.mockResolvedValue({ email: "multi@b.com" });
+    const ordered = [
+      {
+        orgId: "oldest",
+        org_id: "oldest",
+        role: "owner",
+        orgName: "Oldest Co",
+      },
+      {
+        orgId: "newest",
+        org_id: "newest",
+        role: "member",
+        orgName: "Newest Co",
+      },
+    ];
+
+    queueSelect(ordered);
+    const viaContext = await getOrgContext(makeEvent());
+    queueSelect(ordered);
+    const viaEmail = await resolveOrgIdForEmail("multi@b.com");
+    queueSelect(ordered);
+    const viaEvent = await resolveOrgIdForEmailViaEvent(
+      makeEvent(),
+      "multi@b.com",
+    );
+
+    expect(viaContext.orgId).toBe("oldest");
+    expect(viaEmail).toBe("oldest");
+    expect(viaEvent).toBe("oldest");
+  });
+});
+
 describe("createOrganization", () => {
   beforeEach(() => {
     vi.clearAllMocks();

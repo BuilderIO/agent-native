@@ -1262,8 +1262,9 @@ export async function deleteBuilderCredentials(
 
 /**
  * Resolve a request-scoped secret. Reads from `app_secrets` first (current
- * user override, active org, then workspace row); falls back to `process.env`
- * only when the deploy fallback policy allows it.
+ * user override, active org, workspace row for that org, then the solo
+ * workspace row); falls back to `process.env` only when the deploy fallback
+ * policy allows it.
  */
 export async function resolveSecret(key: string): Promise<string | null> {
   const resolved = await resolveSecretDetailed(key);
@@ -1349,20 +1350,25 @@ export async function resolveSecretDetailed(
           }
           return { value: workspaceSecret.value, lookupFailed: false };
         }
-      } else {
-        const soloWorkspaceSecret = await readAppSecret({
-          key,
-          scope: "workspace",
-          scopeId: `solo:${email}`,
-        });
-        if (soloWorkspaceSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} scope=workspace-solo hit=true`,
-            );
-          }
-          return { value: soloWorkspaceSecret.value, lookupFailed: false };
+      }
+
+      // Solo-workspace fallback: always checked, even when an org id was found
+      // above. A secret written before the user joined/created an org lives
+      // here, and must not become unreachable once that org exists. It stays
+      // inside this try so a failed org-scoped read still surfaces as
+      // retryable instead of being answered by a stale pre-org row.
+      const soloWorkspaceSecret = await readAppSecret({
+        key,
+        scope: "workspace",
+        scopeId: `solo:${email}`,
+      });
+      if (soloWorkspaceSecret?.value) {
+        if (traceLookup) {
+          console.log(
+            `[resolve-secret] key=${key} email=${email} orgId=${orgId ?? "(none)"} scope=workspace-solo hit=true`,
+          );
         }
+        return { value: soloWorkspaceSecret.value, lookupFailed: false };
       }
     } catch (err) {
       if (traceLookup) {

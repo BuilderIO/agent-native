@@ -90,8 +90,9 @@ export async function resolveCredentialForScope(
  *   3. org-scoped app_secrets
  *   4. legacy workspace-scoped app_secrets for the org
  *   5. org-scoped legacy settings credential
+ *   6. solo workspace-scoped app_secrets (`solo:<email>`)
  *
- * Without an active org, step 3 is replaced by the solo workspace scope.
+ * Steps 3-5 are skipped without an active org.
  */
 export async function resolveCredential(
   key: string,
@@ -119,9 +120,17 @@ export async function resolveCredential(
     );
     if (workspaceSecret) return workspaceSecret;
 
-    return resolveCredentialForScope(key, { ...ctx, scope: "org" });
+    const orgSetting = await resolveCredentialForScope(key, {
+      ...ctx,
+      scope: "org",
+    });
+    if (orgSetting) return orgSetting;
   }
 
+  // Solo-workspace fallback: always checked, even when an org id was found
+  // above. A credential written before the user joined/created an org lives
+  // here, and must not become unreachable once that org exists. Last on
+  // purpose — a current org-scoped value always wins over a pre-org one.
   return readScopedAppSecret(key, "workspace", `solo:${ctx.userEmail}`);
 }
 
