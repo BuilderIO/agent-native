@@ -296,7 +296,8 @@ async function ensureRunTables(): Promise<void> {
           terminal_reason TEXT,
           dispatch_mode TEXT,
           diag_stage TEXT,
-          dispatch_payload TEXT
+          dispatch_payload TEXT,
+          peak_rss_mb ${intType()}
         )
       `;
       const agentRunEventsCreateSql = `
@@ -389,6 +390,14 @@ async function ensureRunTables(): Promise<void> {
           ["dispatch_mode", "TEXT"],
           ["diag_stage", "TEXT"],
           ["worker_stage", "TEXT"],
+          // peak_rss_mb: high-water resident memory, bumped on the heartbeat
+          // write that already happens. An OOM kill is SIGKILL — no handler
+          // runs, nothing is logged, and the run just stops mid-token — so the
+          // ONLY way to tell "ran out of memory" from "hit a wall clock" after
+          // the fact is a memory trace that climbs to a ceiling and stops.
+          // Assets background workers die ~10s into a 780s budget with this
+          // signature and Netlify's function logs are not retrievable.
+          ["peak_rss_mb", intType()],
           // dispatch_payload holds the JSON request body for a background
           // dispatch so the self-POST to the Netlify background function can
           // stay tiny (Netlify caps background-function request bodies at
@@ -1367,9 +1376,30 @@ export async function updateRunHeartbeat(runId: string): Promise<void> {
   // prod: heartbeat continued ~400s past completed_at), which confuses
   // triage and can keep /runs/active looking "fresh" after failure.
   await client.execute({
-    sql: `UPDATE agent_runs SET heartbeat_at = ? WHERE id = ? AND status = 'running'`,
-    args: [Date.now(), runId],
+    sql: `UPDATE agent_runs
+          SET heartbeat_at = ?,
+              peak_rss_mb = CASE
+                WHEN peak_rss_mb IS NULL OR peak_rss_mb < ? THEN ?
+                ELSE peak_rss_mb
+              END
+          WHERE id = ? AND status = 'running'`,
+    args: [Date.now(), currentRssMb(), currentRssMb(), runId],
   });
+}
+
+/**
+ * Resident memory in whole MB, or 0 where the runtime does not expose it
+ * (Workers, Deno). Piggybacks the heartbeat rather than adding a timer: a run
+ * killed by the platform never gets to report anything, so the last persisted
+ * high-water mark is the only evidence that survives.
+ */
+function currentRssMb(): number {
+  try {
+    const rss = process.memoryUsage?.().rss;
+    return typeof rss === "number" ? Math.round(rss / 1024 / 1024) : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**

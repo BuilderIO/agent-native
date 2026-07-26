@@ -24,6 +24,16 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- A `catch`, default, or coercion that returns a value callers cannot
+  distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
+  be different values; a truncated run is not a completed one; a dropped payload
+  is not an empty one. Six weeks of repeat user reports traced back to this one
+  habit — each layer coerced a failure into a clean value, so every layer above
+  it reported something confidently wrong and nobody, including us, could see
+  it. Prefer a loud, typed failure over a plausible-looking normal state.
+- Before adding a condition to a function that already stacks several special
+  cases, stop: that shape is how the same bug ships twice. Fix the boundary that
+  made the special case necessary, and delete the ones it subsumes.
 - Write few code comments. Only comment a constraint the code cannot show, such
   as a non-obvious trap a future change would otherwise reintroduce. Never
   comment what the next line does, why a change is correct, or where it came
