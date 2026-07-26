@@ -59,6 +59,26 @@ describe("createCliTelemetry", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("does not create an installation id until an event is tracked", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
+    process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY = "anpk_unit_test_key";
+
+    createCliTelemetry({
+      cli: "skills-installer",
+      cliVersion: "9.9.9",
+      command: "add",
+      interactive: false,
+    });
+
+    expect(
+      fs.existsSync(path.join(home, ".agent-native", "installation-id")),
+    ).toBe(false);
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
   it("falls back to the embedded public key when no env override is set", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "an-telemetry-"));
     process.env.HOME = home;

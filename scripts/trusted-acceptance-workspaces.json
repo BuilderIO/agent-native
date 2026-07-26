@@ -1,12 +1,14 @@
 {
-  "revision": "2",
+  "revision": "3",
   "workspaces": [
     {
       "id": "calendar-content",
       "enabled": false,
       "runtimeAuthority": {
         "lifecycle": "ephemeral-per-run",
-        "provisioner": "unconfigured"
+        "provisioner": {
+          "kind": "unconfigured"
+        }
       },
       "assertions": [
         "A1",
@@ -52,6 +54,10 @@
             "databaseUrl": "ACCEPTANCE_CONTENT_DATABASE_URL",
             "betterAuthSecret": "ACCEPTANCE_CONTENT_BETTER_AUTH_SECRET",
             "a2aSecret": "ACCEPTANCE_WORKSPACE_A2A_SECRET"
+          },
+          "inference": {
+            "provider": "openrouter",
+            "engine": "ai-sdk:openrouter"
           },
           "build": {
             "command": "pnpm --filter content build",

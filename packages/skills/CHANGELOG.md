@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.413
+
+### Patch Changes
+
+- 648c2d7: Install Rewind through Agent Native's complete local Screen Memory setup instead of treating it as a plain public skill, route every supported Rewind name through the same fail-before-writes checks, reject missing or disconnected local stores, keep explicit-store retrieval bound to Clips' feature configuration, and guide first-time users through consent-gated Clips Desktop setup.
+- Updated dependencies [648c2d7]
+  - @agent-native/core@0.122.4
+
 ## 0.2.412
 
 ### Patch Changes
