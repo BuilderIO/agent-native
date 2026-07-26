@@ -5,6 +5,52 @@ export type WorkflowGuardResult = {
   issues: string[];
 };
 
+export type GuardedRuntimeWorkspace = {
+  enabled?: boolean;
+  runtimeAuthority?: {
+    lifecycle?: string;
+    provisioner?: { kind?: string; profileMapVariable?: string };
+  };
+};
+
+export function validateRuntimeAuthorityConfiguration(
+  workspaces: readonly GuardedRuntimeWorkspace[] | undefined,
+): WorkflowGuardResult {
+  const issues: string[] = [];
+  if (!workspaces?.length) {
+    issues.push("trusted acceptance must declare at least one workspace");
+    return { ok: false, issues };
+  }
+  for (const [index, workspace] of workspaces.entries()) {
+    const authority = workspace.runtimeAuthority;
+    if (authority?.lifecycle !== "ephemeral-per-run") {
+      issues.push(
+        `workspace ${index} must require ephemeral per-run authority`,
+      );
+    }
+    const kind = authority?.provisioner?.kind;
+    if (kind !== "unconfigured" && kind !== "trusted-lease-v1") {
+      issues.push(
+        `workspace ${index} must use an approved authority provisioner`,
+      );
+    }
+    if (workspace.enabled && kind === "unconfigured") {
+      issues.push(
+        `workspace ${index} must remain disabled without a configured authority provisioner`,
+      );
+    }
+    if (
+      kind === "trusted-lease-v1" &&
+      authority?.provisioner?.profileMapVariable !==
+        "ACCEPTANCE_AUTHORITY_PROFILES_JSON"
+    )
+      issues.push(
+        `workspace ${index} must use the generic protected profile map`,
+      );
+  }
+  return { ok: issues.length === 0, issues };
+}
+
 function section(source: string, start: string, end: string): string {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex + start.length);
@@ -81,11 +127,13 @@ export function validateTrustedAcceptanceWorkflow(
     if (!deploy.includes("Check out trusted controller")) {
       issues.push("deploy job must use default-branch controller code");
     }
-    if (!deploy.includes("Verify artifact provenance before credentials")) {
+    if (
+      !deploy.includes("Verify every artifact provenance before credentials")
+    ) {
       issues.push("artifact provenance must be checked before deployment");
     }
     if (
-      !deploy.includes("scripts/netlify-sites.json") ||
+      !deploy.includes('readFileSync("scripts/netlify-sites.json"') ||
       !deploy.includes("known production site ID")
     ) {
       issues.push(
@@ -97,7 +145,7 @@ export function validateTrustedAcceptanceWorkflow(
     }
     if (
       !deploy.includes(
-        '--functions "$ARTIFACT_DIR/.netlify/functions-internal"',
+        '--functions "$artifact_dir/.netlify/functions-internal"',
       )
     ) {
       issues.push(
@@ -116,9 +164,25 @@ export function validateTrustedAcceptanceWorkflow(
         "privileged upload must run from an empty trusted directory, not candidate files",
       );
     }
-    const secretIndex = deploy.indexOf("secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN");
+    if (deploy.includes("strategy:") || deploy.includes("matrix.")) {
+      issues.push("privileged authority must operate on one whole workspace");
+    }
+    if (
+      !deploy.includes("Acquire one whole-workspace disposable lease") ||
+      !deploy.includes("Revoke one whole-workspace disposable lease") ||
+      !deploy.includes("if: ${{ always() }}")
+    ) {
+      issues.push("whole-workspace cleanup must run unconditionally");
+    }
+    if (
+      !deploy.includes("vars.ACCEPTANCE_AUTHORITY_PROFILES_JSON") ||
+      deploy.includes("ACCEPTANCE_CALENDAR_CONTENT_AUTHORITY_PROFILE")
+    ) {
+      issues.push("authority profiles must use the generic protected mapping");
+    }
+    const secretIndex = deploy.indexOf("secrets.ACCEPTANCE_NEON_API_KEY");
     const verifyIndex = deploy.indexOf(
-      "Verify artifact provenance before credentials",
+      "Verify every artifact provenance before credentials",
     );
     if (secretIndex === -1 || secretIndex < verifyIndex) {
       issues.push(
@@ -126,7 +190,7 @@ export function validateTrustedAcceptanceWorkflow(
       );
     }
     if (
-      /pnpm\s+(?:run\s+)?(?:build|install)|npm\s+(?:run\s+)?build/.test(
+      /working-directory:\s+candidate|pnpm\s+(?:run\s+)?(?:build|install)|npm\s+(?:run\s+)?build/.test(
         deploy.slice(secretIndex),
       )
     ) {
@@ -136,13 +200,18 @@ export function validateTrustedAcceptanceWorkflow(
     }
   }
 
-  if (count(source, /secrets\.ACCEPTANCE_NETLIFY_AUTH_TOKEN/g) !== 1) {
+  if (count(source, /secrets\.ACCEPTANCE_NETLIFY_AUTH_TOKEN/g) !== 3) {
     issues.push(
-      "acceptance Netlify credential must appear in exactly one step",
+      "acceptance Netlify credential must appear only in acquire, deploy, and revoke steps",
     );
   }
-  if (count(source, /vars\[matrix\.siteIdVariable\]/g) !== 1) {
-    issues.push("acceptance site variable must appear in exactly one step");
+  if (
+    count(source, /secrets\.ACCEPTANCE_NEON_API_KEY/g) !== 2 ||
+    count(source, /secrets\.ACCEPTANCE_OPENROUTER_API_KEY/g) !== 2
+  ) {
+    issues.push(
+      "provider authority credentials must appear only in acquire and revoke",
+    );
   }
   if (count(source, /ref: \$\{\{ github\.sha \}\}/g) !== 3) {
     issues.push(
@@ -194,31 +263,64 @@ export function validateTrustedAcceptanceWorkflow(
   return { ok: issues.length === 0, issues };
 }
 
+export function validateTrustedAcceptanceReaper(
+  source: string,
+): WorkflowGuardResult {
+  const issues: string[] = [];
+  if (!source.includes("workflow_dispatch:") || !source.includes("schedule:"))
+    issues.push("reaper must support manual and scheduled recovery");
+  if (/pull_request:|path:\s+candidate/.test(source))
+    issues.push("reaper must never execute candidate-controlled code");
+  if (!source.includes('RUN_REF" != "refs/heads/main"'))
+    issues.push("reaper must fail closed unless dispatched from main");
+  if (!source.includes("ref: ${{ github.sha }}"))
+    issues.push("reaper must pin trusted code to the dispatch SHA");
+  if (!source.includes("environment: trusted-acceptance"))
+    issues.push("reaper must use the protected acceptance environment");
+  if (
+    !source.includes("matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}") ||
+    !source.includes("group: trusted-acceptance-${{ matrix.workspace }}") ||
+    !source.includes("cancel-in-progress: false")
+  )
+    issues.push("reaper must serialize against each acceptance workspace");
+  if (
+    !source.includes("vars.ACCEPTANCE_AUTHORITY_PROFILES_JSON") ||
+    source.includes("ACCEPTANCE_CALENDAR_CONTENT_AUTHORITY_PROFILE")
+  )
+    issues.push("reaper must use the generic protected profile mapping");
+  if (!source.includes("controller.ts reap"))
+    issues.push("reaper must invoke the trusted runtime-authority controller");
+  return { ok: issues.length === 0, issues };
+}
+
 function main(): void {
   const workflow = readFileSync(
     ".github/workflows/trusted-acceptance.yml",
     "utf8",
   );
   const result = validateTrustedAcceptanceWorkflow(workflow);
+  const reaper = validateTrustedAcceptanceReaper(
+    readFileSync(".github/workflows/trusted-acceptance-reaper.yml", "utf8"),
+  );
+  if (!reaper.ok) {
+    result.ok = false;
+    result.issues.push(...reaper.issues);
+  }
   const config = JSON.parse(
     readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"),
   ) as {
     workspaces?: Array<{
-      runtimeAuthority?: { lifecycle?: string; provisioner?: string };
+      enabled?: boolean;
+      runtimeAuthority?: {
+        lifecycle?: string;
+        provisioner?: { kind?: string; profileMapVariable?: string };
+      };
     }>;
   };
-  if (
-    !config.workspaces?.length ||
-    config.workspaces.some(
-      ({ runtimeAuthority }) =>
-        runtimeAuthority?.lifecycle !== "ephemeral-per-run" ||
-        runtimeAuthority.provisioner !== "unconfigured",
-    )
-  ) {
+  const authority = validateRuntimeAuthorityConfiguration(config.workspaces);
+  if (!authority.ok) {
     result.ok = false;
-    result.issues.push(
-      "bootstrap must fail closed without a trusted ephemeral runtime authority provisioner",
-    );
+    result.issues.push(...authority.issues);
   }
   if (!result.ok) {
     for (const issue of result.issues)

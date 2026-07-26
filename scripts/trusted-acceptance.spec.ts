@@ -22,7 +22,7 @@ function config(): TrustedAcceptanceConfig {
         enabled: false,
         runtimeAuthority: {
           lifecycle: "ephemeral-per-run",
-          provisioner: "unconfigured",
+          provisioner: { kind: "unconfigured" },
         },
         assertions: ["A1", "A2", "A3"],
         members: [
@@ -79,7 +79,7 @@ describe("trusted acceptance configuration", () => {
       enabled: false,
       runtimeAuthority: {
         lifecycle: "ephemeral-per-run",
-        provisioner: "unconfigured",
+        provisioner: { kind: "unconfigured" },
       },
       assertions: ["A1"],
       members: [
@@ -213,6 +213,51 @@ describe("trusted acceptance configuration", () => {
     });
   });
 
+  it("accepts a typed trusted lease provisioner while the workspace remains disabled", () => {
+    const fixture = config();
+    fixture.workspaces[0]!.runtimeAuthority.provisioner = {
+      kind: "trusted-lease-v1",
+      profileMapVariable: "ACCEPTANCE_AUTHORITY_PROFILES_JSON",
+    };
+    const result = createTrustedAcceptancePlan(
+      fixture,
+      ["calendar", "content"],
+      "calendar-content-acceptance",
+      true,
+    );
+    assert.equal(result.ok, true);
+  });
+
+  it("rejects unsafe authority profiles and directory fixture targets", () => {
+    const fixture = config();
+    fixture.workspaces[0]!.runtimeAuthority.provisioner = {
+      kind: "trusted-lease-v1",
+      profileMapVariable: "PRODUCTION_AUTHORITY_PROFILE" as never,
+    };
+    fixture.workspaces[0]!.directoryFixture = {
+      origin: "https://directory-production.example.test",
+      siteIdVariable: "PRODUCTION_DIRECTORY_NETLIFY_SITE_ID",
+      withdrawnMemberId: "missing",
+    };
+    const result = validateTrustedAcceptanceConfig(fixture, [
+      "calendar",
+      "content",
+    ]);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert(
+        result.issues.some(({ path }) =>
+          path.endsWith("runtimeAuthority.provisioner.profileMapVariable"),
+        ),
+      );
+      assert(
+        result.issues.some(({ path }) =>
+          path.endsWith("directoryFixture.withdrawnMemberId"),
+        ),
+      );
+    }
+  });
+
   it("rejects reusable runtime authority configuration", () => {
     const fixture = config();
     (
@@ -308,6 +353,25 @@ describe("trusted acceptance receipts", () => {
       rollbackTarget: "b".repeat(40),
       priorKnownGoodSha: "b".repeat(40),
       currentKnownGoodSha: sha,
+      lease: {
+        id: "lease-123",
+        issuedAt: "2026-07-25T11:59:00.000Z",
+        expiresAt: "2026-07-25T12:30:00.000Z",
+        revokedAt: "2026-07-25T12:01:00.000Z",
+        state: "revoked",
+      },
+      cleanup: {
+        inferenceAuthority: "verified-absent",
+        databaseBranches: "verified-absent",
+        runtimeConfiguration: "verified-absent",
+        tombstoneDeployIds: ["tombstone-calendar-123"],
+        verifiedAt: "2026-07-25T12:01:00.000Z",
+      },
+      scenarios: {
+        stableDiscovery: "pass",
+        discoveryWithdrawal: "pass",
+        taskRouteContinuity: "pass",
+      },
     };
     assert.deepEqual(validateTrustedAcceptanceReceipt(receipt), {
       ok: true,
@@ -384,6 +448,39 @@ describe("trusted acceptance receipts", () => {
           message.includes("configured assertion"),
         ),
       );
+    }
+  });
+
+  it("rejects a passing result until cleanup and fault scenarios are verified", () => {
+    const receipt: TrustedAcceptanceReceipt = {
+      actor: "maintainer-123",
+      runUrl: "https://github.com/BuilderIO/agent-native/actions/runs/123",
+      operation: "candidate",
+      pullRequest: 42,
+      sha,
+      controllerSha: "c".repeat(40),
+      configRevision: "3",
+      workspace: "calendar-content-acceptance",
+      members: [
+        {
+          template: "calendar",
+          origin: "https://calendar-acceptance.example.test",
+          deployId: "deploy-calendar-123",
+        },
+      ],
+      assertions: [{ id: "A1", state: "pass" }],
+      startedAt: "2026-07-25T12:00:00.000Z",
+      completedAt: "2026-07-25T12:01:00.000Z",
+      result: "pass",
+      rollbackTarget: "b".repeat(40),
+      priorKnownGoodSha: "b".repeat(40),
+      currentKnownGoodSha: sha,
+    };
+    const result = validateTrustedAcceptanceReceipt(receipt);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert(result.issues.some(({ path }) => path === "cleanup"));
+      assert(result.issues.some(({ path }) => path === "scenarios"));
     }
   });
 });
