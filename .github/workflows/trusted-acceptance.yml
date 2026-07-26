@@ -1,0 +1,447 @@
+name: Trusted acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      workspace:
+        description: Declarative acceptance workspace
+        required: true
+        type: string
+        default: calendar-content
+      pull_request:
+        description: Open same-repository pull request number
+        required: false
+        type: string
+      sha:
+        description: Full current pull request head SHA
+        required: false
+        type: string
+      rollback_sha:
+        description: Optional prior known-good full SHA to redeploy
+        required: false
+        type: string
+      rollback_run_id:
+        description: Prior passing trusted-acceptance run containing rollback receipt
+        required: false
+        type: string
+      deploy:
+        description: Deploy after planning and secretless builds
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: trusted-acceptance-${{ inputs.workspace }}
+  cancel-in-progress: false
+
+env:
+  TRUSTED_REPOSITORY: BuilderIO/agent-native
+  CONFIG_FILE: scripts/trusted-acceptance-workspaces.json
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      controller_sha: ${{ github.sha }}
+      config_revision: ${{ steps.plan.outputs.config_revision }}
+      effective_sha: ${{ steps.provenance.outputs.effective_sha }}
+      operation: ${{ steps.provenance.outputs.operation }}
+      pull_request: ${{ steps.provenance.outputs.pull_request }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      assertions: ${{ steps.plan.outputs.assertions }}
+    steps:
+      - name: Require the trusted default-branch controller
+        env:
+          RUN_REF: ${{ github.ref }}
+        run: |
+          if [[ "$RUN_REF" != "refs/heads/main" ]]; then
+            echo "Dispatch this workflow from main so controller code is trusted." >&2
+            exit 1
+          fi
+
+      - name: Check out trusted controller
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install trusted controller dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify candidate or known-good rollback provenance
+        id: provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pull_request }}
+          SELECTED_SHA: ${{ inputs.sha }}
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+          ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
+          WORKSPACE: ${{ inputs.workspace }}
+        run: |
+          if [[ -n "$ROLLBACK_SHA" ]]; then
+            if [[ -n "$PR_NUMBER" || -n "$SELECTED_SHA" ]]; then
+              echo "Rollback runs must not include candidate pull_request or sha inputs." >&2
+              exit 1
+            fi
+            if [[ ! "$ROLLBACK_RUN_ID" =~ ^[0-9]+$ ]]; then
+              echo "rollback_run_id must identify a prior passing run." >&2
+              exit 1
+            fi
+            if [[ ! "$ROLLBACK_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "rollback_sha must be a full lowercase 40-character SHA" >&2
+              exit 1
+            fi
+            resolved_sha="$(gh api "repos/$TRUSTED_REPOSITORY/commits/$ROLLBACK_SHA" --jq .sha)"
+            if [[ "$resolved_sha" != "$ROLLBACK_SHA" ]]; then
+              echo "rollback_sha did not resolve exactly in $TRUSTED_REPOSITORY" >&2
+              exit 1
+            fi
+            effective_sha="$ROLLBACK_SHA"
+            available_templates="$(find templates -mindepth 2 -maxdepth 2 -name package.json -print | sed 's#templates/##;s#/package.json##' | sort | paste -sd, -)"
+            pnpm tsx scripts/trusted-acceptance.ts plan --file "$CONFIG_FILE" --templates "$available_templates" --workspace "$WORKSPACE" --allow-disabled > "$RUNNER_TEMP/rollback-plan.json"
+            expected_assertions="$(node -e 'const p=require(process.env.RUNNER_TEMP + "/rollback-plan.json"); if (!p.ok) process.exit(1); process.stdout.write(JSON.stringify(p.plan.assertions))')"
+            gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID" > "$RUNNER_TEMP/prior-run.json"
+            node - <<'NODE'
+            const fs = require("node:fs");
+            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+            if (run.path !== ".github/workflows/trusted-acceptance.yml" || run.event !== "workflow_dispatch" || run.conclusion !== "success" || run.head_branch !== "main") {
+              throw new Error("rollback_run_id must be a successful main dispatch of the trusted acceptance workflow");
+            }
+            NODE
+            artifact_id="$(gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"trusted-acceptance-receipt-$ROLLBACK_RUN_ID\") | .id" | head -n 1)"
+            if [[ -z "$artifact_id" ]]; then
+              echo "No trusted acceptance receipt artifact found for rollback_run_id." >&2
+              exit 1
+            fi
+            gh api "repos/$TRUSTED_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/prior-receipt.zip"
+            prior_receipt="$RUNNER_TEMP/prior-receipt.json"
+            unzip -p "$RUNNER_TEMP/prior-receipt.zip" trusted-acceptance-receipt.json > "$prior_receipt"
+            test -s "$prior_receipt"
+            pnpm tsx scripts/trusted-acceptance.ts receipt --file "$prior_receipt" --expected-assertions "$expected_assertions"
+            node - "$prior_receipt" <<'NODE'
+            const fs = require("node:fs");
+            const receipt = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+            const expectedRunUrl = `https://github.com/${process.env.TRUSTED_REPOSITORY}/actions/runs/${process.env.ROLLBACK_RUN_ID}`;
+            if (receipt.result !== "pass" || receipt.runUrl !== expectedRunUrl || receipt.controllerSha !== run.head_sha || receipt.workspace !== process.env.WORKSPACE || receipt.currentKnownGoodSha !== process.env.ROLLBACK_SHA) {
+              throw new Error("Rollback SHA is not the known-good SHA from the selected passing workspace receipt");
+            }
+            NODE
+            operation="rollback"
+            receipt_pr=""
+          else
+            if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ || ! "$SELECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Candidate runs require pull_request and a full lowercase head sha." >&2
+              exit 1
+            fi
+            if [[ -n "$ROLLBACK_RUN_ID" ]]; then
+              echo "rollback_run_id is only valid with rollback_sha." >&2
+              exit 1
+            fi
+            gh api "repos/$TRUSTED_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq '{number, state, headSha: .head.sha, headRepository: .head.repo.full_name, isFork: (.head.repo.fork or (.head.repo.full_name != .base.repo.full_name))}' \
+              > "$RUNNER_TEMP/pull-request.json"
+            pnpm tsx scripts/trusted-acceptance.ts provenance \
+              --file "$RUNNER_TEMP/pull-request.json" \
+              --sha "$SELECTED_SHA" \
+              --repository "$TRUSTED_REPOSITORY"
+            effective_sha="$SELECTED_SHA"
+            operation="candidate"
+            receipt_pr="$PR_NUMBER"
+          fi
+          echo "effective_sha=$effective_sha" >> "$GITHUB_OUTPUT"
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "pull_request=$receipt_pr" >> "$GITHUB_OUTPUT"
+
+      - name: Validate config and produce generic member matrix
+        id: plan
+        env:
+          WORKSPACE: ${{ inputs.workspace }}
+          DEPLOY: ${{ inputs.deploy }}
+        run: |
+          templates="$(find templates -mindepth 2 -maxdepth 2 -name package.json -print | sed 's#templates/##;s#/package.json##' | sort | paste -sd, -)"
+          args=(plan --file "$CONFIG_FILE" --templates "$templates" --workspace "$WORKSPACE")
+          if [[ "$DEPLOY" != "true" ]]; then
+            args+=(--allow-disabled)
+          fi
+          pnpm tsx scripts/trusted-acceptance.ts "${args[@]}" > "$RUNNER_TEMP/plan.json"
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const plan = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/plan.json", "utf8"));
+          if (!plan.ok) throw new Error(JSON.stringify(plan.issues));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `config_revision=${plan.plan.revision}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.plan.members })}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `assertions=${JSON.stringify(plan.plan.assertions)}\n`);
+          NODE
+
+      - name: Record dry-run plan
+        env:
+          EFFECTIVE_SHA: ${{ steps.provenance.outputs.effective_sha }}
+          MATRIX: ${{ steps.plan.outputs.matrix }}
+        run: |
+          {
+            echo "## Trusted acceptance plan"
+            echo
+            echo "- Workspace: \`${{ inputs.workspace }}\`"
+            echo "- Exact SHA: \`$EFFECTIVE_SHA\`"
+            echo "- Deploy requested: \`${{ inputs.deploy }}\`"
+            echo "- Generic member matrix: \`$MATRIX\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out candidate without persistent credentials
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.plan.outputs.effective_sha }}
+          path: candidate
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: candidate/.nvmrc
+          cache: pnpm
+          cache-dependency-path: candidate/pnpm-lock.yaml
+
+      - name: Install candidate dependencies without runtime credentials
+        working-directory: candidate
+        run: pnpm install --frozen-lockfile
+
+      - name: Build candidate without runtime or deployment credentials
+        working-directory: candidate
+        env:
+          AGENT_NATIVE_BUILD_SHA: ${{ needs.plan.outputs.effective_sha }}
+          NITRO_PRESET: netlify
+        run: ${{ matrix.build.command }}
+
+      - name: Package inert build output
+        working-directory: candidate
+        env:
+          ACCEPTANCE_SHA: ${{ needs.plan.outputs.effective_sha }}
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          test -d "${{ matrix.build.publishDirectory }}"
+          mkdir -p "$RUNNER_TEMP/acceptance-artifact/$TEMPLATE"
+          cp -R "${{ matrix.build.publishDirectory }}" "$RUNNER_TEMP/acceptance-artifact/$TEMPLATE/publish"
+          if [[ -d "templates/$TEMPLATE/.netlify" ]]; then
+            cp -R "templates/$TEMPLATE/.netlify" "$RUNNER_TEMP/acceptance-artifact/$TEMPLATE/.netlify"
+          fi
+          node -e 'require("node:fs").writeFileSync(process.env.RUNNER_TEMP + "/acceptance-artifact/" + process.env.TEMPLATE + "/build-metadata.json", JSON.stringify({sha: process.env.ACCEPTANCE_SHA, template: process.env.TEMPLATE}))'
+
+      - name: Upload inert candidate artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trusted-acceptance-build-${{ matrix.template }}
+          path: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    if: ${{ inputs.deploy }}
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    environment: trusted-acceptance
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install pinned deployment client before credentials enter the job
+        run: npm install --global netlify-cli@27.0.0 --ignore-scripts
+
+      - name: Resolve isolated acceptance site before credentials enter the step
+        id: site
+        env:
+          SITE_ID: ${{ vars[matrix.siteIdVariable] }}
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          if [[ -z "$SITE_ID" ]]; then
+            echo "The trusted-acceptance environment has no site ID for $TEMPLATE." >&2
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const productionSites = Object.values(JSON.parse(fs.readFileSync("scripts/netlify-sites.json", "utf8")));
+          if (productionSites.includes(process.env.SITE_ID)) {
+            throw new Error("Acceptance deployment resolved to a known production site ID");
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `site_id=${process.env.SITE_ID}\n`);
+          NODE
+
+      - name: Download inert candidate artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: trusted-acceptance-build-${{ matrix.template }}
+          path: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
+
+      - name: Verify artifact provenance before credentials enter the step
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.effective_sha }}
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = `${process.env.RUNNER_TEMP}/acceptance-artifact/${process.env.TEMPLATE}/build-metadata.json`;
+          const metadata = JSON.parse(fs.readFileSync(path, "utf8"));
+          if (metadata.sha !== process.env.EXPECTED_SHA || metadata.template !== process.env.TEMPLATE) {
+            throw new Error("Candidate artifact provenance mismatch");
+          }
+          NODE
+          mkdir -p "$RUNNER_TEMP/trusted-acceptance-deploy"
+
+      - name: Deploy inert artifact to isolated acceptance site
+        working-directory: ${{ runner.temp }}/trusted-acceptance-deploy
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.ACCEPTANCE_NETLIFY_AUTH_TOKEN }}
+          SITE_ID: ${{ steps.site.outputs.site_id }}
+          TEMPLATE: ${{ matrix.template }}
+        run: |
+          if [[ -z "$NETLIFY_AUTH_TOKEN" ]]; then
+            echo "The trusted-acceptance environment is not provisioned for $TEMPLATE." >&2
+            exit 1
+          fi
+          raw_result="$(mktemp)"
+          trap 'rm -f "$raw_result"' EXIT
+          netlify deploy --prod --no-build --json --auth "$NETLIFY_AUTH_TOKEN" --site "$SITE_ID" --dir "$ARTIFACT_DIR/publish" --functions "$ARTIFACT_DIR/.netlify/functions-internal" > "$raw_result"
+          node - "$raw_result" "$RUNNER_TEMP/deploy-$TEMPLATE.json" <<'NODE'
+          const fs = require("node:fs");
+          const result = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+          const deployId = result.deploy_id ?? result.id;
+          if (!deployId) throw new Error("Netlify did not return a deploy ID");
+          fs.writeFileSync(process.argv[3], JSON.stringify({template: process.env.TEMPLATE, deployId}));
+          NODE
+
+      - name: Upload redacted deployment result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trusted-acceptance-deploy-${{ matrix.template }}
+          path: ${{ runner.temp }}/deploy-${{ matrix.template }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  receipt:
+    if: ${{ always() && needs.plan.result == 'success' }}
+    needs: [plan, build, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted receipt validator
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install trusted receipt dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Download redacted deployment results
+        if: ${{ inputs.deploy && needs.deploy.result == 'success' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: trusted-acceptance-deploy-*
+          path: ${{ runner.temp }}/deploy-results
+          merge-multiple: true
+
+      - name: Assemble and validate redacted receipt
+        env:
+          ACTOR: ${{ github.actor }}
+          ASSERTIONS: ${{ needs.plan.outputs.assertions }}
+          CONFIG_REVISION: ${{ needs.plan.outputs.config_revision }}
+          CONTROLLER_SHA: ${{ needs.plan.outputs.controller_sha }}
+          DEPLOY_REQUESTED: ${{ inputs.deploy }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          OPERATION: ${{ needs.plan.outputs.operation }}
+          PR_NUMBER: ${{ needs.plan.outputs.pull_request }}
+          ROLLBACK_SHA: ${{ inputs.rollback_sha }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ needs.plan.outputs.effective_sha }}
+          WORKSPACE: ${{ inputs.workspace }}
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const members = JSON.parse(process.env.MATRIX).include.map(member => {
+            const resultPath = path.join(process.env.RUNNER_TEMP, "deploy-results", `deploy-${member.template}.json`);
+            const deployId = fs.existsSync(resultPath)
+              ? JSON.parse(fs.readFileSync(resultPath, "utf8")).deployId
+              : null;
+            return {template: member.template, origin: member.origin, deployId};
+          });
+          const deployed = process.env.DEPLOY_REQUESTED === "true" && process.env.DEPLOY_RESULT === "success";
+          const assertions = JSON.parse(process.env.ASSERTIONS).map(id => ({
+            id,
+            state: "blocked",
+            evidencePointer: deployed ? "workflow://runtime-proof-pending" : "workflow://dry-run-only",
+          }));
+          const receipt = {
+            actor: process.env.ACTOR,
+            runUrl: process.env.RUN_URL,
+            operation: process.env.OPERATION,
+            pullRequest: process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : null,
+            sha: process.env.SHA,
+            controllerSha: process.env.CONTROLLER_SHA,
+            configRevision: process.env.CONFIG_REVISION,
+            workspace: process.env.WORKSPACE,
+            members,
+            assertions,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            result: "blocked",
+            rollbackTarget: process.env.ROLLBACK_SHA || null,
+            priorKnownGoodSha: process.env.ROLLBACK_SHA || null,
+            currentKnownGoodSha: null,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + "/trusted-acceptance-receipt.json", JSON.stringify(receipt, null, 2));
+          NODE
+          pnpm tsx scripts/trusted-acceptance.ts receipt --file "$RUNNER_TEMP/trusted-acceptance-receipt.json" --expected-assertions "$ASSERTIONS"
+          {
+            echo "## Trusted acceptance receipt"
+            echo
+            echo "The repository substrate ran for exact SHA \`$SHA\`. Runtime OAuth/A2A assertions remain blocked until the isolated workspace is provisioned and enabled."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload redacted acceptance receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trusted-acceptance-receipt-${{ github.run_id }}
+          path: ${{ runner.temp }}/trusted-acceptance-receipt.json
+          if-no-files-found: error
+          retention-days: 90
