@@ -5,11 +5,16 @@ import { fileURLToPath } from "node:url";
 
 import { getDbExec } from "@agent-native/core/db";
 import {
+  deleteAppSecret,
+  writeAppSecret,
+  type SecretScope,
+} from "@agent-native/core/secrets";
+import {
   getBuilderBranchProjectId,
   getRequestContext,
   isIntegrationCallerRequest,
   resolveBuilderBranchProjectId,
-  resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getSetting, putSetting } from "@agent-native/core/settings";
@@ -30,6 +35,9 @@ import {
 } from "./workspace-resources-store.js";
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
+const BUILDER_BRANCH_PROJECT_SECRET_KEY = "BUILDER_BRANCH_PROJECT_ID";
+const BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION =
+  "Builder project for cloud code-change branches (set in Dispatch)";
 const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
@@ -207,6 +215,16 @@ function scopedSettingsKey(): string {
   const orgId = currentOrgId();
   if (orgId) return `${SETTINGS_KEY}:org:${orgId}`;
   return `${SETTINGS_KEY}:user:${currentOwnerEmail()}`;
+}
+
+function builderProjectSecretTarget(): {
+  scope: Extract<SecretScope, "org" | "workspace">;
+  scopeId: string;
+} | null {
+  const orgId = currentOrgId();
+  if (orgId) return { scope: "org", scopeId: orgId };
+  const email = currentOwnerEmail();
+  return email ? { scope: "workspace", scopeId: `solo:${email}` } : null;
 }
 
 function workspaceAppMetadataSettingsKey(): string {
@@ -1500,6 +1518,29 @@ export async function setAppCreationSettings(input: {
   await assertCanManageAppCreationSettings();
   const builderProjectId = input.builderProjectId?.trim() || null;
   const raw = await readSettingsRecord();
+
+  // The credential store, not this settings row, is what
+  // `resolveBuilderBranchProjectId()` reads. Write it first: a saved setting
+  // whose secret never landed reports the project as configured while cloud
+  // code changes stay silently disabled.
+  const secretTarget = builderProjectSecretTarget();
+  if (secretTarget) {
+    const ref = {
+      key: BUILDER_BRANCH_PROJECT_SECRET_KEY,
+      scope: secretTarget.scope,
+      scopeId: secretTarget.scopeId,
+    };
+    if (builderProjectId) {
+      await writeAppSecret({
+        ...ref,
+        value: builderProjectId,
+        description: BUILDER_BRANCH_PROJECT_SECRET_DESCRIPTION,
+      });
+    } else {
+      await deleteAppSecret(ref);
+    }
+  }
+
   await putSetting(scopedSettingsKey(), { ...raw, builderProjectId });
   await recordAudit({
     action: "settings.updated",
@@ -1649,7 +1690,7 @@ function normalizeBuilderRunResult(result: unknown): {
 }
 
 async function remoteAppCreationAuthorization(): Promise<
-  { ok: true } | { ok: false; message: string }
+  { ok: true } | { ok: false; reason: "identity-not-linked"; message: string }
 > {
   const ownerEmail = currentOwnerEmail();
   const isIntegrationCaller = isIntegrationCallerRequest();
@@ -1658,6 +1699,7 @@ async function remoteAppCreationAuthorization(): Promise<
     if (await defaultOwnerAppCreationAllowed()) return { ok: true };
     return {
       ok: false,
+      reason: "identity-not-linked",
       message:
         "Messaging-triggered app creation is using the deployment default Dispatch owner. " +
         "Link the messaging identity to a Dispatch user with /link, start the app from Dispatch while signed in, or explicitly set ENABLE_BUILDER=true for this deployment.",
@@ -1670,6 +1712,7 @@ async function remoteAppCreationAuthorization(): Promise<
     : "Synthetic integration";
   return {
     ok: false,
+    reason: "identity-not-linked",
     message:
       `${source} app creation needs a trusted Dispatch owner before Builder can start a branch. ` +
       "Link the messaging identity to a Dispatch user with /link, start the app from Dispatch while signed in, or explicitly set ENABLE_BUILDER=true for this deployment.",
@@ -1788,6 +1831,65 @@ async function grantSelectedWorkspaceResources(input: {
   await grantWorkspaceResourcesToApp(input);
 }
 
+/**
+ * Discriminates why `startWorkspaceAppCreation` could not hand off to Builder.
+ * UIs and agents should branch on this instead of parsing `message` text.
+ */
+export type AppCreationUnavailableReason =
+  | "identity-not-linked"
+  | "builder-not-connected"
+  | "credential-store-unavailable"
+  | "builder-error";
+
+export interface AppCreationIdentityUnavailableResult {
+  mode: "builder-unavailable";
+  appId: string;
+  reason: "identity-not-linked";
+  message: string;
+}
+
+export interface AppCreationBuilderUnavailableResult {
+  mode: "builder-unavailable";
+  appId: string;
+  reason: Exclude<AppCreationUnavailableReason, "identity-not-linked">;
+  message: string;
+  /** Raw underlying error text for agents/operators debugging the deployment. */
+  detail?: string;
+  projectId: string;
+}
+
+export interface AppCreationLocalAgentResult {
+  mode: "local-agent";
+  appId: string;
+  prompt: string;
+  message: string;
+}
+
+export interface AppCreationComingSoonResult {
+  mode: "coming-soon";
+  appId: string;
+  message: string;
+}
+
+export interface AppCreationBuilderResult {
+  mode: "builder";
+  appId: string;
+  path: string;
+  projectId: string;
+  branchName: string;
+  url: string;
+  workspaceUrl: string | null;
+  status: string;
+  message: string;
+}
+
+export type StartWorkspaceAppCreationResult =
+  | AppCreationIdentityUnavailableResult
+  | AppCreationBuilderUnavailableResult
+  | AppCreationLocalAgentResult
+  | AppCreationComingSoonResult
+  | AppCreationBuilderResult;
+
 export async function startWorkspaceAppCreation(input: {
   prompt: string;
   appId?: string | null;
@@ -1795,7 +1897,7 @@ export async function startWorkspaceAppCreation(input: {
   template?: string | null;
   secretIds?: string[];
   resourceIds?: string[];
-}) {
+}): Promise<StartWorkspaceAppCreationResult> {
   const initial = buildWorkspaceAppPrompt({
     prompt: input.prompt,
     appId: input.appId,
@@ -1811,6 +1913,7 @@ export async function startWorkspaceAppCreation(input: {
       return {
         mode: "builder-unavailable",
         appId: initial.appId,
+        reason: authorization.reason,
         message: authorization.message,
       };
     }
@@ -1866,14 +1969,51 @@ export async function startWorkspaceAppCreation(input: {
     };
   }
 
+  let builderCreds: Awaited<
+    ReturnType<typeof resolveBuilderCredentialsDetailed>
+  >;
+  try {
+    builderCreds = await resolveBuilderCredentialsDetailed();
+  } catch {
+    return {
+      mode: "builder-unavailable",
+      appId: built.appId,
+      reason: "credential-store-unavailable",
+      projectId: settings.builderProjectId,
+      message:
+        "Could not read your Builder connection just now. Try creating the app again in a moment.",
+    };
+  }
+
+  if (builderCreds.lookupFailed) {
+    return {
+      mode: "builder-unavailable",
+      appId: built.appId,
+      reason: "credential-store-unavailable",
+      projectId: settings.builderProjectId,
+      message:
+        "Could not read your Builder connection just now. Try creating the app again in a moment.",
+    };
+  }
+
+  if (!builderCreds.privateKey || !builderCreds.publicKey) {
+    return {
+      mode: "builder-unavailable",
+      appId: built.appId,
+      reason: "builder-not-connected",
+      projectId: settings.builderProjectId,
+      message: "Connect your Builder account to create apps from Dispatch.",
+    };
+  }
+
+  const builderUserId = builderCreds.userId || undefined;
+
   let result: {
     branchName: string;
     url: string;
     status: string;
   };
   try {
-    const builderCreds = await resolveBuilderCredentials().catch(() => null);
-    const builderUserId = builderCreds?.userId || undefined;
     result = normalizeBuilderRunResult(
       await runBuilderAgent({
         prompt,
@@ -1891,11 +2031,11 @@ export async function startWorkspaceAppCreation(input: {
     return {
       mode: "builder-unavailable",
       appId: built.appId,
+      reason: "builder-error",
       projectId: settings.builderProjectId,
+      detail,
       message:
-        `Builder app creation is configured for project ${settings.builderProjectId}, ` +
-        `but it could not start yet: ${detail}. Connect Builder for this user, ` +
-        `link the messaging identity to that user, or configure deployment-managed Builder credentials for this workspace.`,
+        "Builder could not start the app branch. This is usually temporary — try again.",
     };
   }
 

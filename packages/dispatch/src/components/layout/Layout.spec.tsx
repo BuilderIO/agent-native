@@ -170,6 +170,39 @@ describe("Dispatch NavContent", () => {
     expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
   });
 
+  it("keeps Dispatch branding and anchors Settings above the organization picker", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("Dispatch");
+    expect(container.textContent).not.toContain("Agent-Native");
+
+    const settingsLink = container.querySelector('a[href="/settings"]');
+    const organization = [...container.querySelectorAll("div")].find(
+      (element) => element.textContent?.trim() === "Organization",
+    );
+    const footerActions = container.querySelector(
+      "[data-sidebar-footer-actions]",
+    );
+
+    expect(settingsLink).not.toBeNull();
+    expect(organization).toBeDefined();
+    expect(footerActions).not.toBeNull();
+    expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
   it("uses the shared chat history rail and retains thread actions", async () => {
     await act(async () => {
       root.render(

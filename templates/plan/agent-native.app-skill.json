@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "plans",
-  "displayName": "Agent-Native Plan",
+  "displayName": "Plan",
   "description": "Generate and review coding-agent plans as structured visual documents with diagrams, wireframes, prototypes, annotations, share links, feedback, and HTML export.",
   "hosted": {
     "url": "https://plan.agent-native.com",

@@ -3002,17 +3002,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     const workspace = searchTab("workspace");
     return [
       {
-        ...agent,
-        icon: IconHierarchy2,
-        group: "agent",
-        href: "/agent#settings",
-        searchEntries: undefined,
-        content: <Navigate to="/agent#settings" replace />,
-      },
-      {
         ...connections,
         icon: IconPlugConnected,
-        group: "agent",
+        group: "workspace",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
@@ -3046,6 +3038,14 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         group: "workspace",
         keywords: "extensions widgets mini apps tools sandboxed apps",
         content: <ExtensionsSettingsContent />,
+      },
+      {
+        ...agent,
+        icon: IconHierarchy2,
+        group: "manage-agent",
+        href: "/agent#settings",
+        searchEntries: undefined,
+        content: <Navigate to="/agent#settings" replace />,
       },
     ];
   }, [baseProps]);

@@ -1290,6 +1290,51 @@ export async function getThreadByShareToken(
   return null;
 }
 
+/**
+ * Grant a user an explicit share on a thread they don't own. Used by the
+ * messaging-integration path, where a channel conversation runs as the
+ * integration service principal and so creates a thread owned by
+ * `integration@<platform>` rather than the human who asked — without this the
+ * "Open thread" deep link resolves to a 404 for them.
+ *
+ * Idempotent, and never downgrades an existing stronger role.
+ */
+export async function grantThreadUserShare(
+  threadId: string,
+  userEmail: string,
+  role: ShareRole,
+  grantedBy: string,
+): Promise<void> {
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  if (!threadId || !normalizedEmail.includes("@")) return;
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT id, role FROM chat_thread_shares WHERE resource_id = ? AND principal_type = 'user' AND LOWER(principal_id) = ?`,
+    args: [threadId, normalizedEmail],
+  });
+  const existing = rows[0];
+  if (existing) {
+    if (roleSatisfies(existing.role as ShareRole, role)) return;
+    await client.execute({
+      sql: `UPDATE chat_thread_shares SET role = ? WHERE id = ?`,
+      args: [role, existing.id as string],
+    });
+    return;
+  }
+  await client.execute({
+    sql: `INSERT INTO chat_thread_shares (id, resource_id, principal_type, principal_id, role, created_by, created_at) VALUES (?, ?, 'user', ?, ?, ?, ?)`,
+    args: [
+      crypto.randomUUID(),
+      threadId,
+      normalizedEmail,
+      role,
+      grantedBy,
+      new Date().toISOString(),
+    ],
+  });
+}
+
 export async function deleteThread(id: string): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();

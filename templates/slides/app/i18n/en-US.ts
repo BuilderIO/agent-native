@@ -121,6 +121,7 @@ const messages = {
     uploadAttachedFailed: "Could not upload the attached file.",
     uploadFailed: "Upload failed",
     doubleClickEdit: "Double-click any text to edit",
+    dragToMove: "Drag to move",
     aiEditing: "AI editing",
     startTypingCommands: "Start typing… or press / for commands",
     pinDropHint: "Click anywhere to drop a comment pin",
@@ -210,6 +211,7 @@ const messages = {
     elementAnimations: "Element animations",
     tweaks: "Tweaks",
     drawOnSlide: "Draw on slide",
+    addTextBox: "Add text box",
     pinComments: "Pin comments",
     pinCommentsDescription:
       "Click spots on the slide to queue several edits, then send them all at once.",

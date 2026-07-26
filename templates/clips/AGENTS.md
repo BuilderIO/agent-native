@@ -17,7 +17,11 @@ ladder.
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
   base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
+  or `resources`; persist URLs, ids, or handles instead. Hosted/shared
+  recording uploads require configured storage — do not preserve video bytes
+  in SQL as a production fallback. The only exception: local SQLite/dev flows
+  may keep scratch chunks while a user connects Builder.io or S3-compatible
+  storage.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
@@ -106,9 +110,6 @@ ladder.
   Anthropic/OpenAI power the agent chat; Gemini powers cleanup, titles, and
   meeting notes; any optional third-party speech provider is limited to
   desktop voice dictation and is not used for recording transcripts.
-- Hosted/shared recording uploads require configured storage. Do not preserve
-  video bytes in SQL as a production fallback; only local SQLite/dev flows may
-  keep scratch chunks while a user connects Builder.io or S3-compatible storage.
 - Use `view-screen` when the active recording, transcript segment, meeting, or
   share context is unclear.
 - Calendar-sourced meeting actions are shortcuts, but do not add raw

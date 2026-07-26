@@ -265,6 +265,10 @@ export default (nitroApp: any): void => {
     setResponseHeader(event, "retry-after", "5");
     return { error: "Slides database is temporarily unavailable" };
   };
+  // The CLI action/agent runner invokes this plugin with a stand-in object to
+  // get migrations only, so there is no h3 app to gate — and no HTTP traffic to
+  // gate either. Registering unconditionally broke every `pnpm action` here.
+  if (!nitroApp?.h3) return;
   const app = getH3App(nitroApp);
   for (const path of ["/", "/p", "/share", "/api"]) {
     app.use(path, waitForReady);

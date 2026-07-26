@@ -472,11 +472,14 @@ export {
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
+  resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
   builderDesignSystemUrl,

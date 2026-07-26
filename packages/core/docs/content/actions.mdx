@@ -225,7 +225,7 @@ export default defineAction({
 
 For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions/get-lead?leadId=abc`.
 
-<Endpoint id="doc-block-uhuudd" title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"Every action is mounted here automatically — the filename is the action name."} auth={"Session cookie; frontend calls carry `X-Agent-Native-Frontend: 1`"} params={[
+<Endpoint id="doc-block-uhuudd" title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"Every action is mounted here automatically — the filename is the action name."} auth={"Session cookie (frontend calls carry `X-Agent-Native-Frontend: 1`), or `Authorization: Bearer <token>` for external callers"} params={[
   {
     "name": "leadId",
     "in": "query",
@@ -244,7 +244,7 @@ For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions
   }
 ]}>
 
-POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override.
+POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `callAction` always call this path by name, regardless of any `http.path` override. External systems can call the same route with a long-lived bearer token — see [HTTP API](/docs/http-api).
 
 </Endpoint>
 

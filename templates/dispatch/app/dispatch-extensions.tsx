@@ -1,5 +1,4 @@
 import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
-import { IconHierarchy2 } from "@tabler/icons-react";
 
 /**
  * Local Dispatch extensions for this generated workspace.
@@ -26,14 +25,6 @@ import { IconHierarchy2 } from "@tabler/icons-react";
  *   } satisfies DispatchExtensionConfig;
  */
 export const dispatchExtensions = {
-  navItems: [
-    {
-      id: "agent",
-      to: "/agent",
-      label: "Manage agent",
-      icon: IconHierarchy2,
-      section: "operations",
-    },
-  ],
+  navItems: [],
   queryKeys: [],
 } satisfies DispatchExtensionConfig;

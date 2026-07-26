@@ -6,6 +6,49 @@
 export const FIELD_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const CONDITIONAL_OPERATORS = new Set(["equals", "not_equals", "contains"]);
 
+/**
+ * Generates a safe id for a whole-array field replacement (create-form,
+ * update-form) when the model omits one — the #1 create-form failure in
+ * the 2026-07-25 reliability sweep ("field #1 has an invalid id undefined").
+ * Never used by patch-form-fields: there a missing id on an upsert op is
+ * ambiguous (new field vs. a forgotten reference to an existing one), so it
+ * must keep failing loud rather than risk silently creating a duplicate.
+ * Ids are slugified from `label` through the same FIELD_ID_PATTERN charset
+ * `assertValidFields` enforces, so a generated id can never fail that check.
+ */
+export function normalizeFieldIds(fields: unknown): unknown {
+  if (!Array.isArray(fields)) return fields;
+  const usedIds = new Set(
+    fields
+      .map((f) =>
+        f && typeof f === "object" ? (f as Record<string, unknown>).id : null,
+      )
+      .filter(
+        (id): id is string =>
+          typeof id === "string" && FIELD_ID_PATTERN.test(id),
+      ),
+  );
+  return fields.map((field) => {
+    if (field == null || typeof field !== "object") return field;
+    const f = field as Record<string, unknown>;
+    if (typeof f.id === "string" && FIELD_ID_PATTERN.test(f.id)) return field;
+    const label = typeof f.label === "string" ? f.label : "";
+    const base =
+      label
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 40) || "field";
+    let candidate = base;
+    let suffix = 1;
+    while (usedIds.has(candidate)) {
+      candidate = `${base}_${++suffix}`;
+    }
+    usedIds.add(candidate);
+    return { ...f, id: candidate };
+  });
+}
+
 export function assertValidFields(fields: unknown): void {
   if (!Array.isArray(fields)) {
     throw new Error("fields must be an array");

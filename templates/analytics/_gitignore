@@ -37,3 +37,4 @@ data/.sessions.json
 learnings.md
 
 .vercel/
+.agent-native/

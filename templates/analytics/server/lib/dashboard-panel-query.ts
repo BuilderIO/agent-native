@@ -446,10 +446,14 @@ export async function runDashboardPanelQuery(args: {
   }
 
   if (source === "first-party") {
-    return await queryFirstPartyAnalytics(query, {
-      userEmail: ctx.userEmail,
-      orgId: ctx.orgId ?? null,
-    });
+    return await queryFirstPartyAnalytics(
+      query,
+      {
+        userEmail: ctx.userEmail,
+        orgId: ctx.orgId ?? null,
+      },
+      { cache: true },
+    );
   }
 
   if (source === "demo") {

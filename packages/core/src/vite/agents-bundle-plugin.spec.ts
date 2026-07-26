@@ -94,10 +94,26 @@ describe("agentsBundlePlugin full-reload coalescing", () => {
     const { fake, fire } = await setupPlugin(root);
 
     fire("change", path.join(root, "app", "root.tsx"));
-    fire("change", path.join(root, ".agents", "skills", "alpha", "notes.md"));
 
     vi.advanceTimersByTime(600);
     expect(fake.invalidateModule).not.toHaveBeenCalled();
     expect(fake.send).not.toHaveBeenCalled();
+  });
+
+  it("invalidates on non-SKILL.md reference files inside a skills directory", async () => {
+    // Reference sub-files (e.g. references/*.md) are now read into the
+    // bundle alongside SKILL.md, so editing one in dev must rebuild the
+    // bundle the same way production build does — narrower matching here
+    // would let dev silently serve stale reference content.
+    const { fake, fire } = await setupPlugin(root);
+
+    fire(
+      "change",
+      path.join(root, ".agents", "skills", "alpha", "references", "notes.md"),
+    );
+
+    expect(fake.invalidateModule).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(600);
+    expect(fake.send).toHaveBeenCalledTimes(1);
   });
 });

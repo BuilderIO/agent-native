@@ -4804,6 +4804,7 @@ function DatabaseItemPreview({
             </Button>
             {canEdit || canManage || removesFavoriteMembership ? (
               <DropdownMenu
+                modal={false}
                 open={actionsMenuOpen}
                 onOpenChange={setActionsMenuOpen}
               >

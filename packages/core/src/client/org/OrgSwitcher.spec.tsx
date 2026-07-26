@@ -110,6 +110,32 @@ describe("OrgSwitcher", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("still renders a labelled trigger in compact mode", () => {
+    // A collapsed sidebar rail used to drop the switcher entirely, which left
+    // no way to reach another workspace or the "Join your team" list.
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "brent@builder.io",
+        orgId: "personal",
+        orgName: "Brent's workspace",
+        orgs: [
+          { orgId: "personal", orgName: "Brent's workspace", role: "owner" },
+        ],
+        domainMatches: [{ orgId: "builder_io", orgName: "Builder.io" }],
+        pendingInvitations: [],
+        role: "owner",
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher compact />);
+
+    const button = container.querySelector<HTMLButtonElement>("button");
+    expect(button).not.toBeNull();
+    expect(button?.getAttribute("aria-label")).toBe("Brent's workspace");
+    expect(button?.textContent).toBe("");
+  });
+
   it("opens organization settings in the settings page tab", () => {
     const openPanel = vi.fn();
     const openSettings = vi.fn();

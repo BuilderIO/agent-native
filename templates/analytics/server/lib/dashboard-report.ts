@@ -15,6 +15,8 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
 
+import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
+import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import {
   listReportablePanelIds,
   REPORT_PANEL_CHUNK_SIZE,
@@ -32,6 +34,7 @@ import {
   type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
+import { queryFirstPartyAnalytics } from "./first-party-analytics.js";
 
 type ReportSnapshot = {
   dashboardId: string;
@@ -42,6 +45,8 @@ type ReportSnapshot = {
   reportSettingsUrl: string;
   generatedAt: string;
   panelIds: string[];
+  panels: SqlDashboardConfig["panels"];
+  variables?: Record<string, string>;
 };
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -58,7 +63,9 @@ const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
 // Cap browser work separately from the sweep-level delivery deadline.
-const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 150_000;
+// Reserve time under Netlify's 300s background-function limit for cleanup and
+// email delivery (see MAX_CAPTURE_CLEANUP_RESERVE_MS / delivery reserves below).
+const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 210_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
 const DASHBOARD_REPORT_EMAIL_TIMEOUT_MS = 10_000;
 const DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS = 5_000;
@@ -226,6 +233,8 @@ async function collectReportSnapshot(
     }),
     generatedAt: new Date().toISOString(),
     panelIds: listReportablePanelIds(config.panels),
+    panels: config.panels,
+    variables: config.variables,
   };
 }
 
@@ -375,6 +384,14 @@ function boundedStageTimeout(capMs: number, deadlineAt?: number): number {
   return Math.max(1, Math.min(capMs, remainingMs));
 }
 
+function reportDeliveryReserveMs(recipientCount: number): number {
+  return (
+    MAX_CAPTURE_CLEANUP_RESERVE_MS +
+    recipientCount * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS +
+    DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS
+  );
+}
+
 async function runWithinCaptureDeadline<T>(
   operation: () => Promise<T>,
   deadlineAt?: number,
@@ -448,7 +465,15 @@ async function waitForDashboardReportReady(
         if (root.getAttribute("data-dashboard-report-ready") !== "true") {
           return false;
         }
-        return !root.querySelector("[data-dashboard-report-loading='true']");
+        if (root.querySelector("[data-dashboard-report-loading='true']")) {
+          return false;
+        }
+        // A panel that errored (including its own query-call timeout) clears
+        // its loading marker just like a successful panel, so without this
+        // check the capture would treat a broken panel as "ready" and bake
+        // its raw error text into the delivered screenshot instead of
+        // failing the attempt so the retry sweep can pick it up.
+        return !root.querySelector("[role='alert']");
       })()`,
       undefined,
       { timeout },
@@ -503,6 +528,101 @@ async function waitForDashboardReportReady(
       : `${err?.message ?? String(err)}; dashboard page was not inspectable; capture diagnostics: ${JSON.stringify(captureDiagnostics)}`;
     throw new Error(message);
   }
+}
+
+const PREWARM_CONCURRENCY = 3;
+const PREWARM_PANEL_TIMEOUT_MS = 20_000;
+const PREWARM_MAX_BUDGET_MS = 45_000;
+
+/**
+ * Runs first-party panel queries once, directly, before the browser capture
+ * starts, so the capture's own query-dashboard-panel calls hit a warm cache
+ * instead of several panels racing each other cold for database time inside
+ * a single capture window — that contention, not any one query alone, is
+ * what was pushing panels past their capture timeout. Best-effort: a panel
+ * that fails or times out here is simply computed cold by the capture later,
+ * exactly as it always was, so this can never make a report worse than
+ * before it existed. Bounded to time left after reserving the full chunked
+ * capture attempt and delivery tail, so prewarming cannot starve capture.
+ * The per-panel timeout only bounds how long a worker waits before logging;
+ * it is also passed to the database/cache layers, and the original query is
+ * still awaited before this function returns so it cannot overlap capture.
+ */
+async function prewarmFirstPartyPanelCache(
+  sub: DashboardReportSubscription,
+  snapshot: ReportSnapshot,
+  deadlineAt?: number,
+  recipientCount = 0,
+): Promise<void> {
+  const panels = (snapshot.panels ?? []).filter(
+    (panel) => panel.source === "first-party" && panel.sql != null,
+  );
+  if (!panels.length) return;
+
+  const remaining = deadlineAt ? deadlineAt - Date.now() : Infinity;
+  const budgetMs = Math.max(
+    0,
+    Math.min(
+      PREWARM_MAX_BUDGET_MS,
+      deadlineAt
+        ? remaining -
+            SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS -
+            reportDeliveryReserveMs(recipientCount)
+        : PREWARM_MAX_BUDGET_MS,
+    ),
+  );
+  if (budgetMs <= 0) return;
+  const prewarmDeadline = Date.now() + budgetMs;
+
+  const vars: Record<string, string> = { ...snapshot.variables };
+  for (const [key, value] of Object.entries(snapshot.filters)) {
+    if (key.startsWith("f_")) vars[key.slice(2)] = value;
+  }
+  const scope = { userEmail: sub.ownerEmail, orgId: sub.orgId ?? null };
+
+  let index = 0;
+  async function worker(): Promise<void> {
+    while (index < panels.length && Date.now() < prewarmDeadline) {
+      const panel = panels[index++];
+      const sql = interpolate(serializePanelSql(panel.sql), vars, {
+        failClosedTimeVariables: true,
+      });
+      if (!sql.trim()) continue;
+      const panelTimeoutMs = Math.max(
+        1,
+        Math.min(PREWARM_PANEL_TIMEOUT_MS, prewarmDeadline - Date.now()),
+      );
+      const query = queryFirstPartyAnalytics(sql, scope, {
+        cache: true,
+        timeoutMs: panelTimeoutMs,
+      });
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          query,
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("prewarm panel timeout")),
+              panelTimeoutMs,
+            );
+            timeout.unref?.();
+          }),
+        ]);
+      } catch (err) {
+        console.warn(
+          `[dashboard-report] prewarm failed for panel ${panel.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        await query.catch(() => undefined);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: PREWARM_CONCURRENCY }, () => worker()),
+  );
 }
 
 async function assertDashboardReportPanelWindow(
@@ -1358,14 +1478,25 @@ export async function sendDashboardReportSubscription(
     () => collectReportSnapshot(sub),
     options.deadlineAt,
   );
+  try {
+    await prewarmFirstPartyPanelCache(
+      sub,
+      snapshot,
+      options.deadlineAt,
+      recipients.length,
+    );
+  } catch (err) {
+    console.warn(
+      "[dashboard-report] panel cache prewarm failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
   const captureTimeoutMs = options.deadlineAt
     ? Math.min(
         SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
         options.deadlineAt -
           Date.now() -
-          MAX_CAPTURE_CLEANUP_RESERVE_MS -
-          recipients.length * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS -
-          DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS,
+          reportDeliveryReserveMs(recipients.length),
       )
     : undefined;
   const capture = await captureDashboardPngWithFallback(

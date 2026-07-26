@@ -19,6 +19,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { displayViewerName } from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -49,10 +50,7 @@ export default defineAction({
       views: rows.map((v) => ({
         id: v.id,
         viewerEmail: v.viewerEmail,
-        // Anonymous rows store the `anon:<sessionId>` dedup key in
-        // viewer_name (same convention as recording_viewers). Return null so
-        // callers render "Someone" instead of the raw session key.
-        viewerName: v.viewerName?.startsWith("anon:") ? null : v.viewerName,
+        viewerName: displayViewerName(v.viewerName),
         viewedAt: v.viewedAt,
       })),
     };

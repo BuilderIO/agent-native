@@ -125,7 +125,11 @@ describe("Nitro dev startup recovery", () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(503);
     expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
-    expect(res.end).toHaveBeenCalledWith(expect.stringContaining("refresh"));
+    const html = res.end.mock.calls[0]?.[0] as string;
+    expect(html).toContain("__agent_native_nitro_startup_retry");
+    expect(html).toContain("Retrying in one second");
+    expect(html).toContain("Refresh when it is ready");
+    expect(html).not.toContain('http-equiv="refresh"');
   });
 
   it("preserves genuine Nitro errors and non-document requests", () => {

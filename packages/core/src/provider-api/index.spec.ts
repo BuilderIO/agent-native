@@ -1292,6 +1292,55 @@ describe("provider API runtime", () => {
     expect(JSON.stringify(result)).not.toContain(fakeKey);
   });
 
+  it("attaches Notion sharing guidance to access failures and not to other errors", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "NOTION_API_KEY" ? "notion-test-token" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Could not find page" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const denied = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(denied.guidance).toContain("••• → Connections");
+    expect(denied.guidance).toContain("may not match this app or workspace");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("{}", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const throttled = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(throttled.guidance).not.toContain("••• → Connections");
+  });
+
+  it("catalogs Notion's integration-label caveat", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const [catalogEntry] = (await runtime.listCatalog("notion")) as any[];
+
+    expect(catalogEntry.notes[0]).toContain("Notion-side integration label");
+    expect(catalogEntry.accessErrorGuidance).toContain("••• → Connections");
+  });
+
   it("exposes Clay's official catalog and docs metadata", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",

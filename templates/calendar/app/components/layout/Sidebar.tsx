@@ -6,7 +6,6 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
-  IconHierarchy2,
   IconCalendar,
   IconSettings,
   IconLink,
@@ -101,11 +100,6 @@ const navItems = [
 ];
 
 const bottomNavItems = [
-  {
-    path: "/agent",
-    labelKey: "settings.agentTitle",
-    icon: IconHierarchy2,
-  },
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 

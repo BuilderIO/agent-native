@@ -34,11 +34,36 @@ Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
 
-## Showing Charts In Chat
+## Inline Charts In Chat
 
-For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Full shape in `AGENTS.md` ("Inline Charts in Chat" section). Reach for `generate-chart` only when you're building a dashboard artifact that needs a persisted report image.
+For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Reach for `generate-chart` only when you're building a dashboard artifact that needs a persisted report image.
 
 If `generate-chart` returns an error in any chat-answering flow, the recovery is to switch to the live embed, not to retry with reformatted params.
+
+**How it renders.** The core chat markdown renderer turns any fenced block tagged `embed` into a sandboxed, same-origin iframe. Emit:
+
+````markdown
+```embed
+src: /chart?panel=<base64url-encoded panel JSON>
+title: Daily pageviews
+height: 320
+```
+````
+
+Fence keys: `src` (required, same-origin path), `title`, and either `height` (px) or `aspect` (`16/9`, `4/3`, `1/1`, `21/9`, `3/2`, `2/1`; default `16/9`). A cross-origin `src` renders an "Embed blocked" notice instead of a chart.
+
+**Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
+
+- `sql` — required, non-empty.
+- `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.
+- `chartType` — required, one of `line`, `area`, `bar`, `metric`, `table`, `pie`. Dashboard-layout types (`section`, `heatmap`, `callout`, `extension`) are rejected.
+- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `columns`, `stacked`, `legend`, …).
+
+An unknown `source`/`chartType` or blank `sql` renders an error card, not a chart.
+
+**Encoding.** JSON-stringify the panel, base64-encode it, then make it URL-safe: `+` → `-`, `/` → `_`, strip `=` padding. No further URL-encoding is needed. Keep the SQL short — it rides in a query string; if it's long, save it as a dashboard panel and link to the dashboard instead.
+
+Full details (per-field validation, `config` keys, a verified round-trip example, and how this differs from `generate-chart`) are in `references/inline-chart-embeds.md` — read it with `docs-search --slug "skill-data-querying--references-inline-chart-embeds"`.
 
 ## Script Patterns
 

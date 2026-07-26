@@ -56,7 +56,29 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    - Runs `skills update scaffold --project`
    - Runs `typecheck` when the project has that script
 
-3. **If upgrade or typecheck fails**
+3. **Pull upstream template changes (optional, separate from the bump)**
+
+   `agent-native upgrade` moves package versions. It never touches files that
+   were copied out of a template at scaffold time, so template fixes and
+   improvements do not arrive with a bump.
+
+   ```bash
+   agent-native template status        # recorded ref vs latest, drift counts
+   agent-native template diff          # what upstream changed, read-only
+   agent-native template sync          # 3-way merge it into the app
+   ```
+
+   `sync` defaults to the ref matching the installed `@agent-native/core`, so
+   run it after `upgrade`. It merges per file against a pristine baseline
+   stored in `refs/agent-native/template-baseline/<app-path>`; files upstream
+   did not touch are left alone, and real collisions get conflict markers.
+   After resolving markers, run `agent-native template accept` — the baseline
+   deliberately does not advance past an unresolved merge.
+
+   Apps scaffolded before provenance existed have no baseline. Create one
+   with `agent-native template baseline` before the first sync.
+
+4. **If upgrade or typecheck fails**
 
    - Read the concrete error
    - Fix **app** source, actions, config, or env — not framework packages
@@ -68,7 +90,7 @@ install → refresh scaffold skills → verify, then fix **app** code only.
    copied component; do not use that path to reproduce framework runtime
    behavior or hide version skew.
 
-4. **Dry-run / partial runs**
+5. **Dry-run / partial runs**
 
    ```bash
    agent-native upgrade --dry-run

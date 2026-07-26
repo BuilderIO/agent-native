@@ -1,8 +1,8 @@
-import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
-
 import type { SqlPanel } from "./types";
 
-export const REPORT_PANEL_CHUNK_SIZE = MAX_CONCURRENT_SQL_QUERIES;
+// Keep each report window within the browser-side SQL query concurrency limit
+// so a cold window does not serialize into multiple waves before readiness.
+export const REPORT_PANEL_CHUNK_SIZE = 4;
 
 export function listReportablePanelIds(panels: SqlPanel[]): string[] {
   return panels

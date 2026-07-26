@@ -82,10 +82,9 @@ const koKR = {
   },
   home: {
     hero: {
-      badge: "오픈소스 framework",
       titleLine1: "agentic apps 를 위한",
       titleAccent: "framework",
-      body: "Agent-Native 는 agent 를 핵심으로 견고한 애플리케이션을 빠르게 구축하기 위한 오픈소스 framework 입니다.",
+      body: "앱과 에이전트 중 하나를 고를 필요가 없습니다. Agent-Native 앱은 둘 다입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
     },
@@ -99,7 +98,7 @@ const koKR = {
     },
     actionSurface: {
       eyebrow: "겉에 붙인 AI가 아니라 깊이 agentic",
-      title: "하나의 action이 앱 전체 표면을 엽니다",
+      title: "하나의 action이 전체 표면을 엽니다",
       body: "작업을 한 번만 정의하세요. Agent-Native는 이를 UI action, agent 도구, HTTP endpoint, MCP/A2A 표면, CLI 명령, 권한 검사, 감사 기록으로 바꿉니다.",
       buildAction: "Action 만들기",
       benefits: {
@@ -1538,6 +1537,7 @@ const koKR = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A 프로토콜",
     mcpClients: "MCP 클라이언트 (도구 추가)",
+    httpApi: "HTTP API (작업 호출)",
     mcpServer: "MCP 서버 (앱 노출)",
     externalAgents: "외부 Agents (호스트 연결)",
     mcpApps: "MCP Apps (인라인 UI)",
@@ -1546,6 +1546,7 @@ const koKR = {
     automationConnectors: "워크플로 커넥터",
     workspaceConnections: "Workspace 연결",
     creatingTemplates: "템플릿 만들기",
+    syncingTemplateChanges: "템플릿 변경 사항 동기화",
     writingAgentInstructions: "Agent 지침 작성",
     embeddingSdk: "임베딩 SDK",
     frames: "Frames",

@@ -1,5 +1,5 @@
 {
-  "name": "Agent-Native Dispatch",
+  "name": "Dispatch",
   "short_name": "Dispatch",
   "description": "Workspace control plane for secrets, integrations, agents, and app creation.",
   "start_url": ".",
