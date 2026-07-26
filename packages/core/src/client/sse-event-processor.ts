@@ -625,6 +625,9 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "unauthorized" ||
     code === "authentication_error" ||
     code === "permission_error" ||
+    code === "builder_auth_error" ||
+    // The account cannot use this model; another POST picks the same one.
+    code === "builder_model_unauthorized" ||
     code === "http_401" ||
     code === "http_403" ||
     code === "rate_limit_exceeded" ||

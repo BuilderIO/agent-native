@@ -166,6 +166,8 @@ export const recordings = table("recordings", {
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
   failureReason: text("failure_reason"),
+  loomImportClaimId: text("loom_import_claim_id"),
+  loomImportClaimedAt: text("loom_import_claimed_at"),
 
   // Non-destructive edits: JSON `{ trims: [{startMs,endMs,excluded}], blurs: [...], speed: [...] }`
   editsJson: text("edits_json").notNull().default("{}"),
@@ -381,6 +383,31 @@ export const recordingViews = table("recording_views", {
   viewerName: text("viewer_name"),
   viewedAt: text("viewed_at").notNull().default(now()),
 });
+
+// Agent views — one row per (clip, agent, time bucket). Deliberately separate
+// from `recording_viewers` / `recording_views` so no human-view count can ever
+// pick agents up by forgetting a filter: the human tables stay agent-free.
+export const recordingAgentViews = table(
+  "recording_agent_views",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // sha256 of user-agent + request IP. Never stores the raw IP.
+    agentKey: text("agent_key").notNull(),
+    agentLabel: text("agent_label"),
+    // Time bucket that collapses one agent's burst of context/transcript/frame
+    // polls into a single view.
+    viewSessionId: text("view_session_id").notNull(),
+    firstSeenAt: text("first_seen_at").notNull().default(now()),
+    lastSeenAt: text("last_seen_at").notNull().default(now()),
+    requestCount: integer("request_count").notNull().default(1),
+  },
+  (view) => ({
+    recordingAgentViewSessionUnique: uniqueIndex(
+      "recording_agent_views_session_unique_idx",
+    ).on(view.recordingId, view.agentKey, view.viewSessionId),
+  }),
+);
 
 // -----------------------------------------------------------------------------
 // Meetings (Granola-style) — recording + transcript + AI notes anchored to

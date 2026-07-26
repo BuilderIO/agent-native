@@ -1706,8 +1706,16 @@ export async function runBuilderAgent(
       "Builder project ID is not configured. Set DISPATCH_BUILDER_PROJECT_ID, BUILDER_BRANCH_PROJECT_ID, or BUILDER_PROJECT_ID.",
     );
   }
-  const builderUserId = args.userId || creds.userId || undefined;
-  const builderUserEmail = builderUserId ? undefined : args.userEmail;
+  // The requesting user's email must win over any stored BUILDER_USER_ID.
+  // The connect flow always persists BUILDER_USER_ID, so preferring it here
+  // attributed every branch to whoever connected the credential — at org scope
+  // that is the admin, not the person who asked. Builder resolves userEmail
+  // against Space membership, so fall back to the credential's user id when
+  // there is no session email or the email is not a member.
+  const requestedEmail = args.userEmail?.trim() || undefined;
+  const fallbackUserId = args.userId || creds.userId || undefined;
+  const builderUserEmail = requestedEmail;
+  const builderUserId = requestedEmail ? undefined : fallbackUserId;
   if (!builderUserEmail && !builderUserId) {
     throw new Error("userEmail or userId is required");
   }
@@ -1715,27 +1723,47 @@ export async function runBuilderAgent(
   const url = new URL("/agents/run", getBuilderApiHost());
   url.searchParams.set("apiKey", creds.publicKey);
 
-  const body: Record<string, unknown> = {
-    userMessage: { userPrompt: args.prompt },
-    projectId,
-  };
-  if (args.branchName) body.branchName = args.branchName;
-  if (builderUserEmail) body.userEmail = builderUserEmail;
-  if (builderUserId) body.userId = builderUserId;
+  const postRun = async (actor: { userEmail?: string; userId?: string }) => {
+    const body: Record<string, unknown> = {
+      userMessage: { userPrompt: args.prompt },
+      projectId,
+    };
+    if (args.branchName) body.branchName = args.branchName;
+    if (actor.userEmail) body.userEmail = actor.userEmail;
+    if (actor.userId) body.userId = actor.userId;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.privateKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.privateKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const parsed = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    return { response, parsed };
+  };
+
+  let { response, parsed } = await postRun({
+    userEmail: builderUserEmail,
+    userId: builderUserId,
   });
 
-  const parsed = (await response.json().catch(() => ({}))) as Record<
-    string,
-    unknown
-  >;
+  // Builder rejects an email that is not a member of the Space (403/404). Retry
+  // once as the connected credential's user so a non-member still gets a branch,
+  // rather than losing the run entirely.
+  if (
+    !response.ok &&
+    (response.status === 403 || response.status === 404) &&
+    builderUserEmail &&
+    fallbackUserId
+  ) {
+    ({ response, parsed } = await postRun({ userId: fallbackUserId }));
+  }
+
   if (!response.ok) {
     const msg =
       typeof parsed.error === "string"

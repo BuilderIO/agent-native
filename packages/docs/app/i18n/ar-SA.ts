@@ -81,10 +81,9 @@ const arSA = {
   },
   home: {
     hero: {
-      badge: "framework مفتوح المصدر",
       titleLine1: "framework من أجل",
       titleAccent: "agentic apps",
-      body: "Agent-Native هو framework مفتوح المصدر لبناء تطبيقات قوية بسرعة مع agents في جوهرها.",
+      body: "لا تختر بين التطبيقات والوكلاء. تطبيقات Agent-Native تجمع بينهما.",
       primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
     },
@@ -97,7 +96,7 @@ const arSA = {
     },
     actionSurface: {
       eyebrow: "مصمم بعمق للوكلاء، وليس ذكاء اصطناعياً ملحقاً",
-      title: "إجراء واحد يفتح سطح التطبيق كله",
+      title: "إجراء واحد يمنحك السطح بأكمله",
       body: "عرّف العملية مرة واحدة. يحولها Agent-Native إلى إجراء UI، وأداة agent، ونقطة HTTP، وسطح MCP/A2A، وأمر CLI، وفحص صلاحيات، وسجل تدقيق.",
       buildAction: "أنشئ إجراء",
       benefits: {
@@ -1533,6 +1532,7 @@ const arSA = {
     dispatch: "Dispatch",
     a2aProtocol: "بروتوكول A2A",
     mcpClients: "MCP Clients (إضافة أدوات)",
+    httpApi: "HTTP API (استدعاء الإجراءات)",
     mcpServer: "MCP Server (إتاحة تطبيقك)",
     externalAgents: "External Agents (ربط مضيف)",
     mcpApps: "MCP Apps (واجهات مضمنة)",
@@ -1541,6 +1541,7 @@ const arSA = {
     automationConnectors: "موصلات سير العمل",
     workspaceConnections: "اتصالات مساحة العمل",
     creatingTemplates: "إنشاء القوالب",
+    syncingTemplateChanges: "مزامنة تغييرات القوالب",
     writingAgentInstructions: "كتابة تعليمات Agent",
     embeddingSdk: "SDK للتضمين",
     frames: "Frames",

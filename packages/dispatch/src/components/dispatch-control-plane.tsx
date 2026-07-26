@@ -154,10 +154,7 @@ function AppsPanel({
       {showSkeletons ? (
         <div className="grid gap-3 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-xl border border-border/60 bg-card/40 p-4"
-            >
+            <div key={index} className="rounded-xl bg-card/40 p-4">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="mt-3 h-3 w-24" />
               <Skeleton className="mt-3 h-3 w-full" />

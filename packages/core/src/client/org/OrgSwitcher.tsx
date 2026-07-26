@@ -65,6 +65,13 @@ export interface OrgSwitcherProps {
   /** Keep the switcher's button height reserved while org state is loading. */
   reserveSpace?: boolean;
   /**
+   * Icon-only trigger for collapsed sidebar rails. The popover — and with it
+   * the org list, pending invitations and "Join your team" — is identical;
+   * dropping the switcher instead leaves a collapsed rail with no way to
+   * reach another workspace.
+   */
+  compact?: boolean;
+  /**
    * Path to navigate to when the user clicks "Organization settings".
    * Defaults to the Organization tab inside Settings. Templates with an
    * established org surface can pass their own path; pass `null` to only open
@@ -102,7 +109,10 @@ const APP_SUBMENU_CONTENT_CLASS =
   "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 
 const SWITCHER_BUTTON_CLASS =
-  "flex w-full items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
+  "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
+
+const COMPACT_SWITCHER_BUTTON_CLASS =
+  "flex items-center justify-center rounded-md border-0 bg-accent/50 p-1.5 text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
 const DEFAULT_PROFILE_PATH = "/settings#account";
@@ -151,33 +161,29 @@ function AppMenuLink({
   onNavigate: () => void;
 }) {
   const Icon = appMenuIcon(app);
+  const description =
+    app.status === "pending"
+      ? "Building"
+      : app.description?.trim() ||
+        (app.isDispatch ? "Workspace hub" : `${app.name} workspace`);
   return (
     <a
       href={app.href}
       onClick={onNavigate}
-      className={`flex items-center gap-2 rounded-sm px-2.5 py-2 text-xs outline-none hover:bg-accent focus:bg-accent ${
-        app.isDispatch ? "border border-primary/20 bg-primary/5" : ""
-      }`}
+      className="flex items-center gap-2 rounded-sm px-2.5 py-2 text-xs outline-none hover:bg-accent focus:bg-accent"
     >
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-          app.isDispatch
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground"
-        }`}
-      >
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
         <Icon className="h-3.5 w-3.5" />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate font-medium text-foreground">
           {app.name}
         </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
-          {app.isDispatch
-            ? "Main hub"
-            : app.status === "pending"
-              ? "Building"
-              : "Open app"}
+        <span
+          className="block truncate text-[11px] text-muted-foreground"
+          title={description}
+        >
+          {description}
         </span>
       </span>
       <IconArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -187,14 +193,12 @@ function AppMenuLink({
 
 function AppsSubmenu({
   apps,
-  isWorkspace,
   isLoading,
   dispatchHref,
   dispatchAllAppsHref,
   onNavigate,
 }: {
   apps: OrgSwitcherAppLink[];
-  isWorkspace: boolean;
   isLoading: boolean;
   dispatchHref: string;
   dispatchAllAppsHref: string;
@@ -241,17 +245,6 @@ function AppsSubmenu({
           collisionPadding={12}
           className={APP_SUBMENU_CONTENT_CLASS}
         >
-          <div className="px-2.5 py-1.5">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {isWorkspace ? "Workspace apps" : "Default apps"}
-            </div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">
-              {isWorkspace
-                ? "Dispatch is the workspace hub."
-                : "Dispatch is the home base."}
-            </div>
-          </div>
-
           <AppMenuLink app={dispatchApp} onNavigate={onNavigate} />
 
           {visibleNonDispatch.length > 0 && (
@@ -269,7 +262,7 @@ function AppsSubmenu({
                 onClick={onNavigate}
                 className="flex items-center gap-2 rounded-sm px-2.5 py-1.5 text-xs text-foreground outline-none hover:bg-accent focus:bg-accent"
               >
-                <IconMessageCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 <span className="flex-1">
                   {`View ${remainingCount} more in Dispatch`}
                 </span>
@@ -312,6 +305,7 @@ export function OrgSwitcher({
   className,
   hideWhenSingle,
   reserveSpace,
+  compact,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
   profilePath = DEFAULT_PROFILE_PATH,
 }: OrgSwitcherProps) {
@@ -397,14 +391,25 @@ export function OrgSwitcher({
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
       <PopoverPrimitive.Trigger asChild>
-        <button
-          type="button"
-          className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
-        >
-          <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate flex-1 text-start">{buttonLabel}</span>
-          <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
-        </button>
+        {compact ? (
+          <button
+            type="button"
+            title={buttonLabel}
+            aria-label={buttonLabel}
+            className={`${COMPACT_SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+          >
+            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`${SWITCHER_BUTTON_CLASS} ${className ?? ""}`}
+          >
+            <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate flex-1 text-start">{buttonLabel}</span>
+            <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
+          </button>
+        )}
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
@@ -549,7 +554,6 @@ export function OrgSwitcher({
               <div className="my-1 h-px bg-border" />
               <AppsSubmenu
                 apps={appLinks.apps}
-                isWorkspace={appLinks.isWorkspace}
                 isLoading={appLinks.isLoading}
                 dispatchHref={appLinks.dispatchHref}
                 dispatchAllAppsHref={appLinks.dispatchAllAppsHref}

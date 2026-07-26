@@ -930,13 +930,22 @@ function AgentCallCell({
 }) {
   const t = useT();
   const [open, setOpen] = useState(true);
-  const finalText = isRunning
-    ? activity?.responseText || responseText
-    : responseText || activity?.responseText;
-  const work = activity?.reasoning?.length || activity?.toolCalls?.length;
+  const toolCount = activity?.toolCalls?.length ?? 0;
+  // Response segments are ordered against the tool calls that preceded them, so
+  // they render in the timeline where the remote agent actually said them.
+  // Once the authoritative result text arrives, its segment moves to the
+  // bottom block instead of being rendered twice.
+  const segments = activity?.response ?? [];
+  const inlineSegments =
+    responseText && !isRunning ? segments.slice(0, toolCount) : segments;
+  const finalText =
+    responseText || (inlineSegments.length ? "" : activity?.responseText);
+  const work =
+    activity?.reasoning?.length || toolCount || inlineSegments.length;
   const workItemCount = Math.max(
     activity?.reasoning?.length ?? 0,
-    activity?.toolCalls?.length ?? 0,
+    toolCount,
+    inlineSegments.length,
   );
   const label = isRunning
     ? t("agentPanel.delegatedAgent.asking", { name: agentName })
@@ -947,6 +956,7 @@ function AgentCallCell({
     <div className="space-y-1 ps-5">
       {Array.from({ length: workItemCount }, (_, index) => {
         const reasoningText = activity?.reasoning?.[index];
+        const segment = inlineSegments[index];
         const tool = activity?.toolCalls?.[index];
         return (
           <React.Fragment key={`activity-${index}`}>
@@ -961,6 +971,20 @@ function AgentCallCell({
                 defaultOpen={index === activity.reasoning.length - 1}
                 collapseWhenReplaced={index < activity.toolCalls.length}
               />
+            )}
+            {segment && (
+              <div className="pb-1">
+                <SmoothMarkdownText
+                  text={segment}
+                  streaming={
+                    isRunning &&
+                    activity?.activePhase === "responding" &&
+                    index === inlineSegments.length - 1
+                  }
+                  resetKey={`agent-response-${agentName}-${index}`}
+                  statusType={isRunning ? "running" : "complete"}
+                />
+              </div>
             )}
             {tool && (
               <AgentActivityToolCallRow

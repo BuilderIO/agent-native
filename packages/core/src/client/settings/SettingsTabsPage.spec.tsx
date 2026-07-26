@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
@@ -196,7 +197,7 @@ describe("SettingsTabsPage", () => {
     expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
   });
 
-  it("visually separates app, agent, workspace, and update tabs", () => {
+  it("visually separates app, agent, and workspace tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -232,6 +233,50 @@ describe("SettingsTabsPage", () => {
     ).not.toBeNull();
     expect(
       container.querySelector('[data-settings-tab-group="updates"]'),
+    ).toBeNull();
+  });
+
+  it("keeps linked settings navigation last with an external-link marker", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            team={<div>Team members</div>}
+            whatsNew={<div>Recent updates</div>}
+            extraTabs={[
+              {
+                id: "connections",
+                label: "Connections",
+                group: "workspace",
+                content: <div>Connection settings</div>,
+              },
+              {
+                id: "agent",
+                label: "Manage agent",
+                group: "manage-agent",
+                href: "/agent#settings",
+                content: <div>Agent settings</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
+        tab.textContent?.trim(),
+      ),
+    ).toEqual(["General", "Connections", "Team", "What's new", "Manage agent"]);
+
+    const manageAgentLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/agent#settings"]',
+    );
+    expect(manageAgentLink).not.toBeNull();
+    expect(manageAgentLink?.querySelector("svg")).not.toBeNull();
+    expect(
+      manageAgentLink?.closest('[data-settings-tab-group="manage-agent"]'),
     ).not.toBeNull();
   });
 

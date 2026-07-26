@@ -220,7 +220,7 @@ One action is then callable as:
   }
 ]}>
 
-Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes.
+Every `defineAction` is auto-mounted at `/_agent-native/actions/<name>`. The JSON body is validated against the action's zod schema before `run` executes. To call it from an external system with a long-lived bearer token, see [HTTP API](/docs/http-api).
 
 </Endpoint>
 

@@ -203,10 +203,17 @@ export function ExtensionsListPage({
         embedded ? "min-h-[28rem]" : "h-full",
       )}
     >
-      <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>
-        </div>
+      <header
+        className={cn(
+          "flex h-12 items-center justify-between px-4 shrink-0",
+          !embedded && "border-b",
+        )}
+      >
+        {!embedded ? (
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
@@ -257,7 +264,7 @@ export function ExtensionsListPage({
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <AgentToggleButton />
+          {!embedded ? <AgentToggleButton /> : null}
         </div>
       </header>
 

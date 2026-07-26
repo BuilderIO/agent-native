@@ -6,6 +6,7 @@ import {
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
+import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +32,10 @@ import { TAB_ID } from "@/lib/tab-id";
 import { CommandPalette } from "./components/layout/CommandPalette";
 import { Layout as AppLayout } from "./components/layout/Layout";
 import { i18nCatalog } from "./i18n";
+import {
+  hasDashboardReportEmbedToken,
+  isDashboardReportScreenshot,
+} from "./lib/dashboard-report-capture";
 
 import stylesheet from "./global.css?url";
 configureTracking({
@@ -146,6 +151,11 @@ export default function Root() {
   // server/plugins/auth.ts.
   const isPublicStatusPath =
     location.pathname === "/status" || location.pathname.startsWith("/status/");
+  const isDashboardReportCapture = isDashboardReportScreenshot(location.search);
+  const hasReportEmbedToken = hasDashboardReportEmbedToken(
+    location.search,
+    getEmbedAuthToken(),
+  );
 
   if (isPublicStatusPath) {
     return (
@@ -158,6 +168,24 @@ export default function Root() {
           i18n={{ catalog: i18nCatalog }}
         >
           <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  if (isDashboardReportCapture && hasReportEmbedToken) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          sessionBypass
+          defaultTheme="dark"
+          toaster={null}
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <AppLayout>
+            <Outlet />
+          </AppLayout>
         </AppProviders>
       </AppToolkitProvider>
     );

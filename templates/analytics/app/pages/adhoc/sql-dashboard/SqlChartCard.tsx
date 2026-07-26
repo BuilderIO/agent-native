@@ -272,7 +272,7 @@ export function SqlChartCard({
         data-dragging={isDragSource ? "true" : undefined}
         className="dashboard-section-card group relative mt-2 first:mt-0"
       >
-        <div className="flex items-center gap-2 border-b border-border pb-2">
+        <div className="flex items-center gap-2 pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
@@ -371,7 +371,7 @@ export function SqlChartCard({
         data-dashboard-report-panel-id={panel.id}
         data-dashboard-report-panel-title={panel.title}
         className={cn(
-          "dashboard-extension-card group relative h-full rounded-lg border border-transparent transition-colors",
+          "dashboard-extension-card group relative h-full rounded-lg transition-colors",
           selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
         )}
       >

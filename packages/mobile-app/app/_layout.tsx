@@ -5,12 +5,14 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import CaptureSyncProvider from "@/components/CaptureSyncProvider";
+import OAuthDeepLinkHandler from "@/components/OAuthDeepLinkHandler";
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <KeyboardProvider>
         <CaptureSyncProvider>
+          <OAuthDeepLinkHandler />
           <StatusBar style="light" />
           <Stack
             screenOptions={{

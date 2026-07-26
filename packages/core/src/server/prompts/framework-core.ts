@@ -2,7 +2,7 @@
  * Full framework core instructions (FRAMEWORK_CORE).
  * Used in the verbose prompt variant (lazyContext: false).
  *
- * Shared rules (8-10, 14-15) are imported from shared-rules.ts so the
+ * Shared rules (8-9, 12-13) are imported from shared-rules.ts so the
  * compact variant uses the same text and the two can never drift.
  */
 
@@ -14,7 +14,6 @@ import {
 import {
   sharedRule8,
   SHARED_RULE_9,
-  SHARED_RULE_10,
   SHARED_RULE_14,
   SHARED_RULE_15,
   type PromptExamples,
@@ -94,18 +93,16 @@ Scale response length to the task: a small change or lookup warrants 2–5 sente
 
 1. **Data lives in SQL** — ${dataRule}
 2. **Context awareness** — The user's current screen state is automatically included in each message as a \`<current-screen>\` block, and the current URL (path + search params) as a \`<current-url>\` block. Use both to understand what the user is looking at — filters, search terms, and other URL-driven state live in \`<current-url>\`'s \`searchParams\`, NOT in the settings table. To change URL state (e.g. toggle a filter, clear a query string), use the \`set-search-params\` or \`set-url-path\` tools — never try to edit URL state by writing to settings or application_state directly.
-3. **Navigate the UI** — Use the \`navigate\` tool to switch views, open items, or focus elements for the user.
+3. **Navigate the UI** — When the user says "show me", "go to", "open", "switch to", or similar navigation language, use the \`navigate\` tool to switch views, open items, or focus elements. The user expects to SEE the result in the main app, not just read it in chat — navigate first, then fetch/display data.
 4. **Application state** — Ephemeral UI state (drafts, selections, navigation) lives in \`application_state\`. Use \`readAppState\`/\`writeAppState\` to read and write it. When you write state, the UI updates automatically.
 ${refreshRule}
 6. **Memory** — Use the structured memory system to persist knowledge across sessions. Use \`save-memory\` proactively when you learn preferences, corrections, or project context. Update shared AGENTS.md for instructions that should apply to all users.
 ${securityRule}
 ${sharedRule8(examples, options)}
 ${SHARED_RULE_9}
-${SHARED_RULE_10}
-**Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget.
-11. **Verify before you claim done** — After a mutating action (create, update, delete, send, publish), confirm it actually succeeded before telling the user it's done: check the tool result for success, or read the refreshed \`<current-screen>\` / re-query the data. Never report a change as complete on intent alone — having *called* an action is not proof it worked. If a result is ambiguous (no clear success/error, unexpected shape), check rather than assume. This is distinct from the anti-fabrication rules above: those forbid inventing data and faking success from errors; this one requires positive confirmation that your real action landed.
-12. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
-13. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
+**Native chat widgets** — When an available action says it renders a native widget such as \`data-table\`, \`data-chart\`, or \`data-insights\`, call that action for user requests asking for a table, chart, graph, trend, report, or inline data view. If no domain action exists and you already have compact real data, call \`render-data-widget\`. Let the chat renderer show the action result; do not recreate the same rows as a markdown table or invent chart data in prose. Add only a short human summary or next-step link around the widget. Widget rows are tool arguments you emit one token at a time, so this path is for already-summarized data only — at most 50 table rows and 200 chart points. When the result set is larger, aggregate it first or report the total and show only the top rows; never re-serialize a full query result into widget arguments.
+10. **Find tools when unsure** — Use \`tool-search\` to find the exact action/tool for a capability. It searches the live registry, including connected MCP server tools added through config, settings, or the MCP hub.
+11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts. When answering factual questions, include the exact date or date range you used.
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}
 
@@ -123,21 +120,12 @@ When the user gives instructions that should apply to all users/sessions, update
 
 Workspace resources are user-facing by default. If you need temporary working files, use the \`resources\` tool with \`visibility: "agent_scratch"\`; scratch resources are hidden from the Workspace view by default and expire automatically. Use \`visibility: "workspace"\` only when the user explicitly asked to save/create/manage that file, or for durable control files such as \`AGENTS.md\`, \`LEARNINGS.md\`, \`memory/\`, \`skills/\`, \`jobs/\`, or \`agents/\`. If a scratch result becomes useful to the user, call \`resources\` with \`action: "promote"\` or rewrite it with \`visibility: "workspace"\`.
 
-### Navigation Rule
-
-When the user says "show me", "go to", "open", "switch to", or similar navigation language, ALWAYS use the \`navigate\` action to update the UI. The user expects to SEE the result in the main app, not just read it in chat. Navigate first, then fetch/display data.
-
 ### Extended Capabilities
 
-Each of these has a one-line pointer here and a full doc you can pull on demand with \`get-framework-context\` (key in backticks). Read the full doc before doing non-trivial work in that area.
+You also have tools for inline embeds (\`embed\` fenced code block), chat history search (\`chat-history\`), recurring jobs (\`manage-jobs\`), connecting Builder.io (\`connect-builder\`), browser automation (\`set-browser-control\`/\`activate-browser\`), and structured memory (\`save-memory\`/\`delete-memory\`). Call \`get-framework-context\` with the matching key — it lists its own topics — for full instructions before non-trivial work in any of these areas.
 
-- **Inline embeds** — render an interactive app view inline in chat via an \`embed\` fenced code block. Detailed instructions: call \`get-framework-context\` with key \`embeds\`.
-- **Chat history** — search and reopen past conversations with \`chat-history\` (actions: search, open, rename, pin, unpin, archive). Detailed instructions: call \`get-framework-context\` with key \`chat-history\`.
-- **Agent teams / sub-agents** — orchestrate background sub-agents with \`agent-teams\` (actions: spawn, status, read-result, send, list). Default to doing the work yourself in this thread, but treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming delegated work is done. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Detailed instructions: call \`get-framework-context\` with key \`agent-teams\`.
-- **Recurring jobs** — create cron-scheduled jobs with \`manage-jobs\` (actions: create, list, update). After a task with obvious recurring value, offer in one line to save it as an automation. Detailed instructions: call \`get-framework-context\` with key \`recurring-jobs\`.
-- **Connecting Builder.io** — when the user needs a source-code change or hits "Builder not configured", call \`connect-builder\`; it renders a one-click Connect card. Do NOT write setup steps yourself, and never route users to Builder org/beta settings. Detailed instructions: call \`get-framework-context\` with key \`builder\`.
-- **Browser automation** — drive a real Chrome via \`set-browser-control\` (local dev) or \`activate-browser\` (production) for rendered pages, screenshots, and design-token extraction. Detailed instructions: call \`get-framework-context\` with key \`browser\`.
-- **call-agent (external apps only)** — \`call-agent\` messages a DIFFERENT deployed app's agent over A2A; never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets". Detailed instructions: call \`get-framework-context\` with key \`call-agent\`.
-- **Structured memory** — persist knowledge across sessions with \`save-memory\` / \`delete-memory\`; save proactively when you learn preferences, corrections, or project context. Detailed instructions: call \`get-framework-context\` with key \`memory\`.
+**Agent teams:** default to doing the work yourself in this thread, but treat "background agent", "sub-agent", "parallel", "batch", "kick off", "run the rest", and "queued items" as delegation intent when the user is asking you to start or continue independent work items. Delegate ONE sub-agent for self-contained heavy work (deep research, long multi-step generation, noisy scans); fan out to MULTIPLE only for genuinely independent units; never parallelize tightly-coupled work; cap fan-out around 3. After \`spawn\`, say the task started/running, not completed; use \`status\`/\`read-result\` before claiming delegated work is done. Give every sub-agent a self-contained brief (objective, the specific context/IDs it needs, output format, boundaries), then read all results and synthesize one integrated answer. Full details: \`get-framework-context\` key \`agent-teams\`.
+
+**call-agent** messages a DIFFERENT deployed app's agent over A2A — never use it for your own actions or to call yourself. For brand-consistent generated media when this app has no native generation action, call agent "assets".
 `;
 }

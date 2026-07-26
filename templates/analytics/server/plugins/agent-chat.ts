@@ -73,6 +73,11 @@ export const NON_ANALYTICS_FALLBACK_FINAL_MESSAGE =
 export function analyticsSourceGuidanceOpening(): string {
   return (
     "<data-source-guidance>\n" +
+    // Measured in production: this ran in under 1% of data threads while the
+    // equivalent instruction sat ~7000 words deep. Threads that did call it used
+    // roughly a third the tool calls. Keep it first and keep it imperative.
+    "START HERE — For any question about a metric, cohort, list, count, or trend, your FIRST tool call is `search-analytics-query-catalog`. This is the analytics equivalent of grepping a codebase before writing new code: someone has very likely already built and saved the query you need, and its saved SQL tells you the exact source, table, and column names so you do not have to discover them. Adapt the closest saved query to the requested filters and time window, run it once, and stop. Only fall back to schema discovery or provider catalogs when the catalog search returns nothing usable — and never run more than one schema-discovery pass before querying. " +
+    'ONE BOUNDED CALL — List, filter, count, and cohort questions ("which X, excluding Y") are a single query, not a loop. Express the include filter, the exclude filter, and the aggregation in one SQL statement or one `run-code` script that filters server-side. Never page through a cohort across separate tool calls and never fan out per item to apply a filter; that is what turns a ten-second answer into a twenty-minute one. ' +
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
     NON_ANALYTICS_REQUEST_GUIDANCE +
     BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
@@ -734,6 +739,11 @@ export default createAgentChatPlugin({
       "Analytics has one user-facing artifact type: dashboards. Dashboards are JSON configs rendered by the built-in dashboard components, and an extension is a dashboard block—not a separate Analytics result. " +
       'If the user\'s requested dashboard, saved analysis/report, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within the native dashboard components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension`, then immediately call `update-dashboard` to embed it as one or more `chartType: "extension"` panels with `config.extensionId`. ' +
       "After creating the dashboard, briefly tell the user that a dashboard block uses an embedded extension because the request needed bespoke UI/code. Never leave a newly created extension standalone, never create a separate saved analysis for the same request, and never direct the user to an Extensions page from Analytics. Legacy analyses may be read or updated only for compatibility with an existing deep link.\n" +
+      // The extension-first default above is deliberate, but it must not swallow
+      // an explicit ask for a code change: without this carve-out the agent
+      // silently substitutes an extension for "open a PR adding a dual-axis
+      // chart type" and the user never learns the handoff exists.
+      "That extension-first default governs what you build on your own initiative. It does not override an explicit request for a source-code change: when the user asks for the capability natively in the product, asks to change app chrome or a shared component, or asks for a PR, branch, or code change in so many words, call `connect-builder` with their request verbatim instead of substituting an extension. When you have just built an extension for something that plainly belongs in the product — a chart type or interaction other dashboards would reuse — add one sentence offering the `connect-builder` handoff, and only call it if they take you up on it.\n" +
       "</analytics-artifact-guidance>";
 
     return `${sourceGuidance}\n\n${artifactGuidance}\n\n${analyticsDataDictionaryRoutingContext()}`;

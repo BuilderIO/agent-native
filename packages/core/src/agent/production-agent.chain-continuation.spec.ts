@@ -34,7 +34,12 @@ import type { AgentChatEvent } from "./types.js";
  *   - the durable path's behavior (target, attempts, timeout) is unchanged.
  */
 
-const ENV_KEYS = ["NETLIFY", "NETLIFY_LOCAL", "AWS_LAMBDA_FUNCTION_NAME"];
+const ENV_KEYS = [
+  "NETLIFY",
+  "NETLIFY_LOCAL",
+  "SITE_ID",
+  "AWS_LAMBDA_FUNCTION_NAME",
+];
 let savedEnv: NodeJS.ProcessEnv;
 
 beforeEach(() => {

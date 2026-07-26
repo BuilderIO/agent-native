@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { recordChange } from "@agent-native/core/server";
+import { EMBED_TOKEN_QUERY_PARAM } from "@agent-native/core/shared";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
@@ -34,10 +35,20 @@ export interface DashboardReportSubscription {
   lastRunAt: string | null;
   lastStatus: "success" | "error" | "running" | null;
   lastError: string | null;
+  lastCaptureAt: string | null;
+  lastCaptureMode: DashboardReportCaptureMode | null;
+  lastCaptureError: string | null;
   createdAt: string;
   updatedAt: string;
   ownerEmail: string;
   orgId: string | null;
+}
+
+export type DashboardReportCaptureMode = "full" | "partial" | "none";
+
+export interface DashboardReportCaptureOutcome {
+  mode: DashboardReportCaptureMode;
+  error?: string;
 }
 
 export interface AccessCtx {
@@ -89,7 +100,15 @@ function nowIso(): string {
 const DASHBOARD_REPORT_ERROR_MAX_LENGTH = 2_000;
 const DASHBOARD_REPORT_ERROR_OMISSION = "\n… [truncated] …\n";
 
+export function redactDashboardReportDiagnostic(value: string): string {
+  return value.replace(
+    new RegExp(`(${EMBED_TOKEN_QUERY_PARAM}=)[^&\\s]+`, "gi"),
+    "$1[REDACTED]",
+  );
+}
+
 export function truncateDashboardReportError(error: string): string {
+  error = redactDashboardReportDiagnostic(error);
   if (error.length <= DASHBOARD_REPORT_ERROR_MAX_LENGTH) return error;
 
   const retainedLength =
@@ -307,6 +326,9 @@ function rowToSubscription(row: any): DashboardReportSubscription {
     lastRunAt: row.lastRunAt ?? null,
     lastStatus: row.lastStatus ?? null,
     lastError: row.lastError ?? null,
+    lastCaptureAt: row.lastCaptureAt ?? null,
+    lastCaptureMode: row.lastCaptureMode ?? null,
+    lastCaptureError: row.lastCaptureError ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     ownerEmail: row.ownerEmail,
@@ -577,4 +599,36 @@ export async function markDashboardReportResult(
       updatedAt: now,
     })
     .where(eq(schema.dashboardReportSubscriptions.id, sub.id));
+}
+
+/**
+ * Persists the capture result before email delivery so a serverless cutoff
+ * cannot erase the browser diagnostics after a fallback message is accepted.
+ */
+export async function recordDashboardReportCaptureOutcome(
+  sub: DashboardReportSubscription,
+  outcome: DashboardReportCaptureOutcome,
+): Promise<boolean> {
+  if (!sub.lastRunAt) return false;
+
+  const capturedAt = nowIso();
+  const db = getDb() as any;
+  const rows = await db
+    .update(schema.dashboardReportSubscriptions)
+    .set({
+      lastCaptureAt: capturedAt,
+      lastCaptureMode: outcome.mode,
+      lastCaptureError: outcome.error
+        ? truncateDashboardReportError(outcome.error)
+        : null,
+      updatedAt: capturedAt,
+    })
+    .where(
+      and(
+        eq(schema.dashboardReportSubscriptions.id, sub.id),
+        eq(schema.dashboardReportSubscriptions.lastRunAt, sub.lastRunAt),
+      ),
+    )
+    .returning();
+  return Boolean(rows[0]);
 }

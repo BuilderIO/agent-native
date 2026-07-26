@@ -654,6 +654,14 @@ function isBenignHttpError(status: number, url: string): boolean {
   if (status === 404 && url.includes("/_agent-native/agent-chat/threads/")) {
     return true;
   }
+  // Chat can request checkpoints for a client-created thread before its first
+  // message persists that thread on the server.
+  if (
+    status === 404 &&
+    url.includes("/_agent-native/agent-chat/checkpoints?")
+  ) {
+    return true;
+  }
   // Nitro can briefly remount framework routes while Vite optimizes the first
   // browser dependency graph; waitForDevStable verifies this route is ready.
   if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {

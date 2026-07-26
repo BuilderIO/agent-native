@@ -1,5 +1,5 @@
 import { getAppBasePath } from "@agent-native/core/server";
-import { DEFAULT_SSR_CACHE_HEADERS } from "@agent-native/core/server/ssr-handler";
+import { resolveSsrCacheHeaders } from "@agent-native/core/server/ssr-handler";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -314,7 +314,7 @@ export async function renderPublicForm(event: H3Event) {
     // Public form SSR is anonymous HTML and follows the same framework-level
     // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
     // here; relying on provider config would make templates perform differently.
-    Object.assign(headers, DEFAULT_SSR_CACHE_HEADERS);
+    Object.assign(headers, resolveSsrCacheHeaders());
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,

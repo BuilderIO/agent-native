@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import {
   runWithRequestContext,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import {
   defineEventHandler,
   readBody,
@@ -14,6 +16,7 @@ import { z } from "zod";
 import exportToBrain from "../../../../actions/export-to-brain.js";
 import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
+import { runLoomImportJob } from "../../../../actions/lib/loom-import-job.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
 import { getDb, schema } from "../../../db/index.js";
 import {
@@ -24,12 +27,20 @@ import {
 
 const bodySchema = z.object({
   recordingId: z.string().min(1).max(200),
-  kind: z.enum(["media-ready", "seekable", "transcript", "brain-export"]),
+  kind: z.enum([
+    "media-ready",
+    "seekable",
+    "transcript",
+    "brain-export",
+    "loom-import",
+  ]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
   regenerate: z.boolean().optional(),
 });
+
+const LOOM_IMPORT_LEASE_MS = 30 * 60 * 1000;
 
 export default defineEventHandler(async (event: H3Event) => {
   const parsed = bodySchema.safeParse(await readBody(event).catch(() => null));
@@ -63,7 +74,8 @@ export default defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 404);
     return { ok: false, error: "Recording not found" };
   }
-  const requiredStatus = kind === "media-ready" ? "processing" : "ready";
+  const requiredStatus =
+    kind === "media-ready" || kind === "loom-import" ? "processing" : "ready";
   if (recording.status !== requiredStatus) {
     return {
       ok: true,
@@ -108,6 +120,47 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await finalizeRecording.run({
           id: recordingId,
           mediaVerificationRetryAttempt: retryAttempt ?? 1,
+        });
+        return { ok: true, kind, result };
+      }
+
+      if (kind === "loom-import") {
+        const claimId = randomUUID();
+        const claimStartedAt = new Date().toISOString();
+        const claimExpiredBefore = new Date(
+          Date.now() - LOOM_IMPORT_LEASE_MS,
+        ).toISOString();
+        const [claimed] = await getDb()
+          .update(schema.recordings)
+          .set({
+            loomImportClaimId: claimId,
+            loomImportClaimedAt: claimStartedAt,
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              eq(schema.recordings.status, "processing"),
+              or(
+                isNull(schema.recordings.loomImportClaimId),
+                isNull(schema.recordings.loomImportClaimedAt),
+                lt(schema.recordings.loomImportClaimedAt, claimExpiredBefore),
+              ),
+            ),
+          )
+          .returning({ id: schema.recordings.id });
+        if (!claimed) {
+          return {
+            ok: true,
+            recordingId,
+            kind,
+            skipped: true,
+            reason: "loom-import-already-running",
+          };
+        }
+        const result = await runLoomImportJob({
+          recordingId,
+          ownerEmail: recording.ownerEmail,
+          claimId,
         });
         return { ok: true, kind, result };
       }

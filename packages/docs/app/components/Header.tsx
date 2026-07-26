@@ -190,14 +190,18 @@ export default function Header() {
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
               loading="lazy"
               decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
               loading="lazy"
               decoding="async"
             />
@@ -264,16 +268,22 @@ export default function Header() {
               align="end"
               side="bottom"
             />
-            <SearchTrigger
-              onClick={openModal}
-              label={t("header.searchAria")}
-              placeholder={t("header.searchPlaceholder")}
-            />
-            <div className="flex shrink-0 items-center">
+            <div className="hidden lg:block">
+              <SearchTrigger
+                onClick={openModal}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+            </div>
+            <div className="hidden shrink-0 items-center lg:flex">
               <DocsLanguagePicker />
+            </div>
+            <div className="hidden lg:block">
               <DocsLanguageSuggestion />
             </div>
-            <ThemeToggle />
+            <div className="hidden lg:block">
+              <ThemeToggle />
+            </div>
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
@@ -300,6 +310,18 @@ export default function Header() {
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <SearchTrigger
+                onClick={() => {
+                  closeMobileMenu();
+                  openModal();
+                }}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+              <DocsLanguagePicker />
+              <ThemeToggle />
+            </div>
             <NavLink
               data-an-prefetch="render"
               to={localizedPath("/docs")}

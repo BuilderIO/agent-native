@@ -127,7 +127,7 @@ export function WorkspaceAppCard({
     <div
       aria-disabled={!href}
       className={cn(
-        "group relative rounded-xl border border-border/60 bg-card/40 p-4 transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15 focus-within:border-foreground/20 focus-within:bg-accent/15 aria-disabled:opacity-60",
+        "group relative rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-within:bg-accent/15 aria-disabled:opacity-60",
         isArchived && "opacity-70",
         className,
       )}

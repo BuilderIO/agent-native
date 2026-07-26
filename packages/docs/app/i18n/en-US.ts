@@ -93,10 +93,9 @@ const enUS = {
   },
   home: {
     hero: {
-      badge: "Open source framework",
       titleLine1: "The framework for",
       titleAccent: "agentic apps",
-      body: "Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.",
+      body: "Don't pick between apps or agents. Agent-Native apps are both.",
       primaryCta: "Try an app",
       secondaryCta: "Read the docs",
     },
@@ -110,7 +109,7 @@ const enUS = {
     },
     actionSurface: {
       eyebrow: "Deeply agentic, not AI-adjacent",
-      title: "One action gives you the whole app surface",
+      title: "One action gives you the whole surface",
       body: "Define an operation once. Agent-Native turns it into the UI action, agent tool, HTTP endpoint, MCP/A2A surface, CLI command, scoped permission check, and audit trail.",
       buildAction: "Build an action",
       benefits: {
@@ -1535,6 +1534,7 @@ const enUS = {
     dispatch: "Dispatch",
     a2aProtocol: "A2A Protocol",
     mcpClients: "MCP Clients (Add Tools)",
+    httpApi: "HTTP API (Call Actions)",
     mcpServer: "MCP Server (Expose Your App)",
     externalAgents: "External Agents (Connect a Host)",
     mcpApps: "MCP Apps (Inline UIs)",
@@ -1543,6 +1543,7 @@ const enUS = {
     automationConnectors: "Workflow Connectors",
     workspaceConnections: "Workspace Connections",
     creatingTemplates: "Creating Apps",
+    syncingTemplateChanges: "Syncing Template Changes",
     writingAgentInstructions: "Writing Agent Instructions",
     embeddingSdk: "Embedding SDK",
     frames: "Frames",

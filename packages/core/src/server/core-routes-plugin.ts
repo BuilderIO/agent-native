@@ -86,8 +86,8 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
   EMPTY_SPECULATION_RULES,
+  resolveSsrCacheHeaders,
 } from "../shared/cache-control.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import { llmConnectionTrackingProperties } from "../shared/llm-connection.js";
@@ -97,6 +97,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/index.js";
 import { registerBuiltinProviders } from "../tracking/providers.js";
 import { validateTrackPayload } from "../tracking/route.js";
@@ -142,7 +143,7 @@ import {
   type BuilderRelayCredentials,
   type BuilderPreviewRelayState,
 } from "./builder-browser.js";
-import { captureError } from "./capture-error.js";
+import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -160,6 +161,7 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -1199,6 +1201,14 @@ export function createCoreRoutesPlugin(
       // already registered the same key win.
       registerFrameworkSecrets();
       registerBuiltinProviders();
+      registerErrorCaptureProvider("agent-native-analytics", (error, context) =>
+        captureException(error, {
+          ...context,
+          handled: false,
+          runtime: "node",
+          source: "server",
+        }),
+      );
       registerBuiltinNotificationChannels();
 
       try {
@@ -1422,6 +1432,8 @@ export function createCoreRoutesPlugin(
         `${P}/realtime-token`,
         createRealtimeTokenHandler(),
       );
+      // Sharee visibility check for the hosted gateway
+      getH3App(nitroApp).use(`${P}/can-see`, createGatewayAccessCheckHandler());
 
       // SSE
       if (!options.disableSSE) {
@@ -1604,7 +1616,7 @@ export function createCoreRoutesPlugin(
             "application/speculationrules+json; charset=utf-8",
           );
           for (const [name, value] of Object.entries(
-            DEFAULT_SSR_CACHE_HEADERS,
+            resolveSsrCacheHeaders(),
           )) {
             setResponseHeader(event, name, value);
           }

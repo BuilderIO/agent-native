@@ -8,6 +8,10 @@ import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
+import {
+  CHAT_HANDOFF_REFRESH_INTERVAL_MS,
+  clearChatHandoff,
+} from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
@@ -46,15 +50,52 @@ export default function ChatRoute() {
     : undefined;
 
   useEffect(() => {
+    let handoffRefreshTimer: number | null = null;
+
+    function stopHandoffRefresh() {
+      if (handoffRefreshTimer === null) return;
+      window.clearInterval(handoffRefreshTimer);
+      handoffRefreshTimer = null;
+    }
+
+    function markChatActivity() {
+      markAgentChatHomeHandoff("chat");
+      if (handoffRefreshTimer !== null) return;
+      handoffRefreshTimer = window.setInterval(
+        () => markAgentChatHomeHandoff("chat"),
+        CHAT_HANDOFF_REFRESH_INTERVAL_MS,
+      );
+    }
+
+    // MultiTabAssistantChat only writes a thread URL after its first message,
+    // so a /chat/:threadId route is a durable non-empty-chat signal even if
+    // the run event happened before this route's effect subscribed.
+    if (threadId) markChatActivity();
+
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markAgentChatHomeHandoff("chat");
+      if (detail?.isRunning === true) {
+        markChatActivity();
+      } else if (!threadId) {
+        stopHandoffRefresh();
+      }
+    }
+
+    function handleOpenThread(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.newThread !== true) return;
+      stopHandoffRefresh();
+      clearChatHandoff();
     }
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
+    window.addEventListener("agent-chat:open-thread", handleOpenThread);
+    return () => {
+      stopHandoffRefresh();
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
+      window.removeEventListener("agent-chat:open-thread", handleOpenThread);
+    };
+  }, [threadId]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">

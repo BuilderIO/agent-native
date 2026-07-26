@@ -84,6 +84,21 @@ Do not rely on undeclared time variables. Server validation rejects unbound
 first-party SQL, so declare the filter or choose an explicit non-dashboard
 scope before saving.
 
+**A bound anywhere in the SQL is not the same as every CTE having its own
+bound.** If a panel has multiple top-level CTEs (`WITH a AS (...), b AS
+(...)`) and more than one of them reads `analytics_events`, EVERY one of
+those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
+reference or literal date bound — not just the final `SELECT` or one sibling
+CTE. A CTE that computes something like "this user's first-ever active day"
+by scanning `analytics_events` with no bound at all will full-table-scan on
+every render even though the panel *looks* time-bound overall (root cause of
+a 2026-07-25 production incident: several dashboards had exactly this shape).
+Server validation checks each top-level CTE independently now, so this fails
+at save time — but write it right the first time: bound every CTE, or use
+`config.timeScope: "cohort-history"` only for a CTE that is genuinely
+defining a cohort (e.g. a first-seen date), never as a way to skip bounding
+an ordinary activity scan.
+
 ## Creating A Dashboard
 
 When the user asks for a dashboard:
@@ -614,6 +629,16 @@ repeat-user panels. A docs event may carry `signed_in = true` from shared auth
 state or tracker context, but docs traffic is not app usage and should not appear
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
+
+## Template Catalog And Demo Dashboards
+
+`list-dashboard-templates` / `install-dashboard-template` install shipped
+dashboard templates (Node Exporter, the canonical Agent Native observability
+dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
+on first app open. See
+`references/template-catalog-and-demo.md` for the canonical-dashboard panel
+rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
+(source routing, env var overrides, tombstoning, reset).
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 
