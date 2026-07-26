@@ -275,6 +275,7 @@ describe("A2A continuations store", () => {
       ],
     };
 
+    const beforeReceipt = Date.now();
     await recordA2ATerminalDeliveryReceipt("cont-success", "success", history);
     await recordA2ATerminalDeliveryReceipt(
       "cont-failure",
@@ -311,6 +312,12 @@ describe("A2A continuations store", () => {
       "cont-failure",
       "failure",
     ]);
+    expect(Number(terminalUpdates[0].args[3])).toBeGreaterThanOrEqual(
+      beforeReceipt + 60_000,
+    );
+    expect(Number(terminalUpdates[1].args[3])).toBeGreaterThanOrEqual(
+      beforeReceipt + 60_000,
+    );
   });
 
   it("fails loud when terminal delivery confirmation does not persist", async () => {

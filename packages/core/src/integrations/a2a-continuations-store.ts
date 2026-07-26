@@ -16,6 +16,7 @@ import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
+const TERMINAL_HISTORY_FINALIZATION_LEASE_MS = 60 * 1000;
 const MAX_VERIFIED_ARTIFACT_CHECKPOINT_CHARS = 16_000;
 const MAX_TERMINAL_HISTORY_PAYLOAD_CHARS = 64_000;
 
@@ -953,7 +954,7 @@ export async function recordA2ATerminalDeliveryReceipt(
       kind,
       now,
       serializedPayload,
-      now,
+      now + TERMINAL_HISTORY_FINALIZATION_LEASE_MS,
       now,
       errorMessage?.slice(0, 2000) ?? null,
       id,
