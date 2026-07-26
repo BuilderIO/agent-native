@@ -1,7 +1,8 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS,
   executeBuilderCmsWrite,
   extractBuilderCmsWriteEntryId,
 } from "./_builder-cms-write-client";
@@ -17,6 +18,10 @@ describe("Builder CMS write client", () => {
     vi.clearAllMocks();
     delete process.env.BUILDER_CONTENT_API_HOST;
     delete process.env.BUILDER_CMS_API_HOST;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("does not call Builder when private credentials are not configured", async () => {
@@ -296,6 +301,40 @@ describe("Builder CMS write client", () => {
       ok: false,
       ambiguity: "timeout",
       error: expect.stringContaining("remote outcome is unknown"),
+    });
+  });
+
+  it("allows slow hosted Builder writes up to the 30-second provider window", async () => {
+    vi.useFakeTimers();
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(
+      async (_input: URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const resultPromise = executeBuilderCmsWrite({
+      request: {
+        method: "PATCH",
+        path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+        body: { published: "published" },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    let settled = false;
+    void resultPromise.finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      ambiguity: "timeout",
+      error: `Builder write timed out after ${DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS}ms; remote outcome is unknown.`,
     });
   });
 

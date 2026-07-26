@@ -16,6 +16,8 @@ export interface BuilderCmsWriteResult {
   ambiguity?: "timeout" | "transport" | "provider";
 }
 
+export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
+
 type FetchLike = typeof fetch;
 
 function builderWriteApiHost() {
@@ -162,7 +164,10 @@ export async function executeBuilderCmsWrite(args: {
   };
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(1, args.timeoutMs ?? 15_000);
+  const timeoutMs = Math.max(
+    1,
+    args.timeoutMs ?? DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS,
+  );
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await (args.fetchImpl ?? fetch)(url, {
