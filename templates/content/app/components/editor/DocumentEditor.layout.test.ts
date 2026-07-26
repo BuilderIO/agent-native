@@ -390,7 +390,13 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    collabLoading",
+      "canEdit &&\n                    !collabSynced",
+    );
+    expect(documentEditorSource).toContain(
+      "(isLocalFileDocument || collabSynced)",
+    );
+    expect(documentEditorSource).not.toContain(
+      "(isLocalFileDocument || !collabLoading)",
     );
   });
 

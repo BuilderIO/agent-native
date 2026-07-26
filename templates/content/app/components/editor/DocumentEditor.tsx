@@ -718,7 +718,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const {
     ydoc,
     awareness,
-    isLoading: collabLoading,
     isSynced: collabSynced,
     activeUsers,
     agentActive,
@@ -730,12 +729,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
-    canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+    canEdit && !bodyHydrationPending && (isLocalFileDocument || collabSynced);
   // Bind an editor's stable Y.Doc on its first mount, even while the initial
-  // state is loading. Editability remains gated by `editorCanEdit`, and the
-  // reconcile hook remains gated by `collabSynced`; keeping the Y.Doc binding
-  // stable avoids a snapshot -> collab remount that can seed the same SQL body
-  // beside freshly projected persisted CRDT content.
+  // state is loading. Editability and the reconcile hook share the exact
+  // `collabSynced` boundary; "not loading" can precede persisted Y.Doc
+  // projection and briefly expose duplicated blocks. Keeping the Y.Doc binding
+  // stable avoids a snapshot -> collab remount while the read-only editor waits.
   const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
   canEditRef.current = editorCanEdit;
 
@@ -1985,7 +1984,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     {!bodyHydrationPending &&
                     !isLocalFileDocument &&
                     canEdit &&
-                    collabLoading ? (
+                    !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                         role="status"
