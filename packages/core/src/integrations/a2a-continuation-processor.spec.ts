@@ -19,6 +19,7 @@ const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
+const failA2AContinuationsForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
 const rescheduleA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getTaskMock = vi.hoisted(() => vi.fn());
@@ -40,6 +41,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
   claimDueA2AContinuations: vi.fn(async () => []),
   completeA2AContinuation: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
+  failA2AContinuationsForIntegrationTask:
+    failA2AContinuationsForIntegrationTaskMock,
   getA2AContinuation: getA2AContinuationMock,
   listRecoverableA2AIntegrationTasks: listRecoverableA2ATasksMock,
   recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
@@ -317,6 +320,8 @@ describe("A2A continuation processor", () => {
       failed: 0,
     });
     expect(recoverDueA2AContinuationIdsMock).toHaveBeenCalledWith(5, []);
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledTimes(2);
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledTimes(2);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
@@ -359,8 +364,8 @@ describe("A2A continuation processor", () => {
       adapters: new Map([["slack", adapter()]]),
     });
 
-    expect(failA2AContinuationMock).toHaveBeenCalledWith(
-      claimed.id,
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
       expect.stringContaining("disabled"),
     );
     expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(

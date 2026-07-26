@@ -73,7 +73,9 @@ import {
 import { recoverDueIntegrationCampaigns } from "./integration-campaign-recovery.js";
 import {
   claimIntegrationCampaignDeliveryForTask,
+  completeIntegrationCampaign,
   failDisabledIntegrationCampaignTask,
+  failIntegrationCampaign,
   terminalizeIntegrationCampaignForTask,
   transitionIntegrationCampaignTaskToDeliveryRetry,
 } from "./integration-campaigns-store.js";
@@ -1884,15 +1886,25 @@ export function createIntegrationsPlugin(
               if (taskPayload.kind === "response-delivery") {
                 let receipt: void | PlatformDeliveryReceipt =
                   taskPayload.deliveryReceipt;
+                let deliveryLease:
+                  | { campaignId: string; runId: string; leaseToken: string }
+                  | undefined;
                 if (!receipt) {
                   if (campaignContinuation) {
+                    const runId = `integration-delivery-${crypto.randomUUID()}`;
+                    const leaseToken = crypto.randomUUID();
                     const deliveryClaim =
                       await claimIntegrationCampaignDeliveryForTask(task.id, {
-                        runId: `integration-delivery-${crypto.randomUUID()}`,
-                        leaseToken: crypto.randomUUID(),
+                        runId,
+                        leaseToken,
                         leaseDurationMs: INTEGRATION_DELIVERY_LEASE_MS,
                       });
                     if (!deliveryClaim) return "campaign-active" as const;
+                    deliveryLease = {
+                      campaignId: deliveryClaim.id,
+                      runId,
+                      leaseToken,
+                    };
                   }
                   receipt = await adapter.sendResponse(
                     taskPayload.message,
@@ -1938,15 +1950,34 @@ export function createIntegrationsPlugin(
                   taskPayload.campaignTerminalStatus ??
                   (campaignContinuation ? "completed" : undefined);
                 if (campaignTerminalStatus) {
-                  await terminalizeIntegrationCampaignForTask(task.id, {
-                    status: campaignTerminalStatus,
-                    ...(campaignTerminalStatus === "failed"
-                      ? {
-                          errorMessage:
-                            "Integration campaign exhausted its continuation limit",
-                        }
-                      : {}),
-                  });
+                  const errorMessage =
+                    "Integration campaign exhausted its continuation limit";
+                  const terminalized = deliveryLease
+                    ? campaignTerminalStatus === "failed"
+                      ? await failIntegrationCampaign(
+                          deliveryLease.campaignId,
+                          {
+                            runId: deliveryLease.runId,
+                            leaseToken: deliveryLease.leaseToken,
+                            errorMessage,
+                          },
+                        )
+                      : await completeIntegrationCampaign(
+                          deliveryLease.campaignId,
+                          {
+                            runId: deliveryLease.runId,
+                            leaseToken: deliveryLease.leaseToken,
+                          },
+                        )
+                    : await terminalizeIntegrationCampaignForTask(task.id, {
+                        status: campaignTerminalStatus,
+                        ...(campaignTerminalStatus === "failed"
+                          ? { errorMessage }
+                          : {}),
+                      });
+                  if (deliveryLease && !terminalized) {
+                    return "campaign-active" as const;
+                  }
                   return campaignTerminalStatus === "failed"
                     ? ("campaign-failed" as const)
                     : ("completed" as const);

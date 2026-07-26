@@ -432,6 +432,21 @@ export async function hasActiveA2AContinuationsForIntegrationTask(
   return rows.length > 0;
 }
 
+export async function failA2AContinuationsForIntegrationTask(
+  integrationTaskId: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const now = Date.now();
+  await getDbExec().execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'delivering')`,
+    args: [errorMessage.slice(0, 2000), now, now, integrationTaskId],
+  });
+}
+
 export async function getA2AContinuationsForIntegrationTaskAgent(
   integrationTaskId: string,
   agentUrl: string,

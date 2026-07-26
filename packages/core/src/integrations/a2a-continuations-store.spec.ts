@@ -141,6 +141,29 @@ describe("A2A continuations store", () => {
     expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
   });
 
+  it("terminalizes all active A2A rows for a disabled durable task", async () => {
+    const { failA2AContinuationsForIntegrationTask } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 2 });
+
+    await failA2AContinuationsForIntegrationTask(
+      "task-disabled",
+      "durable scope disabled",
+    );
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET status = 'failed'"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+    expect(queryArgs(update!)).toEqual([
+      "durable scope disabled",
+      expect.any(Number),
+      expect.any(Number),
+      "task-disabled",
+    ]);
+  });
+
   it("does not swallow non-duplicate column migration errors", async () => {
     const { getA2AContinuationForIntegrationTask } = await loadStore();
     const migrationError = new Error("permission denied for table");

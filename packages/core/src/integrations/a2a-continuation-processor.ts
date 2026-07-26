@@ -19,12 +19,14 @@ import {
   claimA2AContinuationDelivery,
   claimDueA2AContinuations,
   completeA2AContinuation,
+  failA2AContinuationsForIntegrationTask,
   failA2AContinuation,
   getA2AContinuation,
   listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
   rescheduleA2AContinuation,
   type A2AContinuation,
+  type RecoverableA2AIntegrationTask,
 } from "./a2a-continuations-store.js";
 import {
   failDisabledIntegrationCampaignTask,
@@ -179,17 +181,18 @@ export async function recoverDueA2AContinuations(options?: {
   const candidateTasks = await listRecoverableA2AIntegrationTasks(200);
   const eligibleTaskIds: string[] = [];
   for (const task of candidateTasks) {
-    if (
-      isIntegrationDurableDispatchEnabledForTask({
-        platform: task.platform,
-        externalThreadId: task.externalThreadId,
-        platformContext: task.dispatchScope
-          ? { channelId: task.dispatchScope }
-          : undefined,
-      })
-    ) {
+    const enabled = isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    });
+    if (enabled) {
       eligibleTaskIds.push(task.id);
       if (eligibleTaskIds.length >= limit) break;
+    } else {
+      await failDisabledDurableA2ATask(task);
     }
   }
   const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
@@ -392,31 +395,38 @@ async function durableContinuationScopeStillEnabled(
   if (enabled) return true;
 
   const message = "Durable integration campaign was disabled for this scope";
-  await failA2AContinuation(continuation.id, message);
-  await failDisabledIntegrationCampaignTask(
-    continuation.integrationTaskId,
-    message,
-  );
-  const platform = task?.platform ?? continuation.platform;
-  const externalThreadId =
-    task?.externalThreadId ?? continuation.externalThreadId;
+  await failDisabledDurableA2ATask({
+    id: continuation.integrationTaskId,
+    platform: task?.platform ?? continuation.platform,
+    externalThreadId: task?.externalThreadId ?? continuation.externalThreadId,
+    dispatchScope: task?.dispatchScope ?? null,
+    status: task?.status ?? "missing",
+  });
+  return false;
+}
+
+async function failDisabledDurableA2ATask(
+  task: RecoverableA2AIntegrationTask,
+): Promise<void> {
+  const message = "Durable integration campaign was disabled for this scope";
+  await failA2AContinuationsForIntegrationTask(task.id, message);
+  await failDisabledIntegrationCampaignTask(task.id, message);
   const nextTask = await getNextPendingTaskForThread(
-    platform,
-    externalThreadId,
+    task.platform,
+    task.externalThreadId,
   );
   if (nextTask) {
     await dispatchPendingIntegrationTask({
       taskId: nextTask.id,
       task: {
-        platform,
-        externalThreadId,
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
         platformContext: nextTask.dispatchScope
           ? { channelId: nextTask.dispatchScope }
           : undefined,
       },
     });
   }
-  return false;
 }
 
 async function resumeA2AContinuationProgress(

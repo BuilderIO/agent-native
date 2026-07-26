@@ -44,14 +44,22 @@ const getNextPendingTaskForThreadMock = vi.hoisted(() =>
   vi.fn(async () => null),
 );
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
-const recoverDueIntegrationCampaignsMock = vi.hoisted(() => vi.fn());
-const recoverDueA2AContinuationsMock = vi.hoisted(() => vi.fn());
+const recoverDueIntegrationCampaignsMock = vi.hoisted(() =>
+  vi.fn(async () => ({ selected: 0, dispatched: 0, skipped: 0, failed: 0 })),
+);
+const recoverDueA2AContinuationsMock = vi.hoisted(() =>
+  vi.fn(async () => ({ dispatched: 0, failed: 0 })),
+);
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const terminalizeIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
 const transitionIntegrationCampaignTaskToDeliveryRetryMock = vi.hoisted(() =>
   vi.fn(),
 );
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const failIntegrationCampaignMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -94,6 +102,8 @@ vi.mock("./integration-campaign-recovery.js", () => ({
 vi.mock("./integration-campaigns-store.js", () => ({
   claimIntegrationCampaignDeliveryForTask:
     claimIntegrationCampaignDeliveryForTaskMock,
+  completeIntegrationCampaign: completeIntegrationCampaignMock,
+  failIntegrationCampaign: failIntegrationCampaignMock,
   failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
   terminalizeIntegrationCampaignForTask:
     terminalizeIntegrationCampaignForTaskMock,
@@ -628,12 +638,14 @@ describe("integrations plugin routes", () => {
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
     const timestamp = Date.now();
     const signature = createHmac("sha256", process.env.A2A_SECRET)
       .update(`${task.id}:${timestamp}`)
       .digest("hex");
     const nitroApp = createNitroApp();
-    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
 
     const result = await dispatch(
       nitroApp,
@@ -645,7 +657,7 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(claimPendingTaskMock).not.toHaveBeenCalled();
-    expect(adapter.sendResponse).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(terminalizeIntegrationCampaignForTaskMock).toHaveBeenCalledWith(
       task.id,
@@ -692,6 +704,13 @@ describe("integrations plugin routes", () => {
 
     expect(results.map((result) => result.status).sort()).toEqual([200, 202]);
     expect(sendResponse).toHaveBeenCalledOnce();
+    expect(failIntegrationCampaignMock).toHaveBeenCalledWith(
+      "campaign-1",
+      expect.objectContaining({
+        runId: expect.stringContaining("integration-delivery-"),
+        leaseToken: expect.any(String),
+      }),
+    );
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
   });
 
@@ -736,8 +755,10 @@ describe("integrations plugin routes", () => {
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
     const nitroApp = createNitroApp();
-    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
 
     const result = await dispatch(
       nitroApp,
@@ -747,7 +768,7 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(adapter.sendResponse).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
     expect(terminalizeIntegrationCampaignForTaskMock).toHaveBeenCalledWith(
