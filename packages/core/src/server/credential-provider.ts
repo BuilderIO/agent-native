@@ -706,8 +706,11 @@ export interface BuilderCredentialsDetailed {
  * should use `resolveBuilderCredentials()` instead.
  */
 export async function resolveBuilderCredentialsDetailed(): Promise<BuilderCredentialsDetailed> {
-  const { creds: scoped, lookupFailed, cause } =
-    await resolveScopedBuilderCredentials();
+  const {
+    creds: scoped,
+    lookupFailed,
+    cause,
+  } = await resolveScopedBuilderCredentials();
   if (scoped) {
     const {
       privateKey,
