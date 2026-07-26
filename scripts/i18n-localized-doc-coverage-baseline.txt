@@ -27,7 +27,6 @@ ar-SA|template-calendar-booking-links
 ar-SA|template-calendar-developers
 ar-SA|template-calendar-scheduling
 ar-SA|template-chat-developers
-ar-SA|template-chat-first-edits
 ar-SA|template-clips-ai-and-editing
 ar-SA|template-clips-capture-everywhere
 ar-SA|template-clips-developers
@@ -304,7 +303,6 @@ hi-IN|template-calendar-booking-links
 hi-IN|template-calendar-developers
 hi-IN|template-calendar-scheduling
 hi-IN|template-chat-developers
-hi-IN|template-chat-first-edits
 hi-IN|template-clips-ai-and-editing
 hi-IN|template-clips-capture-everywhere
 hi-IN|template-clips-developers
