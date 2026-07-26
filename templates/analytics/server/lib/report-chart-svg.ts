@@ -329,10 +329,10 @@ function renderPieChartSvg({
   const slices = labels.map((label, index) => ({
     label,
     value: exactValue(series[0]?.data[index]),
-    color:
-      index === 0
-        ? safeColor(series[0]?.color, palette[0])
-        : safeColor(undefined, palette[index % palette.length]),
+    color: safeColor(
+      index === 0 ? series[0]?.color : undefined,
+      palette[index % palette.length],
+    ),
   }));
   const total = slices.reduce(
     (sum, slice) =>
