@@ -755,6 +755,8 @@ const messages = {
       "Set up a team to collaborate with your colleagues.",
     createOrgVaultNotice:
       "Vault keys aren't shared between organizations. A new organization starts with an empty vault, so you'll need to add its own API keys and credentials before connected apps work.",
+    acceptInvitationOrgSwitchNotice:
+      "Joining makes {{name}} your active organization. Connected apps will switch to {{name}}'s vault keys, so anything using keys saved in your current organization may stop working until {{name}} has its own.",
     joinDomainOne:
       "An organization matching your email domain already exists. Join it to collaborate with your teammates.",
     joinDomainMany:
