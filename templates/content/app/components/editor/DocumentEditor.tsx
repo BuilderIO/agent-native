@@ -241,7 +241,13 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: queriedDocument, isError } = useDocument(documentId);
+  const documentQuery = useDocument(documentId);
+  const {
+    data: queriedDocument,
+    isError,
+    isFetchedAfterMount,
+    isFetching,
+  } = documentQuery;
   const navigate = useNavigate();
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
@@ -252,11 +258,30 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
-  if (!document) {
+  // A database/list snapshot can optimistically seed the document cache with a
+  // body that predates the latest collaborative save. Mounting ProseMirror from
+  // that snapshot lets reconcile briefly insert the stale tail beside the
+  // already-current Y.Doc. Wait only for this mount's first dedicated
+  // get-document response; later poll/SSE refetches remain live and reconcile
+  // without replacing the editor.
+  if (
+    !document ||
+    shouldAwaitAuthoritativeDocument({ isFetching, isFetchedAfterMount })
+  ) {
     return <DocumentEditorSkeleton />;
   }
 
   return <DocumentEditorBody documentId={documentId} document={document} />;
+}
+
+export function shouldAwaitAuthoritativeDocument({
+  isFetching,
+  isFetchedAfterMount,
+}: {
+  isFetching: boolean;
+  isFetchedAfterMount: boolean;
+}) {
+  return isFetching && !isFetchedAfterMount;
 }
 
 interface DocumentEditorBodyProps {

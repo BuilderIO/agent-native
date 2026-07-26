@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
@@ -20,6 +21,16 @@ import {
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
+
+describe("document query freshness", () => {
+  it("always replaces seeded row snapshots before the editor mounts", () => {
+    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    });
+  });
+});
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {

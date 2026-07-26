@@ -289,12 +289,23 @@ export function useDocuments() {
   });
 }
 
+export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
+  // Database/list snapshots may seed this cache before the page opens. Their
+  // body can lag a just-saved collaborative edit, so never treat that seed as
+  // authoritative for mounting the editor. The dedicated get-document action
+  // must win once per page mount; subsequent background refetches can keep the
+  // already-mounted editor current without remounting it.
+  staleTime: 0,
+  refetchOnMount: "always" as const,
+  retry: false,
+};
+
 export function useDocument(id: string | null) {
   return useActionQuery<Document>("get-document", id ? { id } : undefined, {
     enabled: !!id,
     // Doc-not-found / no-access errors are deterministic — retrying just keeps
     // the spinner up for ~7s before the UI can render "Not found".
-    retry: false,
+    ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   });
 }
 

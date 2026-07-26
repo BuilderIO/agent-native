@@ -12,11 +12,33 @@ import {
   enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
   refreshUnchangedContentSaveWatermark,
+  shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
 import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("waits for the first authoritative document fetch, then stays mounted", () => {
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: true,
+        isFetchedAfterMount: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: false,
+        isFetchedAfterMount: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: true,
+        isFetchedAfterMount: true,
+      }),
+    ).toBe(false);
+  });
+
   it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => {
@@ -210,8 +232,11 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const { data: queriedDocument, isError }");
+    expect(source).toContain("const documentQuery = useDocument(documentId)");
+    expect(source).toContain("isFetchedAfterMount");
+    expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");
+    expect(source).toContain("shouldAwaitAuthoritativeDocument");
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
