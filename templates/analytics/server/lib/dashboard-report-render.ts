@@ -448,11 +448,37 @@ function detectChartKeys(
 }
 
 function chartColor(config: SqlPanel["config"], index: number): string {
-  const configured =
-    config?.colors?.[index] ?? (index === 0 ? config?.color : undefined);
+  const configured = config?.colors?.[index];
   return configured && !configured.includes("var(")
     ? configured
     : CHART_COLORS[index % CHART_COLORS.length];
+}
+
+/** Legacy saved dashboards still carry `stacked-bar` / `stacked-area`. */
+const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
+  bar: "bar",
+  line: "line",
+  area: "area",
+  pie: "pie",
+  "stacked-bar": "bar",
+  "stacked-area": "area",
+};
+
+/**
+ * The dashboard pivots before it picks a renderer, so tables, metrics, and
+ * heatmaps see wide-form rows too. `fillDateGaps` must stay off for bar charts
+ * (on the stored chart type, not the normalized one) because a filled day is a
+ * fabricated zero bar, not a measurement.
+ */
+function pivotPanelRows(
+  panel: SqlPanel,
+  rows: Array<Record<string, unknown>>,
+): { rows: Array<Record<string, unknown>>; forcedYKeys?: string[] } {
+  if (!panel.config?.pivot || rows.length === 0) return { rows };
+  const pivoted = pivotRows(rows, panel.config.pivot, {
+    fillDateGaps: panel.chartType !== "bar",
+  });
+  return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
 }
 
 type ChartInput = {
@@ -464,23 +490,17 @@ type ChartInput = {
 function buildChartInput(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
+  chartType: ReportChartType,
+  forcedYKeys: string[] | undefined,
 ): ChartInput | null {
   const config = panel.config;
-  let working = rows;
-  let forcedYKeys: string[] | undefined;
-  if (config?.pivot) {
-    const pivoted = pivotRows(rows, config.pivot);
-    working = pivoted.rows;
-    forcedYKeys = pivoted.seriesKeys;
-  }
-
-  const { xKey, yKeys } = detectChartKeys(working, config, forcedYKeys);
+  const { xKey, yKeys } = detectChartKeys(rows, config, forcedYKeys);
   if (!xKey || yKeys.length === 0) return null;
 
-  const droppedPoints = Math.max(0, working.length - MAX_CHART_POINTS);
-  const visible = droppedPoints ? working.slice(-MAX_CHART_POINTS) : working;
+  const droppedPoints = Math.max(0, rows.length - MAX_CHART_POINTS);
+  const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
   const labels = visible.map((row) => String(row[xKey] ?? ""));
-  const plotted = panel.chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
 
   return {
     labels,
@@ -812,13 +832,16 @@ function failureBlock(
   };
 }
 
-async function renderChartBlock(
-  panel: SqlPanel,
-  rows: Array<Record<string, unknown>>,
-  index: number,
-  description: string,
-): Promise<PanelBlock> {
-  const input = buildChartInput(panel, rows);
+async function renderChartBlock(args: {
+  panel: SqlPanel;
+  rows: Array<Record<string, unknown>>;
+  forcedYKeys?: string[];
+  chartType: ReportChartType;
+  index: number;
+  description: string;
+}): Promise<PanelBlock> {
+  const { panel, rows, chartType, index, description } = args;
+  const input = buildChartInput(panel, rows, chartType, args.forcedYKeys);
   if (!input) {
     const table = renderTableHtml(panel, rows);
     return {
@@ -839,7 +862,7 @@ async function renderChartBlock(
   }
   const subtitle = subtitleParts.join(" · ");
 
-  const alt = `${panel.title}: ${panel.chartType} chart of ${input.series
+  const alt = `${panel.title}: ${chartType} chart of ${input.series
     .map((series) => series.label)
     .join(", ")}`;
 
@@ -849,7 +872,7 @@ async function renderChartBlock(
       ...(subtitle ? { subtitle } : {}),
       labels: input.labels,
       series: input.series,
-      type: panel.chartType as ReportChartType,
+      type: chartType,
       width: CHART_WIDTH,
       height: CHART_HEIGHT,
       ...(panel.config?.stacked === true ? { stacked: true } : {}),
@@ -975,19 +998,19 @@ export async function renderReportEmail(args: {
     const truncatedNote = data.truncated
       ? noteHtml("The source truncated this result set.")
       : "";
+    const { rows, forcedYKeys } = pivotPanelRows(panel, data.rows);
 
-    if (
-      panel.chartType === "line" ||
-      panel.chartType === "area" ||
-      panel.chartType === "bar" ||
-      panel.chartType === "pie"
-    ) {
-      const block = await renderChartBlock(
+    const chartType: ReportChartType | undefined =
+      REPORT_CHART_TYPES[panel.chartType];
+    if (chartType) {
+      const block = await renderChartBlock({
         panel,
-        data.rows,
-        chartIndex++,
+        rows,
+        ...(forcedYKeys ? { forcedYKeys } : {}),
+        chartType,
+        index: chartIndex++,
         description,
-      );
+      });
       if (truncatedNote) block.html += truncatedNote;
       blocks.push(block);
       continue;
@@ -995,12 +1018,12 @@ export async function renderReportEmail(args: {
 
     const rendered =
       panel.chartType === "metric"
-        ? renderMetricHtml(panel, data.rows)
+        ? renderMetricHtml(panel, rows)
         : panel.chartType === "callout"
-          ? renderCalloutHtml(data.rows)
+          ? renderCalloutHtml(rows)
           : panel.chartType === "heatmap"
-            ? renderHeatmapHtml(panel, data.rows)
-            : renderTableHtml(panel, data.rows);
+            ? renderHeatmapHtml(panel, rows)
+            : renderTableHtml(panel, rows);
 
     blocks.push({
       panelId: panel.id,

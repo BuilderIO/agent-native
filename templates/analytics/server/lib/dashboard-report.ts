@@ -236,16 +236,21 @@ export async function sendDashboardReportSubscription(
       : {}),
   });
 
-  const queryablePanelIds = [...panelData.keys()];
-  const failedPanelIds = queryablePanelIds.filter((panelId) => {
+  // Only panels that were actually queried can vote on total failure. Counting
+  // never-queryable panels (extensions) as survivors would let a dashboard of
+  // pure placeholders pass this guard and ship as "complete".
+  const attemptedPanelIds = [...panelData.keys()].filter(
+    (panelId) => panelData.get(panelId)?.status !== "not-emailable",
+  );
+  const failedPanelIds = attemptedPanelIds.filter((panelId) => {
     const data = panelData.get(panelId);
     return (
       data?.status === "query-failed" || data?.status === "missing-credential"
     );
   });
   if (
-    queryablePanelIds.length > 0 &&
-    failedPanelIds.length === queryablePanelIds.length
+    attemptedPanelIds.length > 0 &&
+    failedPanelIds.length === attemptedPanelIds.length
   ) {
     const firstError = failedPanelIds
       .map((panelId) => {
@@ -258,17 +263,26 @@ export async function sendDashboardReportSubscription(
       error: `every dashboard panel failed to load: ${firstError ?? "unknown error"}`,
     });
     throw new Error(
-      `Dashboard report has no usable data: every one of ${queryablePanelIds.length} panels failed (${firstError ?? "unknown error"})`,
+      `Dashboard report has no usable data: every one of ${attemptedPanelIds.length} panels failed (${firstError ?? "unknown error"})`,
     );
   }
 
   const rendered = await renderReportEmail({ snapshot, panelData });
-  const reportMode: DashboardReportMode = rendered.degradedPanelIds.length
-    ? "degraded"
-    : "complete";
+  // A dashboard whose only reportable panels are extensions renders nothing but
+  // "open the dashboard" links. Nothing failed, so degradedPanelIds is empty —
+  // but the report is not backed by data and must not claim to be complete. A
+  // section-only dashboard (panelData empty) has nothing to render and is fine.
+  const noPanelBackedByData =
+    panelData.size > 0 && attemptedPanelIds.length === 0;
+  const reportMode: DashboardReportMode =
+    rendered.degradedPanelIds.length || noPanelBackedByData
+      ? "degraded"
+      : "complete";
   const reportError = rendered.degradedPanelIds.length
-    ? `${rendered.degradedPanelIds.length} of ${snapshot.panelIds.length} panels could not be rendered: ${rendered.degradedPanelIds.join(", ")}`
-    : undefined;
+    ? `${rendered.degradedPanelIds.length} of ${panelData.size} panels could not be rendered: ${rendered.degradedPanelIds.join(", ")}`
+    : noPanelBackedByData
+      ? "No panel in this dashboard can be rendered into an email"
+      : undefined;
 
   await options.onCaptureOutcome?.({
     mode: reportMode === "complete" ? "full" : "partial",

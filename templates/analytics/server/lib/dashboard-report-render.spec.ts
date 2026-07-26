@@ -419,6 +419,124 @@ describe("renderReportEmail", () => {
     ]);
   });
 
+  it("does not invent zero bars for days a pivoted bar chart never returned", async () => {
+    await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "bars",
+          chartType: "bar",
+          config: { pivot: { xKey: "day", seriesKey: "team", valueKey: "n" } },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "bars",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", team: "alpha", n: 5 },
+              { day: "2026-07-03", team: "alpha", n: 7 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      labels: string[];
+      series: Array<{ data: Array<number | null> }>;
+    };
+    expect(chartInput.labels).toEqual(["2026-07-01", "2026-07-03"]);
+    expect(chartInput.series[0].data).toEqual([5, 7]);
+  });
+
+  it("pivots table panels the way the dashboard does", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "pivoted",
+          chartType: "table",
+          config: { pivot: { xKey: "day", seriesKey: "team", valueKey: "n" } },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "pivoted",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", team: "alpha", n: 5 },
+              { day: "2026-07-01", team: "beta", n: 3 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.text).toContain("day | alpha | beta");
+    expect(rendered.text).toContain("2026-07-01 | 5 | 3");
+    expect(rendered.text).not.toContain("| team |");
+  });
+
+  it("charts legacy stacked-* panels instead of dropping them to a table", async () => {
+    const rendered = await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "legacy",
+          chartType: "stacked-area" as SqlPanel["chartType"],
+          config: { xKey: "day", yKeys: ["n"] },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "legacy",
+          {
+            status: "rows" as const,
+            rows: [
+              { day: "2026-07-01", n: 1 },
+              { day: "2026-07-02", n: 2 },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    expect(rendered.attachments).toHaveLength(1);
+    expect(
+      (mocks.renderReportChartSvg.mock.calls[0][0] as { type: string }).type,
+    ).toBe("area");
+  });
+
+  it("ignores config.color, which the dashboard never uses as a chart color", async () => {
+    await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "colored",
+          chartType: "bar",
+          config: { xKey: "day", yKeys: ["n"], color: "region" },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "colored",
+          {
+            status: "rows" as const,
+            rows: [{ day: "2026-07-01", n: 1 }],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ color: string }>;
+    };
+    expect(chartInput.series[0].color).toBe("#2563eb");
+  });
+
   it("degrades a chart panel when rasterization is unavailable", async () => {
     mocks.renderReportChartSvg.mockImplementation(() => {
       throw new Error("Failed to load native binding");

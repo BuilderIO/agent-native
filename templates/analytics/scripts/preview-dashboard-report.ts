@@ -114,11 +114,18 @@ async function main() {
 
   await mkdir(outDir, { recursive: true });
   let html = rendered.html;
+  let inlineHtml = rendered.html;
   for (const attachment of rendered.attachments) {
     await writeFile(join(outDir, attachment.filename), attachment.content);
     html = html.split(`cid:${attachment.contentId}`).join(attachment.filename);
+    inlineHtml = inlineHtml
+      .split(`cid:${attachment.contentId}`)
+      .join(
+        `data:${attachment.contentType};base64,${attachment.content.toString("base64")}`,
+      );
   }
   await writeFile(join(outDir, "report.html"), html, "utf8");
+  await writeFile(join(outDir, "report-standalone.html"), inlineHtml, "utf8");
   await writeFile(join(outDir, "report.txt"), rendered.text, "utf8");
 
   const totalBytes = rendered.attachments.reduce(
