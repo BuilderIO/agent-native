@@ -477,9 +477,13 @@ if (literalViolations.length > 0) {
     '    const x = email ?? "local@localhost" // guard:allow-localhost-fallback — explain why',
   );
   console.error(`${bar}\n`);
+}
+
+if (violations.length > 0) {
   process.exit(1);
 }
 
 console.log(
-  'guard-no-localhost-fallback: clean (no "local@localhost" literals in production code).',
+  "guard-no-localhost-fallback: clean (no \"local@localhost\" literals and no " +
+    "ambient-identity fallbacks in production code).",
 );
