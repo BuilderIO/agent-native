@@ -38,6 +38,7 @@ describe("integration campaign recovery", () => {
       externalThreadId: "slack:team:C123:1",
       dispatchScope: "C123",
       status: "processing",
+      payload: JSON.stringify({ incoming: { text: "continue" } }),
     });
     dispatchMock.mockResolvedValue("background-acknowledged");
     durableEnabledMock.mockReturnValue(true);
@@ -122,5 +123,37 @@ describe("integration campaign recovery", () => {
     });
     expect(dispatchMock).not.toHaveBeenCalled();
     expect(failDisabledMock).toHaveBeenCalledWith("task-1");
+  });
+
+  it("still wakes confirmed receipt reconciliation after scope is disabled", async () => {
+    durableEnabledMock.mockReturnValueOnce(false);
+    getTaskMock.mockResolvedValueOnce({
+      id: "task-1",
+      platform: "slack",
+      externalThreadId: "slack:team:C123:1",
+      dispatchScope: "C123",
+      status: "processing",
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        deliveryReceipt: { status: "delivered", messageRefs: ["reply-1"] },
+      }),
+    });
+    const { recoverDueIntegrationCampaigns } =
+      await import("./integration-campaign-recovery.js");
+
+    await expect(recoverDueIntegrationCampaigns({})).resolves.toEqual({
+      selected: 1,
+      dispatched: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "task-1",
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    );
+    expect(failDisabledMock).not.toHaveBeenCalled();
   });
 });

@@ -140,10 +140,15 @@ export async function dispatchPendingIntegrationTask(input: {
   baseUrl?: string;
   portableSettleMs?: number;
   campaignContinuation?: boolean;
+  allowPortableConfirmedReceiptReconciliation?: boolean;
 }): Promise<IntegrationDispatchOutcome> {
   const startedAt = Date.now();
   const durable = isIntegrationDurableDispatchEnabledForTask(input.task);
-  if (input.campaignContinuation && !durable) {
+  if (
+    input.campaignContinuation &&
+    !durable &&
+    !input.allowPortableConfirmedReceiptReconciliation
+  ) {
     logDispatch(input.taskId, "failed", startedAt);
     return "failed";
   }

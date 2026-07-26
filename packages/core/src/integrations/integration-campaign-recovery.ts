@@ -19,6 +19,21 @@ export interface IntegrationCampaignRecoveryResult {
   failed: number;
 }
 
+function hasConfirmedDeliveryReceipt(payload: string): boolean {
+  try {
+    const parsed = JSON.parse(payload) as {
+      kind?: unknown;
+      deliveryReceipt?: { status?: unknown };
+    };
+    return (
+      parsed.kind === "response-delivery" &&
+      parsed.deliveryReceipt?.status === "delivered"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Wake due campaign chunks without claiming or executing them in the sweep.
  * The signed process-task endpoint owns the lease and all mutations.
@@ -48,15 +63,17 @@ export async function recoverDueIntegrationCampaigns(options: {
         result.skipped += 1;
         continue;
       }
-      if (
-        !isIntegrationDurableDispatchEnabledForTask({
+      const durableDispatchEnabled = isIntegrationDurableDispatchEnabledForTask(
+        {
           platform: task.platform,
           externalThreadId: task.externalThreadId,
           platformContext: task.dispatchScope
             ? { channelId: task.dispatchScope }
             : undefined,
-        })
-      ) {
+        },
+      );
+      const confirmedReceipt = hasConfirmedDeliveryReceipt(task.payload);
+      if (!durableDispatchEnabled && !confirmedReceipt) {
         await failDisabledIntegrationCampaignTask(task.id);
         const nextTask = await getNextPendingTaskForThread(
           task.platform,
@@ -91,6 +108,9 @@ export async function recoverDueIntegrationCampaigns(options: {
         event: options.event,
         baseUrl: options.webhookBaseUrl,
         campaignContinuation: true,
+        ...(confirmedReceipt && !durableDispatchEnabled
+          ? { allowPortableConfirmedReceiptReconciliation: true }
+          : {}),
       });
       if (outcome === "failed") result.failed += 1;
       else result.dispatched += 1;

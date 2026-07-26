@@ -193,7 +193,13 @@ async function checkpointIntegrationDeliveryRetry(
   payload: string,
   errorMessage: string,
   event: unknown,
-): Promise<void> {
+  campaignLease?: {
+    campaignId: string;
+    runId: string;
+    leaseToken: string;
+    campaignStatus: "completed" | "failed";
+  },
+): Promise<"requeued" | "superseded"> {
   let terminalStatus: "completed" | "failed" | undefined;
   try {
     const parsed = JSON.parse(
@@ -201,12 +207,29 @@ async function checkpointIntegrationDeliveryRetry(
     ) as Partial<IntegrationResponseDeliveryTaskPayload>;
     terminalStatus = parsed.campaignTerminalStatus;
   } catch {}
-  if (terminalStatus) {
-    await transitionIntegrationCampaignTaskToDeliveryRetry(task.id, {
-      payload,
-      errorMessage,
-      campaignStatus: terminalStatus,
-    });
+  if (terminalStatus && !campaignLease) {
+    throw new Error("Campaign delivery retry is missing its lease");
+  }
+  if (terminalStatus && campaignLease) {
+    if (terminalStatus !== campaignLease.campaignStatus) {
+      throw new Error(
+        "Campaign delivery retry status does not match its lease",
+      );
+    }
+    const transitioned = await transitionIntegrationCampaignTaskToDeliveryRetry(
+      task.id,
+      {
+        payload,
+        errorMessage,
+        campaignStatus: campaignLease.campaignStatus,
+        campaignId: campaignLease.campaignId,
+        runId: campaignLease.runId,
+        leaseToken: campaignLease.leaseToken,
+      },
+    );
+    if (!transitioned) {
+      return "superseded";
+    }
   } else {
     await markTaskDeliveryRetryable(task.id, payload, errorMessage);
   }
@@ -222,6 +245,7 @@ async function checkpointIntegrationDeliveryRetry(
     event,
     baseUrl: getBaseUrl(event),
   });
+  return "requeued";
 }
 
 function startA2AContinuationRetryJob(
@@ -1808,10 +1832,13 @@ export function createIntegrationsPlugin(
               ? { channelId: task.dispatchScope }
               : undefined,
           });
+        const confirmedDeliveryReceipt =
+          taskPayload.kind === "response-delivery" &&
+          taskPayload.deliveryReceipt?.status === "delivered";
         if (
           campaignContinuation &&
           !durableCampaignEnabled &&
-          taskPayload.kind !== "response-delivery"
+          !confirmedDeliveryReceipt
         ) {
           await failDisabledIntegrationCampaignTask(task.id);
           const nextTask = await getNextPendingTaskForThread(
@@ -1841,6 +1868,14 @@ export function createIntegrationsPlugin(
           | { payload: string; errorMessage: string }
           | undefined;
         let confirmedDeliveryRetryPayload: string | undefined;
+        let campaignDeliveryLease:
+          | {
+              campaignId: string;
+              runId: string;
+              leaseToken: string;
+              campaignStatus: "completed" | "failed";
+            }
+          | undefined;
         try {
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
@@ -1889,23 +1924,28 @@ export function createIntegrationsPlugin(
                 let deliveryLease:
                   | { campaignId: string; runId: string; leaseToken: string }
                   | undefined;
-                if (!receipt) {
-                  if (campaignContinuation) {
-                    const runId = `integration-delivery-${crypto.randomUUID()}`;
-                    const leaseToken = crypto.randomUUID();
-                    const deliveryClaim =
-                      await claimIntegrationCampaignDeliveryForTask(task.id, {
-                        runId,
-                        leaseToken,
-                        leaseDurationMs: INTEGRATION_DELIVERY_LEASE_MS,
-                      });
-                    if (!deliveryClaim) return "campaign-active" as const;
-                    deliveryLease = {
-                      campaignId: deliveryClaim.id,
+                if (campaignContinuation) {
+                  const runId = `integration-delivery-${crypto.randomUUID()}`;
+                  const leaseToken = crypto.randomUUID();
+                  const deliveryClaim =
+                    await claimIntegrationCampaignDeliveryForTask(task.id, {
                       runId,
                       leaseToken,
-                    };
-                  }
+                      leaseDurationMs: INTEGRATION_DELIVERY_LEASE_MS,
+                    });
+                  if (!deliveryClaim) return "campaign-active" as const;
+                  deliveryLease = {
+                    campaignId: deliveryClaim.id,
+                    runId,
+                    leaseToken,
+                  };
+                  campaignDeliveryLease = {
+                    ...deliveryLease,
+                    campaignStatus:
+                      taskPayload.campaignTerminalStatus ?? "completed",
+                  };
+                }
+                if (!receipt) {
                   receipt = await adapter.sendResponse(
                     taskPayload.message,
                     taskPayload.incoming,
@@ -2010,12 +2050,16 @@ export function createIntegrationsPlugin(
               );
               if (result?.status === "delivery-pending") {
                 deliveryRetryTransitionStarted = true;
-                await checkpointIntegrationDeliveryRetry(
+                const checkpoint = await checkpointIntegrationDeliveryRetry(
                   task,
                   JSON.stringify(result.payload),
                   result.errorMessage,
                   event,
+                  result.campaignLease,
                 );
+                if (checkpoint === "superseded") {
+                  return "campaign-active" as const;
+                }
                 return "delivery-retry" as const;
               }
               if (
@@ -2099,12 +2143,17 @@ export function createIntegrationsPlugin(
             : "processor failed";
           if (deliveryRetryRecovery) {
             try {
-              await checkpointIntegrationDeliveryRetry(
+              const checkpoint = await checkpointIntegrationDeliveryRetry(
                 task,
                 deliveryRetryRecovery.payload,
                 `${deliveryRetryRecovery.errorMessage}: ${errorMessage}`,
                 event,
+                campaignDeliveryLease,
               );
+              if (checkpoint === "superseded") {
+                setResponseStatus(event, 202);
+                return { ok: true, taskId, continuing: true };
+              }
               setResponseStatus(event, 202);
               return { ok: true, taskId, retrying: "response-delivery" };
             } catch (transitionError) {
@@ -2124,12 +2173,17 @@ export function createIntegrationsPlugin(
             }
           } else if (confirmedDeliveryRetryPayload) {
             try {
-              await checkpointIntegrationDeliveryRetry(
+              const checkpoint = await checkpointIntegrationDeliveryRetry(
                 task,
                 confirmedDeliveryRetryPayload,
                 `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
                 event,
+                campaignDeliveryLease,
               );
+              if (checkpoint === "superseded") {
+                setResponseStatus(event, 202);
+                return { ok: true, taskId, continuing: true };
+              }
               console.error("[integrations] process-task failure:", err);
               setResponseStatus(event, 202);
               return { ok: true, taskId, retrying: "response-delivery" };

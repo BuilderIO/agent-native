@@ -177,16 +177,18 @@ describe("integration campaigns store", () => {
       sqlOf(query).includes("UPDATE integration_campaigns"),
     )?.[0];
     expect(sqlOf(update!)).toContain(
-      `chunk_count = CASE WHEN status = 'waiting' OR checkpoint = '{"waitingForA2A":true}' THEN chunk_count ELSE chunk_count + 1 END`,
+      "chunk_count = CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END",
     );
     expect(sqlOf(update!)).toContain("chunk_count < ?");
     expect(argsOf(update!)).toEqual([
       "processing",
+      '{"waitingForA2A":true}',
       "run-1",
       "lease-1",
       expect.any(Number),
       expect.any(Number),
       "campaign-1",
+      '{"waitingForA2A":true}',
       3,
       expect.any(Number),
       expect.any(Number),
@@ -393,9 +395,14 @@ describe("integration campaigns store", () => {
       sqlOf(query).includes("UPDATE integration_campaigns"),
     )?.[0];
     expect(sqlOf(update!)).toContain(
-      `CASE WHEN status = 'waiting' OR checkpoint = '{"waitingForA2A":true}' THEN chunk_count ELSE chunk_count + 1 END`,
+      "CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END",
     );
-    expect(sqlOf(update!)).toContain(`checkpoint = '{"waitingForA2A":true}'`);
+    expect(argsOf(update!)).toEqual(
+      expect.arrayContaining([
+        '{"waitingForA2A":true}',
+        '{"waitingForA2A":true}',
+      ]),
+    );
   });
 
   it("scrubs terminal checkpoint and progress references", async () => {
@@ -458,11 +465,16 @@ describe("integration campaigns store", () => {
       await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
 
-    await transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
-      payload: '{"kind":"response-delivery"}',
-      errorMessage: "provider unavailable",
-      campaignStatus: "failed",
-    });
+    await expect(
+      transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
+        payload: '{"kind":"response-delivery"}',
+        errorMessage: "provider unavailable",
+        campaignStatus: "failed",
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+      }),
+    ).resolves.toBe(true);
 
     expect(transactionMock).toHaveBeenCalledOnce();
     const updates = executeMock.mock.calls
@@ -470,13 +482,77 @@ describe("integration campaigns store", () => {
       .filter((query) => sqlOf(query).startsWith("UPDATE"));
     expect(updates).toHaveLength(2);
     expect(argsOf(updates[0]!)[0]).toBe("failed");
+    expect(argsOf(updates[0]!).slice(-4)).toEqual([
+      "campaign-1",
+      "task-1",
+      "run-1",
+      "lease-1",
+    ]);
     expect(sqlOf(updates[1]!)).toContain("status = 'pending'");
     expect(argsOf(updates[1]!)).toEqual([
       '{"kind":"response-delivery"}',
       "provider unavailable",
       expect.any(Number),
       "task-1",
+      "campaign-1",
+      "task-1",
+      "failed",
+      expect.any(Number),
+      expect.any(Number),
     ]);
+  });
+
+  it("does not requeue delivery when the campaign lease was superseded", async () => {
+    const { transitionIntegrationCampaignTaskToDeliveryRetry } =
+      await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await expect(
+      transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
+        payload: '{"kind":"response-delivery"}',
+        errorMessage: "provider unavailable",
+        campaignStatus: "completed",
+        campaignId: "campaign-1",
+        runId: "stale-run",
+        leaseToken: "stale-lease",
+      }),
+    ).resolves.toBe(false);
+
+    const updates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter((query) => sqlOf(query).startsWith("UPDATE"));
+    expect(updates).toHaveLength(1);
+    expect(sqlOf(updates[0]!)).toContain(
+      "current_run_id = ? AND lease_token = ?",
+    );
+  });
+
+  it("causally fences the D1 batch task update to the preceding lease update", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock.mockResolvedValue([
+      { rows: [], rowsAffected: 0 },
+      { rows: [], rowsAffected: 0 },
+    ]);
+    const { transitionIntegrationCampaignTaskToDeliveryRetry } =
+      await loadStore();
+
+    await expect(
+      transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
+        payload: '{"kind":"response-delivery"}',
+        errorMessage: "stale delivery",
+        campaignStatus: "completed",
+        campaignId: "campaign-1",
+        runId: "stale-run",
+        leaseToken: "stale-lease",
+      }),
+    ).resolves.toBe(false);
+
+    const statements = atomicBatchMock.mock.calls[0]![0];
+    expect(statements).toHaveLength(2);
+    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
   });
 
   it("uses an atomic batch when interactive transactions are unavailable", async () => {

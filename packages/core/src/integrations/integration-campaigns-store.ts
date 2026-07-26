@@ -257,21 +257,23 @@ export async function claimIntegrationCampaign(
   const result = await getDbExec().execute({
     sql: isPostgres()
       ? `UPDATE integration_campaigns
-           SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = '${A2A_WAITING_CHECKPOINT}' THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
+           SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
                lease_token = ?, lease_expires_at = ?, updated_at = ?, error_message = NULL
-           WHERE id = ? AND (status = 'waiting' OR checkpoint = '${A2A_WAITING_CHECKPOINT}' OR chunk_count < ?) AND (${dueClause})
+           WHERE id = ? AND (status = 'waiting' OR checkpoint = ? OR chunk_count < ?) AND (${dueClause})
            RETURNING *`
       : `UPDATE integration_campaigns
-           SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = '${A2A_WAITING_CHECKPOINT}' THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
+           SET status = ?, chunk_count = CASE WHEN status = 'waiting' OR checkpoint = ? THEN chunk_count ELSE chunk_count + 1 END, current_run_id = ?,
                lease_token = ?, lease_expires_at = ?, updated_at = ?, error_message = NULL
-           WHERE id = ? AND (status = 'waiting' OR checkpoint = '${A2A_WAITING_CHECKPOINT}' OR chunk_count < ?) AND (${dueClause})`,
+           WHERE id = ? AND (status = 'waiting' OR checkpoint = ? OR chunk_count < ?) AND (${dueClause})`,
     args: [
       "processing",
+      A2A_WAITING_CHECKPOINT,
       input.runId,
       input.leaseToken,
       leaseExpiresAt,
       now,
       id,
+      A2A_WAITING_CHECKPOINT,
       input.maxChunks,
       now,
       now,
@@ -632,8 +634,11 @@ export async function transitionIntegrationCampaignTaskToDeliveryRetry(
     payload: string;
     errorMessage: string;
     campaignStatus: "completed" | "failed";
+    campaignId: string;
+    runId: string;
+    leaseToken: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   await ensureTable();
   const now = Date.now();
   const errorMessage =
@@ -642,37 +647,71 @@ export async function transitionIntegrationCampaignTaskToDeliveryRetry(
       MAX_ERROR_MESSAGE_CHARS,
       "errorMessage",
     ) ?? "Integration response delivery needs retry";
+  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
   const statements: DbExecStatement[] = [
     {
       sql: `UPDATE integration_campaigns
             SET status = ?, current_run_id = NULL, lease_token = NULL,
                 lease_expires_at = NULL, progress_ref = NULL, checkpoint = NULL,
                 error_message = ?, updated_at = ?, completed_at = ?
-            WHERE integration_task_id = ?
-              AND status IN ('pending', 'processing', 'waiting')`,
+            WHERE id = ? AND integration_task_id = ?
+              AND status = 'processing'
+              AND current_run_id = ? AND lease_token = ?`,
       args: [
         input.campaignStatus,
         input.campaignStatus === "failed" ? errorMessage : null,
         now,
         now,
+        input.campaignId,
         integrationTaskId,
+        input.runId,
+        input.leaseToken,
       ],
     },
     {
       sql: `UPDATE integration_pending_tasks
             SET status = 'pending', payload = ?, error_message = ?, updated_at = ?
-            WHERE id = ? AND status = 'processing'`,
-      args: [input.payload, errorMessage, now, integrationTaskId],
+            WHERE id = ? AND status = 'processing'
+              ${previousWriteGuard}
+              AND EXISTS (
+                SELECT 1 FROM integration_campaigns
+                WHERE id = ? AND integration_task_id = ?
+                  AND status = ? AND updated_at = ? AND completed_at = ?
+                  AND current_run_id IS NULL AND lease_token IS NULL
+              )`,
+      args: [
+        input.payload,
+        errorMessage,
+        now,
+        integrationTaskId,
+        input.campaignId,
+        integrationTaskId,
+        input.campaignStatus,
+        now,
+        now,
+      ],
     },
   ];
   const db = getDbExec();
   if (db.atomicBatch) {
-    await db.atomicBatch(statements);
-    return;
+    const results = await db.atomicBatch(statements);
+    return (
+      results.length === statements.length &&
+      results.every((result) => affectedRows(result) > 0)
+    );
   }
   if (db.transaction) {
-    await db.transaction((tx) => executeStatementsWithDb(tx, statements));
-    return;
+    return await db.transaction(async (tx) => {
+      const campaignResult = await tx.execute(statements[0]!);
+      if (affectedRows(campaignResult) === 0) return false;
+      const taskResult = await tx.execute(statements[1]!);
+      if (affectedRows(taskResult) === 0) {
+        throw new Error(
+          "Campaign delivery retry lease transition lost its race",
+        );
+      }
+      return true;
+    });
   }
   throw new Error("Database does not support atomic campaign delivery retry");
 }

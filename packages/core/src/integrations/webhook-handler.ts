@@ -169,6 +169,12 @@ export type ProcessIntegrationTaskResult =
       status: "delivery-pending";
       payload: IntegrationResponseDeliveryTaskPayload;
       errorMessage: string;
+      campaignLease?: {
+        campaignId: string;
+        runId: string;
+        leaseToken: string;
+        campaignStatus: "completed" | "failed";
+      };
     };
 
 /**
@@ -999,6 +1005,12 @@ async function processIncomingMessage(
         return {
           status: "delivery-pending",
           payload: deliveryPayload,
+          campaignLease: {
+            campaignId: deliveryCampaign.id,
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            campaignStatus: "failed",
+          },
           errorMessage:
             error instanceof Error
               ? error.message.slice(0, 1000)
@@ -1697,14 +1709,19 @@ async function processIncomingMessage(
                   ? { assistantMessageId: threadCheckpoint.assistantMessageId }
                   : {}),
               },
+              ...(campaign && stagedDeliveryPayload?.campaignTerminalStatus
+                ? {
+                    campaignLease: {
+                      campaignId: campaign.row.id,
+                      runId: campaign.runId,
+                      leaseToken: campaign.leaseToken,
+                      campaignStatus:
+                        stagedDeliveryPayload.campaignTerminalStatus,
+                    },
+                  }
+                : {}),
               errorMessage,
             };
-            if (campaign) {
-              await completeIntegrationCampaign(campaign.row.id, {
-                runId: campaign.runId,
-                leaseToken: campaign.leaseToken,
-              }).catch(() => false);
-            }
             return;
           }
           if (campaign) {

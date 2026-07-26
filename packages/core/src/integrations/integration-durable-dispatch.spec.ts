@@ -108,6 +108,31 @@ describe("durable integration dispatch", () => {
     expect(recordDispatchAttemptMock).not.toHaveBeenCalled();
   });
 
+  it("permits an explicit confirmed-receipt reconciliation wake after scope removal", async () => {
+    const {
+      dispatchPendingIntegrationTask,
+      INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
+    } = await import("./integration-durable-dispatch.js");
+
+    await expect(
+      dispatchPendingIntegrationTask({
+        taskId: "task-confirmed-receipt",
+        task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+        baseUrl: "https://app.test",
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    ).resolves.toBe("portable-unconfirmed");
+
+    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/_agent-native/integrations/process-task",
+        body: { [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true },
+      }),
+    );
+    expect(recordDispatchAttemptMock).not.toHaveBeenCalled();
+  });
+
   it("uses the durable handoff when only Netlify's runtime SITE_ID is present", async () => {
     vi.unstubAllEnvs();
     vi.stubEnv("NETLIFY", "");
