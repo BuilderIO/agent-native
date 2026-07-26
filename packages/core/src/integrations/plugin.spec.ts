@@ -875,8 +875,11 @@ describe("integrations plugin routes", () => {
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
     const nitroApp = createNitroApp();
-    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, sendResponse }],
+    })(nitroApp);
 
     const result = await dispatch(
       nitroApp,
@@ -891,6 +894,7 @@ describe("integrations plugin routes", () => {
     expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
       task.id,
     );
+    expect(sendResponse).not.toHaveBeenCalled();
   });
 
   it("does not send an unreceipted campaign delivery after scope is disabled", async () => {

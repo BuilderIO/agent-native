@@ -1999,6 +1999,17 @@ export function createIntegrationsPlugin(
                 return;
               }
               if (taskPayload.kind === "response-delivery") {
+                if (
+                  campaignContinuation &&
+                  taskPayload.awaitingA2ACompletion &&
+                  a2aOutcome === "terminal-delivered"
+                ) {
+                  const completed =
+                    await completeIntegrationCampaignTaskAfterA2A(task.id);
+                  return completed
+                    ? ("completed" as const)
+                    : ("campaign-active" as const);
+                }
                 let receipt: void | PlatformDeliveryReceipt =
                   taskPayload.deliveryReceipt;
                 let deliveryLease:
@@ -2116,13 +2127,6 @@ export function createIntegrationsPlugin(
                       },
                     );
                     if (!waiting) return "campaign-active" as const;
-                  }
-                  if (a2aOutcome === "terminal-delivered") {
-                    const completed =
-                      await completeIntegrationCampaignTaskAfterA2A(task.id);
-                    return completed
-                      ? ("completed" as const)
-                      : ("campaign-active" as const);
                   }
                   if (
                     a2aOutcome === "terminal-without-delivery" &&
