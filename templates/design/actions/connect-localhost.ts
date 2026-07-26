@@ -13,7 +13,16 @@ import {
   DESIGN_BRIDGE_OPERATIONS,
   makeLocalhostRouteId,
   titleFromRoutePath,
+  type LocalhostDesignRouteManifest,
 } from "../shared/source-mode.js";
+
+function parseJson<T>(value: string, fallback: T): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
 
 const routeSchema = z.object({
   id: z.string().optional(),
@@ -176,22 +185,9 @@ export default defineAction({
       screenshotUrl: route.screenshotUrl,
       metadata: route.metadata,
     }));
-    const routeManifest = {
-      version: 1 as const,
-      sourceType: "localhost" as const,
-      devServerUrl,
-      rootPath: args.routeManifest?.rootPath ?? args.rootPath,
-      routes,
-      generatedAt: args.routeManifest?.generatedAt ?? now,
-    };
+    const rootPath = args.routeManifest?.rootPath ?? args.rootPath;
     const id =
-      args.id ??
-      stableConnectionId(
-        devServerUrl,
-        routeManifest.rootPath,
-        ownerEmail,
-        orgId,
-      );
+      args.id ?? stableConnectionId(devServerUrl, rootPath, ownerEmail, orgId);
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
@@ -215,6 +211,7 @@ export default defineAction({
         orgId: schema.designLocalhostConnections.orgId,
         previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        routeManifest: schema.designLocalhostConnections.routeManifest,
       })
       .from(schema.designLocalhostConnections)
       .where(eq(schema.designLocalhostConnections.id, id))
@@ -230,6 +227,29 @@ export default defineAction({
           "Omit id so a per-user connection id is derived instead.",
       );
     }
+
+    // A caller that supplies no routes has not discovered the app's route
+    // inventory — that is different from discovering it has none. Reusing a
+    // connection to place a couple of screens must not shrink the stored
+    // manifest to those screens, or the editor's route picker silently
+    // degrades to whatever was last placed.
+    const existingRouteManifest = existing[0]?.routeManifest
+      ? parseJson<LocalhostDesignRouteManifest | null>(
+          existing[0].routeManifest,
+          null,
+        )
+      : null;
+    const routeManifest = {
+      version: 1 as const,
+      sourceType: "localhost" as const,
+      devServerUrl,
+      rootPath: rootPath ?? existingRouteManifest?.rootPath,
+      routes:
+        routes.length === 0 && existingRouteManifest?.routes?.length
+          ? existingRouteManifest.routes
+          : routes,
+      generatedAt: args.routeManifest?.generatedAt ?? now,
+    };
 
     // Token for a new row: explicit, else existing, else mint. The authenticated
     // action owning the mint is what lets the CLI skip its own auth (the 401 gap).
@@ -310,8 +330,10 @@ export default defineAction({
       devServerUrl,
       bridgeUrl: bridgeUrl ?? null,
       rootPath: routeManifest.rootPath ?? null,
-      routeCount: routes.length,
-      routes,
+      // Report what was actually stored, which may be the preserved manifest
+      // rather than this call's (possibly empty) route list.
+      routeCount: routeManifest.routes.length,
+      routes: routeManifest.routes,
       capabilities,
       status: args.status,
       lastSeenAt: now,

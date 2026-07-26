@@ -10,7 +10,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -371,10 +371,20 @@ export default defineAction({
     const orgId = getRequestOrgId() ?? null;
     const db = getDb();
 
+    // Owner-scoped, and additionally accepts this owner's org-less rows: the
+    // CLI (`pnpm action`, `design connect`) has no org context and writes
+    // orgId NULL, so a strict match made every agent-created connection
+    // unreachable from a browser session that had resolved an active org —
+    // adding a screen from the canvas 500'd with "No localhost connection
+    // found" for a connection the user plainly owns. Must stay in step with
+    // list-localhost-connections' filter.
     const connectionClauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
-        ? eq(schema.designLocalhostConnections.orgId, orgId)
+        ? or(
+            eq(schema.designLocalhostConnections.orgId, orgId),
+            isNull(schema.designLocalhostConnections.orgId),
+          )
         : isNull(schema.designLocalhostConnections.orgId),
     ];
     if (connectionId) {

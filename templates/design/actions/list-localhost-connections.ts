@@ -3,7 +3,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -36,10 +36,20 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() ?? null;
+    // Always owner-scoped. The org filter additionally accepts this owner's
+    // org-less rows: `agent-native design connect` / `pnpm action` run without
+    // an org context and write orgId NULL, so a strict equality match made
+    // every agent-created connection invisible to the same human's browser
+    // session once it resolved an active org — the route picker then silently
+    // showed nothing. Widening the READ to rows this user already owns does not
+    // expose another user's connections.
     const clauses = [
       eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
       orgId
-        ? eq(schema.designLocalhostConnections.orgId, orgId)
+        ? or(
+            eq(schema.designLocalhostConnections.orgId, orgId),
+            isNull(schema.designLocalhostConnections.orgId),
+          )
         : isNull(schema.designLocalhostConnections.orgId),
     ];
     if (id) clauses.push(eq(schema.designLocalhostConnections.id, id));

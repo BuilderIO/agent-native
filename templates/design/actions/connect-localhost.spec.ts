@@ -78,6 +78,7 @@ vi.mock("../server/db/index.js", () => ({
       bridgeToken: "bridgeToken",
       ownerEmail: "ownerEmail",
       orgId: "orgId",
+      routeManifest: "routeManifest",
     },
   },
 }));
@@ -328,6 +329,72 @@ describe("connect-localhost", () => {
     ).rejects.toThrow(/another user or organization/);
 
     expect(insertedValues).toBeNull();
+  });
+
+  it("preserves the stored route manifest when a refresh supplies no routes", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "existing-token",
+      previewToken: derivePreviewToken("existing-token"),
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        routes: [
+          { id: "route-a", path: "/", title: "Home" },
+          { id: "route-b", path: "/settings", title: "Settings" },
+          { id: "route-c", path: "/team", title: "Team" },
+        ],
+        generatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    } as unknown as typeof existingConnection;
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      status: "connected",
+    });
+
+    const stored = JSON.parse(String(insertedValues?.routeManifest)) as {
+      routes: Array<{ path: string }>;
+    };
+    expect(stored.routes.map((route) => route.path)).toEqual([
+      "/",
+      "/settings",
+      "/team",
+    ]);
+    // The return value must report what was stored, not this call's empty list.
+    expect(result.routeCount).toBe(3);
+  });
+
+  it("replaces the stored route manifest when a refresh does supply routes", async () => {
+    existingConnection = {
+      ownerEmail: "user@example.com",
+      orgId: "org_1",
+      bridgeToken: "existing-token",
+      previewToken: derivePreviewToken("existing-token"),
+      routeManifest: JSON.stringify({
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [{ id: "stale", path: "/gone" }],
+        generatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    } as unknown as typeof existingConnection;
+
+    await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      routes: [{ path: "/fresh" }],
+      status: "connected",
+    });
+
+    const stored = JSON.parse(String(insertedValues?.routeManifest)) as {
+      routes: Array<{ path: string }>;
+    };
+    expect(stored.routes.map((route) => route.path)).toEqual(["/fresh"]);
   });
 
   it("rejects non-loopback bridge URLs", async () => {

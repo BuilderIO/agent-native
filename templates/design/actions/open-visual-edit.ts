@@ -7,13 +7,9 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   DESIGN_BRIDGE_OPERATIONS,
-  makeLocalhostRouteId,
   titleFromRoutePath,
 } from "../shared/source-mode.js";
-import addLocalhostScreensAction, {
-  pathFromUrl,
-  routeUrl,
-} from "./add-localhost-screens.js";
+import addLocalhostScreensAction from "./add-localhost-screens.js";
 import connectLocalhostAction from "./connect-localhost.js";
 import createDesignAction from "./create-design.js";
 import navigateAction from "./navigate.js";
@@ -175,40 +171,6 @@ function designOverviewDeepLink(designId: string): string {
   });
 }
 
-function routeManifestFromScreens(args: {
-  devServerUrl: string;
-  routes?: Array<z.infer<typeof screenRouteSchema>>;
-  paths?: string[];
-}) {
-  const screenInputs: Array<z.infer<typeof screenRouteSchema>> = args.routes
-    ?.length
-    ? args.routes
-    : (args.paths?.map((path) => ({ path })) ?? []);
-  if (screenInputs.length === 0) return undefined;
-
-  return screenInputs.map((input) => {
-    if (!input.path && !input.url) {
-      throw new Error(
-        `Route "${input.routeId ?? "(unknown)"}" needs path or url when no routeManifest is provided.`,
-      );
-    }
-    const url = routeUrl(args.devServerUrl, {
-      path: input.path,
-      url: input.url,
-    });
-    const path = pathFromUrl(args.devServerUrl, url, input.path ?? "/");
-    return {
-      id: input.routeId ?? makeLocalhostRouteId(path),
-      path,
-      title: input.title ?? titleFromRoutePath(path),
-      sourceFile: input.sourceFile,
-      sourceKind: input.sourceKind ?? ("manual" as const),
-      screenshotUrl: input.screenshotUrl,
-      metadata: input.metadata,
-    };
-  });
-}
-
 export default defineAction({
   description:
     "Open or refresh a running localhost app in Design overview mode in one authenticated step. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this for /visual-edit launches and follow-up requests like adding a mobile-size screen.",
@@ -311,25 +273,17 @@ export default defineAction({
   },
   run: async (args) => {
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
+    // Only a caller-supplied manifest describes the app's routes. The screens
+    // requested here are what to PLACE, not what the app contains — deriving a
+    // manifest from them would tell connect-localhost the app has only these
+    // routes and shrink the stored inventory on every follow-up call.
     const routeManifest = args.routeManifest
       ? {
           ...args.routeManifest,
           devServerUrl: args.routeManifest.devServerUrl ?? devServerUrl,
           rootPath: args.routeManifest.rootPath ?? args.rootPath,
         }
-      : {
-          version: 1 as const,
-          sourceType: "localhost" as const,
-          devServerUrl,
-          rootPath: args.rootPath,
-          routes:
-            routeManifestFromScreens({
-              devServerUrl,
-              routes: args.routes,
-              paths: args.paths,
-            }) ?? [],
-          generatedAt: new Date().toISOString(),
-        };
+      : undefined;
     const connection = await connectLocalhostAction.run({
       // Let connect-localhost be the single source of truth for stable
       // per-user/per-org id derivation. Duplicating it here can create a second
@@ -338,7 +292,7 @@ export default defineAction({
       name: args.name,
       devServerUrl,
       bridgeUrl: args.bridgeUrl,
-      rootPath: routeManifest.rootPath ?? args.rootPath,
+      rootPath: routeManifest?.rootPath ?? args.rootPath,
       routeManifest,
       capabilities: args.capabilities,
       bridgeToken: args.bridgeToken,
@@ -374,7 +328,7 @@ export default defineAction({
       : args.paths?.length
         ? args.paths.map((path) => ({ path }))
         : viewports
-          ? routeManifest.routes.map((route) => ({
+          ? (routeManifest?.routes ?? connection.routes ?? []).map((route) => ({
               routeId: route.id,
               path: route.path,
               title: route.title,

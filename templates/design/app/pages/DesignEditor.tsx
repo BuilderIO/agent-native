@@ -25321,9 +25321,19 @@ function DesignEditor() {
   // "Add screen" for a localhost-sourced design offers a route picker instead
   // of a blank artboard — see AddLocalhostScreenDialog.
   const [addLocalhostScreenOpen, setAddLocalhostScreenOpen] = useState(false);
+  // In overview with nothing selected there is no ACTIVE localhost screen, so
+  // fall back to whichever connection the canvas's screens already belong to —
+  // otherwise the route picker has no connection to read a manifest from and
+  // silently degrades to the paths already on the canvas.
   const addLocalhostScreenConnectionId =
     activeLocalhostConnectionId ||
-    workbenchLocalhostConnections[0]?.connectionId;
+    workbenchLocalhostConnections[0]?.connectionId ||
+    overviewScreens.find(
+      (screen): screen is typeof screen & { connectionId: string } =>
+        typeof (screen as { connectionId?: unknown }).connectionId ===
+          "string" &&
+        Boolean((screen as { connectionId?: string }).connectionId),
+    )?.connectionId;
   const addLocalhostScreenFallbackPaths = useMemo(() => {
     const paths = new Set<string>();
     for (const screen of overviewScreens) {
