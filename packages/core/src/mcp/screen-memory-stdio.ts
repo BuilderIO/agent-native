@@ -1146,6 +1146,24 @@ export function screenMemoryMcpToolDefinitions() {
   ];
 }
 
+export async function queryScreenMemoryContextForStore(
+  args: Parameters<typeof queryScreenMemoryContext>[0],
+  storeDir: string,
+  env: NodeJS.ProcessEnv,
+) {
+  return queryScreenMemoryContext(args, {
+    homeDir: env.HOME,
+    env: {
+      ...env,
+      AGENT_NATIVE_SCREEN_MEMORY_DIR: storeDir,
+      AGENT_NATIVE_SCREEN_MEMORY_CONFIG: path.join(
+        path.dirname(storeDir),
+        "feature-config.json",
+      ),
+    },
+  });
+}
+
 export async function runScreenMemoryMCPStdio(
   opts: RunScreenMemoryMCPStdioOptions = {},
 ): Promise<void> {
@@ -1187,14 +1205,15 @@ export async function runScreenMemoryMCPStdio(
       });
     }
     if (name === "screen_memory_recent_context") {
-      const result = await queryScreenMemoryContext(
+      const result = await queryScreenMemoryContextForStore(
         {
           query: typeof args.query === "string" ? args.query : undefined,
           sinceMinutes:
             typeof args.minutes === "number" ? args.minutes : undefined,
           limit: typeof args.limit === "number" ? args.limit : undefined,
         },
-        { env: { ...env, AGENT_NATIVE_SCREEN_MEMORY_DIR: storeDir } },
+        storeDir,
+        env,
       );
       const sanitizedEvidence = result.evidence.map((item) => ({
         ...item,
