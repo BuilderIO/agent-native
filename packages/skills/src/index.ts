@@ -388,10 +388,23 @@ function shouldLoadPublicCatalog(parsed: ParsedArgs): boolean {
   return parsed.skillNames.some((name) => !isCoreDelegatedSkill(name));
 }
 
+const REWIND_SKILL_TARGETS = new Set([
+  "rewind",
+  "screen-memory",
+  "clips-rewind",
+  "agent-native-rewind",
+]);
+
+function isRewindSkillTarget(skillName: string): boolean {
+  return REWIND_SKILL_TARGETS.has(skillName.trim().toLowerCase());
+}
+
 function isCoreDelegatedSkill(skillName: string): boolean {
   // Rewind uses Core's local Screen Memory installer, not the standalone
   // package's hosted MCP descriptor path.
-  return skillName === "rewind" || Boolean(resolveAppForSkill(skillName));
+  return (
+    isRewindSkillTarget(skillName) || Boolean(resolveAppForSkill(skillName))
+  );
 }
 
 const HIDDEN_STANDALONE_BUILT_INS = [

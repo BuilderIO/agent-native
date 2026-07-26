@@ -851,24 +851,34 @@ function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
 }
 
+function explicitlyTargetsRewind(parsed: ParsedSkillsArgs): boolean {
+  return (
+    normalizeKnownSkillTarget(parsed.target ?? "assets") === "rewind" ||
+    Boolean(
+      parsed.plainSkillNames?.some(
+        (skillName) => normalizeKnownSkillTarget(skillName) === "rewind",
+      ),
+    )
+  );
+}
+
 const REWIND_MISSING_STORE_ERROR =
   "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.";
 
 function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
-  if (
-    parsed.command !== "add" ||
-    parsed.dryRun ||
-    !parsed.mcp ||
-    parsed.mcpUrl
-  ) {
+  if (parsed.command !== "add" || !explicitlyTargetsRewind(parsed))
     return undefined;
-  }
-  const explicitlyTargetsRewind =
-    normalizeKnownSkillTarget(parsed.target ?? "assets") === "rewind" ||
-    parsed.plainSkillNames?.some(
-      (skillName) => normalizeKnownSkillTarget(skillName) === "rewind",
+  if (!parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
     );
-  if (!explicitlyTargetsRewind) return undefined;
+  }
+  if (parsed.mcpUrl) {
+    throw new Error(
+      "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",
+    );
+  }
+  if (parsed.dryRun) return undefined;
   const screenMemoryDir = resolveScreenMemoryStoreDir();
   if (!screenMemoryDir) throw new Error(REWIND_MISSING_STORE_ERROR);
   return screenMemoryDir;

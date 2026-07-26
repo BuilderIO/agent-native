@@ -7,6 +7,9 @@ describe("shouldTrackCliRun", () => {
     ["skills", ["add", "rewind", "--yes"]],
     ["skills", ["add", "--skill", "rewind", "--yes"]],
     ["skills", ["add", "--skill=rewind", "--yes"]],
+    ["skills", ["add", "screen-memory", "--yes"]],
+    ["skills", ["add", "--skill", "clips-rewind", "--yes"]],
+    ["skills", ["add", "--skill=agent-native-rewind", "--yes"]],
   ])("defers telemetry for explicit Rewind installs", (command, args) => {
     expect(shouldTrackCliRun(command, args)).toBe(false);
   });

@@ -824,6 +824,35 @@ describe("@agent-native/skills", () => {
     );
   });
 
+  it.each(["screen-memory", "clips-rewind", "agent-native-rewind"])(
+    "delegates the Rewind alias %s directly to Core",
+    async (alias) => {
+      const project = tmpDir();
+
+      await runSkillsCli(
+        [
+          "add",
+          "--skill",
+          alias,
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--yes",
+        ],
+        { baseDir: project, isInteractive: () => false },
+      );
+
+      expect(runCoreSkills).toHaveBeenCalledWith(
+        expect.arrayContaining([alias]),
+        expect.objectContaining({
+          baseDir: project,
+          publicSkillEntries: [],
+        }),
+      );
+    },
+  );
+
   it("delegates content local-files installs to agent-native core", async () => {
     const project = tmpDir();
     const previousDirect = process.env.AGENT_NATIVE_SKILLS_DIRECT;
