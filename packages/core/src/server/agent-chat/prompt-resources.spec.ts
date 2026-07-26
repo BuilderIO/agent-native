@@ -85,11 +85,14 @@ describe("selectPromptSectionsWithinBudget", () => {
       ),
     ];
 
-    const result = selectPromptSectionsWithinBudget(sections, 2_000);
+    // The smallest budget that still fits the required section: any trim note
+    // longer than the reserve the fitter set aside would overflow it.
+    const budget = sections[0]!.content.length + 2 + 700;
+    const result = selectPromptSectionsWithinBudget(sections, budget);
 
     expect(result.skipped).toHaveLength(40);
     expect(result.overflowChars).toBe(0);
-    expect(joined(result.sections).length).toBeLessThanOrEqual(2_000);
+    expect(joined(result.sections).length).toBeLessThanOrEqual(budget);
   });
 
   it("sends required sections whole and reports the overflow when they alone exceed the budget", () => {

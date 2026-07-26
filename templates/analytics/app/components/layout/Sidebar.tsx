@@ -1543,7 +1543,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const toggleFavorite = useCallback(
     (id: string) => {
       if (favoritesError || !favoritesLoaded) {
-        toast.error("Favorites are unavailable right now");
+        toast.error(t("sidebar.favoritesUnavailable"));
         return;
       }
       const next = new Set(favoriteIds);
