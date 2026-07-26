@@ -184,6 +184,41 @@ describe("DeckContext optimistic create", () => {
     expect(result.current.getDeck(deckId)?.title).toBe("Fresh Deck");
     expect(result.current.decks).toHaveLength(1);
   });
+
+  it("keeps a newly created deck when a baseline reload snapshot predates the create", async () => {
+    window.history.pushState({}, "", "/");
+    const api = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Baseline reloads (mount, route change, org switch) replace `decks`
+    // wholesale rather than diffing, so they need the same protection as the
+    // poll path — otherwise a create racing the reload is silently erased.
+    api.holdNextList();
+    let reload: Promise<void> = Promise.resolve();
+    act(() => {
+      reload = result.current.reloadDecks();
+    });
+    await waitFor(() => expect(api.listRequestPending()).toBe(true));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Reload Race Deck").id;
+    });
+    api.setServerDecks([result.current.getDeck(deckId)!]);
+    await act(async () => {
+      api.resolveCreate(new Response("", { status: 200 }));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      api.releaseList([]);
+      await reload;
+    });
+
+    expect(result.current.getDeck(deckId)?.title).toBe("Reload Race Deck");
+    expect(result.current.decks).toHaveLength(1);
+  });
 });
 
 describe("DeckContext fallback polling", () => {

@@ -67,6 +67,7 @@ routes are:
 | `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                         |
 | `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                 |
 | `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                        |
+| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner/admin, on demand)   |
 | `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                |
 
 Use the shared UI and hooks instead of recreating this flow in each app:

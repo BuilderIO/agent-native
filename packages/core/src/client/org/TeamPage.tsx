@@ -66,6 +66,7 @@ import {
   useRemoveMember,
   useSwitchOrg,
   useSetOrgDomain,
+  useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
@@ -427,7 +428,7 @@ function MembersCard() {
               ownerEmail={org.email}
             />
 
-            {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
+            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
         )}
 
@@ -1218,10 +1219,11 @@ function DomainSettingsSection({
   );
 }
 
-function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
+function A2ASecretSection({ isSet }: { isSet: boolean }) {
+  const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
   const syncA2ASecret = useSyncA2ASecret();
-  const [revealed, setRevealed] = useState(false);
+  const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
@@ -1229,11 +1231,32 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     null,
   );
 
-  function copyToClipboard() {
-    if (!secret) return;
-    navigator.clipboard.writeText(secret).then(() => {
+  function writeClipboard(value: string) {
+    navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function toggleReveal() {
+    if (secret) {
+      setSecret(null);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => setSecret(result.a2aSecret),
+    });
+  }
+
+  function copyToClipboard() {
+    if (secret) {
+      writeClipboard(secret);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.a2aSecret) writeClipboard(result.a2aSecret);
+      },
     });
   }
 
@@ -1252,7 +1275,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   function regenerate() {
     setA2ASecret.mutate(undefined, {
       onSuccess: (result) => {
-        setRevealed(false);
+        setSecret(null);
         // Auto-sync the new secret to all connected apps. Sign with the
         // PREVIOUS secret (which peers still hold) so verification on
         // their side succeeds and they accept the new value.
@@ -1275,7 +1298,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     });
   }
 
-  const masked = secret ? "****" + secret.slice(-8) : "Not set";
+  const masked = isSet ? "••••••••••••" : "Not set";
 
   return (
     <div className="space-y-2">
@@ -1306,22 +1329,23 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
           <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-          {revealed && secret ? secret : masked}
+          {secret ?? masked}
         </span>
-        {secret && (
+        {isSet && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  onClick={() => setRevealed(!revealed)}
+                  onClick={toggleReveal}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {revealed ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                  {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {revealed ? "Hide secret" : "Reveal secret"}
+                {secret ? "Hide secret" : "Reveal secret"}
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -1329,6 +1353,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                 <Button
                   type="button"
                   onClick={copyToClipboard}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
@@ -1364,7 +1389,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             Regenerate secret and sync to connected apps
           </TooltipContent>
         </Tooltip>
-        {secret && (
+        {isSet && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1474,6 +1499,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         </div>
       )}
 
+      <ErrorText error={revealA2ASecret.error} />
       <ErrorText error={setA2ASecret.error} />
       <ErrorText error={syncA2ASecret.error} />
     </div>

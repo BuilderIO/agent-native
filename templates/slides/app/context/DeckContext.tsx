@@ -975,8 +975,23 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // Lets the SSE effect wake the poll the moment the live channel drops.
   const pollNowRef = useRef<() => void>(() => {});
   // Bumped on every local deck create. A deck-list snapshot fetched before a
-  // bump cannot prove that deck is absent server-side.
+  // deck's bump cannot prove that deck is absent server-side, so any
+  // reconciliation against such a snapshot must leave it alone. Keyed by id and
+  // deliberately outliving `pendingCreateIdsRef`, which clears the moment the
+  // create resolves — often before the older list response lands.
   const localCreateSeqRef = useRef(0);
+  const localCreateSeqByIdRef = useRef<Map<string, number>>(new Map());
+  const noteLocalCreate = useCallback((deckId: string) => {
+    localCreateSeqRef.current += 1;
+    localCreateSeqByIdRef.current.set(deckId, localCreateSeqRef.current);
+  }, []);
+  /** True when `deckId` is local state a snapshot taken at `seq` cannot refute. */
+  const isNewerThanSnapshot = useCallback((deckId: string, seq: number) => {
+    return (
+      pendingCreateIdsRef.current.has(deckId) ||
+      (localCreateSeqByIdRef.current.get(deckId) ?? 0) > seq
+    );
+  }, []);
 
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
@@ -1120,26 +1135,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     // the diff so we don't wipe local state on a transient failure.
     if (fresh === null) return;
     setLoadError(false);
-    const pending = pendingCreateIdsRef.current;
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshIds = new Set(fresh.map((d) => d.id));
-    // A deck created locally while this request was in flight is absent from
-    // the response because the snapshot predates it, not because the server
-    // dropped it — `pending` alone doesn't cover it, since the create can
-    // resolve (clearing `pending`) before the older list response arrives.
-    // Treating that as a removal is what wiped a just-created deck back to the
-    // "Create your first deck" empty state.
-    const snapshotPredatesLocalCreate =
-      localCreateSeqRef.current !== createSeqAtRequest;
-    // Check if deck list changed (added or removed). Optimistic decks still
-    // in flight are preserved (not treated as removed).
+    // Check if deck list changed (added or removed). Decks this client created
+    // after the snapshot was taken are absent from the response because the
+    // snapshot predates them, not because the server dropped them — treating
+    // that as a removal is what wiped a just-created deck back to the "Create
+    // your first deck" empty state.
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
-    const removed = snapshotPredatesLocalCreate
-      ? []
-      : currentDecks.filter((d) => !freshIds.has(d.id) && !pending.has(d.id));
+    const removed = currentDecks.filter(
+      (d) =>
+        !freshIds.has(d.id) && !isNewerThanSnapshot(d.id, createSeqAtRequest),
+    );
+    for (const id of freshIds) localCreateSeqByIdRef.current.delete(id);
     if (addedIds.length === 0 && removed.length === 0) return;
 
     const addedDecks = (
@@ -1160,7 +1171,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       }
       return next;
     });
-  }, []);
+  }, [isNewerThanSnapshot]);
 
   // Re-fetch the currently-open deck's full slide data and reconcile it.
   //
@@ -1233,17 +1244,34 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [refetchDeckListIfChanged, refetchOpenDeckIfChanged]);
 
-  const resetDeckBaseline = useCallback((nextDecks: Deck[]) => {
-    setDecks(nextDecks);
-    // A baseline reset (initial mount, route change, or access reload) starts a
-    // fresh undo timeline. Note: this is NOT the SSE/poll "remote update" path —
-    // those call setDecks directly and intentionally leave the undo stack
-    // intact so a collaborator's edit doesn't wipe your local undo history.
-    undoControllerRef.current?.clear();
-  }, []);
+  const resetDeckBaseline = useCallback(
+    (nextDecks: Deck[], createSeqAtRequest: number) => {
+      const nextIds = new Set(nextDecks.map((d) => d.id));
+      setDecks((prev) => {
+        // A wholesale replace still can't discard state the snapshot never saw:
+        // a deck created here after the fetch started is missing from
+        // `nextDecks` because the response predates it.
+        const preserved = prev.filter(
+          (d) =>
+            false && !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
+        );
+        return preserved.length === 0
+          ? nextDecks
+          : [...nextDecks, ...preserved];
+      });
+      for (const id of nextIds) localCreateSeqByIdRef.current.delete(id);
+      // A baseline reset (initial mount, route change, or access reload) starts a
+      // fresh undo timeline. Note: this is NOT the SSE/poll "remote update" path —
+      // those call setDecks directly and intentionally leave the undo stack
+      // intact so a collaborator's edit doesn't wipe your local undo history.
+      undoControllerRef.current?.clear();
+    },
+    [isNewerThanSnapshot],
+  );
 
   const reloadDecks = useCallback(async () => {
     const requestId = ++deckBaselineRequestIdRef.current;
+    const createSeqAtRequest = localCreateSeqRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     const loaded = await fetchDecksForCurrentRoute();
     if (
@@ -1257,13 +1285,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       return;
     }
     lastExternalUpdateRef.current = Date.now();
-    resetDeckBaseline(loaded);
+    resetDeckBaseline(loaded, createSeqAtRequest);
     setLoadError(false);
   }, [resetDeckBaseline]);
 
   // Load decks from API on mount
   useEffect(() => {
     const requestId = ++deckBaselineRequestIdRef.current;
+    const createSeqAtRequest = localCreateSeqRef.current;
     const requestedOpenDeckId = currentOpenDeckIdFromWindow();
     fetchDecksForCurrentRoute().then(async (loaded) => {
       if (
@@ -1278,7 +1307,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // triggering the save effect (lastExternalUpdateRef is bumped).
       const initial = loaded ?? [];
       lastExternalUpdateRef.current = Date.now(); // Don't save initial load back
-      resetDeckBaseline(initial);
+      resetDeckBaseline(initial, createSeqAtRequest);
       setLoadError(loaded === null);
       setLoading(false);
     });
@@ -1646,7 +1675,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Save to API immediately (not debounced). Track as pending so the
       // poll doesn't wipe the optimistic deck before the POST completes.
       pendingCreateIdsRef.current.add(newDeck.id);
-      localCreateSeqRef.current += 1;
+      noteLocalCreate(newDeck.id);
       const createPromise = createDeckOnAPI(newDeck);
       pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
       createPromise
@@ -1676,7 +1705,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       });
       return newDeck;
     },
-    [setDecksLocal],
+    [noteLocalCreate, setDecksLocal],
   );
 
   const ensureDeckPersisted = useCallback(async (id: string) => {
@@ -1726,7 +1755,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
       pendingCreateIdsRef.current.add(newId);
-      localCreateSeqRef.current += 1;
+      noteLocalCreate(newId);
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
@@ -1770,7 +1799,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       });
       return optimistic;
     },
-    [decks, setDecksLocal],
+    [decks, noteLocalCreate, setDecksLocal],
   );
 
   const deleteDeck = useCallback(

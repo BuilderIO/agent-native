@@ -203,6 +203,164 @@ export function normalizeAgentEngineStatusModel(
   return normalizeModelForEngine(entry, model ?? entry.defaultModel);
 }
 
+type AgentEngineStatusEntry = {
+  name: string;
+  defaultModel: string;
+  supportedModels: readonly string[];
+  requiredEnvVars: readonly string[];
+};
+
+export interface AgentEngineStatusResult {
+  configured: boolean;
+  engine?: string;
+  model?: string;
+  source?: "settings" | "env" | "app_secrets";
+  envVar?: string;
+  openAiBaseUrlConfigured?: boolean;
+}
+
+export interface AgentEngineStatusDeps {
+  readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
+  readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
+  isStoredEngineUsable: (
+    stored: unknown,
+    entry: AgentEngineStatusEntry,
+  ) => boolean | Promise<boolean>;
+  detectFromUserSecrets: () => Promise<AgentEngineStatusEntry | null>;
+  detectFromEnv: () =>
+    | AgentEngineStatusEntry
+    | null
+    | Promise<AgentEngineStatusEntry | null>;
+  lookupEntry?: (engine: string) => AgentEngineStatusEntry | undefined;
+}
+
+/**
+ * Resolve "does this request have a usable AI provider" for one identity.
+ *
+ * Every call site pays for these lookups on a user-visible path (the agent
+ * composer blocks on the status probe), so the two identity-independent reads
+ * start together and the expensive `app_secrets` sweep only runs when the
+ * cheaper sources have not already answered.
+ */
+export async function resolveAgentEngineStatus(
+  deps: AgentEngineStatusDeps,
+): Promise<AgentEngineStatusResult> {
+  const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
+    engine: string,
+  ) => AgentEngineStatusEntry | undefined;
+  const [stored, openAiBaseUrlConfigured] = await Promise.all([
+    deps.readStoredEngine(),
+    deps.readOpenAiBaseUrlConfigured(),
+  ]);
+
+  if (isAgentEngineSettingConfigured(stored)) {
+    const engine = (stored as { engine: string }).engine;
+    const entry = lookupEntry(engine);
+    return {
+      configured: true,
+      engine,
+      model: normalizeAgentEngineStatusModel(entry, stored?.model),
+      source: "settings",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const envEntry = process.env.AGENT_ENGINE
+    ? lookupEntry(process.env.AGENT_ENGINE)
+    : undefined;
+  if (envEntry) {
+    if (!(await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)))
+      return { configured: false, openAiBaseUrlConfigured };
+    return {
+      configured: true,
+      engine: envEntry.name,
+      model: envEntry.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: "AGENT_ENGINE",
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  // Stored provider selections win over an existing Builder connection, so
+  // this is checked before the app_secrets sweep — and the sweep is skipped
+  // entirely when it answers.
+  if (stored && typeof stored.engine === "string") {
+    const entry = lookupEntry(stored.engine);
+    if (entry && (await deps.isStoredEngineUsable(stored, entry))) {
+      return {
+        configured: true,
+        engine: stored.engine,
+        model: normalizeAgentEngineStatusModel(entry, stored.model),
+        source: "env",
+        envVar: entry.requiredEnvVars[0],
+        openAiBaseUrlConfigured,
+      };
+    }
+  }
+
+  // Per-user app_secrets — a user who connected Builder (or pasted their own
+  // provider key) may not have any deploy-level env vars set.
+  const detectedFromUser = await deps.detectFromUserSecrets();
+  if (detectedFromUser) {
+    return {
+      configured: true,
+      engine: detectedFromUser.name,
+      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+      source: "app_secrets",
+      envVar: detectedFromUser.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  const detected = await deps.detectFromEnv();
+  if (detected) {
+    return {
+      configured: true,
+      engine: detected.name,
+      model: detected.defaultModel ?? DEFAULT_MODEL,
+      source: "env",
+      envVar: detected.requiredEnvVars[0],
+      openAiBaseUrlConfigured,
+    };
+  }
+
+  return { configured: false, openAiBaseUrlConfigured };
+}
+
+const _agentEngineStatusInFlight = new Map<
+  string,
+  Promise<AgentEngineStatusResult>
+>();
+
+/**
+ * Share one in-flight status resolution between concurrent probes of the same
+ * identity. Several client surfaces probe this route on mount and the client
+ * retries after its own timeout; without this each probe re-ran the whole
+ * credential sweep. The entry is dropped as soon as the lookup settles, so a
+ * joiner never sees an answer older than one lookup — no TTL, nothing to
+ * invalidate when a provider is added or removed. The key carries the identity
+ * that decides the answer, so no tenant can read another's result.
+ */
+export function shareAgentEngineStatusLookup(
+  identityKey: string,
+  compute: () => Promise<AgentEngineStatusResult>,
+): Promise<AgentEngineStatusResult> {
+  const existing = _agentEngineStatusInFlight.get(identityKey);
+  if (existing) return existing;
+  const started = compute().finally(() => {
+    _agentEngineStatusInFlight.delete(identityKey);
+  });
+  _agentEngineStatusInFlight.set(identityKey, started);
+  return started;
+}
+
+export function agentEngineStatusIdentityKey(
+  userEmail: string | undefined,
+  orgId: string | undefined,
+): string {
+  return `${userEmail ?? ""} ${orgId ?? ""}`;
+}
+
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
     { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },

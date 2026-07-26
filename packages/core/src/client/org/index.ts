@@ -14,6 +14,7 @@ export {
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
+  useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useOrgRole,
