@@ -302,6 +302,25 @@ async function scan() {
     }
 
     if (literalAllowed) continue;
+
+    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner). Scanned
+    // before the literal bail-out below, because aliasing is exactly how this
+    // shape hides in a file that never spells out the literal itself.
+    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
+    let s;
+    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line, col } = lineColForOffset(contents, s.index);
+      const lineText = lines[line - 1] ?? "";
+      if (isCommentLine(lineText)) continue;
+      if (hasValidOptOut(lines, line - 1)) continue;
+      violations.push({
+        file: rel,
+        line,
+        col,
+        snippet: lineText.trim(),
+      });
+    }
+
     if (!contents.includes("local@localhost")) continue;
 
     LITERAL_RE.lastIndex = 0;
@@ -325,29 +344,78 @@ async function scan() {
         snippet: lineText.trim(),
       });
     }
-
-    // Catch symbolic-alias fallbacks (audit 02 — getCurrentRunOwner).
-    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
-    let s;
-    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
-      const { line, col } = lineColForOffset(contents, s.index);
-      const lineText = lines[line - 1] ?? "";
-      if (isCommentLine(lineText)) continue;
-      if (hasValidOptOut(lines, line - 1)) continue;
-      violations.push({
-        file: rel,
-        line,
-        col,
-        snippet: lineText.trim(),
-      });
-    }
   }
   return violations;
 }
 
 const violations = await scan();
 
-if (violations.length > 0) {
+const ambientViolations = violations.filter((v) => v.ambient);
+const literalViolations = violations.filter((v) => !v.ambient);
+
+if (ambientViolations.length > 0) {
+  const bar = "=".repeat(72);
+  console.error(`\n${bar}`);
+  console.error(
+    "ERROR: ambient process identity used as a request-scoped fallback.",
+  );
+  console.error(bar);
+  console.error("");
+  console.error(
+    "`AGENT_USER_EMAIL` / `WORKSPACE_OWNER_EMAIL` (and `getAmbientUserEmail()`)",
+  );
+  console.error(
+    "name the identity of the DEPLOYMENT, not the identity of the caller.",
+  );
+  console.error("Using one as a fallback — patterns like");
+  console.error("");
+  console.error(
+    "    const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;",
+  );
+  console.error(
+    "    const owner = session?.email || process.env.WORKSPACE_OWNER_EMAIL;",
+  );
+  console.error("");
+  console.error(
+    "— means an admin gate admits whoever the deploy env names rather than",
+  );
+  console.error(
+    "whoever signed in. It fails OPEN toward more privilege. This is the shape",
+  );
+  console.error(
+    "that made every authenticated user an admin across 24 hand-written routes.",
+  );
+  console.error("");
+  for (const v of ambientViolations) {
+    console.error(`  ${v.file}:${v.line}:${v.col}`);
+    if (v.snippet) console.error(`    ${v.snippet}`);
+  }
+  console.error("");
+  console.error(bar);
+  console.error("Fix:");
+  console.error("");
+  console.error("  - In a request handler, fail closed when there's no caller:");
+  console.error("      const email = getRequestUserEmail();");
+  console.error(
+    "      if (!email) throw createError({ statusCode: 401 });",
+  );
+  console.error(
+    "  - If this really is a CLI / cron / seed entrypoint with no request",
+  );
+  console.error(
+    "    behind it, call `getAmbientUserEmail()` from a script path so the",
+  );
+  console.error("    intent is stated rather than inherited.");
+  console.error("");
+  console.error("  Last-resort opt-out (requires reviewer approval):");
+  console.error(
+    "    const x = a ?? process.env.AGENT_USER_EMAIL // guard:allow-localhost-fallback — explain why",
+  );
+  console.error(`${bar}\n`);
+}
+
+if (literalViolations.length > 0) {
+  const violations = literalViolations;
   const bar = "=".repeat(72);
   console.error(`\n${bar}`);
   console.error(
