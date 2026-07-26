@@ -60,10 +60,9 @@ export interface RequireSessionProps {
   fallback?: React.ReactNode;
   /**
    * When true (default), unauthenticated visitors are redirected to the
-   * framework sign-in entry point (`/_agent-native/sign-in`) with a `return`
-   * query pointing back at the current URL — so they land back here once
-   * signed in. When false, `signedOut` is rendered instead and no navigation
-   * happens.
+   * framework sign-in entry point (`/_agent-native/sign-in`) carrying a `c`
+   * continuation for the current URL — so they land back here once signed in.
+   * When false, `signedOut` is rendered instead and no navigation happens.
    */
   redirect?: boolean;
   /**
@@ -92,18 +91,6 @@ export function buildSignInReturnHref(opts?: { returnTo?: string }): string {
   const base = agentNativePath("/_agent-native/sign-in");
   if (typeof window === "undefined") return base;
   return currentJourney(opts?.returnTo).signInHref ?? base;
-}
-
-/**
- * @deprecated No longer used by the framework — `signInJourney` returns
- * `signInHref: null` at an auth entry path, so there is nothing left to guard
- * against. Kept with its real implementation (never shimmed to `false`, which
- * would be a default callers cannot distinguish from a real answer) for
- * templates still calling it. Remove in the next major.
- */
-export function isOnSignInPage(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.location.pathname === agentNativePath("/_agent-native/sign-in");
 }
 
 export function RequireSession({

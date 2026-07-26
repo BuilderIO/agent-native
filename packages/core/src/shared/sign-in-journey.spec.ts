@@ -72,7 +72,9 @@ describe("normalizeAppPath", () => {
     // entry path and the already-signed-in bounce looped forever.
     expect(normalizeAppPath("/myapp/login", "/myapp")).toBeNull();
     expect(normalizeAppPath("/myapp/signup", "/myapp")).toBeNull();
-    expect(normalizeAppPath("/myapp/_agent-native/sign-in", "/myapp")).toBeNull();
+    expect(
+      normalizeAppPath("/myapp/_agent-native/sign-in", "/myapp"),
+    ).toBeNull();
   });
 });
 
@@ -90,8 +92,12 @@ describe("continuation tokens", () => {
 
   it("survives non-ASCII payloads (percent-encoded by the URL parser)", () => {
     const normalized = normalizeAppPath("/搜索?q=日本語#节");
-    expect(normalized).toBe("/%E6%90%9C%E7%B4%A2?q=%E6%97%A5%E6%9C%AC%E8%AA%9E#%E8%8A%82");
-    expect(decodeContinuation(encodeContinuation("/搜索?q=日本語#节"))).toBe(normalized);
+    expect(normalized).toBe(
+      "/%E6%90%9C%E7%B4%A2?q=%E6%97%A5%E6%9C%AC%E8%AA%9E#%E8%8A%82",
+    );
+    expect(decodeContinuation(encodeContinuation("/搜索?q=日本語#节"))).toBe(
+      normalized,
+    );
   });
 
   it("does not look like a URL, so nothing downstream can re-wrap it", () => {
@@ -127,7 +133,9 @@ describe("continuation tokens", () => {
     expect(decodeContinuation(null)).toBeNull();
     expect(decodeContinuation("")).toBeNull();
     expect(decodeContinuation("!!!not base64!!!")).toBeNull();
-    expect(decodeContinuation("x".repeat(SIGN_IN_CONTINUATION_MAX_LENGTH + 1))).toBeNull();
+    expect(
+      decodeContinuation("x".repeat(SIGN_IN_CONTINUATION_MAX_LENGTH + 1)),
+    ).toBeNull();
     expect(encodeContinuation(`/${"a".repeat(2000)}`)).toBe("");
   });
 });
@@ -168,7 +176,10 @@ describe("signInJourney", () => {
   it("sends an unauthenticated visitor to sign-in and back where they started", () => {
     const journey = signInJourney({ at: "/share/abc?v=1#t=30" });
     expect(journey.signInHref).toContain("/_agent-native/sign-in?c=");
-    const token = new URL(journey.signInHref!, "http://x.invalid").searchParams.get("c");
+    const token = new URL(
+      journey.signInHref!,
+      "http://x.invalid",
+    ).searchParams.get("c");
     expect(decodeContinuation(token)).toBe("/share/abc?v=1#t=30");
   });
 
@@ -217,9 +228,12 @@ describe("signInJourney", () => {
   it("signInHref is null — not a fallback — when already at sign-in", () => {
     // Load-bearing: RequireSession has no self-redirect guard left, so a
     // non-null fallback here would `location.replace` the same URL forever.
-    expect(signInJourney({ at: "/_agent-native/sign-in" }).signInHref).toBeNull();
     expect(
-      signInJourney({ at: "/myapp/_agent-native/sign-in", basePath: "/myapp" }).signInHref,
+      signInJourney({ at: "/_agent-native/sign-in" }).signInHref,
+    ).toBeNull();
+    expect(
+      signInJourney({ at: "/myapp/_agent-native/sign-in", basePath: "/myapp" })
+        .signInHref,
     ).toBeNull();
   });
 
@@ -234,10 +248,14 @@ describe("signInJourney", () => {
   it("preserves search params for login-form-at-this-URL routes", () => {
     // `/_agent-native/open`, the MCP authorize page, and `agent-native connect`
     // serve the login form AT their own URL; client_id/state/PKCE must survive.
-    const at = "/_agent-native/mcp/authorize?client_id=abc&state=xyz&code_challenge=pkce";
+    const at =
+      "/_agent-native/mcp/authorize?client_id=abc&state=xyz&code_challenge=pkce";
     const journey = signInJourney({ at });
     expect(journey.resumeHref).toBe(at);
-    const token = new URL(journey.signInHref!, "http://x.invalid").searchParams.get("c");
+    const token = new URL(
+      journey.signInHref!,
+      "http://x.invalid",
+    ).searchParams.get("c");
     expect(decodeContinuation(token)).toBe(at);
   });
 
@@ -250,8 +268,10 @@ describe("signInJourney", () => {
 
 describe("signInJourneyInlineScript", () => {
   it("emits a runtime that behaves identically to the module", () => {
-    const script = signInJourneyInlineScript("/mail");
-    const evaluated = new Function(`${script}; return __anJourney;`)() as {
+    const script = signInJourneyInlineScript();
+    const evaluated = new Function(
+      `${script}; return __anCreateSignInJourney("/mail");`,
+    )() as {
       signInJourney: typeof signInJourney;
       decodeContinuation: (t: string | null) => string | null;
       encodeContinuation: (p: string | null) => string;
@@ -261,7 +281,9 @@ describe("signInJourneyInlineScript", () => {
     expect(evaluated.encodeContinuation("/mail/inbox")).toBe(
       encodeContinuation("/mail/inbox", "/mail"),
     );
-    expect(evaluated.decodeContinuation(encodeContinuation("/otherapp/x"))).toBeNull();
+    expect(
+      evaluated.decodeContinuation(encodeContinuation("/otherapp/x")),
+    ).toBeNull();
     expect(evaluated.signInJourney({ at: "/mail/login" })).toEqual(
       signInJourney({ at: "/mail/login", basePath: "/mail" }),
     );

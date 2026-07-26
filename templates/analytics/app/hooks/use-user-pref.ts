@@ -10,19 +10,15 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   const queryClient = useQueryClient();
   const queryKey = ["user-pref", key];
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isSuccess } = useQuery({
     queryKey,
     queryFn: async (): Promise<T> => {
-      try {
-        const result = await callAction(
-          "get-user-pref",
-          { key },
-          { method: "GET" },
-        );
-        return (result ?? {}) as T;
-      } catch {
-        return {} as T;
-      }
+      const result = await callAction(
+        "get-user-pref",
+        { key },
+        { method: "GET" },
+      );
+      return (result ?? {}) as T;
     },
     staleTime: 30_000,
   });
@@ -53,5 +49,12 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     },
   });
 
-  return { data: (data ?? {}) as T, isLoading, save, remove };
+  return {
+    data: (data ?? {}) as T,
+    isLoading,
+    isError,
+    isSuccess,
+    save,
+    remove,
+  };
 }

@@ -289,7 +289,9 @@ function renderChartYAxes(
       yAxisId="left"
       {...Y_AXIS_BASE_PROPS}
       tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
-      label={plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined}
+      label={
+        plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
+      }
     />,
     <YAxis
       key="y-right"
@@ -332,7 +334,9 @@ export function seriesValueFormatter(
     const lookup = name == null ? undefined : String(name);
     return formatYValue(
       value,
-      lookup !== undefined && byName.has(lookup) ? byName.get(lookup) : fallback,
+      lookup !== undefined && byName.has(lookup)
+        ? byName.get(lookup)
+        : fallback,
     );
   };
 }

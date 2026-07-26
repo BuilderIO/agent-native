@@ -261,7 +261,7 @@ function layoutLegend(
     const marker = `+${hidden} more`;
     const fits =
       cursor + estimateTextWidth(marker, LEGEND_FONT_SIZE) <= maxWidth;
-    if (fits || lastRow.length <= 1) {
+    if (fits) {
       return { rows, marker, markerX: cursor };
     }
     cursor = lastRow[lastRow.length - 1].x;
@@ -461,7 +461,9 @@ function renderCartesianChartSvg({
         );
 
   const leftScale = buildAxisScale(
-    axisValues(dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes)),
+    axisValues(
+      dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes),
+    ),
     chartBottom,
     plotHeight,
   );

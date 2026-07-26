@@ -55,6 +55,15 @@ export function useCreateScheduledJob() {
   });
 }
 
+export function useUpdateScheduledJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; runAt: number }) =>
+      callAction("update-scheduled-job", data) as Promise<ScheduledJob>,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-jobs"] }),
+  });
+}
+
 export function useSnoozeEmail() {
   const qc = useQueryClient();
   return useMutation({

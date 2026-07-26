@@ -29408,65 +29408,68 @@ function DesignEditor() {
                   )}
                   {showPendingVisualStyleApply ? (
                     <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
-                            aria-label={t(
-                              "designEditor.pendingVisualStyles.applyAria",
-                            )}
-                          >
-                            <IconBrush className="h-4 w-4" />
-                            {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyButton",
-                            )}
-                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
-                              {pendingVisualStylePropertyCount}
-                            </span>
-                            <IconChevronDown className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="design-editor-app-menu-content w-64"
+                      <div className="pointer-events-auto flex h-11 overflow-hidden rounded-md shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)]">
+                        <Button
+                          className="h-11 cursor-pointer rounded-none rounded-l-md bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          aria-label={t(
+                            "designEditor.pendingVisualStyles.applyAria",
+                          )}
+                          disabled={pendingStructureVerificationBusy}
+                          onClick={handleApplyPendingVisualStylesWithAgent}
                         >
-                          <DropdownMenuLabel className="text-xs text-muted-foreground">
-                            {t("designEditor.pendingVisualStyles.previewLabel")}
-                          </DropdownMenuLabel>
-                          <DropdownMenuItem
-                            disabled={pendingStructureVerificationBusy}
-                            onClick={handleApplyPendingVisualStylesWithAgent}
+                          <IconBrush className="h-4 w-4" />
+                          {t(
+                            pendingStructureVerificationBusy
+                              ? "designEditor.pendingVisualStyles.verifying"
+                              : pendingStructureVerificationStatus ===
+                                  "conflict"
+                                ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                : "designEditor.pendingVisualStyles.applyWithAgent",
+                          )}
+                          <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
+                            {pendingVisualStylePropertyCount}
+                          </span>
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              className="h-11 w-8 cursor-pointer rounded-none rounded-r-md border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              aria-label={t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            >
+                              <IconChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="design-editor-app-menu-content w-64"
                           >
-                            <IconMessage className="mr-2 h-4 w-4" />
-                            {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyWithAgent",
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={handleCopyPendingVisualStylePrompt}
-                          >
-                            <IconClipboard className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.copyPrompt")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={handleAbortPendingVisualStyles}
-                          >
-                            <IconX className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.abortPreview")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">
+                              {t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={handleCopyPendingVisualStylePrompt}
+                            >
+                              <IconClipboard className="mr-2 h-4 w-4" />
+                              {t(
+                                "designEditor.pendingVisualStyles.copyPrompt",
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={handleAbortPendingVisualStyles}
+                            >
+                              <IconX className="mr-2 h-4 w-4" />
+                              {t(
+                                "designEditor.pendingVisualStyles.abortPreview",
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   ) : null}
                   {viewMode === "overview" ? (

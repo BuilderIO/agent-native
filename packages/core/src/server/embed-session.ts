@@ -17,6 +17,7 @@ import {
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
@@ -505,6 +506,10 @@ export function normalizeEmbedTargetPath(
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.startsWith("//") || path.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+  // A ticket minted for an auth entry path used to be honoured, redirecting
+  // the embed straight at a login form. Fails closed on the existing
+  // "Invalid embed target." 400 instead.
+  if (normalizeAppPath(path) === null) return null;
   return stripConfiguredBasePath(path);
 }
 

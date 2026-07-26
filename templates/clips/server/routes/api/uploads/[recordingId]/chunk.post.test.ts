@@ -302,7 +302,11 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       }),
     );
     // Progress rides along on the lease renewal — one row write per chunk.
-    expect(mockRenewUploadLease.mock.calls).toEqual([
+    expect(
+      mockRenewUploadLease.mock.calls.filter(
+        ([, options]) => options?.uploadProgress !== undefined,
+      ),
+    ).toEqual([
       ["rec-1", { uploadProgress: 25 }],
       ["rec-1", { uploadProgress: 50 }],
     ]);
@@ -496,6 +500,32 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
     expect(chunkKeys()).toEqual([]);
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the lease after reading the body before persisting a chunk", async () => {
+    mockRenewUploadLease
+      .mockResolvedValueOnce({ held: true })
+      .mockResolvedValueOnce({
+        held: false,
+        status: "failed",
+        failureReason: "Recording was cancelled.",
+        videoUrl: null,
+        videoSizeBytes: null,
+        durationMs: null,
+      });
+    setRequest({
+      query: { index: "0", total: "2", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: false,
+      error: "Recording was cancelled.",
+    });
+
+    expect(mockRenewUploadLease).toHaveBeenCalledTimes(2);
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
   it("acks a retried final chunk after the recording is ready without rewriting state", async () => {

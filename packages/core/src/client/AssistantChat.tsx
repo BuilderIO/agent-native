@@ -176,6 +176,7 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+import { buildSignInReturnHref } from "./require-session.js";
 import {
   addMcpConnectionCompleteListener,
   consumeMcpConnectionResume,
@@ -2613,6 +2614,7 @@ const AssistantChatInner = forwardRef<
   // turn in flight. The poll backs itself off to 15s while nothing is running.
   const serverRunState = useRunStuckDetection({
     threadId: threadId ?? null,
+    enabled: isActiveComposer,
     apiUrl,
   });
   const serverRunActive =
@@ -5267,14 +5269,8 @@ const AssistantChatInner = forwardRef<
                                   !authSessionAvailable && (
                                     <button
                                       onClick={() => {
-                                        const ret =
-                                          window.location.pathname +
-                                          window.location.search;
                                         window.location.href =
-                                          agentNativePath(
-                                            "/_agent-native/sign-in",
-                                          ) +
-                                          `?return=${encodeURIComponent(ret)}`;
+                                          buildSignInReturnHref();
                                       }}
                                       className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
                                     >

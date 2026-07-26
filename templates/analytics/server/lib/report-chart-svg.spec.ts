@@ -455,6 +455,15 @@ describe("renderReportChartSvg", () => {
     expect(entries.length).toBeLessThan(series.length);
     expect(overflow).toBe(`+${series.length - entries.length} more`);
     expect(new Set(entries.map((entry) => entry.row)).size).toBe(3);
+
+    const group =
+      svg.match(/<g transform="translate\(58,[\d.]+\)">([\s\S]*?)<\/g>/)?.[1] ??
+      "";
+    const marker = group.match(/<text x="([\d.]+)"[^>]*>(\+\d+ more)<\/text>/);
+    expect(marker).not.toBeNull();
+    expect(
+      Number(marker?.[1]) + estimateTextWidth(marker?.[2] ?? "", 12),
+    ).toBeLessThanOrEqual(920 - 28 - 58);
   });
 
   it("fits a long title and subtitle inside the chart width", () => {

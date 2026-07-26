@@ -117,13 +117,17 @@ function createSignInJourneyRuntime(basePath: string) {
     // Suffix match rather than equality so this holds under any base path,
     // including one this process was not configured with (a workspace host
     // serving a sibling app's URL).
-    if (pathname === ENTRY_PATH || pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH) {
+    if (
+      pathname === ENTRY_PATH ||
+      pathname.slice(-ENTRY_PATH.length) === ENTRY_PATH
+    ) {
       return true;
     }
     var rest = pathname;
     if (base) {
       if (rest === base) rest = "/";
-      else if (rest.slice(0, base.length + 1) === base + "/") rest = rest.slice(base.length);
+      else if (rest.slice(0, base.length + 1) === base + "/")
+        rest = rest.slice(base.length);
     }
     return rest === "/login" || rest === "/signup";
   }
@@ -157,7 +161,11 @@ function createSignInJourneyRuntime(basePath: string) {
     // only control that makes an unsigned path-only token safe there. `base`
     // is resolved from configured env / `appBasePath()` and NEVER from the
     // continuation itself.
-    if (base && pathname !== base && pathname.slice(0, base.length + 1) !== base + "/") {
+    if (
+      base &&
+      pathname !== base &&
+      pathname.slice(0, base.length + 1) !== base + "/"
+    ) {
       return null;
     }
     return pathname + parsed.search + parsed.hash;
@@ -234,7 +242,10 @@ function createSignInJourneyRuntime(basePath: string) {
     hash: string;
   }) {
     return signInJourney({
-      at: (location.pathname || "/") + (location.search || "") + (location.hash || ""),
+      at:
+        (location.pathname || "/") +
+        (location.search || "") +
+        (location.hash || ""),
       continuation: readParam(location.search, PARAM),
       legacyReturn: readParam(location.search, LEGACY_PARAM),
     });
@@ -301,15 +312,16 @@ export function signInJourney(input: SignInJourneyInput): SignInJourney {
 }
 
 /**
- * The runtime as a `<script>`-embeddable IIFE bound to `__anJourney`.
+ * The runtime as `<script>`-embeddable source declaring
+ * `__anCreateSignInJourney(basePath)`.
  *
  * Emitted from the same function the server and client call, so the login
- * documents cannot drift from the module — which is exactly how the repo ended
+ * document cannot drift from the module — which is exactly how the repo ended
  * up with two login pages disagreeing about return paths in the first place.
  * `packages/core` builds with plain `tsc` (no bundler, no minifier), so the
  * emitted source is verbatim; `createSignInJourneyRuntime` must therefore stay
  * self-contained, ES5-compatible, and free of references to module scope.
  */
-export function signInJourneyInlineScript(basePath: string): string {
-  return `var __anJourney = (${createSignInJourneyRuntime.toString()})(${JSON.stringify(basePath ?? "")});`;
+export function signInJourneyInlineScript(): string {
+  return `var __anCreateSignInJourney = ${createSignInJourneyRuntime.toString()};`;
 }

@@ -3469,7 +3469,7 @@ describe("server/auth", () => {
       expect(loginHtml).toContain(
         'var __AN_WORKSPACE_GATEWAY_RETURN_ORIGIN = "";',
       );
-      expect(loginHtml).toContain('id="debug"');
+      expect(loginHtml).toContain('id="google-debug"');
       expect(loginHtml).toContain(
         "__anSetOAuthDebug('Google popup opened; waiting for callback', flowId)",
       );
@@ -3542,7 +3542,7 @@ describe("server/auth", () => {
         "Opening Google sign-in redirect from Builder preview",
       );
       expect(loginHtml).toContain(
-        "never reached this app. Check the Google OAuth redirect URI",
+        "Google sign-in did not finish. Check the Google OAuth redirect URI",
       );
       expect(loginHtml).not.toContain("&debug=1");
     });
@@ -3662,7 +3662,7 @@ describe("server/auth", () => {
       expect(html).toContain('id="resend-verification"');
       expect(html).toContain('id="back-to-signup"');
       expect(html).toContain("showVerificationStep(email, pass)");
-      expect(html).toContain("callbackURL: __anGetReturnPath()");
+      expect(html).toContain("callbackURL: __anResumeHref()");
       expect(html).not.toContain(
         "Account created! Check your email to verify, then sign in.",
       );

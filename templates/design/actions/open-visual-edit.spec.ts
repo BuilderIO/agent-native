@@ -188,7 +188,9 @@ describe("open-visual-edit", () => {
     ]);
     // paths must not also be forwarded, or add-localhost-screens would ignore
     // the expanded routes and place one default-size frame per path instead.
-    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].paths).toBeUndefined();
+    expect(
+      mocks.addLocalhostScreensRun.mock.calls[0]![0].paths,
+    ).toBeUndefined();
   });
 
   it("accepts explicit viewport sizes and leaves a single viewport's titles alone", async () => {

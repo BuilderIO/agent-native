@@ -786,6 +786,7 @@ function SqlDashboardPageContent({
   const {
     data: savedFilters,
     isLoading: filtersLoading,
+    isSuccess: filtersLoaded,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
@@ -875,6 +876,7 @@ function SqlDashboardPageContent({
       reportScreenshot ||
       appliedSaved.current ||
       filtersLoading ||
+      !filtersLoaded ||
       !loaded ||
       !dashboard
     )
@@ -919,6 +921,7 @@ function SqlDashboardPageContent({
     }
   }, [
     filtersLoading,
+    filtersLoaded,
     loaded,
     dashboard,
     savedFilters,

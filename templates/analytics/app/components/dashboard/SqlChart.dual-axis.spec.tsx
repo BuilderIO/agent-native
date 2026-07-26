@@ -39,8 +39,10 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { SqlChart } from "./SqlChart";
+import { resolveDualAxis } from "@/pages/adhoc/sql-dashboard/dual-axis";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+
+import { SqlChart, seriesValueFormatter } from "./SqlChart";
 
 const CHART_SIZE = { width: 640, height: 320 };
 
@@ -148,5 +150,34 @@ describe("SqlChart dual axis", () => {
     // Each axis names the series it carries.
     expect(container.textContent).toContain("signups");
     expect(container.textContent).toContain("conversion_rate");
+  });
+});
+
+describe("seriesValueFormatter", () => {
+  const yKeys = ['up{job="api"}', 'error_rate{job="api"}'];
+  const displayName = (key: string) => key.split("{")[0];
+  const plan = resolveDualAxis(
+    yKeys,
+    {
+      yFormatter: "number",
+      rightYKeys: ['error_rate{job="api"}'],
+      rightYFormatter: "percent",
+    },
+    displayName,
+  );
+
+  it("formats each tooltip row with the formatter of its own axis", () => {
+    const format = seriesValueFormatter(yKeys, plan, displayName, "number");
+
+    expect(format(1200, "up")).toBe("1,200");
+    expect(format(0.25, "error_rate")).toBe("25.00%");
+    expect(format(0.25, 'error_rate{job="api"}')).toBe("25.00%");
+  });
+
+  it("falls back to the panel formatter for an unrecognized series", () => {
+    const format = seriesValueFormatter(yKeys, plan, displayName, "number");
+
+    expect(format(0.25, "unknown")).toBe("0.25");
+    expect(format(0.25)).toBe("0.25");
   });
 });
