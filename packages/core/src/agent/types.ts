@@ -369,17 +369,37 @@ export type AgentChatEvent =
     }
   | {
       type: "auto_continue";
-      reason:
-        | "run_timeout"
-        | "loop_limit"
-        | "max_tokens"
-        | "no_progress"
-        | "stream_ended"
-        | "gateway_timeout"
-        | "network_interrupted";
+      reason: ContinuationReason;
       maxIterations?: number;
     }
   | { type: "clear" };
+
+export const CONTINUATION_REASONS = [
+  "run_timeout",
+  "loop_limit",
+  "max_tokens",
+  "no_progress",
+  "stream_ended",
+  "gateway_timeout",
+  "network_interrupted",
+] as const;
+
+export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+/**
+ * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
+ * the end of the turn. Both writers (`terminalReasonForRun` in run-manager and
+ * `markBackgroundContinuationChunkTerminal` in production-agent) record
+ * status='completed' with one of these while a chained successor run carries the
+ * turn on, so such a row must never be reported to a client as a plain `done`.
+ * Mirrored client-side by `BACKGROUND_CONTINUATION_TERMINAL_REASONS`.
+ */
+export function isContinuationTerminalReason(reason: unknown): boolean {
+  return (
+    reason === "auto_continue" ||
+    CONTINUATION_REASONS.includes(reason as ContinuationReason)
+  );
+}
 
 export interface RunEvent {
   seq: number;

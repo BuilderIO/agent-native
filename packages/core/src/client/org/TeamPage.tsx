@@ -1513,13 +1513,14 @@ export function TeamPage({
       {!isLoading && (
         <>
           <PendingInvitationsCard />
+          {/* Sitting in a personal workspace still counts as having an org, so
+              gating this on `!org?.orgId` hid the only in-page way to reach the
+              company workspace from the people who most needed it. */}
+          {org?.domainMatches && org.domainMatches.length > 0 && (
+            <JoinByDomainCard matches={org.domainMatches} />
+          )}
           {!org?.orgId ? (
-            <>
-              {org?.domainMatches && org.domainMatches.length > 0 && (
-                <JoinByDomainCard matches={org.domainMatches} />
-              )}
-              <CreateOrgCard description={createOrgDescription} />
-            </>
+            <CreateOrgCard description={createOrgDescription} />
           ) : (
             <MembersCard />
           )}

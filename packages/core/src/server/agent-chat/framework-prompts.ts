@@ -15,15 +15,12 @@ import {
   FRAMEWORK_CONTEXT_SECTIONS,
 } from "./context-tools.js";
 import { lazyFs } from "./lazy-fs.js";
-import { compactPromptLine } from "./prompt-resources.js";
 
 // ---------------------------------------------------------------------------
 // Framework-level system prompt assembly (production/dev, full/compact),
 // the "Available Actions" and corpus-tools prompt sections, the SQL schema
 // block, and the codebase file-tree walker used by a few dev-mode tools.
 // ---------------------------------------------------------------------------
-
-const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
 
 /**
  * Framework-level instructions injected into every agent's system prompt.
@@ -60,68 +57,30 @@ export function buildFrameworkPrompts(
   const extensionInstructionsFull = extensionToolsEnabled
     ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action that matches the lifetime:
-
-- For a **one-time inline UI** that answers the current chat turn (knobs, controls, pickers, calculators, temporary dashboards, visualizers), call \`render-inline-extension\` immediately with a self-contained Alpine.js HTML body. It renders inside the transcript and is not saved.
-- For a **reusable or saved UI** (an extension/widget/dashboard/calculator/mini-app the user can reopen from Extensions), call \`create-extension\` with a self-contained Alpine.js HTML body. It saves to the Extensions view and also renders inline in chat.
-- To **reuse an existing saved extension inline**, call \`show-extension-inline\` with its id, or a search string when the id is unknown.
-
-These are **NOT** source-code changes and do **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps — no source files are touched, no PR is opened, no build is required. Saved extensions can be edited later via \`update-extension\`.
+In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action for the lifetime: \`render-inline-extension\` (one-off, chat-only), \`create-extension\` (saved/reusable), \`show-extension-inline\` (reopen a saved one), or \`update-extension\` (edit an existing one) — call the right one directly, without a "let me build…" preamble. Each tool's own description covers its exact use case, arguments, and available helpers (appAction, dbQuery, extensionData, agentNative.ui.output, etc.). Extensions are sandboxed mini-apps, not source-code changes, and never go through \`connect-builder\`.
 
 If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the app's native artifact format cannot faithfully express the requested interaction.
 
-Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
+Editing an existing extension (fix, restyle, rename, add behavior) is a SQL data update — call \`update-extension\` directly using the extensionId from \`<current-screen>\`/\`<current-url>\` when present; never call \`connect-builder\` for it.
 
-Generated UI content can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). Use appAction() for app data writes, and dbQuery() only for read-only inspection of known app SQL tables. It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+Extensions render only on their own page or inside an existing named slot; they cannot inject UI into arbitrary native components. If an extension could only approximate the request in a different location, do not silently downgrade the requirement and do not end with "extensions cannot do that." Briefly explain the boundary, then follow the normal source-code handoff so the app can still be customized fully.
 
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then call \`update-extension\` with exactly \`id\`, \`operation\`, and \`payloadJson\`; encode the operation payload as a JSON string and never send empty placeholder fields. After one content read, keep the body in working memory and use \`operation="edit"\` with focused \`edits\`/\`patches\` inside \`payloadJson\`; do not loop on repeated \`get-extension\` + \`run-code\` string scans before writing. For a data-only repair, preserve the existing layout, CSS, copy, and interactions. Use \`operation="replace"\` only when the user explicitly requests a broad visual rewrite or supplies a complete replacement body. Use \`operation="metadata"\` for name/description/icon, and use \`set-resource-visibility\` for sharing changes. If a focused patch fails, read the current body and change the target rather than retrying identical arguments. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
-
-In Act mode, when in doubt — if the request asks for a new small interactive utility and does not need reuse, choose \`render-inline-extension\`; if it mentions saving/reuse or asks for an extension/widget/dashboard/calculator/mini-app, choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
-
-Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
-
-For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. If the user wants a shared extension removed only from their view, use \`hide-extension\` — do not query or mutate the legacy \`tools\` table directly.
-
-### Extensions vs. Code Changes — Pick the Right Path
-
-Route by the exact outcome, not by whether the user calls it an extension. Extensions render in their own sandboxed iframe, either on their own page or inside an existing named slot. They CANNOT change the host app's nav, restyle or inject elements into existing native components, replace built-in views, or render at an arbitrary location that has no slot.
-
-<routing>
-| The request is for…                                              | Path                          |
-| ---------------------------------------------------------------- | ------------------------------ |
-| A one-off interactive answer inside chat (controls, picker, calculator, temporary visualizer) | \`render-inline-extension\` — inline only |
-| A new self-contained surface (widget, dashboard, calculator, viewer, list, tracker) | \`create-extension\` — ships instantly, no PR |
-| Loading a saved extension inside chat | \`show-extension-inline\` |
-| Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
-| The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
-| UI inside or beside a native component where no named slot exists | \`connect-builder\` — add the native UI or a suitable slot in source |
-| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
-</routing>
-
-If an extension could only approximate the request in a different location, do not silently downgrade the requirement and do not end with "extensions cannot do that." Briefly explain the boundary, then follow the normal source-code handoff so the app can still be customized fully.
-
-Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "show local time beside every native Calendar attendee row", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+For helper APIs, Alpine.js patterns, the extension-vs-code-change boundary, and worked examples, read the \`extensions\` and \`generative-ui\` skills.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
   const extensionInstructionsCompact = extensionToolsEnabled
     ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks for generated interactive UI in chat, call \`render-inline-extension\` for one-time inline controls/knobs/calculators/visualizers that do not need saving. If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app** that should be reusable or saved, call \`create-extension\` with a self-contained Alpine.js HTML body. To load a saved extension inline, call \`show-extension-inline\`. These are NOT code changes — extensions are sandboxed mini-apps. Do not preface with "let me build…" — just call the right extension action.
+In Act mode, choose the smallest extension action for the lifetime: \`render-inline-extension\` (one-off, chat-only), \`create-extension\` (saved/reusable), \`show-extension-inline\` (reopen a saved one), or \`update-extension\` (edit an existing one) — each tool's own description covers its use case and helpers. These are sandboxed mini-apps, not code changes; never route them through \`connect-builder\`. Do not preface with "let me build…" — just call the right extension action.
 
 Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests or for behavior the native artifact format cannot support.
 
-Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
+Editing an existing extension is a data update — call \`update-extension\` directly using the extensionId from \`<current-screen>\`/\`<current-url>\` when present; never \`connect-builder\`.
 
-Generated UI can read chat inputs from slotContext/window.onSlotContext, see/update app state through appFetch/appAction, use extensionData, record passive current values through agentNative.ui.output(value, opts?), and send visible results through agentNative.chat.send(...) or sendToAgentChat(...). ui.output writes \`inline-ui:<extensionId>:output\` in application state; when the user asks to use the current slider/selection/value, read \`readAppState("inline-ui:<id>:output")\`. Transient extensionData is browser-local only, so do not rely on it for values the agent or app must observe. Use semantic Tailwind theme classes.
+Extensions can render only on their own page or in an existing named slot; they cannot inject UI into arbitrary native components. If the exact request changes host chrome, native components, layout, styles, routes, business logic, or needs placement where no slot exists, treat it as a source-code change and use the normal \`connect-builder\` flow even if the user called it an extension. Never stop at "extensions cannot do that" or silently offer a different placement; explain the boundary briefly and continue the code-change handoff.
 
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then call \`update-extension\` with exactly \`id\`, \`operation\`, and \`payloadJson\`; encode the operation payload as a JSON string and never send empty placeholder fields. After one content read, use \`operation="edit"\` with focused \`edits\`/\`patches\` inside \`payloadJson\`; do not repeatedly re-read and scan the same HTML with \`run-code\` before writing. For a data-only repair, preserve the existing layout, CSS, copy, and interactions. Use \`operation="replace"\` only when the user explicitly requests a broad visual rewrite or supplies a complete replacement body. Use \`operation="metadata"\` for name/description/icon, and use \`set-resource-visibility\` for sharing changes. If a focused patch fails, read the current body and change the target rather than retrying identical arguments. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
-
-For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
-
-### Extensions vs. Code Changes — Pick the Right Path
-
-If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Extensions can render only on their own page or in an existing named slot; they cannot inject UI into arbitrary native components. If the exact request changes host chrome, native components, layout, styles, routes, business logic, or needs placement where no slot exists, treat it as a source-code change and use the normal \`connect-builder\` flow even if the user called it an extension. Never stop at "extensions cannot do that" or silently offer a different placement; explain the boundary briefly and continue the code-change handoff.`
+See the \`extensions\` and \`generative-ui\` skills for helper APIs, Alpine.js patterns, and worked examples.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
@@ -265,15 +224,20 @@ export async function buildSchemaBlock(
 
 /**
  * Generates a system prompt section describing registered template actions.
- * This helps the agent prefer template-specific actions over raw db-query/db-exec.
  *
  * Two output modes:
  *
  *   - `"tool"` — used in production, where template actions are registered
- *     as native Anthropic tools. Output reads `name(arg*: type; ...) — desc`.
+ *     as native Anthropic tools. The native tool schema already carries each
+ *     action's name, full description, and parameters, so this mode does NOT
+ *     re-list every action — it only surfaces what the tool list can't:
+ *     native-chat-widget annotations and a `tool-search` pointer for actions
+ *     omitted from the initial tool set.
  *   - `"cli"` — used in dev, where template actions are NOT registered as
  *     native tools and must be invoked via `bash(command="pnpm action ...")`.
- *     Output reads `pnpm action name --arg <type> [--opt <type>] — desc`.
+ *     This listing is load-bearing here (there is no tool schema to fall
+ *     back on), so it still emits the full
+ *     `pnpm action name --arg <type> [--opt <type>] — desc` line per action.
  */
 export function generateActionsPrompt(
   registry: Record<string, ActionEntry>,
@@ -294,23 +258,31 @@ export function generateActionsPrompt(
       : "";
 
   if (mode === "tool") {
-    const summaryLines = actionEntries.map(([name, entry]) => {
-      const desc = compactPromptLine(
-        entry.tool.description,
-        MAX_ACTION_SUMMARY_DESCRIPTION_CHARS,
+    // Native tool schemas already carry name + full description + params
+    // for every action, so this section only needs to surface what the tool
+    // list itself can't: which actions render a native chat widget, and
+    // which actions exist but aren't loaded as initial tools yet.
+    const widgetLines = actionEntries
+      .filter(([, entry]) => typeof entry.chatUI?.renderer === "string")
+      .map(
+        ([name, entry]) =>
+          `- \`${name}\` — Native chat widget: \`${entry.chatUI?.renderer ?? ""}\`.`,
       );
-      return `- \`${name}\` — ${desc}${nativeWidgetNote(entry)}`;
-    });
 
-    return `\n\n## Available Actions
+    const sections: string[] = [];
+    if (widgetLines.length > 0) {
+      sections.push(
+        `**Actions that render a native chat widget** — call these directly for their table/chart/insights view instead of recreating it in prose:\n\n${widgetLines.join("\n")}`,
+      );
+    }
+    if (omittedActionCount > 0) {
+      sections.push(
+        `${omittedActionCount} less-common app action${omittedActionCount === 1 ? " is" : "s are"} available on demand. Use \`tool-search\` with a specific capability query to load the matching schemas when needed.`,
+      );
+    }
+    if (sections.length === 0) return "";
 
-**Use these actions directly as tool calls.** They handle database access, validation, and business logic internally. The native tool schemas contain the full parameter details.
-
-${summaryLines.join("\n")}${
-      omittedActionCount > 0
-        ? `\n\n${omittedActionCount} less-common app action${omittedActionCount === 1 ? " is" : "s are"} available on demand. Use \`tool-search\` with a specific capability query to load the matching schemas when needed.`
-        : ""
-    }`;
+    return `\n\n## Available Actions\n\n${sections.join("\n\n")}`;
   }
 
   const lines = actionEntries.map(([name, entry]) => {

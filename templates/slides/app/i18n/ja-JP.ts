@@ -121,6 +121,7 @@ const messages = {
     uploadAttachedFailed: "添付ファイルをアップロードできませんでした。",
     uploadFailed: "アップロード失敗",
     doubleClickEdit: "テキストをダブルクリックして編集",
+    dragToMove: "ドラッグして移動",
     aiEditing: "AIが編集中",
     startTypingCommands: "入力を開始…または / でコマンド",
     pinDropHint: "任意の場所をクリックしてコメントピンを追加",
@@ -210,6 +211,7 @@ const messages = {
     elementAnimations: "要素アニメーション",
     tweaks: "調整",
     drawOnSlide: "スライドに描画",
+    addTextBox: "テキストボックスを追加",
     pinComments: "コメントをピン留め",
     pinCommentsDescription:
       "スライド上の位置をクリックして複数の編集をキューに入れ、まとめて送信します。",

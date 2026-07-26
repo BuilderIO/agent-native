@@ -81,10 +81,9 @@ const zhCN = {
   },
   home: {
     hero: {
-      badge: "开源框架",
       titleLine1: "面向",
       titleAccent: "agentic apps 的框架",
-      body: "Agent-Native 是一个开源 framework，用于以 agent 为核心快速构建健壮的应用程序。",
+      body: "无需在应用和 agent 之间做选择。Agent-Native 应用两者兼具。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
     },
@@ -96,7 +95,7 @@ const zhCN = {
     },
     actionSurface: {
       eyebrow: "真正面向代理，而不是外挂式 AI",
-      title: "一个 action 覆盖整套应用能力面",
+      title: "一个 action 覆盖完整能力面",
       body: "只定义一次操作。Agent-Native 会把它变成 UI action、agent 工具、HTTP 端点、MCP/A2A 能力面、CLI 命令、权限检查和审计记录。",
       buildAction: "构建一个 action",
       benefits: {
@@ -1518,6 +1517,7 @@ const zhCN = {
     dispatch: "调度",
     a2aProtocol: "A2A 协议",
     mcpClients: "MCP 客户端（添加工具）",
+    httpApi: "HTTP API（调用行动）",
     mcpServer: "MCP 服务器（暴露你的应用）",
     externalAgents: "外部 Agents（连接主机）",
     mcpApps: "MCP Apps（内联 UI）",
@@ -1526,6 +1526,7 @@ const zhCN = {
     automationConnectors: "工作流连接器",
     workspaceConnections: "工作区连接",
     creatingTemplates: "创建模板",
+    syncingTemplateChanges: "同步模板变更",
     writingAgentInstructions: "编写 Agent 指令",
     embeddingSdk: "嵌入 SDK",
     frames: "Frames",

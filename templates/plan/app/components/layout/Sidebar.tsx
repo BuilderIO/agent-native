@@ -20,7 +20,6 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconHierarchy2,
   IconClipboardCheck,
   IconEdit,
   IconLayoutSidebarLeftCollapse,
@@ -57,19 +56,16 @@ const PLAN_CHAT_STORAGE_KEY = "plans";
 
 const PLAN_BRANDING_CODE_CONTEXT = [
   "The user is using the Plan app branding customization popover.",
-  "Make source-code changes for Agent-Native Plan branding in templates/plan.",
+  "Make source-code changes for Plan branding in templates/plan.",
   "Inspect the current brand surfaces first: app/lib/app-config.ts, app/components/layout/Sidebar.tsx, app/root.tsx metadata/icons, public brand assets, and app/global.css theme tokens.",
   "Keep runtime plan data, stored plans, recaps, comments, and generated plan content unchanged unless the user explicitly asks for those data changes.",
   "Use existing Plan styling, shadcn primitives, Tabler icons, and repo patterns. Keep changes tightly scoped.",
 ].join("\n");
 
 function buildBrandingCustomizationMessage(request: string) {
-  return [
-    "Customize the Agent-Native Plan app branding.",
-    "",
-    "Request:",
-    request,
-  ].join("\n");
+  return ["Customize the Plan app branding.", "", "Request:", request].join(
+    "\n",
+  );
 }
 
 const navItems = [
@@ -78,7 +74,6 @@ const navItems = [
 ];
 
 const bottomNavItems = [
-  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

@@ -78,6 +78,7 @@ export function QuickAskSidebar({
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<ChatTurn[]>([]);
+  const [pendingAsk, setPendingAsk] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Single global keydown listener; toggles on Cmd/Ctrl+J. Esc is handled
@@ -94,11 +95,17 @@ export function QuickAskSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // The desktop pill's "Ask anything" bar hands its question over as `?ask=`
+  // alongside `?chat=1`, so the question the user typed on the overlay lands
+  // in the agent chat here instead of being retyped.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("chat") !== "1") return;
+    const askParam = params.get("ask")?.trim();
+    if (params.get("chat") !== "1" && !askParam) return;
     setOpen(true);
+    if (askParam) setPendingAsk(askParam);
     params.delete("chat");
+    params.delete("ask");
     const nextQuery = params.toString();
     window.history.replaceState(
       window.history.state,
@@ -154,6 +161,12 @@ export function QuickAskSidebar({
     },
     [meetingId, meetingTitle, segments, t],
   );
+
+  useEffect(() => {
+    if (!pendingAsk) return;
+    setPendingAsk(null);
+    send(pendingAsk);
+  }, [pendingAsk, send]);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>

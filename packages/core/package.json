@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.120.4",
+  "version": "0.122.2",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -139,6 +139,7 @@
     "./client/AgentPanel": "./dist/client/AgentPanel.js",
     "./client/application-state": "./dist/client/application-state.js",
     "./client/api-path": "./dist/client/api-path.js",
+    "./client/clipboard": "./dist/client/clipboard.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/observability": "./dist/client/observability/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",

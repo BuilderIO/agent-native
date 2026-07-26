@@ -35,6 +35,13 @@ export const INITIAL_TOOL_NAMES = [
   "bigquery",
   "search-bigquery-schema",
   "list-data-dictionary",
+  // Bulk/cohort readers. Without these on the first surface a "list X excluding Y"
+  // question cannot reach any tool that answers it in one call, so the agent pays a
+  // tool-search round trip (~15 KB of results) before it can even start — or worse,
+  // enumerates the cohort page by page through whatever it can already see.
+  "provider-api-request",
+  "query-staged-dataset",
+  "hubspot-records",
   "navigate",
 ];
 

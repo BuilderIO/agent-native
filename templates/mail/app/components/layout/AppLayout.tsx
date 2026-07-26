@@ -14,7 +14,6 @@ import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
-  IconHierarchy2,
   IconSettings,
   IconSearch,
   IconCheck,
@@ -1778,25 +1777,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Link
-                            to="/agent"
-                            onClick={closeSidebar}
-                            aria-label={t("settings.openAgentSettings")}
-                            className={cn(
-                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                              location.pathname === "/agent" &&
-                                "bg-accent/60 text-foreground",
-                            )}
-                          >
-                            <IconHierarchy2 className="h-4 w-4" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {t("settings.openAgentSettings")}
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
                             to="/settings"
                             onClick={closeSidebar}
                             aria-label={t("mail.toolbar.settings")}
@@ -2196,25 +2176,6 @@ function StandardLayout({ children }: AppLayoutProps) {
             <div className="flex items-center justify-end gap-1 px-2 py-2">
               <DevDatabaseLink />
               <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      to="/agent"
-                      onClick={() => setSidebarOpen(false)}
-                      aria-label={t("settings.openAgentSettings")}
-                      className={cn(
-                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
-                        location.pathname === "/agent" &&
-                          "bg-accent/60 text-foreground",
-                      )}
-                    >
-                      <IconHierarchy2 className="h-4 w-4" />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("settings.openAgentSettings")}
-                  </TooltipContent>
-                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Link

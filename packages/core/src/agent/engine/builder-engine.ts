@@ -71,6 +71,8 @@ const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
 const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
   MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
+export const BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE =
+  "builder_model_unauthorized";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
@@ -669,8 +671,16 @@ async function* parseJsonlStream(
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayErrCode = event.errorCode ?? event.code;
+            // The gateway already authenticated this request before streaming,
+            // so a bare "Unauthorized" here means the account cannot use this
+            // model — not that the connection is broken. Only a message that
+            // names the credential may tear down the Builder connection.
             const isCredentialAuthError =
               Boolean(explicitErrMsg) &&
+              isBuilderCredentialAuthErrorInStream(String(errMsg));
+            const isModelAuthError =
+              Boolean(explicitErrMsg) &&
+              !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
             // Anthropic's bare "Connection error." often arrives here with no
             // gateway code. Tag it as a network error so in-run retries and
@@ -680,10 +690,12 @@ async function* parseJsonlStream(
               isProviderConnectionErrorMessage(String(explicitErrMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
-              : isProviderConnectionError
-                ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
-                : (gatewayErrCode ??
-                  (!explicitErrMsg ? "builder_gateway_error" : undefined));
+              : isModelAuthError
+                ? BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE
+                : isProviderConnectionError
+                  ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
+                  : (gatewayErrCode ??
+                    (!explicitErrMsg ? "builder_gateway_error" : undefined));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
@@ -985,6 +997,25 @@ function isBuilderCredentialAuthError(message: string): boolean {
     lowerMessage.includes("invalid_token") ||
     lowerMessage.includes("token invalid") ||
     (referencesAccessToken && rejectedToken)
+  );
+}
+
+/**
+ * Stricter than {@link isBuilderCredentialAuthError} for errors that arrive
+ * inside an already-authenticated stream, where a bare "unauthorized" is far
+ * more likely to be a per-model entitlement rejection than a bad credential.
+ * Misreading one there disconnects Builder for every model, including the ones
+ * that still work.
+ */
+function isBuilderCredentialAuthErrorInStream(message: string): boolean {
+  if (!isBuilderCredentialAuthError(message)) return false;
+  const lowerMessage = message.toLowerCase();
+  return (
+    lowerMessage.includes("private key") ||
+    lowerMessage.includes("access token") ||
+    lowerMessage.includes("invalid token") ||
+    lowerMessage.includes("invalid_token") ||
+    lowerMessage.includes("token invalid")
   );
 }
 

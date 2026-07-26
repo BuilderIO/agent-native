@@ -437,6 +437,26 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
+/**
+ * Pick the segments to store after cleanup rewrites the transcript text.
+ *
+ * Measured timings from the capture engine always win.
+ * `buildCaptionSegmentsFromText` spaces cues in proportion to word count, so
+ * re-synthesizing over real timestamps spreads a short transcript evenly across
+ * the whole recording — which reads as minute-long gaps of dropped speech even
+ * when nothing was dropped there.
+ */
+export function resolveCleanupSegmentsJson(
+  priorSegmentsJson: string | null | undefined,
+  cleanedText: string,
+  durationMs: number | null | undefined,
+): string {
+  if (parseTranscriptSegments(priorSegmentsJson).length > 1) {
+    return priorSegmentsJson as string;
+  }
+  return fullTextSegmentJson(cleanedText, durationMs);
+}
+
 export function isSafeTranscriptCleanupReplacement(
   sourceText: string,
   cleanedText: string,
@@ -642,12 +662,14 @@ async function cleanupNativeTranscript({
   ownerEmail,
   fullText,
   durationMs,
+  segmentsJson,
 }: {
   db: ReturnType<typeof getDb>;
   recordingId: string;
   ownerEmail: string;
   fullText: string;
   durationMs: number | null | undefined;
+  segmentsJson?: string | null;
 }): Promise<{ cleaned: boolean; provider?: string }> {
   const sourceText = fullText.trim();
   if (!sourceText) return { cleaned: false };
@@ -704,7 +726,11 @@ async function cleanupNativeTranscript({
         status: "ready",
         failureReason: null,
         language,
-        segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
+        segmentsJson: resolveCleanupSegmentsJson(
+          segmentsJson,
+          cleanedText,
+          durationMs,
+        ),
         fullText: cleanedText,
         retryCount: 0,
         updatedAt: now,
@@ -855,6 +881,7 @@ async function completeReadyTranscript({
     ownerEmail,
     fullText,
     durationMs: recForTitle?.durationMs,
+    segmentsJson,
   }).catch((err) => {
     console.warn(
       `[clips] native transcript cleanup failed for ${recordingId}:`,

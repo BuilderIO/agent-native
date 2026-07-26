@@ -1538,6 +1538,7 @@ function SqlDashboardPageContent({
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
             shareUrl={dashboardShareUrl}
             shareTabs={{
               tabs: [

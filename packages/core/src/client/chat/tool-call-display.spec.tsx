@@ -467,6 +467,41 @@ describe("ToolCallDisplay native renderers", () => {
     );
   });
 
+  it("keeps remote response text visible in order once another tool starts", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 6,
+              startedAt: 1,
+              updatedAt: 6,
+              durationMs: 5,
+              activePhase: "responding",
+              reasoning: [],
+              toolCalls: [
+                { id: "tool-1", name: "query-warehouse", status: "completed" },
+              ],
+              response: ["Checking the numbers first.", "Revenue grew 12%."],
+              responseText: "Revenue grew 12%.",
+            },
+          }}
+        />,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Checking the numbers first.");
+    expect(text.indexOf("Checking the numbers first.")).toBeLessThan(
+      text.indexOf("query warehouse"),
+    );
+  });
+
   it("keeps summary-only remote tool activity non-expandable", () => {
     act(() => {
       root.render(

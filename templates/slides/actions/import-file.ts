@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
@@ -211,14 +212,12 @@ export default defineAction({
     }
 
     if (detectedFormat === "pdf") {
-      const { CanvasFactory, getData } = await import("pdf-parse/worker");
-      const { PDFParse } = await import("pdf-parse");
-      PDFParse.setWorker(getData());
+      const { PDFParse, canvasFactory } = await setupPdfParse();
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
       const pdf = new PDFParse({
         data: new Uint8Array(fileBuffer),
-        CanvasFactory,
+        CanvasFactory: canvasFactory,
       });
       const result = await pdf.getText().finally(() => pdf.destroy());
       const pages = normalizePdfPages(result);

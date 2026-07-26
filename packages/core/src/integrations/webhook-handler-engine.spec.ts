@@ -9,6 +9,8 @@ const saveThreadMappingMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
+const grantThreadUserShareMock = vi.hoisted(() => vi.fn());
+const isInBackgroundFunctionRuntimeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
@@ -50,6 +52,11 @@ vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
   getThread: getThreadMock,
   updateThreadData: updateThreadDataMock,
+  grantThreadUserShare: grantThreadUserShareMock,
+}));
+
+vi.mock("../agent/durable-background.js", () => ({
+  isInBackgroundFunctionRuntime: isInBackgroundFunctionRuntimeMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -244,6 +251,8 @@ describe("integration webhook handler engine resolution", () => {
     createThreadMock.mockResolvedValue({ id: "thread-qa" });
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
+    grantThreadUserShareMock.mockResolvedValue(undefined);
+    isInBackgroundFunctionRuntimeMock.mockReturnValue(false);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
     getOrgA2ASecretMock.mockResolvedValue(null);
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
@@ -368,7 +377,7 @@ describe("integration webhook handler engine resolution", () => {
         expect.any(String),
         expect.any(Function),
         expect.any(Function),
-        { useHostedSoftTimeoutDefault: true },
+        { useHostedSoftTimeoutDefault: true, backgroundFunction: false },
       );
       expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -377,6 +386,138 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "takes the background-function soft-timeout ceiling when durable dispatch routed the task there",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      isInBackgroundFunctionRuntimeMock.mockReturnValue(true);
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        { useHostedSoftTimeoutDefault: true, backgroundFunction: true },
+      );
+    },
+  );
+
+  it(
+    "reports a run cut off at a continuation boundary as out of time, not as an empty answer",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "tool_start", tool: "gong-calls" });
+        send({ type: "auto_continue", reason: "run_timeout" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const text = sendResponse.mock.calls.at(-1)?.[0]?.text ?? "";
+      expect(text).toContain("ran out of time");
+      expect(text).not.toContain("finished without a visible answer");
+    },
+  );
+
+  it(
+    "grants the verified sender access to a thread owned by the integration service principal",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+
+      await processIntegrationTask(
+        pendingTask({
+          payload: JSON.stringify({
+            incoming: {
+              platform: "fake",
+              externalThreadId: "thread-qa",
+              text: "hello from slack",
+              senderName: "QA User",
+              senderEmail: "QA.User@example.com",
+              senderVerified: true,
+              platformContext: { channel: "C123" },
+              timestamp: 1001,
+            },
+          }),
+        }),
+        {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "integration@fake",
+          orgId: "org-qa",
+          principalType: "service",
+        },
+      );
+
+      expect(grantThreadUserShareMock).toHaveBeenCalledWith(
+        "thread-qa",
+        "QA.User@example.com",
+        "editor",
+        "integration@fake",
+      );
+    },
+  );
+
+  it(
+    "does not grant a redundant share when the sender already owns the thread",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+
+      await processIntegrationTask(
+        pendingTask({
+          payload: JSON.stringify({
+            incoming: {
+              platform: "fake",
+              externalThreadId: "thread-qa",
+              text: "hello from slack",
+              senderEmail: "dispatch+qa@integration.local",
+              senderVerified: true,
+              platformContext: { channel: "C123" },
+              timestamp: 1001,
+            },
+          }),
+        }),
+        {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "user",
+        },
+      );
+
+      expect(grantThreadUserShareMock).not.toHaveBeenCalled();
     },
   );
 

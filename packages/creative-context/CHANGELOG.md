@@ -1,5 +1,11 @@
 # @agent-native/creative-context
 
+## 0.5.8
+
+### Patch Changes
+
+- c8a0bcf: Declare `@tanstack/react-query` as a peer/dev dependency so `tsc` can name its types under pnpm's isolated layout. Without it the package fails to build with TS2883 in a generated workspace, which breaks the root `postinstall` and therefore `pnpm install`.
+
 ## 0.5.7
 
 ### Patch Changes
