@@ -937,8 +937,6 @@ async function persistAndFinalizeConfirmedA2ADelivery(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       await persistA2AContinuationDelivery(continuation, history);
-      await finalizeA2ATerminalHistory(continuation.id);
-      logA2AContinuationTransition("terminal_history_persisted", continuation);
       await completeParentCampaignAfterTerminalA2A({
         ...continuation,
         status:
@@ -946,6 +944,8 @@ async function persistAndFinalizeConfirmedA2ADelivery(
             ? "completed"
             : "failed",
       });
+      await finalizeA2ATerminalHistory(continuation.id);
+      logA2AContinuationTransition("terminal_history_persisted", continuation);
       return;
     } catch (err) {
       lastError = err;

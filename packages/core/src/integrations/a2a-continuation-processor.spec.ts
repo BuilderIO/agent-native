@@ -1382,6 +1382,43 @@ describe("A2A continuation processor", () => {
     );
   });
 
+  it("keeps receipt-backed parent completion recoverable before finalizing history", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: "task-1",
+      status: "waiting",
+    });
+    completeIntegrationCampaignTaskAfterA2AMock
+      .mockRejectedValueOnce(new Error("db unavailable"))
+      .mockRejectedValueOnce(new Error("db unavailable"))
+      .mockRejectedValueOnce(new Error("db unavailable"));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
+      "cont-1",
+      20_000,
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("history remains retryable"),
+      "Error",
+    );
+  });
+
   it("does not post completed text when another processor already claimed delivery", async () => {
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());

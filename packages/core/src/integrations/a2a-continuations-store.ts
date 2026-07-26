@@ -562,8 +562,10 @@ export async function getA2AContinuationTaskOutcome(
   });
   if (rows.length === 0) return "missing";
   if (
-    rows.some((row) =>
-      ["pending", "processing", "delivering"].includes(String(row.status)),
+    rows.some(
+      (row) =>
+        ["pending", "processing", "delivering"].includes(String(row.status)) &&
+        row.terminal_delivery_confirmed_at == null,
     )
   ) {
     return "active";
