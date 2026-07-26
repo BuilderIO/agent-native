@@ -156,6 +156,9 @@ async function startApp(basePath: string): Promise<RunningApp> {
       cwd: templateDir,
       env: appEnv(appUrl, basePath, dbPath),
       stdio: ["ignore", "pipe", "pipe"],
+      // Vite starts Nitro as a child. Own the whole tree so the next base-path
+      // deployment cannot accidentally talk to a surviving prior server.
+      detached: true,
     },
   );
   child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
@@ -188,13 +191,29 @@ async function portIsFree(): Promise<boolean> {
   }
 }
 
+function signalProcessTree(
+  child: ChildProcessWithoutNullStreams,
+  signal: NodeJS.Signals,
+): void {
+  if (process.platform === "win32") {
+    child.kill(signal);
+    return;
+  }
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // The process group may already have exited.
+  }
+}
+
 async function stopApp(running: RunningApp): Promise<void> {
-  running.child.kill("SIGTERM");
+  signalProcessTree(running.child, "SIGTERM");
   await Promise.race([
     new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
     new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
   ]);
-  running.child.kill("SIGKILL");
+  signalProcessTree(running.child, "SIGKILL");
   // The next deploy reuses this port with a different base path, so it must be
   // genuinely free before we start — not merely "the wrapper exited".
   const deadline = Date.now() + 30_000;
