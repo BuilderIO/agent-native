@@ -82,6 +82,20 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("repositions after an ancestor scroll moves the caret", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain(
+      'document.addEventListener("scroll", updatePosition, true)',
+    );
+    expect(source).toContain(
+      'document.removeEventListener("scroll", updatePosition, true)',
+    );
+    expect(source).toMatch(
+      /requestAnimationFrame\(\(\) => \{[\s\S]*setPosition\(getSlashMenuPosition\(editor\)\)/,
+    );
+  });
+
   it("opens above a caret near the viewport bottom", () => {
     expect(
       getSlashMenuVerticalPosition(

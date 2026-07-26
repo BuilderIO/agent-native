@@ -1209,6 +1209,36 @@ export function SlashCommandMenu({
     };
   }, [editor, isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || editor.isDestroyed) return;
+
+    let frame = 0;
+    const updatePosition = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!editor.isDestroyed) {
+          setPosition(getSlashMenuPosition(editor));
+        }
+      });
+    };
+
+    // ProseMirror can scroll any ancestor after the slash transaction to reveal
+    // the caret. Recalculate after layout and capture those non-bubbling scroll
+    // events so a menu near the viewport edge flips using current geometry.
+    updatePosition();
+    document.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("resize", updatePosition);
+    window.visualViewport?.addEventListener("scroll", updatePosition);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.visualViewport?.removeEventListener("scroll", updatePosition);
+    };
+  }, [editor, isOpen]);
+
   return (
     <>
       {/* Slash command menu */}
