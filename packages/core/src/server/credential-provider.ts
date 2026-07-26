@@ -1349,23 +1349,20 @@ export async function resolveSecretDetailed(
           }
           return { value: workspaceSecret.value, lookupFailed: false };
         }
-      }
-
-      // Always checked, even when an org id was found above: a secret written
-      // before the user joined/created an org must not become unreachable
-      // once that org exists.
-      const soloWorkspaceSecret = await readAppSecret({
-        key,
-        scope: "workspace",
-        scopeId: `solo:${email}`,
-      });
-      if (soloWorkspaceSecret?.value) {
-        if (traceLookup) {
-          console.log(
-            `[resolve-secret] key=${key} email=${email} scope=workspace-solo hit=true`,
-          );
+      } else {
+        const soloWorkspaceSecret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: `solo:${email}`,
+        });
+        if (soloWorkspaceSecret?.value) {
+          if (traceLookup) {
+            console.log(
+              `[resolve-secret] key=${key} email=${email} scope=workspace-solo hit=true`,
+            );
+          }
+          return { value: soloWorkspaceSecret.value, lookupFailed: false };
         }
-        return { value: soloWorkspaceSecret.value, lookupFailed: false };
       }
     } catch (err) {
       if (traceLookup) {

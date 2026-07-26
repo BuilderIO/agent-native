@@ -1188,30 +1188,6 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("still checks the solo workspace scope when an org id is present", async () => {
-    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
-    mockGetRequestOrgId.mockReturnValue("builder_io");
-    mockReadAppSecret
-      .mockResolvedValueOnce(null) // user scope miss
-      .mockResolvedValueOnce(null) // org scope miss
-      .mockResolvedValueOnce(null) // workspace/org scope miss
-      .mockResolvedValueOnce({
-        value: "pre-org-secret",
-        last4: "cret",
-        updatedAt: 1,
-      });
-
-    expect(await resolveSecret("ACADEMY_CONVEX_SITE_URL")).toBe(
-      "pre-org-secret",
-    );
-    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scopeId)).toEqual([
-      "tim@b.com",
-      "builder_io",
-      "builder_io",
-      "solo:tim@b.com",
-    ]);
-  });
-
   it("reads the store on every call rather than caching the first resolution", async () => {
     mockGetRequestUserEmail.mockReturnValue("tim@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
