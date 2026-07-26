@@ -509,7 +509,12 @@ export function normalizeEmbedTargetPath(
   // A ticket minted for an auth entry path used to be honoured, redirecting
   // the embed straight at a login form. Fails closed on the existing
   // "Invalid embed target." 400 instead.
-  if (normalizeAppPath(path) === null) return null;
+  const base = getConfiguredAppBasePath();
+  const pathForValidation =
+    base && (path === base || path.startsWith(`${base}/`))
+      ? path
+      : `${base}${path}`;
+  if (normalizeAppPath(pathForValidation, base) === null) return null;
   return stripConfiguredBasePath(path);
 }
 

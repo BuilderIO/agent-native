@@ -421,6 +421,54 @@ describe("renderReportEmail", () => {
     ]);
   });
 
+  it("keeps Prometheus labels distinct and preserves dual-axis formatters", async () => {
+    await renderReportEmail({
+      snapshot: snapshotOf([
+        panel({
+          id: "prometheus",
+          source: "prometheus",
+          chartType: "line",
+          config: {
+            xKey: "day",
+            yKeys: [
+              'node_filesystem_avail_bytes{device="/"}',
+              'node_filesystem_avail_bytes{device="/System/Volumes/Data"}',
+            ],
+            rightYKeys: [
+              'node_filesystem_avail_bytes{device="/System/Volumes/Data"}',
+            ],
+            rightYFormatter: "percent",
+          },
+        }),
+      ]),
+      panelData: new Map([
+        [
+          "prometheus",
+          {
+            status: "rows" as const,
+            rows: [
+              {
+                day: "2026-07-01",
+                'node_filesystem_avail_bytes{device="/"}': 0.4,
+                'node_filesystem_avail_bytes{device="/System/Volumes/Data"}': 0.2,
+              },
+            ],
+            schema: [],
+          },
+        ],
+      ]),
+    });
+
+    const chartInput = mocks.renderReportChartSvg.mock.calls[0][0] as {
+      series: Array<{ label: string; formatter?: string }>;
+    };
+    expect(chartInput.series.map((entry) => entry.label)).toEqual([
+      "device=/ node_filesystem_avail_bytes",
+      "device=/System/Volumes/Data node_filesystem_avail_bytes",
+    ]);
+    expect(chartInput.series[1]?.formatter).toBe("percent");
+  });
+
   it("does not invent zero bars for days a pivoted bar chart never returned", async () => {
     await renderReportEmail({
       snapshot: snapshotOf([

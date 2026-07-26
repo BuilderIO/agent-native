@@ -10,6 +10,8 @@ vi.mock("../settings/user-settings.js", () => ({
     (putUserSetting as unknown as (...a: unknown[]) => Promise<void>)(...args),
 }));
 
+const { drainAgentWarnings } = await import("../agent/action-warnings.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 const { setActiveOrgId } = await import("./active-org.js");
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -99,6 +101,24 @@ describe("setActiveOrgId", () => {
       "Could not read the previous active organization",
     );
     expect(putUserSetting).toHaveBeenCalled();
+  });
+
+  // Inside an agent run the repoint has to reach the conversation, not a server
+  // log the user will never open.
+  it("routes the repoint warning to the agent channel during a run", async () => {
+    getUserSetting.mockResolvedValue({ orgId: "builder-io" });
+
+    await runWithRequestContext({ run: {} }, async () => {
+      await setActiveOrgId("tim@example.com", "coach-org", "roster migration");
+
+      const warnings = drainAgentWarnings();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.severity).toBe("critical");
+      expect(warnings[0]!.code).toBe("org-cross-org-repoint");
+      expect(warnings[0]!.message).toContain("NOT shared between them");
+    });
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("keeps the account email out of the log", async () => {

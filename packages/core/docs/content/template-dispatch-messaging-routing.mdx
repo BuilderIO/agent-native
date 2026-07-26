@@ -79,7 +79,7 @@ Wire up each channel from Dispatch's **Messaging** page — see [Messaging](/doc
 
 ## Approval flow {#approvals}
 
-Destructive or external actions — sending money, shipping an outbound email, posting to Slack at scale — can require an admin OK before they fire. From Dispatch's **Approvals** page:
+Dispatch can gate its own durable, workspace-wide changes behind a second admin's review — it does not gate arbitrary business actions inside domain apps (a Mail send or a Forms webhook has its own risk controls, not this queue). From Dispatch's **Approvals** page:
 
 - Toggle **Require approval for durable changes** on or off. When it's on, it applies to saved destinations, shared Dream proposals, All-app agent resources, and Dispatch settings.
 - Set the list of **approver emails** who can review requests. This requires a team workspace, not a solo one.

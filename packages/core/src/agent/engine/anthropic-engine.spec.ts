@@ -50,6 +50,10 @@ describe("createAnthropicEngine", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.doUnmock("@anthropic-ai/sdk");
+    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`), so the
+    // breakpoint assertions below have to ask for it explicitly — without this
+    // they assert the opted-in shape against the default one.
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
   });
 
   it("creates engine with correct metadata", () => {

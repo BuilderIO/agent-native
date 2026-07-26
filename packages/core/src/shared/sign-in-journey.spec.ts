@@ -200,6 +200,23 @@ describe("signInJourney", () => {
     expect(journey.resumeHref).toBe("/inbox");
   });
 
+  it.each([
+    "/..//evil.com",
+    "/.//evil.com",
+    "/a/../..//evil.com",
+    "/%2e%2e//evil.com",
+  ])(
+    "rejects normalized protocol-relative legacy returns: %s",
+    (legacyReturn) => {
+      const journey = signInJourney({
+        at: `/_agent-native/sign-in?return=${encodeURIComponent(legacyReturn)}`,
+        legacyReturn,
+      });
+      expect(journey.resumeHref.startsWith("//")).toBe(false);
+      expect(journey.resumeHref).toBe("/");
+    },
+  );
+
   it("prefers the continuation over a legacy return", () => {
     const journey = signInJourney({
       at: "/_agent-native/sign-in",

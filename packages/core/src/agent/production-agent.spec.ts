@@ -11,6 +11,7 @@ import {
   getRequestRunContext,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { warnAgent } from "./action-warnings.js";
 import type {
   AgentEngine,
   EngineEvent,
@@ -6737,18 +6738,20 @@ describe("runAgentLoop", () => {
       await runWithRequestContext(
         { userEmail: "a@example.com", run: runContext },
         () =>
-        runAgentLoop({
-          engine,
-          model: "test-model",
-          systemPrompt: "system",
-          tools: [],
-          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
-          actions: {
-            "migrate-roster": { ...actionEntry({ readOnly: false }), run },
-          },
-          send: (event) => events.push(event),
-          signal: new AbortController().signal,
-        }),
+          runAgentLoop({
+            engine,
+            model: "test-model",
+            systemPrompt: "system",
+            tools: [],
+            messages: [
+              { role: "user", content: [{ type: "text", text: "go" }] },
+            ],
+            actions: {
+              "migrate-roster": { ...actionEntry({ readOnly: false }), run },
+            },
+            send: (event) => events.push(event),
+            signal: new AbortController().signal,
+          }),
       );
 
       const done = events.find(
@@ -6805,6 +6808,7 @@ describe("runAgentLoop", () => {
     });
 
     it("does not leak a pending warning into a later tool call", async () => {
+      const sharedRun: Record<string, unknown> = {};
       const first = await toolResultFor(async () => {
         warnAgent({
           severity: "advisory",
@@ -6812,8 +6816,8 @@ describe("runAgentLoop", () => {
           message: "Heads up.",
         });
         return "one";
-      });
-      const second = await toolResultFor(async () => "two");
+      }, sharedRun);
+      const second = await toolResultFor(async () => "two", sharedRun);
 
       expect(first).toContain("<agent-warning");
       expect(second).toBe("two");

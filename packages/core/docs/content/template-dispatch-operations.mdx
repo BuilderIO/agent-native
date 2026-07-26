@@ -21,7 +21,7 @@ When Dispatch approval policy is enabled, applying a shared or team-wide dream p
 
 Use Dreams when you want to answer questions like "what did agents keep getting wrong this week?", "what should we remember?", or "which repeated lesson deserves a skill?" Inbound Slack, email, Telegram, WhatsApp, and web-derived evidence is treated as untrusted input, so proposals from those sources require review and provenance before they affect shared memory. Workspace-instruction proposals require durable evidence spanning at least two threads or two source apps; eval-only noise, account setup issues, quota limits, and single-app UI wording corrections stay out of global instructions.
 
-<Diagram id="doc-block-dispatch5" title={"Dreams input pipeline"} summary={"Evidence from untrusted sources is size-capped, sanitized, and schema-validated before it ever reaches a report — malformed candidates are dropped, not coerced."}>
+<Diagram id="doc-block-dispatch5" title={"Dreams input pipeline"} summary={"Evidence from untrusted sources is truncated and redacted before it's compiled into a report, and the scan itself runs under Zod-validated, clamped limits."}>
 
 ```html
 <div class="dsp-dreams-flow">
@@ -32,14 +32,14 @@ Use Dreams when you want to answer questions like "what did agents keep getting 
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Sanitize<br /><small class="diagram-muted"
-      >size caps · strip control chars · escape</small
+    Truncate &amp; redact<br /><small class="diagram-muted"
+      >bounded snippet length · secrets redacted</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
-    Zod schema validate<br /><small class="diagram-muted"
-      >malformed candidates dropped</small
+    Strip injected context<br /><small class="diagram-muted"
+      >drop text after a fake &lt;context&gt; marker</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -90,12 +90,12 @@ Use Dreams when you want to answer questions like "what did agents keep getting 
 
 ### Dream input validation boundaries
 
-Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream processor enforces strict input validation boundaries to prevent prompt injection and payload-size attacks:
+Because evidence is collected from external, untrusted sources (such as chat transcripts, webhooks, and third-party integrations), the Dream pipeline limits what a single message can do to a report:
 
-- **Byte size limits:** Individual thread payloads are capped at a maximum of 10KB of text content per message, and candidate scans are truncated if they exceed 100KB in total to prevent context exhaustion.
-- **Sanitization:** All text inputs are sanitized to strip control characters, binary payloads, and non-printable Unicode ranges.
-- **Schema validation:** Inbound debug data and thread history are parsed against strict Zod schemas before being compiled into LLM prompts. Any candidate structure that fails schema validation is immediately discarded from the processing batch.
-- **Escaping:** All user-provided text chunks are dynamically escaped when formatted into the prompt templates to prevent prompt injections (e.g., trying to hijack the Dream loop to write arbitrary instructions).
+- **Bounded evidence length:** evidence snippets are truncated before they're written into a proposal — roughly 120–260 characters for most quoted evidence, up to 1,200 characters for full message/row text — so one oversized message can't dominate a report.
+- **Secret redaction:** secret-looking substrings — `sk-...` keys, `Bearer ...` tokens, long base64 blobs — are redacted out of evidence text before it's compiled.
+- **Injected-context stripping:** a user message containing a fake `<context>` marker has everything after that marker dropped before the pipeline checks it for correction or frustration signals, so a message can't smuggle instructions into what looks like a genuine user correction.
+- **Clamped scan parameters:** candidate limit, per-source/per-thread timeouts, and concurrency are Zod-validated and clamped at the action boundary (for example `limit` 1–50, `sourceTimeoutMs` up to 60s, `threadConcurrency` up to 10), so a malformed or oversized request can't force an unbounded scan.
 
 In the Dispatch UI, open **Dreams** to run a manual pass, review candidate threads, inspect the report, and open each proposal's review sheet before applying or rejecting it. Use **Settings** to edit the recurring cron schedule, source scope, timeout/concurrency limits, candidate limit, and minimum candidate threshold; use **Ensure schedule** after saving when you want the `jobs/dispatch-dream.md` recurring job materialized from those settings. The review sheet shows approval behavior, the current target content, proposed content, and source evidence. Agents use the same workflow through actions:
 

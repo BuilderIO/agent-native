@@ -697,35 +697,19 @@ describe("design connect bridge endpoints", () => {
                 },
               });
               const timeout = setTimeout(() => {
-                console.error(
-                  `[TESTDBG] frame ${i} upgrade stalled, no upgrade/response/error fired`,
-                );
                 reject(new Error(`frame ${i} upgrade stalled`));
               }, 8_000);
-              request.on("socket", (s) => {
-                console.error(`[TESTDBG] frame ${i} socket assigned`);
-                s.on("connect", () =>
-                  console.error(`[TESTDBG] frame ${i} socket connected`),
-                );
-              });
               request.on("upgrade", (response, socket) => {
-                console.error(
-                  `[TESTDBG] frame ${i} upgrade event status=${response.statusCode}`,
-                );
                 clearTimeout(timeout);
                 openClientSockets.push(socket);
                 resolve(response.statusCode ?? 0);
               });
               request.on("response", (response) => {
-                console.error(
-                  `[TESTDBG] frame ${i} response event status=${response.statusCode}`,
-                );
                 clearTimeout(timeout);
                 response.resume();
                 resolve(response.statusCode ?? 0);
               });
               request.on("error", (error) => {
-                console.error(`[TESTDBG] frame ${i} error event`, error);
                 clearTimeout(timeout);
                 reject(error);
               });
@@ -1132,6 +1116,13 @@ describe("design connect bridge endpoints", () => {
       });
       expect(proxied.status).toBe(200);
       expect(proxied.body).toEqual(proxiedAppManifest);
+
+      const post = await postJson(
+        `${base}/manifest.json`,
+        {},
+        { "sec-fetch-dest": "manifest" },
+      );
+      expect(post.status).toBe(401);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

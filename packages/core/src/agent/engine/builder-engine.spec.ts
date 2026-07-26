@@ -105,6 +105,9 @@ describe("createBuilderEngine", () => {
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
     vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+    // The 1h stable-prefix TTL is opt-in (`stablePrefixCacheControl`); the
+    // breakpoint assertions below check the opted-in shape.
+    vi.stubEnv("AGENT_PROMPT_CACHE_TTL", "1h");
   });
 
   afterEach(() => {

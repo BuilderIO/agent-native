@@ -1530,6 +1530,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
+    isError: favoritesError,
+    isSuccess: favoritesLoaded,
     save: saveFavorites,
   } = useUserPref<{
     ids: string[];
@@ -1540,6 +1542,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const toggleFavorite = useCallback(
     (id: string) => {
+      if (favoritesError || !favoritesLoaded) {
+        toast.error("Favorites are unavailable right now");
+        return;
+      }
       const next = new Set(favoriteIds);
       if (next.has(id)) {
         next.delete(id);
@@ -1548,7 +1554,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       saveFavorites({ ids: Array.from(next) });
     },
-    [favoriteIds, saveFavorites],
+    [favoriteIds, favoritesError, favoritesLoaded, saveFavorites],
   );
 
   const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {

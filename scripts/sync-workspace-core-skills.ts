@@ -131,6 +131,7 @@ const templateSharedSkillIncludes = [
   "shadcn-ui",
   "secrets",
   "storing-data",
+  "sharing",
   "upgrade-agent-native",
 ];
 
@@ -144,6 +145,8 @@ const requiredAllTemplateSharedSkills = [
   "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",
+  "sharing",
+  "storing-data",
   "upgrade-agent-native",
 ];
 

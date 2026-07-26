@@ -25,6 +25,7 @@ import {
   REPORT_CHART_FONT_FAMILY,
   type ReportChartSeries,
   type ReportChartType,
+  type ReportChartValueFormatter,
 } from "./report-chart-svg";
 
 export type ReportSnapshot = {
@@ -469,6 +470,46 @@ function chartColor(config: SqlPanel["config"], index: number): string {
     : CHART_COLORS[index % CHART_COLORS.length];
 }
 
+function formatReportSeriesLabel(panel: SqlPanel, value: string): string {
+  if (panel.source !== "prometheus" && panel.source !== "demo") return value;
+  const match = /^(.*?)\{(.*)\}$/.exec(value.trim());
+  if (!match) return value;
+
+  const labels: Record<string, string> = {};
+  const re = /([A-Za-z_][A-Za-z0-9_]*)="((?:\\.|[^"\\])*)"/g;
+  let labelMatch: RegExpExecArray | null;
+  while ((labelMatch = re.exec(match[2]))) {
+    labels[labelMatch[1]] = labelMatch[2]
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+  }
+
+  const preferred = [
+    "device",
+    "mountpoint",
+    "fstype",
+    "cpu",
+    "mode",
+    "state",
+    "collector",
+    "name",
+    "route",
+    "status",
+    "phase",
+    "dependency",
+    "type",
+    "quantile",
+    "le",
+  ];
+  const descriptors = preferred
+    .filter((key) => labels[key])
+    .slice(0, 2)
+    .map((key) => `${key}=${labels[key]}`);
+  return descriptors.length
+    ? `${descriptors.join(" ")} ${match[1]}`
+    : match[1] || value;
+}
+
 /** Legacy saved dashboards still carry `stacked-bar` / `stacked-area`. */
 const REPORT_CHART_TYPES: Record<string, ReportChartType> = {
   bar: "bar",
@@ -517,14 +558,17 @@ function buildChartInput(
   const labels = visible.map((row) => String(row[xKey] ?? ""));
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
   const dualAxis = resolveDualAxis(plotted, config);
+  const formatterFor = (key: string): ReportChartValueFormatter | undefined =>
+    dualAxis.formatterFor(key);
 
   return {
     labels,
     series: plotted.map((key, index) => ({
-      label: key,
+      label: formatReportSeriesLabel(panel, key),
       data: visible.map((row) => toNumber(row[key])),
       color: chartColor(config, index),
       ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
+      ...(formatterFor(key) ? { formatter: formatterFor(key) } : {}),
     })),
     droppedPoints,
   };

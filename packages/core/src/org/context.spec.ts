@@ -996,7 +996,9 @@ describe("createOrganization", () => {
       expect(warn).not.toHaveBeenCalled();
     });
 
-    it("still activates the new org when the probe read fails", async () => {
+    // "Couldn't tell whether this account already had an org" must not read as
+    // "it didn't" — the silent version is the same class of bug as the incident.
+    it("warns about the unreadable membership probe and still activates", async () => {
       queueSelect([], []);
       mockExecute.mockRejectedValueOnce(
         new Error("no such table: org_members"),
@@ -1004,7 +1006,12 @@ describe("createOrganization", () => {
 
       const result = await createOrganization("Acme", "founder@acme.com");
 
-      expect(warn).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("could not read whether that account already");
+      expect(message).toContain("Acme");
+      expect(message).toContain(result.id);
+      expect(message).toContain("EXISTING organization");
       expect(mockPutUserSetting).toHaveBeenCalledWith(
         "founder@acme.com",
         "active-org-id",

@@ -159,11 +159,15 @@ export function discoverAgentInstructionFiles(repoRoot: string): string[] {
       if (existsSync(candidate)) files.push(candidate);
     }
   }
-  const workspaceCore = path.join(
-    repoRoot,
-    "packages/core/src/templates/workspace-core/AGENTS.md",
-  );
-  if (existsSync(workspaceCore)) files.push(workspaceCore);
+  for (const template of ["default", "headless", "workspace-core"]) {
+    const candidate = path.join(
+      repoRoot,
+      "packages/core/src/templates",
+      template,
+      "AGENTS.md",
+    );
+    if (existsSync(candidate)) files.push(candidate);
+  }
   return files.sort();
 }
 

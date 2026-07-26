@@ -55,9 +55,9 @@ Three routes are mounted whether or not your app ever links to them:
       "Extensions are managed from Settings, not a standalone list page",
     ],
     [
-      "/extensions/:id",
+      "/extensions/:id (or /extensions/:id/:slug)",
       "ExtensionViewerPage",
-      "Runs one saved extension mini-app",
+      "Runs one saved extension mini-app; the optional slug segment is just a friendlier URL for the same page",
     ],
     [
       "/settings",

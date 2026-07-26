@@ -92,7 +92,7 @@ If you're running a [multi-app workspace](/docs/multi-app-workspace) with many a
 - **Secrets vault and reusable integrations.** API keys, OAuth tokens, and provider accounts are saved once and granted to whichever apps need them, with a request/approve flow and an audit trail. See [Secrets, integrations, and workspace connections](/docs/template-dispatch-vault-integrations).
 - **Workspace resources.** Global skills, guardrail instructions, custom agent profiles, reference resources, and HTTP MCP servers can be created once in Dispatch. All-app resources are inherited at runtime by every app with no copy step; selected grants cover app-specific exceptions.
 - **Scheduled jobs and Dreams.** Cross-app recurring jobs live here, alongside a review loop that inspects recent runs and proposes memory, skill, and instruction improvements. See [Operating the workspace](/docs/template-dispatch-operations).
-- **Approval flow.** Destructive or external actions — sending money, shipping an outbound email, posting to Slack at scale — can require an admin OK before they fire.
+- **Approval flow.** Durable changes — saved delivery destinations, All-app workspace resources, and shared or team-wide Dream memory proposals — can require a second admin's OK before they take effect.
 
 ## When to use it {#when-to-use}
 
@@ -114,7 +114,7 @@ Live demo: [dispatch.agent-native.com](https://dispatch.agent-native.com).
 - **Keep company context global.** Put personas, positioning, company facts, and guardrails in Dispatch Resources once, then preview the effective workspace → app/org → personal stack for any app or user.
 - **Set up recurring jobs.** "Every Monday at 7am, ask the analytics agent for last week's signups and email me a summary." See [Operating the workspace](/docs/template-dispatch-operations).
 - **Review Dream proposals.** Dispatch's memory review loop inspects prior runs and proposes source-backed changes to what the workspace remembers.
-- **Gate risky actions.** Sending money, mass-emailing customers, or posting to a public Slack channel can require an admin OK first — see the approval flow on [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing).
+- **Gate durable changes.** Saved destinations, All-app workspace resources, and shared Dream proposals can require a second admin's OK before they apply — see the approval flow on [Messaging, routing, and approvals](/docs/template-dispatch-messaging-routing).
 - **Watch the operator console.** Monitoring, database admin, thread debugging, audit history, and usage metrics all live under one roof — see [Operating the workspace](/docs/template-dispatch-operations).
 
 ## Get started {#get-started}

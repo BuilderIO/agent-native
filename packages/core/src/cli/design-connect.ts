@@ -2258,6 +2258,7 @@ export async function startDesignConnectBridge(
       // hitting the bridge manifest unchanged, while the app's own manifest
       // request falls through to the ordinary authenticated proxy below.
       const isProxiedAppManifestRequest =
+        (req.method === "GET" || req.method === "HEAD") &&
         pathname === "/manifest.json" &&
         readHeader(req, "sec-fetch-dest") === "manifest";
       if (

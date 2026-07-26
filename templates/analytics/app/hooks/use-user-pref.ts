@@ -44,6 +44,9 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   const { mutate: remove } = useMutation({
     mutationFn: () =>
       callAction("delete-user-pref", { key }, { method: "DELETE" }),
+    onError: () => {
+      toast.error("Failed to reset preference");
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
     },

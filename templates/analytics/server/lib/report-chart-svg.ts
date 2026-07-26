@@ -4,11 +4,14 @@ export type ReportChartType = "bar" | "line" | "area" | "pie";
 
 export type ReportChartAxis = "left" | "right";
 
+export type ReportChartValueFormatter = "number" | "currency" | "percent";
+
 export type ReportChartSeries = {
   label: string;
   data: Array<number | null>;
   color?: string;
   axis?: ReportChartAxis;
+  formatter?: ReportChartValueFormatter;
 };
 
 export type ChartSvgTheme = {
@@ -94,7 +97,15 @@ function clampSize(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
 
-function formatTick(value: number): string {
+function formatTick(
+  value: number,
+  formatter?: ReportChartValueFormatter,
+): string {
+  if (formatter === "currency") return `$${value.toLocaleString()}`;
+  if (formatter === "percent") {
+    const percent = value <= 1 && value >= -1 ? value * 100 : value;
+    return `${percent.toFixed(2)}%`;
+  }
   const abs = Math.abs(value);
   if (abs >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}b`;
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
@@ -318,6 +329,7 @@ type ResolvedSeries = {
   color: string;
   data: Array<number | null>;
   axis?: ReportChartAxis;
+  formatter?: ReportChartValueFormatter;
 };
 
 type AxisScale = {
@@ -470,6 +482,8 @@ function renderCartesianChartSvg({
   const rightScale = dualAxis
     ? buildAxisScale(axisValues(rightAxisIndexes), chartBottom, plotHeight)
     : leftScale;
+  const leftFormatter = series[leftAxisIndexes[0]]?.formatter;
+  const rightFormatter = series[rightAxisIndexes[0]]?.formatter;
   const scaleFor = (seriesIndex: number): AxisScale =>
     dualAxis && series[seriesIndex].axis === "right" ? rightScale : leftScale;
 
@@ -483,9 +497,9 @@ function renderCartesianChartSvg({
     const value = leftScale.min + leftScale.span * fraction;
     const y = leftScale.yFor(value);
     const rightTick = dualAxis
-      ? `<text x="${chartRight + 10}" y="${(y + 4).toFixed(1)}" text-anchor="start" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(rightScale.min + rightScale.span * fraction))}</text>`
+      ? `<text x="${chartRight + 10}" y="${(y + 4).toFixed(1)}" text-anchor="start" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(rightScale.min + rightScale.span * fraction, rightFormatter))}</text>`
       : "";
-    return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value))}</text>${rightTick}`;
+    return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value, leftFormatter))}</text>${rightTick}`;
   }).join("");
 
   const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
@@ -871,6 +885,7 @@ export function renderReportChartSvg({
       label: entry.label || `Series ${index + 1}`,
       color: safeColor(entry.color, palette[index % palette.length]),
       axis: entry.axis,
+      ...(entry.formatter ? { formatter: entry.formatter } : {}),
       data: normalizedLabels.map((_, dataIndex) =>
         exactValue(entry.data?.[dataIndex]),
       ),

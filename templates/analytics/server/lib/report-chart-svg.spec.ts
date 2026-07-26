@@ -223,6 +223,30 @@ describe("renderReportChartSvg", () => {
     ]);
   });
 
+  it("formats report axis ticks with the same percent formatter as the dashboard", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        { label: "Signups", data: [10, 20, 30, 40] },
+        {
+          label: "Conversion",
+          data: [0.1, 0.2, 0.3, 0.4],
+          axis: "right",
+          formatter: "percent",
+        },
+      ],
+    });
+
+    expect(rightAxisTicks(svg)).toEqual([
+      "40.00%",
+      "30.00%",
+      "20.00%",
+      "10.00%",
+      "0.00%",
+    ]);
+  });
+
   it("stacks bars per axis instead of summing two units into one bar", () => {
     const svg = renderReportChartSvg({
       ...base,

@@ -155,6 +155,10 @@ function createSignInJourneyRuntime(basePath: string) {
     // why prefix checks alone are insufficient.
     if (parsed.origin !== SENTINEL) return null;
     var pathname = parsed.pathname || "/";
+    // WHATWG path normalization can turn traversal such as `/..//host` into
+    // `//host`; validate the normalized path before returning it to a redirect
+    // sink.
+    if (pathname.startsWith("//")) return null;
     if (isAuthEntryPath(pathname)) return null;
     // Containment in this app's own base path. On a multi-app workspace host
     // `/otherapp/admin` is same-origin but is NOT this app, so this is the
