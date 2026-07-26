@@ -823,6 +823,56 @@ describe("disposable runtime authority", () => {
     );
   });
 
+  it("reads every bounded OpenRouter offset page", async () => {
+    const requests: string[] = [];
+    const keys = new OpenRouterKeys(async (input) => {
+      requests.push(input);
+      const offset = new URL(input).searchParams.get("offset");
+      if (offset === "100")
+        return Response.json({
+          data: [
+            {
+              name: `trusted-acceptance-${"6".repeat(24)}-content`,
+              hash: "page-two-key",
+              expires_at: "2026-07-26T11:00:00.000Z",
+            },
+          ],
+        });
+      return Response.json({
+        data: Array.from({ length: 100 }, (_, index) => ({
+          name: `unrelated-key-${index}`,
+        })),
+      });
+    }, "injected-management-token");
+    assert.deepEqual(await keys.listByPrefixAndExpiry(), [
+      {
+        leaseId: "6".repeat(24),
+        memberId: "content",
+        hash: "page-two-key",
+        expiresAt: "2026-07-26T11:00:00.000Z",
+      },
+    ]);
+    assert.equal(requests.length, 2);
+    assert.equal(new URL(requests[0]!).searchParams.get("offset"), "0");
+    assert.equal(new URL(requests[1]!).searchParams.get("offset"), "100");
+    assert.equal(
+      new URL(requests[0]!).searchParams.get("include_disabled"),
+      "true",
+    );
+
+    let boundedRequests = 0;
+    const bounded = new OpenRouterKeys(async () => {
+      boundedRequests += 1;
+      return Response.json({
+        data: Array.from({ length: 100 }, (_, index) => ({
+          name: `unrelated-key-${index}`,
+        })),
+      });
+    }, "injected-management-token");
+    await assert.rejects(bounded.listByPrefixAndExpiry(), /bounded page limit/);
+    assert.equal(boundedRequests, 100);
+  });
+
   it("persists redacted events in order using the injected clock", async () => {
     const saved: RuntimeLease[] = [];
     const authority = new DisposableRuntimeAuthority(

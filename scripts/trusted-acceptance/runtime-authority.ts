@@ -344,38 +344,53 @@ export class OpenRouterKeys {
       expiresAt: string;
     }>
   > {
-    const body = await json(
-      await this.fetch(`${OPENROUTER_API}/keys`, {
-        headers: { authorization: `Bearer ${this.token}` },
-      }),
-    );
-    return ((body.data ?? []) as Array<Record<string, unknown>>).flatMap(
-      (item) => {
-        if (typeof item.name !== "string") return [];
-        if (!item.name.startsWith("trusted-acceptance-")) return [];
-        const match =
-          /^trusted-acceptance-([a-f0-9]{24})-([a-z0-9][a-z0-9-]*)$/.exec(
-            item.name,
-          );
-        if (
-          !match ||
-          typeof item.hash !== "string" ||
-          typeof item.expires_at !== "string"
-        ) {
-          throw new Error(
-            "OpenRouter returned a malformed trusted acceptance key",
-          );
-        }
-        return [
-          {
-            leaseId: match[1]!,
-            memberId: match[2]!,
-            hash: item.hash,
-            expiresAt: item.expires_at,
-          },
-        ];
-      },
-    );
+    const pageSize = 100;
+    const items: Array<Record<string, unknown>> = [];
+    for (let page = 0; page < 100; page += 1) {
+      const query = new URLSearchParams({
+        include_disabled: "true",
+        offset: String(page * pageSize),
+      });
+      const body = await json(
+        await this.fetch(`${OPENROUTER_API}/keys?${query}`, {
+          headers: { authorization: `Bearer ${this.token}` },
+        }),
+      );
+      if (!Array.isArray(body.data))
+        throw new Error("OpenRouter returned a malformed key inventory");
+      const pageItems = body.data as Array<Record<string, unknown>>;
+      items.push(...pageItems);
+      if (pageItems.length < pageSize) break;
+      if (page === 99)
+        throw new Error(
+          "OpenRouter key inventory exceeded the bounded page limit",
+        );
+    }
+    return items.flatMap((item) => {
+      if (typeof item.name !== "string") return [];
+      if (!item.name.startsWith("trusted-acceptance-")) return [];
+      const match =
+        /^trusted-acceptance-([a-f0-9]{24})-([a-z0-9][a-z0-9-]*)$/.exec(
+          item.name,
+        );
+      if (
+        !match ||
+        typeof item.hash !== "string" ||
+        typeof item.expires_at !== "string"
+      ) {
+        throw new Error(
+          "OpenRouter returned a malformed trusted acceptance key",
+        );
+      }
+      return [
+        {
+          leaseId: match[1]!,
+          memberId: match[2]!,
+          hash: item.hash,
+          expiresAt: item.expires_at,
+        },
+      ];
+    });
   }
 }
 
