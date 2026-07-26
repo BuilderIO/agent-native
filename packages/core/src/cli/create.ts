@@ -46,6 +46,19 @@ const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/.claude/skills",
 ];
 const localPackageTarballs = new Map<string, string>();
+/** VCS/editor files that don't count as "not empty" for an in-place scaffold. */
+const IN_PLACE_ALLOWLIST = new Set([
+  ".git",
+  ".gitignore",
+  ".gitattributes",
+  ".DS_Store",
+  ".idea",
+  ".vscode",
+  "LICENSE",
+  "README.md",
+  "Thumbs.db",
+]);
+
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -100,6 +113,11 @@ export interface CreateAppOptions {
    * unconditional workspace scaffold.
    */
   forceWorkspace?: boolean;
+  /**
+   * Internal: scaffold into the current directory instead of a new subfolder.
+   * Set when the name argument is `.`/`./` (see `createApp`).
+   */
+  inPlace?: boolean;
 }
 
 /**
@@ -116,6 +134,13 @@ export async function createApp(
   opts?: CreateAppOptions,
 ): Promise<void> {
   const clack = await import("@clack/prompts");
+
+  // `create .` (or `./`) means "scaffold into the current folder" — derive the
+  // project name from the folder's basename, like create-react-app / npm init.
+  if (name === "." || name === "./") {
+    name = path.basename(process.cwd());
+    opts = { ...opts, inPlace: true };
+  }
 
   // Reject an invalid provided name before any interactive prompt so bad input
   // fails fast instead of blocking on the start-shape picker below.
@@ -250,6 +275,39 @@ function assertValidProjectName(
     process.exit(1);
   }
 }
+/**
+ * Resolve where a scaffold writes and guard the target. A named project writes
+ * to a new sibling subfolder that must not already exist; `create .` writes
+ * into the current directory, which must be empty apart from benign VCS/editor
+ * files so we never merge over existing work (copyDir merges silently).
+ */
+function resolveScaffoldTarget(
+  name: string,
+  inPlace: boolean | undefined,
+  clack: typeof import("@clack/prompts"),
+): string {
+  if (inPlace) {
+    const targetDir = process.cwd();
+    const conflicting = fs
+      .readdirSync(targetDir)
+      .filter((entry) => !IN_PLACE_ALLOWLIST.has(entry));
+    if (conflicting.length > 0) {
+      const shown = conflicting.slice(0, 3).join(", ");
+      const more = conflicting.length > 3 ? ", …" : "";
+      clack.cancel(
+        `Current directory is not empty (${shown}${more}). Scaffold into an empty folder, or run \`create <name>\` to make a new one.`,
+      );
+      process.exit(1);
+    }
+    return targetDir;
+  }
+  const targetDir = path.resolve(process.cwd(), name);
+  if (fs.existsSync(targetDir)) {
+    clack.cancel(`Directory "${name}" already exists.`);
+    process.exit(1);
+  }
+  return targetDir;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Workspace creation (new default)
@@ -293,11 +351,7 @@ async function createWorkspaceInteractive(
         });
   const templates = ["dispatch", ...optionalPicks];
 
-  const targetDir = path.resolve(process.cwd(), name);
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "${name}" already exists.`);
-    process.exit(1);
-  }
+  const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
@@ -697,11 +751,7 @@ async function createStandaloneApp(
 
   name = await promptNameIfMissing(name, clack, "app", "my-app");
 
-  const targetDir = path.resolve(process.cwd(), name);
-  if (fs.existsSync(targetDir)) {
-    clack.cancel(`Directory "${name}" already exists.`);
-    process.exit(1);
-  }
+  const targetDir = resolveScaffoldTarget(name, opts?.inPlace, clack);
 
   // Standalone is single-select — pick one template.
   let template =
