@@ -11,6 +11,10 @@ function isRewindSkillTarget(value: string | undefined): boolean {
 
 export function shouldTrackCliRun(command: string | undefined, args: string[]) {
   if (command !== "skills") return true;
+  if (
+    ["list", "status", "update", "help", "--help", "-h"].includes(args[0] ?? "")
+  )
+    return true;
 
   const skillArgs =
     args[0] === "add"
@@ -19,12 +23,23 @@ export function shouldTrackCliRun(command: string | undefined, args: string[]) {
         ? args
         : [];
 
-  const explicitlyTargetsRewind = skillArgs.some(
-    (arg, index) =>
-      isRewindSkillTarget(arg) ||
-      (arg.startsWith("--skill=") &&
-        isRewindSkillTarget(arg.slice("--skill=".length))) ||
-      (arg === "--skill" && isRewindSkillTarget(skillArgs[index + 1])),
+  if (args[0] === "add" && skillArgs.length === 0) return false;
+
+  const flagSkillTargets = args.flatMap((arg, index) => {
+    if (arg === "--skill" || arg === "-s") return [args[index + 1]];
+    if (arg.startsWith("--skill=")) return [arg.slice("--skill=".length)];
+    return [];
+  });
+  const positionalTarget = skillArgs[0]?.startsWith("-")
+    ? undefined
+    : skillArgs[0];
+  const explicitSkillTargets = [positionalTarget, ...flagSkillTargets].filter(
+    (target): target is string => Boolean(target),
   );
+
+  if (explicitSkillTargets.length === 0) return false;
+
+  const explicitlyTargetsRewind =
+    explicitSkillTargets.some(isRewindSkillTarget);
   return !explicitlyTargetsRewind;
 }

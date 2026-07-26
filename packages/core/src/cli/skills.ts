@@ -3617,7 +3617,7 @@ export async function addAgentNativeSkill(
   }
   installTarget = preserveMcpUrlAppPathOverride(installTarget, parsed.mcpUrl);
   const skillsAgents = installsScreenMemoryMcp
-    ? clients
+    ? clients.filter((client) => client !== "cowork")
     : skillsAgentsForClients(clients);
   if (parsed.dryRun) {
     try {
