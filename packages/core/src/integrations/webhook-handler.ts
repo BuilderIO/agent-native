@@ -31,7 +31,11 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+<<<<<<< HEAD
+import {
+  appendDurableContinuationContext,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
@@ -43,6 +47,7 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import type { ContinuationReason } from "../agent/types.js";
 import {
   createThread,
   getThread,
@@ -59,10 +64,22 @@ import {
 import { runWithRequestContext } from "../server/request-context.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
+import { hasActiveA2AContinuationsForIntegrationTask } from "./a2a-continuations-store.js";
 import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
 } from "./awaiting-input-store.js";
+import {
+  claimIntegrationCampaignDeliveryForTask,
+  claimIntegrationCampaign,
+  completeIntegrationCampaignTask,
+  createIntegrationCampaign,
+  failIntegrationCampaign,
+  heartbeatIntegrationCampaign,
+  scheduleNextIntegrationCampaign,
+  waitForA2AIntegrationCampaign,
+  type IntegrationCampaign,
+} from "./integration-campaigns-store.js";
 import {
   dispatchPendingIntegrationTask,
   integrationDispatchScopeValue,
@@ -81,6 +98,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   PlatformDeliveryReceipt,
+  PlatformRunProgressRef,
 } from "./types.js";
 import {
   listIntegrationUsageBudgets,
@@ -97,6 +115,12 @@ const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
 const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
   "I ran out of time on this one before I could write up an answer — it needed more research than a single run allows. " +
   "Open the thread in Dispatch to see what I gathered, or ask me again in smaller pieces (one source at a time works best).";
+const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
+const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
+const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
+// Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
+// target without shortening general background-run budgets.
+const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
 
 /**
  * True when the run stopped at a continuation boundary rather than finishing:
@@ -115,6 +139,50 @@ function endedAtContinuationBoundary(run: ActiveRun): boolean {
     if (event.type === "done" || event.type === "error") return false;
   }
   return false;
+}
+
+function continuationBoundaryReason(run: ActiveRun): ContinuationReason {
+  for (let index = run.events.length - 1; index >= 0; index -= 1) {
+    const runEvent = run.events[index];
+    if (!runEvent) continue;
+    if (runEvent.event.type === "auto_continue") return runEvent.event.reason;
+  }
+  return "run_timeout";
+}
+
+function checkpointContinuationReason(
+  checkpoint: string | null | undefined,
+): ContinuationReason {
+  if (!checkpoint) return "run_timeout";
+  try {
+    const reason = JSON.parse(checkpoint).reason;
+    if (
+      reason === "run_timeout" ||
+      reason === "loop_limit" ||
+      reason === "max_tokens" ||
+      reason === "no_progress" ||
+      reason === "stream_ended" ||
+      reason === "gateway_timeout" ||
+      reason === "network_interrupted"
+    ) {
+      return reason;
+    }
+  } catch {}
+  return "run_timeout";
+}
+
+function parseIntegrationProgressRef(
+  value: string,
+): PlatformRunProgressRef | null {
+  try {
+    const parsed = JSON.parse(value) as Partial<PlatformRunProgressRef>;
+    return typeof parsed.kind === "string" &&
+      typeof parsed.streamTs === "string"
+      ? { kind: parsed.kind, streamTs: parsed.streamTs }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 type ToolDoneEvent = {
@@ -136,14 +204,24 @@ export type IntegrationResponseDeliveryTaskPayload = {
   deliveryReceipt?: PlatformDeliveryReceipt;
   deliveredAt?: string;
   artifacts?: A2AArtifactIdentity[];
+  campaignTerminalStatus?: "completed" | "failed";
+  awaitingA2ACompletion?: true;
 };
 
 export type ProcessIntegrationTaskResult =
   | { status: "completed" }
+  | { status: "campaign-pending" | "campaign-active" }
+  | { status: "campaign-failed" }
   | {
       status: "delivery-pending";
       payload: IntegrationResponseDeliveryTaskPayload;
       errorMessage: string;
+      campaignLease?: {
+        campaignId: string;
+        runId: string;
+        leaseToken: string;
+        campaignStatus: "completed" | "failed" | "waiting-a2a";
+      };
     };
 
 /**
@@ -584,6 +662,10 @@ export function resolveBaseUrl(event: H3Event): string {
 export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
+  campaignOptions?: {
+    enabled?: boolean;
+    continuationInvocation?: boolean;
+  },
 ): Promise<ProcessIntegrationTaskResult> {
   const parsed = JSON.parse(task.payload) as {
     incoming: IncomingMessage;
@@ -591,7 +673,9 @@ export async function processIntegrationTask(
     principalType?: "user" | "service";
   };
 
-  await recordInboundIntegrationAudit(task, parsed.incoming);
+  if (!campaignOptions?.continuationInvocation) {
+    await recordInboundIntegrationAudit(task, parsed.incoming);
+  }
 
   return processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
@@ -599,6 +683,7 @@ export async function processIntegrationTask(
     placeholderRef: parsed.placeholderRef,
     orgId: task.orgId ?? undefined,
     principalType: parsed.principalType ?? options.principalType ?? "user",
+    durableCampaign: campaignOptions?.enabled === true,
   });
 }
 
@@ -652,6 +737,7 @@ async function processIncomingMessage(
     placeholderRef?: string;
     orgId?: string;
     principalType?: "user" | "service";
+    durableCampaign?: boolean;
   } = {},
 ): Promise<ProcessIntegrationTaskResult> {
   const {
@@ -840,6 +926,195 @@ async function processIncomingMessage(
       );
     });
   }
+
+  let campaign:
+    | {
+        row: IntegrationCampaign;
+        runId: string;
+        leaseToken: string;
+      }
+    | undefined;
+  if (opts.durableCampaign && opts.taskId) {
+    const created = await createIntegrationCampaign({
+      integrationTaskId: opts.taskId,
+      threadId,
+      turnId: `integration-turn-${opts.taskId}`,
+    });
+    if (created.status === "completed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "completed" };
+    }
+    if (created.status === "failed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-failed" };
+    }
+    const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const leaseToken = crypto.randomUUID();
+    const claimed = await claimIntegrationCampaign(created.id, {
+      runId,
+      leaseToken,
+      leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+      maxChunks: INTEGRATION_CAMPAIGN_MAX_CHUNKS,
+    });
+    if (claimed.kind === "chunk-limit") {
+      const deliveryRunId = `integration-delivery-${crypto.randomUUID()}`;
+      const deliveryLeaseToken = crypto.randomUUID();
+      const deliveryCampaign = await claimIntegrationCampaignDeliveryForTask(
+        opts.taskId,
+        {
+          runId: deliveryRunId,
+          leaseToken: deliveryLeaseToken,
+          leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+        },
+      );
+      if (!deliveryCampaign) {
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return { status: "campaign-active" };
+      }
+      const exhaustedProgressRef = deliveryCampaign.progressRef
+        ? parseIntegrationProgressRef(deliveryCampaign.progressRef)
+        : null;
+      const exhaustedProgress = exhaustedProgressRef
+        ? await adapter
+            .resumeRunProgress?.(incoming, exhaustedProgressRef)
+            .catch(() => null)
+        : null;
+      const exhaustedMessage = adapter.formatAgentResponse(
+        "I couldn't safely finish this request after several continuation attempts. No completed write will be replayed.",
+      );
+      let deliveryPayload: IntegrationResponseDeliveryTaskPayload = {
+        kind: "response-delivery",
+        incoming,
+        message: exhaustedMessage,
+        ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
+        internalThreadId: threadId,
+        campaignTerminalStatus: "failed",
+        ...buildDeliveryHistoryMessageIds(incoming),
+      };
+      try {
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify(deliveryPayload),
+        );
+        let receipt: void | PlatformDeliveryReceipt;
+        if (exhaustedProgress) {
+          try {
+            receipt = await exhaustedProgress.complete(exhaustedMessage);
+          } catch {
+            receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
+              placeholderRef: opts.placeholderRef,
+            });
+          }
+        } else {
+          receipt = await adapter.sendResponse(exhaustedMessage, incoming, {
+            placeholderRef: opts.placeholderRef,
+          });
+        }
+        if (receipt?.status !== "delivered") {
+          throw new Error(
+            `${incoming.platform} exhaustion response completed without delivery proof`,
+          );
+        }
+        deliveryPayload = {
+          ...deliveryPayload,
+          deliveryReceipt: receipt,
+          deliveredAt: new Date().toISOString(),
+        };
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify(deliveryPayload),
+        );
+        await recordIntegrationResponseDelivery(deliveryPayload, receipt);
+        const terminalized = await failIntegrationCampaign(
+          deliveryCampaign.id,
+          {
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            errorMessage: "Integration campaign exhausted its chunk limit",
+          },
+        );
+        if (!terminalized) {
+          await releaseApplicableIntegrationBudgets(
+            budgetReservations.reservations,
+          );
+          return { status: "campaign-active" };
+        }
+      } catch (error) {
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return {
+          status: "delivery-pending",
+          payload: deliveryPayload,
+          campaignLease: {
+            campaignId: deliveryCampaign.id,
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            campaignStatus: "failed",
+          },
+          errorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 1000)
+              : "Integration exhaustion response delivery failed",
+        };
+      }
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-failed" };
+    }
+    if (claimed.kind !== "claimed") {
+      await releaseApplicableIntegrationBudgets(
+        budgetReservations.reservations,
+      );
+      return { status: "campaign-active" };
+    }
+    campaign = { row: claimed.campaign, runId, leaseToken };
+    if (campaign.row.checkpoint) {
+      let waitingForA2A = false;
+      try {
+        waitingForA2A =
+          JSON.parse(campaign.row.checkpoint).waitingForA2A === true;
+      } catch {}
+      if (waitingForA2A) {
+        const activeA2A = await hasActiveA2AContinuationsForIntegrationTask(
+          opts.taskId,
+        );
+        if (activeA2A) {
+          const waiting = await waitForA2AIntegrationCampaign(campaign.row.id, {
+            runId: campaign.runId,
+            leaseToken: campaign.leaseToken,
+            nextRunAt: Date.now() + INTEGRATION_CAMPAIGN_A2A_CHECK_MS,
+            progressRef: campaign.row.progressRef,
+          });
+          await releaseApplicableIntegrationBudgets(
+            budgetReservations.reservations,
+          );
+          return {
+            status: waiting ? "campaign-pending" : "campaign-active",
+          };
+        }
+        const completed = await completeIntegrationCampaignTask(
+          campaign.row.id,
+          {
+            integrationTaskId: opts.taskId!,
+            runId: campaign.runId,
+            leaseToken: campaign.leaseToken,
+          },
+        );
+        await releaseApplicableIntegrationBudgets(
+          budgetReservations.reservations,
+        );
+        return { status: completed ? "completed" : "campaign-active" };
+      }
+    }
+  }
   const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
     existingMessages.push(...threadDataToEngineMessages(thread.threadData));
@@ -870,15 +1145,21 @@ async function processIncomingMessage(
   // Precise current time rides the engine-facing user message (not the cached
   // system-prompt prefix, and not the persisted thread text) — the runtime
   // context appended to the system prompt is day-granular only.
-  const messages: EngineMessage[] = [
-    ...existingMessages,
-    {
+  const messages: EngineMessage[] = [...existingMessages];
+  if (campaign && campaign.row.chunkCount > 1) {
+    await appendDurableContinuationContext(
+      messages,
+      checkpointContinuationReason(campaign.row.checkpoint),
+      threadId,
+    );
+  } else {
+    messages.push({
       role: "user",
       content: [
         { type: "text", text: userText + buildCurrentTimeUserContext() },
       ],
-    },
-  ];
+    });
+  }
 
   // Run agent loop via startRun, wrapped in a request context so that
   // tools (especially call-agent) can resolve the caller's org for org-scoped
@@ -906,8 +1187,28 @@ async function processIncomingMessage(
     throw error;
   }
 
-  const runId = `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const progress = await adapter.startRunProgress?.(incoming).catch(() => null);
+  const runId =
+    campaign?.runId ??
+    `integration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const storedProgressRef = campaign?.row.progressRef
+    ? parseIntegrationProgressRef(campaign.row.progressRef)
+    : null;
+  const progress = storedProgressRef
+    ? await adapter
+        .resumeRunProgress?.(incoming, storedProgressRef)
+        .catch(() => null)
+    : await adapter.startRunProgress?.(incoming).catch(() => null);
+  if (campaign && campaign.row.chunkCount > 1 && progress) {
+    await Promise.resolve(
+      progress.onEvent({
+        type: "agent_call_progress",
+        agent: "Agent Native",
+        state: "working",
+        elapsedSeconds: 0,
+        detail: "Continuing in the background",
+      }),
+    ).catch(() => {});
+  }
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | null = null;
   let budgetsSettled = false;
 
@@ -1044,7 +1345,28 @@ async function processIncomingMessage(
           | undefined;
         let outcome: ProcessIntegrationTaskResult = { status: "completed" };
         try {
+          if (campaign) {
+            const stillOwned = await heartbeatIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+              },
+            );
+            if (!stillOwned) {
+              outcome = { status: "campaign-active" };
+              return;
+            }
+          }
           queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          const durableCampaignContinuation = Boolean(
+            campaign &&
+            campaign.row.chunkCount < INTEGRATION_CAMPAIGN_MAX_CHUNKS &&
+            completedRun.status === "completed" &&
+            endedAtContinuationBoundary(completedRun) &&
+            !queuedA2AContinuation,
+          );
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -1070,6 +1392,7 @@ async function processIncomingMessage(
           let suppressPlatformReply =
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
+          suppressPlatformReply ||= durableCampaignContinuation;
 
           // Compute trusted tool receipts before choosing the empty-answer
           // fallback. A completed write must not be reported as though nothing
@@ -1177,6 +1500,14 @@ async function processIncomingMessage(
               artifacts: extractA2AArtifactIdentities(toolResults, {
                 persistedArtifactSecrets: artifactSecrets,
               }),
+              ...(campaign && queuedA2AContinuation
+                ? { awaitingA2ACompletion: true as const }
+                : {}),
+              ...(campaign &&
+              !queuedA2AContinuation &&
+              !durableCampaignContinuation
+                ? { campaignTerminalStatus: "completed" as const }
+                : {}),
             };
             if (opts.taskId) {
               await stageTaskDeliveryPayload(
@@ -1277,6 +1608,9 @@ async function processIncomingMessage(
           }
 
           // Persist thread data
+          const historyMessageIds =
+            stagedDeliveryPayload ??
+            (campaign ? buildDeliveryHistoryMessageIds(incoming) : undefined);
           threadCheckpoint = await persistThreadData(
             threadId,
             incoming.text,
@@ -1284,8 +1618,10 @@ async function processIncomingMessage(
             thread,
             deliveredResponse,
             toolResults,
-            stagedDeliveryPayload,
+            historyMessageIds,
             artifactSecrets,
+            Boolean(campaign),
+            !durableCampaignContinuation,
           );
           if (outgoingForDelivery && stagedDeliveryPayload) {
             if (!threadCheckpoint) {
@@ -1320,6 +1656,69 @@ async function processIncomingMessage(
             usage,
           );
           budgetsSettled = true;
+          if (campaign && queuedA2AContinuation) {
+            const waiting = await waitForA2AIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                nextRunAt: Date.now() + INTEGRATION_CAMPAIGN_A2A_CHECK_MS,
+                progressRef: progress?.ref
+                  ? JSON.stringify(progress.ref)
+                  : undefined,
+              },
+            );
+            if (!waiting) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+            outcome = { status: "campaign-pending" };
+          } else if (campaign && durableCampaignContinuation) {
+            const scheduled = await scheduleNextIntegrationCampaign(
+              campaign.row.id,
+              {
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+                nextRunAt: Date.now(),
+                progressRef: progress?.ref
+                  ? JSON.stringify(progress.ref)
+                  : undefined,
+                checkpoint: JSON.stringify({
+                  reason: continuationBoundaryReason(completedRun),
+                  threadId,
+                  ...(threadCheckpoint?.assistantMessageId
+                    ? {
+                        assistantMessageId: threadCheckpoint.assistantMessageId,
+                      }
+                    : {}),
+                }),
+              },
+            );
+            if (!scheduled) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+            await dispatchPendingIntegrationTask({
+              taskId: opts.taskId!,
+              task: {
+                platform: incoming.platform,
+                externalThreadId: incoming.externalThreadId,
+                platformContext: incoming.platformContext,
+              },
+              campaignContinuation: true,
+            });
+            outcome = { status: "campaign-pending" };
+          } else if (campaign) {
+            const completed = await completeIntegrationCampaignTask(
+              campaign.row.id,
+              {
+                integrationTaskId: opts.taskId!,
+                runId: campaign.runId,
+                leaseToken: campaign.leaseToken,
+              },
+            );
+            if (!completed) {
+              throw new Error("Integration campaign lease was superseded");
+            }
+          }
         } catch (err) {
           console.error(
             `[integrations] Error sending response to ${incoming.platform}:`,
@@ -1338,8 +1737,12 @@ async function processIncomingMessage(
                 thread,
                 undefined,
                 collectToolResultSummaries(completedRun),
-                stagedDeliveryPayload,
+                stagedDeliveryPayload ??
+                  (campaign
+                    ? buildDeliveryHistoryMessageIds(incoming)
+                    : undefined),
                 artifactSecrets,
+                Boolean(campaign),
               );
             }
             if (usage) {
@@ -1377,8 +1780,29 @@ async function processIncomingMessage(
                   ? { assistantMessageId: threadCheckpoint.assistantMessageId }
                   : {}),
               },
+              ...(campaign &&
+              (stagedDeliveryPayload?.campaignTerminalStatus ||
+                stagedDeliveryPayload?.awaitingA2ACompletion)
+                ? {
+                    campaignLease: {
+                      campaignId: campaign.row.id,
+                      runId: campaign.runId,
+                      leaseToken: campaign.leaseToken,
+                      campaignStatus:
+                        stagedDeliveryPayload.campaignTerminalStatus ??
+                        ("waiting-a2a" as const),
+                    },
+                  }
+                : {}),
               errorMessage,
             };
+            return;
+          }
+          if (campaign) {
+            // A campaign-owned, no-delivery path must never fall through to
+            // the default completed outcome. Its lease/checkpoint recovery
+            // remains the sole owner of this logical turn.
+            outcome = { status: "campaign-active" };
             return;
           }
           // A queued continuation owns the final platform response. Later
@@ -1427,6 +1851,12 @@ async function processIncomingMessage(
       {
         useHostedSoftTimeoutDefault: true,
         backgroundFunction: isInBackgroundFunctionRuntime(),
+        ...(campaign
+          ? {
+              turnId: campaign.row.turnId,
+              noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+            }
+          : {}),
       },
     );
   });
@@ -1836,6 +2266,8 @@ async function persistThreadData(
     "userMessageId" | "assistantMessageId"
   >,
   artifactSecrets: readonly string[] = [],
+  mergeRunContent = false,
+  deliveryAttempted = true,
 ): Promise<{ userMessageId: string; assistantMessageId?: string } | undefined> {
   try {
     let repo: any;
@@ -1867,9 +2299,38 @@ async function persistThreadData(
           (message: any) => message?.id === builtAssistantMsg.id,
         )
       : undefined;
+    if (builtAssistantMsg && mergeRunContent) {
+      builtAssistantMsg.metadata.integrationRunIds = [completedRun.runId];
+    }
+    if (mergeRunContent && existingAssistantMsg && builtAssistantMsg) {
+      const previousRunIds = Array.isArray(
+        existingAssistantMsg.metadata?.integrationRunIds,
+      )
+        ? existingAssistantMsg.metadata.integrationRunIds.filter(
+            (value: unknown): value is string => typeof value === "string",
+          )
+        : [];
+      if (!previousRunIds.includes(completedRun.runId)) {
+        existingAssistantMsg.content = [
+          ...(Array.isArray(existingAssistantMsg.content)
+            ? existingAssistantMsg.content
+            : []),
+          ...(Array.isArray(builtAssistantMsg.content)
+            ? builtAssistantMsg.content
+            : []),
+        ];
+        existingAssistantMsg.metadata = {
+          ...existingAssistantMsg.metadata,
+          ...builtAssistantMsg.metadata,
+          integrationRunIds: [...previousRunIds, completedRun.runId],
+        };
+      }
+    }
     const assistantMsg = existingAssistantMsg ?? builtAssistantMsg;
-    if (assistantMsg) {
+    if (assistantMsg && deliveryAttempted) {
       assistantMsg.metadata.integrationDeliveryAttempted = true;
+    }
+    if (assistantMsg) {
       const artifactIdentities = extractA2AArtifactIdentities(toolResults, {
         persistedArtifactSecrets: artifactSecrets,
       });
