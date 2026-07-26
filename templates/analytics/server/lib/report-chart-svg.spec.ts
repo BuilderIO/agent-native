@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/server", () => ({
+  OG_FONT_FAMILY: "Liberation Sans",
+}));
 
 import {
   REPORT_CHART_FONT_FAMILY,

@@ -1,3 +1,5 @@
+import { OG_FONT_FAMILY } from "@agent-native/core/server";
+
 export type ReportChartType = "bar" | "line" | "area" | "pie";
 
 export type ReportChartSeries = {
@@ -55,12 +57,10 @@ export const CHART_PALETTES: Record<"dark" | "light", readonly string[]> = {
 };
 
 /**
- * Must stay equal to core's `OG_FONT_FAMILY`, the font actually bundled for
- * resvg. Serverless runtimes have no system fonts, so any other family renders
- * every `<text>` blank. Core does not re-export the constant from
- * `@agent-native/core/server`.
+ * The family resvg actually has bundled. Serverless runtimes ship no system
+ * fonts, so asking for any other family renders every `<text>` blank.
  */
-export const REPORT_CHART_FONT_FAMILY = "Liberation Sans";
+export const REPORT_CHART_FONT_FAMILY = OG_FONT_FAMILY;
 
 const BROWSER_FONT_FAMILY =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";

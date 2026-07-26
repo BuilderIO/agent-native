@@ -12,6 +12,7 @@ import type {
   SqlPanel,
   TableColumnConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
+import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { MAX_CONCURRENT_SQL_QUERIES } from "../../shared/sql-query-limits";
 import {
   normalizeDashboardPanelQuery,
@@ -20,6 +21,7 @@ import {
 import { resolveAnalyticsPanelSource } from "./dashboard-panel-source-resolver";
 import {
   renderReportChartSvg,
+  REPORT_CHART_FONT_FAMILY,
   type ReportChartSeries,
   type ReportChartType,
 } from "./report-chart-svg";
@@ -64,7 +66,12 @@ export type RenderedReportEmail = {
 
 type ReportAttachment = RenderedReportEmail["attachments"][number];
 
-const DEFAULT_PANEL_TIMEOUT_MS = 20_000;
+/**
+ * Sits one layer above the panel source's own query timeout so the source's
+ * more specific error surfaces first. The heaviest first-party panels on a real
+ * dashboard need well over 20s.
+ */
+const DEFAULT_PANEL_TIMEOUT_MS = DASHBOARD_REPORT_ACTION_TIMEOUT_MS;
 const EMAIL_TABLE_ROW_CAP = 50;
 const MAX_CHART_POINTS = 400;
 const CHART_WIDTH = 920;
@@ -516,14 +523,22 @@ function buildChartInput(
 async function rasterizeChartPng(svg: string, width: number): Promise<Buffer> {
   const { Resvg } = await import("@resvg/resvg-js");
   const fontFiles = resolveOgFontFiles();
-  const hasBundledFonts = Boolean(fontFiles?.length);
+  // The fonts are embedded in core and only fail to materialize if tmpdir is
+  // unwritable. Falling back to system fonts would render every label blank on
+  // a Linux serverless runtime and still produce a valid-looking PNG, so refuse
+  // instead — the caller turns this into a visible degraded panel.
+  if (!fontFiles?.length) {
+    throw new Error(
+      "Chart fonts are unavailable (could not materialize the bundled font files), so chart text would render blank",
+    );
+  }
   const rendered = new Resvg(svg, {
     fitTo: { mode: "width", value: width },
     font: {
-      loadSystemFonts: !hasBundledFonts,
-      ...(hasBundledFonts ? { fontFiles } : {}),
-      defaultFontFamily: "Liberation Sans",
-      sansSerifFamily: "Liberation Sans",
+      loadSystemFonts: false,
+      fontFiles,
+      defaultFontFamily: REPORT_CHART_FONT_FAMILY,
+      sansSerifFamily: REPORT_CHART_FONT_FAMILY,
     },
   }).render();
   return Buffer.from(rendered.asPng());

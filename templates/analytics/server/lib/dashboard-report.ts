@@ -267,7 +267,11 @@ export async function sendDashboardReportSubscription(
     );
   }
 
-  const rendered = await renderReportEmail({ snapshot, panelData });
+  const rendered = await runWithinReportDeadline(
+    "Dashboard report rendering",
+    () => renderReportEmail({ snapshot, panelData }),
+    options.deadlineAt ? options.deadlineAt - emailReserveMs : undefined,
+  );
   // A dashboard whose only reportable panels are extensions renders nothing but
   // "open the dashboard" links. Nothing failed, so degradedPanelIds is empty —
   // but the report is not backed by data and must not claim to be complete. A

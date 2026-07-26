@@ -13,8 +13,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  OG_FONT_FAMILY: "Liberation Sans",
   runWithRequestContext: mocks.runWithRequestContext,
-  resolveOgFontFiles: () => undefined,
+  resolveOgFontFiles: () => ["/tmp/LiberationSans-Regular.ttf"],
 }));
 vi.mock("./dashboard-panel-source-resolver", () => ({
   resolveAnalyticsPanelSource: mocks.resolveAnalyticsPanelSource,
@@ -28,6 +29,7 @@ vi.mock("./dashboard-panel-query", () => ({
   },
 }));
 vi.mock("./report-chart-svg", () => ({
+  REPORT_CHART_FONT_FAMILY: "Liberation Sans",
   renderReportChartSvg: mocks.renderReportChartSvg,
 }));
 vi.mock("@resvg/resvg-js", () => ({

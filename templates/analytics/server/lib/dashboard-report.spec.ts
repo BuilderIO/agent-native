@@ -440,7 +440,7 @@ describe("dashboard report email", () => {
       await expect(
         sendDashboardReportSubscription(subscription(), { deadlineAt }),
       ).rejects.toThrow(
-        "Dashboard email delivery exceeded the report delivery deadline",
+        "Dashboard report rendering exceeded the report delivery deadline",
       );
       expect(mocks.sendEmail).not.toHaveBeenCalled();
     } finally {
