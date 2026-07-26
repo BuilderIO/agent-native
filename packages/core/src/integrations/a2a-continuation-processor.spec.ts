@@ -457,6 +457,33 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("rechecks durable scope immediately before claiming terminal delivery", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "processing",
+    });
+    durableDispatchEnabledMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationDeliveryMock).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
+  });
+
   it("persists confirmed continuation delivery and stable artifact identity", async () => {
     process.env.A2A_SECRET = "test-a2a-secret-for-continuation-history";
     const downstream = appendA2AArtifactLinks(
@@ -1144,6 +1171,44 @@ describe("A2A continuation processor", () => {
       "The deck export failed",
     );
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks durable scope before claiming a terminal failure notification", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "processing",
+    });
+    durableDispatchEnabledMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    getTaskMock.mockResolvedValueOnce({
+      id: claimed.a2aTaskId,
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationDeliveryMock).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
   });
 
   it("includes a safe downstream error code and request ID in failure replies", async () => {

@@ -201,13 +201,15 @@ async function checkpointIntegrationDeliveryRetry(
   },
 ): Promise<"requeued" | "superseded"> {
   let terminalStatus: "completed" | "failed" | undefined;
+  let confirmedReceipt = false;
   try {
     const parsed = JSON.parse(
       payload,
     ) as Partial<IntegrationResponseDeliveryTaskPayload>;
     terminalStatus = parsed.campaignTerminalStatus;
+    confirmedReceipt = parsed.deliveryReceipt?.status === "delivered";
   } catch {}
-  if (terminalStatus && !campaignLease) {
+  if (terminalStatus && !campaignLease && !confirmedReceipt) {
     throw new Error("Campaign delivery retry is missing its lease");
   }
   if (terminalStatus && campaignLease) {
@@ -1924,7 +1926,7 @@ export function createIntegrationsPlugin(
                 let deliveryLease:
                   | { campaignId: string; runId: string; leaseToken: string }
                   | undefined;
-                if (campaignContinuation) {
+                if (campaignContinuation && !receipt) {
                   const runId = `integration-delivery-${crypto.randomUUID()}`;
                   const leaseToken = crypto.randomUUID();
                   const deliveryClaim =

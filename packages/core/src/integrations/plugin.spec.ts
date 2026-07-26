@@ -754,10 +754,6 @@ describe("integrations plugin routes", () => {
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
-    claimIntegrationCampaignDeliveryForTaskMock.mockResolvedValueOnce({
-      id: "campaign-1",
-      status: "processing",
-    });
     const sendResponse = vi.fn(adapter.sendResponse);
     const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
     const nitroApp = createNitroApp();
@@ -794,10 +790,6 @@ describe("integrations plugin routes", () => {
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
-    claimIntegrationCampaignDeliveryForTaskMock.mockResolvedValueOnce({
-      id: "campaign-1",
-      status: "processing",
-    });
     const sendResponse = vi.fn(adapter.sendResponse);
     const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
     const nitroApp = createNitroApp();
@@ -814,12 +806,9 @@ describe("integrations plugin routes", () => {
     expect(sendResponse).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
-    expect(failIntegrationCampaignMock).toHaveBeenCalledWith(
-      "campaign-1",
-      expect.objectContaining({
-        runId: expect.stringContaining("integration-delivery-"),
-        leaseToken: expect.any(String),
-      }),
+    expect(terminalizeIntegrationCampaignForTaskMock).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({ status: "failed" }),
     );
     expect(markTaskFailedMock).toHaveBeenCalledWith(
       task.id,

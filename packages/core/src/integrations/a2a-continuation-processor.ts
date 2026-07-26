@@ -500,6 +500,7 @@ async function notifyAndFailA2AContinuation(
   reason: string,
   progress: PlatformRunProgress | null = null,
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
   );
@@ -538,6 +539,7 @@ async function deliverAndCompleteA2AContinuation(
   text: string,
   progress: PlatformRunProgress | null = null,
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
   );
