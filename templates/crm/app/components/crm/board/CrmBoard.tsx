@@ -41,6 +41,7 @@ import {
   boardOverruns,
   moveBoardCard,
   moveValueForColumn,
+  objectBoardMoveArgs,
   pickCurrencyAttribute,
   type BoardActorType,
   type BoardCard,
@@ -105,6 +106,7 @@ interface RecordsResponse {
     displayName: string;
     subtitle?: string;
     owner?: string;
+    remoteRevision: string | null;
   }>;
   complete: boolean;
 }
@@ -310,6 +312,8 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
         title: entry.record.displayName,
         subtitle: entry.record.domain ?? entry.record.primaryEmail ?? null,
         owner: entry.record.ownerName ?? null,
+        // An entry move writes the entry, not the record.
+        remoteRevision: null,
         groupValue: typeof raw === "string" && raw ? raw : BOARD_UNGROUPED,
         groupSince: entry.valuesSince[groupSlug] ?? null,
         amount: currencyAttribute
@@ -429,6 +433,7 @@ function useObjectBoard(props: CrmBoardProps, enabled: boolean): BoardData {
           title: record.displayName,
           subtitle: record.subtitle ?? null,
           owner: record.owner ?? null,
+          remoteRevision: record.remoteRevision,
           groupValue: bucket.value ?? BOARD_UNGROUPED,
           // A record summary reports no `active_from` for the status value, so
           // the SLA stays `unknown` rather than being derived from `updatedAt`.
@@ -460,11 +465,7 @@ function useObjectBoard(props: CrmBoardProps, enabled: boolean): BoardData {
     commit: ({ card, toValue }) =>
       callAction(
         "update-crm-record" as never,
-        {
-          recordId: card.recordId,
-          target: "local",
-          fields: { [groupSlug]: moveValueForColumn(toValue) },
-        } as never,
+        objectBoardMoveArgs(card, groupSlug, toValue) as never,
       ),
   };
 }

@@ -410,6 +410,8 @@ export interface CrmStatusTransitionRow {
   outcome: CrmStatusOutcome;
   /** Present on every `skipped` row; absent otherwise. */
   block?: CrmStatusBlock;
+  /** Present on every `changed` row: how the bitemporal writer stored it. */
+  mode?: "insert" | "close-and-insert" | "update-in-place";
 }
 
 export interface CrmStatusTransitionReport {
@@ -534,6 +536,7 @@ export async function applyCrmStatusTransitions(
       from: entry.from,
       to: input.to,
       outcome: result.changed ? "changed" : "unchanged",
+      ...(result.changed ? { mode: result.mode } : {}),
     });
   }
 
@@ -558,4 +561,74 @@ export async function applyCrmStatusTransitions(
     skippedByReason,
     rows,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Single-target entry points
+// ---------------------------------------------------------------------------
+
+/**
+ * Move one record or list entry into a status.
+ *
+ * A single-target caller has nowhere to put a partition report, so a blocked
+ * target is raised as the sentence it must act on rather than returned as a row
+ * nobody reads — including the concurrency block, whose whole point is that the
+ * caller re-reads and decides again.
+ */
+export async function applyOneCrmStatusTransition(
+  input: Omit<CrmStatusTransitionInput, "targets"> & {
+    target: CrmStatusTarget;
+  },
+): Promise<{
+  changed: boolean;
+  mode?: "insert" | "close-and-insert" | "update-in-place";
+}> {
+  const { target, ...rest } = input;
+  const report = await applyCrmStatusTransitions({
+    ...rest,
+    targets: [target],
+  });
+  const [row] = report.rows;
+  if (!row) {
+    throw new CrmLifecycleError(
+      "crm-status-transition-unreported",
+      `"${input.lifecycle.attribute.label}" was neither transitioned nor blocked for ${
+        target.entryId ? `entry ${target.entryId}` : `record ${target.recordId}`
+      }. Nothing was written; report this rather than retrying.`,
+    );
+  }
+  if (row.block) throw new CrmLifecycleError(row.block.code, row.block.message);
+  return {
+    changed: row.outcome === "changed",
+    ...(row.mode ? { mode: row.mode } : {}),
+  };
+}
+
+/**
+ * Throw the reason this target cannot enter `to`, or return the value it would
+ * move from.
+ *
+ * The gate half, for a caller that owns its own atomic write and its own
+ * concurrency check: `update-crm-record` is one revision-checked mutation with
+ * an audit row covering the whole patch, so routing its status fields into a
+ * second writer would leave that row claiming fields it did not write.
+ */
+export async function assertCrmStatusTransitionAllowed(input: {
+  db: CrmFieldWriteDb;
+  lifecycle: CrmLifecycle;
+  target: CrmStatusTarget;
+  to: string;
+  recordTombstoned?: boolean;
+}): Promise<{ from: string | null }> {
+  const current = await readCurrentStatuses(input.db, input.lifecycle, [
+    input.target,
+  ]);
+  const from = current.get(targetKey(input.target))?.value ?? null;
+  const block = crmStatusBlockReason(input.lifecycle, {
+    from,
+    to: input.to,
+    recordTombstoned: input.recordTombstoned,
+  });
+  if (block) throw new CrmLifecycleError(block.code, block.message);
+  return { from };
 }

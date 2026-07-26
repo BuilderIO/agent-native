@@ -258,6 +258,9 @@ describe("list membership", () => {
     expect(entries).toHaveLength(0);
   });
 
+  // A status goes through the lifecycle rather than the writer's generic option
+  // check, so the refusal names the attribute and its known values instead of
+  // reporting `crm-unknown-option`. A non-status select still gets that code.
   it("rejects an unknown status option rather than creating it", async () => {
     const list = await newList("Managed Options");
     const recordId = await createRecord("companies", "Initech");
@@ -269,7 +272,11 @@ describe("list membership", () => {
           ownerCtx,
         ),
       ),
-    ).rejects.toMatchObject({ code: "crm-unknown-option" });
+    ).rejects.toMatchObject({
+      code: "unknown-status",
+      statusCode: 422,
+      message: expect.stringContaining('"invented" is not a value of "Stage"'),
+    });
   });
 });
 
@@ -316,6 +323,50 @@ describe("entry attribute values", () => {
       .from(schema.crmRecordFields)
       .where(eq(schema.crmRecordFields.recordId, recordId));
     expect(recordRows.every((row: any) => row.entryId === entryId)).toBe(true);
+  });
+
+  it("refuses a stage move into a retired option but still lets an entry leave it", async () => {
+    const list = await newList("Sunset Pipeline");
+    const recordId = await createRecord("companies", "Sunset Co");
+    const { entryId } = await asOwner(() =>
+      addCrmRecordToList.run(
+        { listId: list.id, recordId, values: { stage: "lost" } },
+        ownerCtx,
+      ),
+    );
+    // Retire the stage AFTER an entry is parked on it.
+    await getDb()
+      .update(schema.crmAttributeOptions)
+      .set({ archived: true })
+      .where(
+        and(
+          eq(schema.crmAttributeOptions.attributeId, list.stageAttributeId),
+          eq(schema.crmAttributeOptions.value, "lost"),
+        ),
+      );
+
+    const other = await asOwner(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+    );
+    await expect(
+      asOwner(() =>
+        updateCrmListEntry.run(
+          { entryId: other.entryId, values: { stage: "lost" } },
+          ownerCtx,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: "archived-status",
+      statusCode: 422,
+      message: expect.stringContaining("Pick one of: new, in-progress, won"),
+    });
+
+    const moved = await asOwner(() =>
+      updateCrmListEntry.run({ entryId, values: { stage: "won" } }, ownerCtx),
+    );
+    expect(moved.values).toEqual([
+      { attribute: "stage", changed: true, mode: "close-and-insert" },
+    ]);
   });
 
   it("keeps two entries for one record on independent stages", async () => {

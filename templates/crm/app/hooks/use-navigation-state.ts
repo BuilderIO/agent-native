@@ -1,7 +1,12 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
-import { pathForView, viewFromPath, type CrmView } from "@/lib/navigation";
+import {
+  crmNavigationPath,
+  viewFromPath,
+  type CrmNavigationTarget,
+  type CrmView,
+} from "@/lib/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export interface CrmNavigationState {
@@ -14,14 +19,8 @@ export interface CrmNavigationState {
   dashboardId?: string;
 }
 
-export interface CrmNavigateCommand {
-  view?: CrmView;
-  recordId?: string;
-  viewId?: string;
-  query?: string;
-  settingsSection?: "intelligence";
-  dashboardId?: string;
-}
+/** Exactly what `navigate` accepts, so no destination is dropped in between. */
+export type CrmNavigateCommand = CrmNavigationTarget;
 
 export function useNavigationState() {
   useAgentRouteState<CrmNavigationState, CrmNavigateCommand>({
@@ -44,17 +43,6 @@ export function useNavigationState() {
           settingsMatch?.[1] === "intelligence" ? "intelligence" : undefined,
       };
     },
-    getCommandPath: (command) => {
-      const params = new URLSearchParams();
-      if (command.viewId) params.set("view", command.viewId);
-      if (command.dashboardId) params.set("id", command.dashboardId);
-      if (command.query) params.set("q", command.query);
-      const path = pathForView(
-        command.view,
-        command.recordId,
-        command.settingsSection,
-      );
-      return `${path}${params.size ? `?${params}` : ""}`;
-    },
+    getCommandPath: (command) => crmNavigationPath(command),
   });
 }

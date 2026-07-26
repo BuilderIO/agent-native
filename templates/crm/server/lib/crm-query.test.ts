@@ -252,7 +252,11 @@ beforeAll(async () => {
       });
   }
 
-  acme = await createRecord("Acme Corp", { stage: "Won", amount: 100 });
+  acme = await createRecord("Acme Corp", {
+    stage: "Won",
+    amount: 100,
+    remoteRevision: "7",
+  });
   globex = await createRecord("Globex", { stage: "Discovery", amount: 50 });
   initech = await createRecord("Initech", { stage: "Won", amount: 50 });
   hooli = await createRecord("Hooli", { stage: "Discovery" });
@@ -288,6 +292,22 @@ afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
   }
+});
+
+describe("record summary", () => {
+  // The board drags a record between columns with `update-crm-record`, which
+  // refuses a native local write without the record's current revision. The
+  // summary is that board's only read, so dropping this column silently breaks
+  // every drag.
+  it("carries the record revision, reporting an absent one as null", async () => {
+    const summaries = await run({ limit: 50 });
+    expect(
+      summaries.records.find((record) => record.id === acme),
+    ).toMatchObject({ remoteRevision: "7" });
+    expect(
+      summaries.records.find((record) => record.id === globex),
+    ).toMatchObject({ remoteRevision: null });
+  });
 });
 
 describe("condition compilation", () => {

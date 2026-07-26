@@ -77,13 +77,16 @@ Model source of truth: `shared/crm-contract.ts`. Type registry:
   and lets you decide. Two open deals for one company are two entries.
 - **Moving a stage is `update-crm-list-entry`.** It closes the previous value's
   row and opens a new one, so time-in-stage is derivable from the entry's own
-  history without a separate audit table. An unknown option value is rejected
-  with a typed 422 by the field writer.
-- `server/lib/lifecycle.ts` is a status-transition primitive — allowed-set
-  partition, human-sentence block reasons, and a concurrency claim keyed to the
-  `from` values it observed. It is **not yet wired into any action**, so today
-  it constrains nothing at runtime; treat it as the intended home for stage
-  policy, not as a guarantee that already holds.
+  history without a separate audit table.
+- Every `status` write goes through `server/lib/lifecycle.ts`. The enterable set
+  is the attribute's own options, so a move into an undeclared or archived stage
+  is refused with a sentence naming the values you may pick (`unknown-status`,
+  `archived-status`), and the move is claimed against the value it was decided
+  from, so a stage somebody else moved in between comes back as
+  `concurrent-transition` instead of being clobbered. Leaving any stage —
+  including a retired one — is always allowed. On a record, `update-crm-record`
+  applies the same gate to local targets; a provider target is still a proposal,
+  not a blocked transition.
 - `remove-crm-list-entry` deletes membership and that entry's values only. It is
   not a way to delete a record.
 - `list-crm-record-field-history` reads either side: pass `entryId` for a stage

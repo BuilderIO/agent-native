@@ -1250,6 +1250,7 @@ interface SummaryRow {
   nextContactAt: string | null;
   remoteUpdatedAt: string | null;
   updatedAt: string;
+  remoteRevision: string | null;
 }
 
 function toRecordSummary(row: SummaryRow, columns?: string[]) {
@@ -1258,6 +1259,9 @@ function toRecordSummary(row: SummaryRow, columns?: string[]) {
     id: row.id,
     displayName: row.displayName,
     kind: row.kind,
+    // Not a display column: it is the concurrency token every write needs, so
+    // a view's column selection must never drop it.
+    remoteRevision: row.remoteRevision,
     ...(included.has("domain") || included.has("primaryEmail")
       ? { subtitle: row.domain ?? row.primaryEmail ?? undefined }
       : {}),
@@ -1380,6 +1384,7 @@ export async function queryCrmRecords(
     nextContactAt: schema.crmRecords.nextContactAt,
     remoteUpdatedAt: schema.crmRecords.remoteUpdatedAt,
     updatedAt: schema.crmRecords.updatedAt,
+    remoteRevision: schema.crmRecords.remoteRevision,
     connectionId: schema.crmRecords.connectionId,
     objectType: schema.crmRecords.objectType,
     provider: schema.crmRecords.provider,

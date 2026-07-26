@@ -9,6 +9,7 @@ import {
   boardOverruns,
   moveBoardCard,
   moveValueForColumn,
+  objectBoardMoveArgs,
   pickCurrencyAttribute,
   type BoardCard,
   type BoardOption,
@@ -38,6 +39,7 @@ function card(id: string, extra: Partial<BoardCard> = {}): BoardCard {
     owner: null,
     groupValue: BOARD_UNGROUPED,
     groupSince: null,
+    remoteRevision: null,
     amount: null,
     currencyCode: null,
     attributes: [],
@@ -277,6 +279,31 @@ describe("moveBoardCard", () => {
     });
     expect(result).toEqual({ moved: false });
     expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+describe("objectBoardMoveArgs", () => {
+  it("sends the record's revision, so a native local write is not refused", () => {
+    const moved = card("rec-1", { groupValue: "new", remoteRevision: "7" });
+    expect(objectBoardMoveArgs(moved, "stage", "won")).toEqual({
+      recordId: "rec-rec-1",
+      target: "local",
+      fields: { stage: "won" },
+      expectedRemoteRevision: "7",
+    });
+  });
+
+  it("clears the field when the card is dropped in the unset column", () => {
+    const moved = card("rec-1", { groupValue: "won", remoteRevision: "7" });
+    expect(objectBoardMoveArgs(moved, "stage", BOARD_UNGROUPED).fields).toEqual(
+      { stage: null },
+    );
+  });
+
+  it("omits the revision instead of inventing one when the card has none", () => {
+    const args = objectBoardMoveArgs(card("rec-1"), "stage", "won");
+    expect(args).not.toHaveProperty("expectedRemoteRevision");
+    expect(JSON.stringify(args)).not.toContain("expectedRemoteRevision");
   });
 });
 

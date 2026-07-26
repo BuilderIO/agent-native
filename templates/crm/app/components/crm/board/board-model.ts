@@ -55,6 +55,13 @@ export interface BoardCard {
    * `unknown` for such a card rather than inventing an age.
    */
   groupSince: string | null;
+  /**
+   * The record's current revision, for an object board's record write. `null`
+   * means this board never learned one — which is NOT "no concurrent change";
+   * see `objectBoardMoveArgs`. A list board leaves it null: an entry write is
+   * keyed by entry id and carries no record revision.
+   */
+  remoteRevision: string | null;
   amount: number | null;
   currencyCode: string | null;
   attributes: BoardCardAttribute[];
@@ -288,6 +295,32 @@ export async function moveBoardCard(input: {
 /** The value an action should be sent for a column: unset clears the field. */
 export function moveValueForColumn(columnKey: string): string | null {
   return columnKey === BOARD_UNGROUPED ? null : columnKey;
+}
+
+/**
+ * `update-crm-record` args for an object-board move.
+ *
+ * A native local write is refused without the record's current revision, so
+ * the card's revision is carried through here. When the card has none the key
+ * is omitted rather than sent as `""` or `null`: an invented revision would
+ * pass as a real one and turn a concurrent edit into a silent overwrite, and
+ * the action's own "refresh the record" error is the honest outcome. It stays
+ * distinguishable from a stale revision, which the native adapter reports as a
+ * conflict instead.
+ */
+export function objectBoardMoveArgs(
+  card: Pick<BoardCard, "recordId" | "remoteRevision">,
+  groupSlug: string,
+  toValue: string,
+) {
+  return {
+    recordId: card.recordId,
+    target: "local" as const,
+    fields: { [groupSlug]: moveValueForColumn(toValue) },
+    ...(card.remoteRevision
+      ? { expectedRemoteRevision: card.remoteRevision }
+      : {}),
+  };
 }
 
 /**

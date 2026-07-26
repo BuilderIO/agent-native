@@ -35,6 +35,10 @@ import {
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  applyOneCrmStatusTransition,
+  loadCrmStatusLifecycle,
+} from "../server/lib/lifecycle.js";
+import {
   CrmAttributeValueError,
   writeCrmRecordField,
   type CrmFieldWriteDb,
@@ -425,6 +429,13 @@ export interface CrmEntryValueWrite {
  * Write entry attribute values through the bitemporal writer. A stage move is
  * exactly this call — the row it closes and the row it opens ARE the stage
  * history the board reports time-in-stage from.
+ *
+ * A `status` value is routed through the lifecycle rather than written
+ * directly: the enterable set comes from the attribute's own options, and the
+ * move is claimed against the value the decision was made from, so a stage
+ * somebody else moved in between is refused instead of clobbered. Clearing a
+ * status (`null`) is not a transition into anything and stays an ordinary
+ * write — the way out of a retired stage must not itself be blocked.
  */
 export async function writeCrmListEntryValues(input: {
   db: CrmFieldWriteDb;
@@ -448,6 +459,24 @@ export async function writeCrmListEntryValues(input: {
         }.`,
       );
     }
+    if (attribute.attributeType === "status" && typeof value === "string") {
+      const moved = await applyOneCrmStatusTransition({
+        db: input.db,
+        lifecycle: await loadCrmStatusLifecycle(input.db, attribute.id),
+        target: { recordId: input.recordId, entryId: input.entryId },
+        to: value,
+        actor: input.actor,
+        ownership: input.ownership,
+        now: input.now,
+      });
+      writes.push({
+        attribute: slug,
+        changed: moved.changed,
+        ...(moved.mode ? { mode: moved.mode } : {}),
+      });
+      continue;
+    }
+
     const result = await writeCrmRecordField({
       db: input.db,
       target: { recordId: input.recordId, entryId: input.entryId },

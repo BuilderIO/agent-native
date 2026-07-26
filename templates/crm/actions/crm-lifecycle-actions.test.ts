@@ -31,6 +31,7 @@ let writeCrmRecordField: typeof import("../server/lib/record-fields.js").writeCr
 let findCrmDuplicates: any;
 let mergeCrmRecords: any;
 let getCrmWorkspace: any;
+let updateCrmRecord: any;
 
 const ownership = {
   ownerEmail: OWNER,
@@ -96,6 +97,8 @@ async function createStatusAttribute(input: {
   options: Array<{ value: string; archived?: boolean }>;
   authority?: "provider" | "local-authoritative";
   archived?: boolean;
+  updateable?: boolean;
+  storagePolicy?: "mirrored" | "local-authoritative";
 }): Promise<void> {
   const now = new Date().toISOString();
   await getDb()
@@ -107,13 +110,14 @@ async function createStatusAttribute(input: {
       fieldName: "stage",
       label: "Stage",
       valueType: "enum",
-      storagePolicy: "local-authoritative",
+      storagePolicy: input.storagePolicy ?? "local-authoritative",
       attributeType: "status",
       target: "object",
       targetId: input.objectType,
       apiSlug: "stage",
       authority: input.authority ?? "local-authoritative",
       archived: input.archived ?? false,
+      updateable: input.updateable ?? false,
       ...ownership,
       createdAt: now,
       updatedAt: now,
@@ -190,6 +194,7 @@ beforeAll(async () => {
   findCrmDuplicates = (await import("./find-crm-duplicates.js")).default;
   mergeCrmRecords = (await import("./merge-crm-records.js")).default;
   getCrmWorkspace = (await import("./get-crm-workspace.js")).default;
+  updateCrmRecord = (await import("./update-crm-record.js")).default;
 
   const now = new Date().toISOString();
   await getDb()
@@ -531,6 +536,93 @@ describe("lifecycle blocks that come from the attribute", () => {
       }),
     );
     expect(outOfArchived.changed).toBe(1);
+  });
+});
+
+describe("update-crm-record routes a status field through the lifecycle", () => {
+  const RECORD_STAGE = "attr_record_stage";
+  let stagedRecordId: string;
+
+  beforeAll(async () => {
+    await createStatusAttribute({
+      id: RECORD_STAGE,
+      objectType: "gated_co",
+      options: [{ value: "open" }, { value: "retired", archived: true }],
+      updateable: true,
+    });
+    stagedRecordId = await createRecord({
+      displayName: "Gated Co",
+      objectType: "gated_co",
+    });
+  });
+
+  it("refuses an undeclared stage with the sentence, not a generic 4xx", async () => {
+    await expect(
+      asOwner(() =>
+        updateCrmRecord.run(
+          {
+            recordId: stagedRecordId,
+            target: "local",
+            fields: { stage: "invented" },
+          },
+          ownerCtx,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      code: "unknown-status",
+      statusCode: 422,
+      message: expect.stringContaining("Known values: open, retired"),
+    });
+  });
+
+  it("refuses a move into a retired stage and writes nothing", async () => {
+    await expect(
+      asOwner(() =>
+        updateCrmRecord.run(
+          {
+            recordId: stagedRecordId,
+            target: "local",
+            fields: { stage: "retired" },
+          },
+          ownerCtx,
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "archived-status", statusCode: 422 });
+
+    const rows = await getDb()
+      .select()
+      .from(schema.crmRecordFields)
+      .where(eq(schema.crmRecordFields.recordId, stagedRecordId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("leaves a provider-target status change to the proposal flow", async () => {
+    // The provider path is a handoff, not a blocked transition, so the
+    // lifecycle must not turn a working flow into an error.
+    await createStatusAttribute({
+      id: "attr_mirrored_stage",
+      objectType: "mirrored_co",
+      options: [{ value: "open" }],
+      storagePolicy: "mirrored",
+      updateable: true,
+    });
+    const recordId = await createRecord({
+      displayName: "Mirrored Co",
+      objectType: "mirrored_co",
+    });
+
+    const proposal = await asOwner(() =>
+      updateCrmRecord.run(
+        {
+          recordId,
+          target: "provider",
+          fields: { stage: "invented" },
+          expectedRemoteRevision: "rev-1",
+        },
+        ownerCtx,
+      ),
+    );
+    expect(proposal.status).toBe("pending");
   });
 });
 
