@@ -16,11 +16,17 @@ const EMPTY_CONTEXT: OrgContext = {
 
 /**
  * The single way to read `org_members`, so no two call sites can pick opposite
- * defaults for the same failure. `null` means the org tables do not exist yet
- * (a fresh install before migrations) — a definitive "no rows". A transient
- * database failure is NOT an answer and propagates: a caller that turns it into
- * "no memberships" silently drops org scope, which hides every org-scoped
- * credential behind a permanent-sounding "not configured".
+ * defaults for the same failure. A transient database failure is NOT an answer
+ * and propagates: a caller that turns it into "no memberships" silently drops
+ * org scope, which hides every org-scoped credential behind a
+ * permanent-sounding "not configured".
+ *
+ * `null` is every non-transient failure, not only the intended one (org tables
+ * absent on a fresh install before migrations). A permanently unreadable table
+ * — a role without SELECT, say — still reports as "no rows" here. Narrowing
+ * that further means classifying "no database configured" as readable-absent,
+ * which is load-bearing for CLI/script/test contexts that legitimately run
+ * without a store; see `assertCredentialStoreReadable`.
  */
 export async function queryOrgMembers(query: {
   sql: string;
