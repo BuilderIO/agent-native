@@ -88,6 +88,7 @@ jobs:
           SELECTED_SHA: ${{ inputs.sha }}
           ROLLBACK_SHA: ${{ inputs.rollback_sha }}
           ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
+          DEPLOY_REQUESTED: ${{ inputs.deploy }}
           WORKSPACE: ${{ inputs.workspace }}
         run: |
           if [[ -n "$ROLLBACK_SHA" ]]; then
@@ -110,7 +111,11 @@ jobs:
             fi
             effective_sha="$ROLLBACK_SHA"
             available_templates="$(find templates -mindepth 2 -maxdepth 2 -name package.json -print | sed 's#templates/##;s#/package.json##' | sort | paste -sd, -)"
-            pnpm tsx scripts/trusted-acceptance.ts plan --file "$CONFIG_FILE" --templates "$available_templates" --workspace "$WORKSPACE" --allow-disabled > "$RUNNER_TEMP/rollback-plan.json"
+            rollback_plan_args=(plan --file "$CONFIG_FILE" --templates "$available_templates" --workspace "$WORKSPACE")
+            if [[ "$DEPLOY_REQUESTED" != "true" ]]; then
+              rollback_plan_args+=(--allow-disabled)
+            fi
+            pnpm tsx scripts/trusted-acceptance.ts "${rollback_plan_args[@]}" > "$RUNNER_TEMP/rollback-plan.json"
             expected_assertions="$(node -e 'const p=require(process.env.RUNNER_TEMP + "/rollback-plan.json"); if (!p.ok) process.exit(1); process.stdout.write(JSON.stringify(p.plan.assertions))')"
             gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID" > "$RUNNER_TEMP/prior-run.json"
             node - <<'NODE'
@@ -252,6 +257,7 @@ jobs:
         with:
           name: trusted-acceptance-build-${{ matrix.template }}
           path: ${{ runner.temp }}/acceptance-artifact/${{ matrix.template }}
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 

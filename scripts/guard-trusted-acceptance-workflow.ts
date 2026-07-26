@@ -20,6 +20,7 @@ export function validateTrustedAcceptanceWorkflow(
   source: string,
 ): WorkflowGuardResult {
   const issues: string[] = [];
+  const workflowEnvironment = section(source, "\nenv:\n", "\njobs:\n");
   const build = section(source, "\n  build:\n", "\n  deploy:\n");
   const deploy = section(source, "\n  deploy:\n", "\n  receipt:\n");
 
@@ -38,6 +39,16 @@ export function validateTrustedAcceptanceWorkflow(
   if (!source.includes("cancel-in-progress: false")) {
     issues.push("workspace serialization must not cancel an active run");
   }
+  if (
+    /\bsecrets\.|\bvars\[|github\.token/.test(workflowEnvironment) ||
+    /^\s+(?:[A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PRIVATE_KEY|DATABASE_URL)[A-Z0-9_]*):/m.test(
+      workflowEnvironment,
+    )
+  ) {
+    issues.push(
+      "workflow-level environment must not expose inherited credentials to candidate jobs",
+    );
+  }
 
   if (!build) {
     issues.push("build job is missing");
@@ -55,6 +66,9 @@ export function validateTrustedAcceptanceWorkflow(
     }
     if (!build.includes("Upload inert candidate artifact")) {
       issues.push("candidate output must cross jobs as an inert artifact");
+    }
+    if (!build.includes("include-hidden-files: true")) {
+      issues.push("candidate artifact must include the hidden Netlify bundle");
     }
   }
 
@@ -150,6 +164,14 @@ export function validateTrustedAcceptanceWorkflow(
     !source.includes("receipt.controllerSha !== run.head_sha")
   ) {
     issues.push("rollback must be bound to a prior passing workspace receipt");
+  }
+  if (
+    !source.includes("DEPLOY_REQUESTED: ${{ inputs.deploy }}") ||
+    !source.includes('if [[ "$DEPLOY_REQUESTED" != "true" ]]')
+  ) {
+    issues.push(
+      "rollback may allow disabled planning only when no deployment is requested",
+    );
   }
   if (/cp .*netlify\.toml/.test(build)) {
     issues.push(

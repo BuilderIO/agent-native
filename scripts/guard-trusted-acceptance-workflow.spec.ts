@@ -27,6 +27,44 @@ describe("trusted acceptance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("candidate build")));
   });
 
+  it("rejects a secret inherited from the workflow environment", () => {
+    const unsafe = workflow.replace(
+      "  CONFIG_FILE: scripts/trusted-acceptance-workspaces.json",
+      "  CONFIG_FILE: scripts/trusted-acceptance-workspaces.json\n  LEAKED_DATABASE_URL: ${{ secrets.ACCEPTANCE_DATABASE_URL }}",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("workflow-level environment"),
+      ),
+    );
+  });
+
+  it("requires the hidden Netlify function bundle in candidate artifacts", () => {
+    const unsafe = workflow.replace(
+      "          include-hidden-files: true\n",
+      "",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("hidden Netlify")));
+  });
+
+  it("rejects rollback planning that always bypasses activation gates", () => {
+    const unsafe = workflow.replace(
+      '            if [[ "$DEPLOY_REQUESTED" != "true" ]]; then\n              rollback_plan_args+=(--allow-disabled)\n            fi',
+      "            rollback_plan_args+=(--allow-disabled)",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("only when no deployment is requested"),
+      ),
+    );
+  });
+
   it("rejects candidate checkouts that persist GitHub credentials", () => {
     const unsafe = workflow.replace(
       "path: candidate\n          persist-credentials: false",
