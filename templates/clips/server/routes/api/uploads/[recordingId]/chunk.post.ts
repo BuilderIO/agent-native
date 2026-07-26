@@ -213,16 +213,12 @@ export default defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
 
-    // Verify the recording belongs to the current user.
+    // Verify the recording belongs to the current user. Everything else about
+    // its state comes back from the lease renewal below.
     const [existing] = await db
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
-        failureReason: schema.recordings.failureReason,
-        ownerEmail: schema.recordings.ownerEmail,
-        videoUrl: schema.recordings.videoUrl,
-        videoSizeBytes: schema.recordings.videoSizeBytes,
-        durationMs: schema.recordings.durationMs,
       })
       .from(schema.recordings)
       .where(
