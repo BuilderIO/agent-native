@@ -302,6 +302,17 @@ export function useSetOrgDomain() {
   });
 }
 
+/**
+ * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
+ * request from `useOrg()` so the secret only reaches the browser when the
+ * operator asks to reveal or copy it.
+ */
+export function useRevealA2ASecret() {
+  return useMutation<{ a2aSecret: string | null }, Error, void>({
+    mutationFn: () => apiFetch(`${ORG_BASE}/a2a-secret`),
+  });
+}
+
 export function useSetA2ASecret() {
   const qc = useQueryClient();
   return useMutation<

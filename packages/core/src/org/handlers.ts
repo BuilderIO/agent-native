@@ -108,7 +108,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
-  let a2aSecret: string | null = null;
+  let a2aSecretSet = false;
   if (ctx.orgId) {
     try {
       const adRes = await e.execute({
@@ -118,7 +118,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
       if (adRes.rows[0]) {
         allowedDomain =
           String((adRes.rows[0] as any).allowed_domain ?? "") || null;
-        a2aSecret = String((adRes.rows[0] as any).a2a_secret ?? "") || null;
+        a2aSecretSet = Boolean(
+          String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
+        );
       }
     } catch {
       // Column may not exist yet
@@ -154,7 +156,11 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
-    a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
+    // Never serialize the A2A secret here. This route runs on every page load,
+    // so the value would sit in JSON any script on the page can read, and it
+    // signs the JWTs peers accept as first-party callers. Reveal is an explicit
+    // owner/admin GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
 
@@ -848,6 +854,39 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
 
   return { domain: raw };
 });
+
+/**
+ * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
+ * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * to the browser when an operator explicitly asks to see or copy it.
+ */
+export const revealA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can read the A2A secret",
+      });
+    }
+
+    const e = await exec();
+    const res = await e.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+
+    return {
+      a2aSecret: String((res.rows[0] as any)?.a2a_secret ?? "") || null,
+    };
+  },
+);
 
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(
