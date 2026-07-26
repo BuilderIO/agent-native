@@ -1,3 +1,4 @@
+// guard:allow-unscoped — in-memory test fixture, not a request path.
 import { createClient, type Client } from "@libsql/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
