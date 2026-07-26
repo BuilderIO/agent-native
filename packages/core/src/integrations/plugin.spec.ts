@@ -614,6 +614,13 @@ describe("integrations plugin routes", () => {
   it("runs a bounded durable-only sweep with a valid internal token", async () => {
     process.env.A2A_SECRET = "test-secret";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    retryStuckPendingTasksMock.mockResolvedValueOnce({
+      selected: 0,
+      dispatched: 0,
+      markedFailed: 0,
+      skipped: 0,
+      dispatchFailed: 0,
+    });
     const subject = "integration-pending-tasks-sweep";
     const timestamp = Date.now();
     const signature = createHmac("sha256", process.env.A2A_SECRET)

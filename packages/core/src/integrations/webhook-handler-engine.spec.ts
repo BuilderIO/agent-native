@@ -1765,14 +1765,26 @@ describe("integration webhook handler engine resolution", () => {
     expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
   });
 
-  it("checkpoints a durable campaign boundary without posting a cutoff reply", async () => {
+  it("checkpoints a durable no-progress boundary without posting a cutoff reply", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
+    claimIntegrationCampaignMock.mockResolvedValueOnce({
+      kind: "claimed",
+      campaign: {
+        id: "campaign-qa",
+        integrationTaskId: "task-campaign",
+        threadId: "thread-qa",
+        turnId: "integration-turn-task-campaign",
+        status: "processing",
+        chunkCount: 1,
+        progressRef: null,
+      },
+    });
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const onEvent = vi.fn(async () => undefined);
     const complete = vi.fn(async () => undefined);
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({ type: "text", text: "Partial research" });
-      send({ type: "auto_continue", reason: "run_timeout" });
+      send({ type: "auto_continue", reason: "no_progress" });
     });
 
     const result = await processIntegrationTask(
@@ -1801,6 +1813,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(scheduleNextIntegrationCampaignMock).toHaveBeenCalledWith(
       "campaign-qa",
       expect.objectContaining({
+        checkpoint: expect.stringContaining('"reason":"no_progress"'),
         progressRef: JSON.stringify({
           kind: "slack-stream",
           streamTs: "1719000000.000099",
@@ -1811,6 +1824,16 @@ describe("integration webhook handler engine resolution", () => {
       expect.objectContaining({ campaignContinuation: true }),
     );
     expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(startRunMock).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "thread-qa",
+      expect.any(Function),
+      expect.any(Function),
+      expect.objectContaining({
+        noProgressTimeoutMs: 45_000,
+        turnId: "integration-turn-task-campaign",
+      }),
+    );
     const checkpoint = JSON.parse(
       updateThreadDataMock.mock.calls.at(-1)?.[1] as string,
     );
@@ -1904,6 +1927,7 @@ describe("integration webhook handler engine resolution", () => {
           kind: "slack-stream",
           streamTs: "1719000000.000099",
         }),
+        checkpoint: JSON.stringify({ reason: "no_progress" }),
       },
     });
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
@@ -1933,7 +1957,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(result).toEqual({ status: "completed" });
     expect(appendDurableContinuationContextMock).toHaveBeenCalledWith(
       expect.any(Array),
-      "run_timeout",
+      "no_progress",
       "thread-qa",
     );
     expect(resumeRunProgress).toHaveBeenCalledWith(expect.any(Object), {
@@ -1953,6 +1977,44 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Function),
       expect.any(Function),
       expect.objectContaining({ turnId: "integration-turn-task-campaign" }),
+    );
+  });
+
+  it("uses the short no-progress budget only for durable campaigns", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+
+    await processIntegrationTask(pendingTask({ id: "task-standard" }), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: "dispatch+qa@integration.local",
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-durable" }),
+      {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+      { enabled: true },
+    );
+
+    expect(startRunMock).toHaveBeenCalledTimes(2);
+    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty(
+      "noProgressTimeoutMs",
+    );
+    expect(startRunMock.mock.calls[1]?.[4]).toEqual(
+      expect.objectContaining({
+        noProgressTimeoutMs: 45_000,
+        turnId: "integration-turn-task-qa",
+      }),
     );
   });
 

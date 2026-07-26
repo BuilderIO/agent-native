@@ -43,6 +43,7 @@ import {
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
+import type { ContinuationReason } from "../agent/types.js";
 import {
   createThread,
   getThread,
@@ -113,6 +114,9 @@ const CUTOFF_INTEGRATION_RESPONSE_MESSAGE =
 const INTEGRATION_CAMPAIGN_LEASE_MS = 16 * 60_000;
 const INTEGRATION_CAMPAIGN_MAX_CHUNKS = 4;
 const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
+// Keep a lost handoff plus the one-minute sweep inside the two-minute messaging
+// target without shortening general background-run budgets.
+const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
 
 /**
  * True when the run stopped at a continuation boundary rather than finishing:
@@ -123,6 +127,36 @@ const INTEGRATION_CAMPAIGN_A2A_CHECK_MS = 30_000;
  */
 function endedAtContinuationBoundary(run: ActiveRun): boolean {
   return run.events.some((runEvent) => runEvent.event.type === "auto_continue");
+}
+
+function continuationBoundaryReason(run: ActiveRun): ContinuationReason {
+  for (let index = run.events.length - 1; index >= 0; index -= 1) {
+    const runEvent = run.events[index];
+    if (!runEvent) continue;
+    if (runEvent.event.type === "auto_continue") return runEvent.event.reason;
+  }
+  return "run_timeout";
+}
+
+function checkpointContinuationReason(
+  checkpoint: string | null | undefined,
+): ContinuationReason {
+  if (!checkpoint) return "run_timeout";
+  try {
+    const reason = JSON.parse(checkpoint).reason;
+    if (
+      reason === "run_timeout" ||
+      reason === "loop_limit" ||
+      reason === "max_tokens" ||
+      reason === "no_progress" ||
+      reason === "stream_ended" ||
+      reason === "gateway_timeout" ||
+      reason === "network_interrupted"
+    ) {
+      return reason;
+    }
+  } catch {}
+  return "run_timeout";
 }
 
 function parseIntegrationProgressRef(
@@ -1101,7 +1135,11 @@ async function processIncomingMessage(
   // context appended to the system prompt is day-granular only.
   const messages: EngineMessage[] = [...existingMessages];
   if (campaign && campaign.row.chunkCount > 1) {
-    await appendDurableContinuationContext(messages, "run_timeout", threadId);
+    await appendDurableContinuationContext(
+      messages,
+      checkpointContinuationReason(campaign.row.checkpoint),
+      threadId,
+    );
   } else {
     messages.push({
       role: "user",
@@ -1621,7 +1659,7 @@ async function processIncomingMessage(
                   ? JSON.stringify(progress.ref)
                   : undefined,
                 checkpoint: JSON.stringify({
-                  reason: "run_timeout",
+                  reason: continuationBoundaryReason(completedRun),
                   threadId,
                   ...(threadCheckpoint?.assistantMessageId
                     ? {
@@ -1789,7 +1827,12 @@ async function processIncomingMessage(
       {
         useHostedSoftTimeoutDefault: true,
         backgroundFunction: isInBackgroundFunctionRuntime(),
-        ...(campaign ? { turnId: campaign.row.turnId } : {}),
+        ...(campaign
+          ? {
+              turnId: campaign.row.turnId,
+              noProgressTimeoutMs: INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS,
+            }
+          : {}),
       },
     );
   });
