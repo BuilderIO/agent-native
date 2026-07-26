@@ -133,6 +133,17 @@ A user is reading an email from `priya@acme.com`. What kind of widget would help
 - **CRM enrichment** — pulls the contact's company size, last meeting date, or open deals from your CRM.
 - **Meeting scheduler shortcut** — turns "find a time next week" into a one-click "send these slots" widget.
 
+Once installed into Mail's `mail.contact-sidebar.bottom` slot, the Contact notes widget sits right under the contact card on every thread:
+
+<WireframeBlock id="doc-block-ext1">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;min-height:420px;box-sizing:border-box'><div style='flex:1;display:flex;flex-direction:column;gap:10px;padding:16px;border-right:1.4px solid var(--wf-line)'><strong>Re: Q3 renewal</strong><small class='wf-muted'>priya@acme.com &middot; 9:14 AM</small><div class='wf-card'><p style='margin:0'>Hi &mdash; following up on the renewal terms we discussed on the call...</p></div></div><div style='width:220px;display:flex;flex-direction:column;gap:10px;padding:16px'><div class='wf-card'><strong>priya@acme.com</strong><small class='wf-muted' style='display:block'>Acme Inc.</small></div><div class='wf-card' style='display:flex;flex-direction:column;gap:6px'><span class='wf-pill accent'>Extension &middot; Contact notes</span><small class='wf-muted'>Notes about this contact&hellip;</small><div style='border:1.4px solid var(--wf-line);border-radius:var(--wf-radius);padding:8px;min-height:56px'>Renewal call went well. Wants annual billing.</div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
 Sketch — Contact notes (saves a note tied to whoever you're emailing):
 
 ```html
@@ -237,6 +248,10 @@ Every change is versioned. Open the extension viewer's History control to see
 saved versions, inspect the diff from the previous version, and restore an
 older name/description/icon/content snapshot without changing ownership or
 sharing.
+
+## For developers {#for-developers}
+
+Everything from here through [Local File Extensions](#local-file-extensions) is the bridge/data-API reference for template developers — the exact helpers, endpoints, and slot contract an extension can use. Skip ahead to [Sharing](#sharing) if you just want to build and share widgets as an end user.
 
 ## What an extension can do {#capabilities}
 
@@ -450,6 +465,17 @@ Writes one item to the extension's isolated key-value store. The uniqueness key 
 Deletes the matching item from the selected scope. The default scope is `user`, which deletes only the caller's private item. Use `scope=org` to delete an org-shared item in the current org context.
 
 </Endpoint>
+
+### Agent tools for extension data {#agent-data-tools}
+
+Two agent-facing actions read and write an extension's data store from outside the iframe — for seeding an extension with data, inspecting what it has stored, or updating it without opening the widget:
+
+| Action               | Purpose                                                                                                              | Access required |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `extension-data-set` | Write (upsert) one item to an extension's data store. Refreshes any mounted iframe showing that extension afterward. | Editor          |
+| `extension-data-get` | Read one item, or list a collection, from an extension's data store.                                                 | Viewer          |
+
+These are distinct from the `extensionData.*` bridge helpers above (called from inside the sandboxed iframe) and from the [Authenticated Extension Data API](#authenticated-extension-data-api) (called by another logged-in client over HTTP) — same underlying store (`tool_data`), three different callers.
 
 External APIs go through `extensionFetch`, which proxies the call server-side and substitutes secrets via the `${keys.NAME}` template:
 

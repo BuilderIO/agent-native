@@ -41,6 +41,10 @@ vi.mock("../agent/production-agent.js", async () => {
   };
 });
 
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  runAgentLoopDirectWithSoftTimeout: vi.fn(),
+}));
+
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:
     canUseDeployCredentialFallbackForRequestMock,

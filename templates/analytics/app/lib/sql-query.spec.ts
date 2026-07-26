@@ -1,7 +1,4 @@
-import {
-  DASHBOARD_REPORT_READY_TIMEOUT_MS,
-  FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
-} from "@shared/dashboard-report-timeouts";
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -64,7 +61,7 @@ describe("executeSqlQuery", () => {
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });
 
-  it("ends report screenshot panel actions before the capture readiness deadline", async () => {
+  it("gives report panel actions their own timeout above the query timeout", async () => {
     const controller = new AbortController();
     mocks.callAction.mockResolvedValue({ rows: [] });
 
@@ -74,9 +71,6 @@ describe("executeSqlQuery", () => {
 
     expect(FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS).toBeLessThan(
       DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
-    );
-    expect(DASHBOARD_REPORT_ACTION_TIMEOUT_MS).toBeLessThan(
-      DASHBOARD_REPORT_READY_TIMEOUT_MS,
     );
     expect(mocks.callAction).toHaveBeenCalledWith(
       "query-dashboard-panel",

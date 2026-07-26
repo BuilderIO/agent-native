@@ -2397,7 +2397,7 @@ function installConsoleCapture(
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
       };
-      const key = `${level} ${source} ${message}`;
+      const key = `${level}\u0000${source}\u0000${message}`;
       if (pending && pending.key === key) {
         pending.repeat += 1;
         return;

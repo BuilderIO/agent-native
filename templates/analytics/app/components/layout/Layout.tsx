@@ -20,7 +20,6 @@ import {
   ANALYTICS_CHAT_STORAGE_KEY,
   markAnalyticsChatActivity,
 } from "@/lib/chat-handoff";
-import { isDashboardReportScreenshot } from "@/lib/dashboard-report-capture";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
@@ -35,23 +34,7 @@ interface LayoutProps {
 const BARE_ROUTES = new Set(["/chart"]);
 
 export function Layout({ children }: LayoutProps) {
-  const location = useLocation();
-
-  if (isDashboardReportScreenshot(location.search)) {
-    return <DashboardReportLayout>{children}</DashboardReportLayout>;
-  }
-
   return <InteractiveLayout>{children}</InteractiveLayout>;
-}
-
-function DashboardReportLayout({ children }: LayoutProps) {
-  return (
-    <HeaderActionsProvider>
-      <main className="agent-native-app-main min-h-screen bg-background p-6 text-foreground md:p-8">
-        {children}
-      </main>
-    </HeaderActionsProvider>
-  );
 }
 
 function InteractiveLayout({ children }: LayoutProps) {

@@ -59,6 +59,16 @@ routes with native capture primitives:
 Mobile audio M4A is an MP4 container and uses the recording route's MP4 MIME
 alias. The bytes are not converted or loaded whole into JavaScript memory.
 
+Because the phone persists each audio/video file before any network work and
+resumes bounded chunk uploads from its durable queue, a transient upload failure
+never loses the capture. Do not ask users to keep a capture screen open or to
+re-record after a failed upload; tell them to reconnect Clips and retry the
+saved job from mobile Home.
+
+Mobile meeting capture is microphone-only; never claim it has the desktop
+mic-plus-system-audio fidelity. See the **meetings** skill for what that means
+for attendee attribution.
+
 ## Seekable playback (don't ship raw MediaRecorder output)
 
 Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
@@ -109,6 +119,12 @@ dimensions. When Loom exposes a signed public transcript JSON URL on the share
 page, the action imports that transcript into Clips and stores normalized
 segments; never store Loom's signed CDN URLs.
 
+When Loom exposes a downloadable public MP4, `import-loom-recording` downloads
+it, reuploads the bytes to Clips storage, and creates a ready, playable
+Clips-hosted recording, importing Loom's public transcript when the share page
+exposes one. If Loom does not expose a downloadable MP4, ask the user to download
+the original from Loom and use "Upload video".
+
 Loom imports are embed-backed, not Clips-owned video files. The player renders a
 Loom iframe and the native Clips editor is hidden for those recordings. If the
 user needs Clips-native trimming, exports, frame extraction, or upload-based
@@ -130,6 +146,35 @@ to offer two options: Chrome extension for browser logs, and desktop app for the
 most seamless native capture. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=0` to hide
 the Chrome option again, or `VITE_CLIPS_CHROME_EXTENSION_URL` to point at a
 different listing.
+
+`save-browser-diagnostics` is UI/internal. It stores bounded console logs plus
+fetch/XHR method, URL path/query keys, status, and duration. It never captures
+headers, bodies, cookies, or network URL query values. Console text keeps useful
+non-secret values while redacting credential-looking keys and headers. Use
+`get-recording-player-data` for the full diagnostics payload when you have
+editor access; see the **video-sharing** skill for the narrower redacted stream
+that public agent context exposes.
+
+## Chrome extension
+
+The extension lives in `chrome-extension/`. It launches `/record` with
+`clipsExtensionId` and `clipsCaptureSessionId`, and the recorder sends
+`CLIPS_CAPTURE_START` / `CLIPS_CAPTURE_STOP` / `CLIPS_CAPTURE_CANCEL` back to the
+extension. It uses the Chrome debugger API only on the tab the user launched
+from, only while a recording is active, and returns the same redacted
+diagnostics shape saved by `save-browser-diagnostics`.
+
+The extension also enhances GitHub issue and PR markdown: a narrow `github.com`
+content script detects Clips `/r/`, `/share/`, and `/embed/` links, then renders
+the existing `/embed/:id` player in an extension-owned preview iframe so the
+video is playable without leaving GitHub. Keep this scoped to GitHub unless there
+is a deliberate permission review.
+
+## Folders, spaces, and bulk moves
+
+Use `move-recording` for both single and bulk folder moves. Pass `id` for one
+clip or `ids` for the selected clips, and `folderId: null` to move them to the
+library or space root.
 
 ## Pause / resume
 

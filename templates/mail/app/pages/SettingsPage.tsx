@@ -1,8 +1,8 @@
 import { useChatModels } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
+  callAction,
   useActionMutation,
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
@@ -897,9 +897,15 @@ function AutomationsSection() {
   const { data: autoSettings } = useQuery({
     queryKey: ["automation-settings", settingsSync],
     queryFn: async () => {
-      const res = await fetch(appApiPath("/api/automations/settings"));
-      if (!res.ok) return { engine: "anthropic", model: defaultModel };
-      return res.json();
+      try {
+        return await callAction(
+          "get-automation-settings",
+          {},
+          { method: "GET" },
+        );
+      } catch {
+        return { engine: "anthropic", model: defaultModel };
+      }
     },
     staleTime: 30_000,
     placeholderData: (prev) => prev,
@@ -923,11 +929,11 @@ function AutomationsSection() {
     const [engine, model] = value.split("::");
     if (!engine || !model) return;
     queryClient.setQueryData(["automation-settings"], { engine, model });
-    await fetch(appApiPath("/api/automations/settings"), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engine, model }),
-    });
+    await callAction(
+      "update-automation-settings",
+      { engine, model },
+      { method: "PUT" },
+    );
   };
 
   const handleCreate = (data: {

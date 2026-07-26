@@ -29,6 +29,7 @@ import {
   continuationReasonForResumableError,
   lastUnfinishedPreparingActionToolFromEvents,
   resolveFinalResponseGuardRequestText,
+  SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
   type AgentLoopContinuationReason,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
@@ -242,6 +243,18 @@ export async function runAgentLoopDirectWithSoftTimeout(
 
   const localTurnEvents: AgentChatEvent[] = [];
   let attempts = 0;
+  // Every current hosted caller of this function (A2A/MCP delegated turns)
+  // runs inside ONE serverless invocation whose real platform hard-kill is
+  // what `timeoutMs` was sized to survive ONCE — reusing that same fresh
+  // window for every one of up to `MAX_RUN_LOOP_CONTINUATIONS` in-process
+  // rounds ignores the wall-clock the earlier rounds already spent, so a 2nd+
+  // round can gamble past the host's real limit and die with a silent
+  // mid-stream kill instead of a clean give-up. Budget subsequent rounds
+  // against cumulative elapsed time since this call started (mirrors
+  // `resolveSelfChainContinuationBudget`'s "remaining = ceiling - elapsed"
+  // pattern, already proven for the analogous foreground self-chain case).
+  // The first round is unaffected — it always gets the full `timeoutMs`.
+  const loopEntryAt = Date.now();
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
   // returning a finished turn. When the loop then exits because the budget is
@@ -250,6 +263,19 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // unambiguous "stopped before finishing" instead of a bare done/"…".
   let lastAttemptWasUnfinishedContinuation = false;
   while (!upstreamSignal.aborted && attempts < MAX_RUN_LOOP_CONTINUATIONS) {
+    const roundTimeoutMs =
+      attempts === 0 ? timeoutMs : timeoutMs - (Date.now() - loopEntryAt);
+    if (
+      attempts > 0 &&
+      roundTimeoutMs < SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
+    ) {
+      // Not enough wall-clock left in this invocation to safely start
+      // another round — stop here (lastAttemptWasUnfinishedContinuation is
+      // already true from the prior round) so the loop exits through the
+      // existing RUN_BUDGET_EXHAUSTED_MESSAGE path below instead of risking
+      // a raw platform kill mid-stream.
+      break;
+    }
     attempts++;
     lastAttemptWasUnfinishedContinuation = false;
     const controller = new AbortController();
@@ -267,7 +293,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (controller.signal.aborted) return;
       softTimedOut = true;
       controller.abort();
-    }, timeoutMs);
+    }, roundTimeoutMs);
 
     const attemptStartIndex = localTurnEvents.length;
     const send = (event: AgentChatEvent) => {

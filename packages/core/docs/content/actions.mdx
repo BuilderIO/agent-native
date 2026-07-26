@@ -92,6 +92,13 @@ If the UI and agent both need to do something, reach for an action — not a cus
 route. For when a route-shaped protocol _is_ the right call, see [Prefer Actions
 For App Operations](/docs/server#actions-first).
 
+On this page: [Start with one action](#hello-action), [Defining an action](#defining),
+[Run context](#run-context), [Access control](#access-control),
+[Human-in-the-loop approval](#needs-approval), [Audit logging](#audit),
+[Calling from the UI](#ui), [Native chat UI](#native-chat-ui),
+[Calling from the CLI](#cli), [A2A](#a2a), [MCP](#mcp),
+[Standard actions](#standard-actions), and [Feature flags](#feature-flags).
+
 ## Start with one action {#hello-action}
 
 The first operation in a chat-first app can be tiny. In the Chat template,
@@ -131,7 +138,7 @@ pnpm action hello --name Steve
 Then run the app-agent loop against the folder:
 
 ```bash
-pnpm agent "Call hello for Steve and explain the result"
+npx agent-native agent "Call hello for Steve and explain the result"
 ```
 
 That is the same app-agent loop your scheduled jobs, chat UI, external MCP
@@ -259,7 +266,7 @@ POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `
 Every action the agent can see is a tool in the model's context window, and a long, overlapping tool list degrades the model's tool-selection quality. Design the action surface like an API you maintain, not one action per UI affordance:
 
 - Prefer **one CRUD-style `update`** that takes a patch of optional fields over N per-field actions (`update-name`, `update-order`, `update-color`, …). The caller sends only what changed.
-- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
+- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
 - Mark UI-only or programmatic actions [`agentTool: false`](#agent-tool) so they stay frontend/HTTP-callable without spending a slot in the model's tool list.
 - Delete or hide actions the UI no longer uses instead of leaving them exposed to the model.
 
@@ -340,24 +347,30 @@ export default defineAction({
 
 `ActionRunContext` fields:
 
-| Field         | Type                    | Notes                                                                                                                                                           |
-| ------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one. |
-| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                         |
-| `caller`      | `ActionCaller`          | How the action was invoked (see below).                                                                                                                         |
-| `send`        | `(event) => void`       | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                   |
-| `attachments` | `AgentChatAttachment[]` | Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`; `undefined` on all other surfaces.           |
+| Field                                           | Type                                                   | Notes                                                                                                                                                                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`                                     | `string \| undefined`                                  | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.                                                                                     |
+| `orgId`                                         | `string \| null`                                       | Resolved org id, or `null` when the request has no org.                                                                                                                                                                                             |
+| `caller`                                        | `ActionCaller`                                         | How the action was invoked (see below).                                                                                                                                                                                                             |
+| `send`                                          | `(event) => void`                                      | Optional. Emit an SSE event to the client. Only present inside the agent tool loop (`caller: "tool"`); `undefined` elsewhere.                                                                                                                       |
+| `attachments`                                   | `AgentChatAttachment[]`                                | Files, images, and pasted text blocks submitted with the current agent turn. Populated only when `caller: "tool"`; `undefined` on all other surfaces.                                                                                               |
+| `signal`                                        | `AbortSignal`                                          | Aborts when the run is soft-timed-out, cancelled, or the server shuts down. Populated only when `caller: "tool"`. Long-running actions can observe it to cancel early instead of waiting for the per-tool 60s hard timeout.                         |
+| `actionName`                                    | `string \| undefined`                                  | The registry key of the action being called (e.g. `delete-recording`), set at each dispatch site so cross-cutting concerns like the audit log can attribute the call. `undefined` for direct programmatic `run()` calls that bypass the dispatcher. |
+| `threadId` / `runId` / `turnId`                 | `string \| undefined`                                  | The agent conversation thread, run attempt, and turn that triggered this call. Populated only when `caller: "tool"`, so the audit log can link a mutation back to the exact agent run.                                                              |
+| `automation`                                    | `ActionAutomationContext \| undefined`                 | Present only when `caller: "automation"` — `{ triggerId, triggerName, policyId? }` for the event-triggered automation that dispatched this call.                                                                                                    |
+| `networkProtocol` / `networkId` / `networkPeer` | `"a2a" \| "mcp" \| "provider-api"`, `string`, `string` | Verified lineage for a direct delegated call — the protocol, a correlation id (e.g. the A2A delegation JWT id), and the calling peer. Set only for those direct-dispatch paths.                                                                     |
 
-`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"`:
+`caller` is the union `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
 
-| `caller`     | Set when…                                                                                                                            |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `"tool"`     | The in-app agent loop, a sub-agent / agent team, or an A2A request (A2A drives the same agent loop, so its tool calls are `"tool"`). |
-| `"frontend"` | A browser call via `useActionMutation` / `useActionQuery` / `callAction` (tagged with the `X-Agent-Native-Frontend: 1` header).      |
-| `"http"`     | A bare programmatic `POST` / `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                   |
-| `"cli"`      | `pnpm action <name>` (the CLI runner).                                                                                               |
-| `"mcp"`      | An external agent over the MCP `tools/call` endpoint.                                                                                |
-| `"a2a"`      | Reserved for a future direct A2A action dispatch. Today A2A runs through the agent loop, so those calls are `"tool"`.                |
+| `caller`       | Set when…                                                                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `"tool"`       | The in-app agent loop, a sub-agent / agent team, or natural-language cross-app A2A delegation (which drives the same agent loop, so its tool calls are `"tool"`).                                |
+| `"frontend"`   | A browser call via `useActionMutation` / `useActionQuery` / `callAction` (tagged with the `X-Agent-Native-Frontend: 1` header).                                                                  |
+| `"http"`       | A bare programmatic `POST` / `GET` to `/_agent-native/actions/<name>` without the frontend marker.                                                                                               |
+| `"cli"`        | `pnpm action <name>` (the CLI runner).                                                                                                                                                           |
+| `"mcp"`        | An external agent over the MCP `tools/call` endpoint.                                                                                                                                            |
+| `"a2a"`        | A direct HTTP call to `/_agent-native/actions/<name>` carrying a signed A2A delegation token — an explicitly exposed, cross-app dispatch distinct from the natural-language `"tool"` path above. |
+| `"automation"` | An event-triggered automation dispatched from a stored workspace trigger. `ctx.automation` carries the trigger lineage. See [Automations](/docs/automations).                                    |
 
 `run` stays backward compatible: existing 1-argument handlers and handlers that only destructure `{ send }` continue to work unchanged.
 

@@ -16,6 +16,9 @@ const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
+// The integration run goes through the resume wrapper. Delegate to the loop
+// mock so every assertion below still reads the options the loop was called
+// with.
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
@@ -72,6 +75,7 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
+  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
@@ -508,6 +512,34 @@ describe("integration webhook handler engine resolution", () => {
       const text = sendResponse.mock.calls.at(-1)?.[0]?.text ?? "";
       expect(text).toContain("ran out of time");
       expect(text).not.toContain("finished without a visible answer");
+    },
+  );
+
+  it(
+    "does not report a run that resumed past a boundary and finished as out of time",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "auto_continue", reason: "network_interrupted" });
+        send({ type: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const text = sendResponse.mock.calls.at(-1)?.[0]?.text ?? "";
+      expect(text).not.toContain("ran out of time");
     },
   );
 

@@ -171,6 +171,16 @@ defaults. The banned-defaults list above still applies, plus:
   your colors". Keep structure and layout genuinely varied per screen while the
   palette, type, and components stay on-brand.
 
+## Generation Application State
+
+- `design-generation-session:<designId>` — multi-screen generation planning
+  state from `generate-screens` (canvas region assignments, per-frame
+  instructions consumed by `generate-design`).
+- `show-design-questions` opens pre-generation questions in the main canvas
+  (`show-questions` state).
+- `guided-questions` may hold a one-click chat choice for the current variant
+  set.
+
 ## Generation Workflow — the canonical 5-phase flow
 
 This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
@@ -679,6 +689,12 @@ the prototype. **Never link screens with real URLs.** Use one of:
 
 External links (`https://…`) are allowed — the editor opens them in a new tab.
 Never use `target="_top"` or relative paths expecting a real page load.
+
+## Locked subtrees
+
+Treat `data-agent-native-locked="true"` as authoritative: locked elements and
+their descendants stay byte-for-byte unchanged, and the server enforces this.
+Ask the user to unlock the layer in the Layers panel if they want it changed.
 
 ## Making edits — minimal, scoped "smart" diffs
 

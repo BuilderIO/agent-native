@@ -31,7 +31,10 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { appendDurableContinuationContext } from "../agent/run-loop-with-resume.js";
+import {
+  appendDurableContinuationContext,
+  runAgentLoopDirectWithSoftTimeout,
+} from "../agent/run-loop-with-resume.js";
 import { startRun, type ActiveRun } from "../agent/run-manager.js";
 import {
   buildCurrentTimeUserContext,
@@ -124,9 +127,17 @@ const INTEGRATION_CAMPAIGN_NO_PROGRESS_TIMEOUT_MS = 45_000;
  * the loop itself emits one when it hits an internal step budget. The run's
  * status is still "completed", so without this check a cut-off research request
  * is reported to the user as a model that answered with nothing.
+ *
+ * Only the LAST terminal event decides: an in-invocation resume that recovered
+ * from an earlier boundary goes on to emit `done`, and that run did finish.
  */
 function endedAtContinuationBoundary(run: ActiveRun): boolean {
-  return run.events.some((runEvent) => runEvent.event.type === "auto_continue");
+  for (let i = run.events.length - 1; i >= 0; i--) {
+    const event = run.events[i].event;
+    if (event.type === "auto_continue") return true;
+    if (event.type === "done" || event.type === "error") return false;
+  }
+  return false;
 }
 
 function continuationBoundaryReason(run: ActiveRun): ContinuationReason {
@@ -1273,38 +1284,50 @@ async function processIncomingMessage(
               modelCandidate,
             );
 
-            usage = await runAgentLoop({
-              engine,
-              model: resolvedModel,
-              systemPrompt: effectiveSystemPrompt,
-              tools,
-              availableTools,
-              messages,
-              actions: runnableActions,
-              send: async (event) => {
-                if (progress) {
-                  await Promise.resolve(progress.onEvent(event)).catch(
-                    () => {},
-                  );
-                }
-                await send(event);
+            // Wrapper, not raw `runAgentLoop`: an integration turn has no
+            // browser to re-POST a continuation, so a transport-level cut
+            // (gateway 45s, socket hang up, upstream 5xx) has to be resumed
+            // inside this invocation or the user's Slack thread just stops.
+            // Same budget the run-manager resolved for this run below.
+            usage = await runAgentLoopDirectWithSoftTimeout(
+              {
+                engine,
+                model: resolvedModel,
+                systemPrompt: effectiveSystemPrompt,
+                tools,
+                availableTools,
+                messages,
+                actions: runnableActions,
+                send: async (event) => {
+                  if (progress) {
+                    await Promise.resolve(progress.onEvent(event)).catch(
+                      () => {},
+                    );
+                  }
+                  await send(event);
+                },
+                signal,
+                threadId,
+                approvedToolCalls: incoming.approvedToolCalls,
+                // Messaging integrations are interactive chat surfaces. They
+                // need the same initial completion headroom as web chat so
+                // reasoning cannot consume the small per-engine default and
+                // leave a user-facing Slack reply empty.
+                maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+                // Explicitly resolve the normal chat default so an empty-final
+                // retry can step its reasoning effort down rather than
+                // repeatedly letting the engine choose Medium.
+                reasoningEffort: normalizeReasoningEffortForRequest(
+                  resolvedModel,
+                  undefined,
+                ),
               },
-              signal,
-              threadId,
-              approvedToolCalls: incoming.approvedToolCalls,
-              // Messaging integrations are interactive chat surfaces. They
-              // need the same initial completion headroom as web chat so
-              // reasoning cannot consume the small per-engine default and
-              // leave a user-facing Slack reply empty.
-              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
-              // Explicitly resolve the normal chat default so an empty-final
-              // retry can step its reasoning effort down rather than
-              // repeatedly letting the engine choose Medium.
-              reasoningEffort: normalizeReasoningEffortForRequest(
-                resolvedModel,
-                undefined,
-              ),
-            });
+              undefined,
+              {
+                useHostedDefault: true,
+                backgroundFunction: isInBackgroundFunctionRuntime(),
+              },
+            );
             return usage;
           },
         );

@@ -6,8 +6,12 @@ import { pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isAgentChatDurableBackgroundEnabled } from "../agent/durable-background.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
-import { runWorkspaceDeploy } from "./workspace-deploy.js";
+import {
+  isDurableBackgroundWorkspaceDeployEnabled,
+  runWorkspaceDeploy,
+} from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
@@ -1170,6 +1174,28 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       `${app}-agent-background`,
     );
   }
+
+  it("emits for exactly the env inputs the workspace runtime gate enables", async () => {
+    // A workspace app opts in through its agent-chat plugin, so the deploy gate
+    // must stay as wide as the runtime's app-opt-in path. A local copy of this
+    // parse previously claimed to match a default-off gate while implementing a
+    // default-on one — drift that silently drops the function fleet-wide.
+    vi.stubEnv("SITE_ID", "site-123");
+    vi.stubEnv("A2A_SECRET", "shhh");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "starter");
+    try {
+      for (const value of [undefined, "", "true", "1", "false", "off", "?"]) {
+        if (value === undefined)
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        else process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+        expect(isDurableBackgroundWorkspaceDeployEnabled()).toBe(
+          isAgentChatDurableBackgroundEnabled({ appOptIn: true }),
+        );
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it("emits NO -background function when the flag is EXPLICITLY opted out (false)", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";

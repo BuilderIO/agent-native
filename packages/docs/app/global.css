@@ -1049,7 +1049,6 @@ html.dark .shiki span {
   aspect-ratio: 16 / 9;
   object-fit: cover;
   border-radius: 4px;
-  mix-blend-mode: screen;
 }
 
 .approaches-table-wrapper {

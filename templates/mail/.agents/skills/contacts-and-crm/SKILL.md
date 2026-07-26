@@ -14,6 +14,11 @@ description: >-
 Use `find-contact` before asking the user for someone's email address, and
 before guessing a pattern like `firstinitiallastname@company.com`.
 
+`find-contact` is backed by `loadContactsForEmail`, which merges Google People
+API "connections" (boosted `count += 5`) and "other contacts" with real
+send/receive history. Because it sees actual interaction history, it is strictly
+better than guessing an address pattern.
+
 - `find-contact --query="<name or partial email>" --limit=5` matches
   case-insensitively against name and email, splitting the query into
   whitespace-separated terms that must ALL match (`"jacqueline lamb"` requires
@@ -54,6 +59,11 @@ before guessing a pattern like `firstinitiallastname@company.com`.
   - If the user asks the agent to pull a Gong call or Pylon ticket from Mail,
     say plainly that integration is visible in the UI sidebar only today; do
     not fabricate a result or imply `provider-api-request` can reach it.
+- **Provider API-key connections are Settings-UI only.** Gong, Pylon, Apollo,
+  and HubSpot keys are saved through raw `/api/*` routes from the Settings UI —
+  there are no `save-*-key` actions. The agent can read HubSpot data via
+  `get-hubspot-contact` but cannot configure any of these connections on the
+  user's behalf; ask the user to add the key in Settings.
 - For HubSpot data outside contact lookup (deals search, ticket creation,
   property metadata), use `provider-api-catalog` / `provider-api-docs` with
   `provider: "hubspot"`, then `provider-api-request` — `get-hubspot-contact`

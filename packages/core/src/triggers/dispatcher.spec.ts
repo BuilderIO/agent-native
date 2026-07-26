@@ -9,6 +9,12 @@ const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
+
+// The dispatcher runs through the resume wrapper. Delegate to the loop mock so
+// every assertion below still reads the options the loop was called with.
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+}));
 const dbExecuteMock = vi.hoisted(() => vi.fn());
 const getDbExecMock = vi.hoisted(() => vi.fn());
 
