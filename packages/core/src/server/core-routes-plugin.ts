@@ -3323,8 +3323,16 @@ export function createCoreRoutesPlugin(
                   ),
                 ),
             );
-          } catch {}
-          return { configured: false };
+          } catch (err) {
+            // NOT `{ configured: false }`. A 200 saying "not configured" is an
+            // authoritative answer to the client, so a DB blip here renders as
+            // "connect an AI provider" and gates the composer. 503 is the only
+            // response the client can tell apart from a real answer — it maps
+            // to `unavailable`, which keeps the composer usable and retries.
+            console.error("[agent-engine/status] lookup failed", err);
+            setResponseStatus(event, 503);
+            return { error: "Could not read the agent engine configuration." };
+          }
         }),
       );
 

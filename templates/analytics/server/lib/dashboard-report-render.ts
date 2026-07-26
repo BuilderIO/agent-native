@@ -1053,7 +1053,10 @@ export async function renderReportEmail(args: {
   enforceAttachmentBudget(blocks);
 
   const filterLine = Object.entries(snapshot.filters)
-    .filter(([, value]) => value)
+    // `tab` rides along in a subscription's saved filters, but a report renders
+    // every tab's panels on purpose, so listing it would claim a filter that
+    // was not applied.
+    .filter(([key, value]) => value && key !== "tab")
     .map(
       ([key, value]) =>
         `${key.startsWith("f_") ? key.slice(2) : key}: ${value}`,
