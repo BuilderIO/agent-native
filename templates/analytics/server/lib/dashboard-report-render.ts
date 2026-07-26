@@ -708,13 +708,13 @@ function renderHeatmapHtml(
     if (!xValues.includes(x)) xValues.push(x);
     if (!yValues.includes(y)) yValues.push(y);
     const value = toNumber(row[valueKey]);
-    if (value !== null) grid.set(`${x} ${y}`, value);
+    if (value !== null) grid.set(`${x}\u0000${y}`, value);
   }
 
   const stats = new Map<string, { mean: number; std: number }>();
   for (const x of xValues) {
     const values = yValues
-      .map((y) => grid.get(`${x} ${y}`))
+      .map((y) => grid.get(`${x}\u0000${y}`))
       .filter((value): value is number => value != null);
     if (values.length === 0) {
       stats.set(x, { mean: 0, std: 0 });
@@ -746,7 +746,7 @@ function renderHeatmapHtml(
     .map((y) => {
       const cells = xValues
         .map((x) => {
-          const value = grid.get(`${x} ${y}`);
+          const value = grid.get(`${x}\u0000${y}`);
           return `<td style="${CELL_STYLE}${cellBackground(x, value)}text-align:right;">${
             value != null
               ? escapeHtml(formatYValue(value, config?.yFormatter))
@@ -764,7 +764,7 @@ function renderHeatmapHtml(
       [
         y || "—",
         ...xValues.map((x) => {
-          const value = grid.get(`${x} ${y}`);
+          const value = grid.get(`${x}\u0000${y}`);
           return value != null ? formatYValue(value, config?.yFormatter) : "";
         }),
       ].join(" | "),
