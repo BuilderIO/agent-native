@@ -51,8 +51,23 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
   vi.fn(async () => ({ dispatched: 0, failed: 0 })),
 );
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const refreshIntegrationCampaignTaskA2AReceiptRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const terminalizeIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
+const transitionIntegrationCampaignTaskToA2AReceiptRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const transitionIntegrationCampaignTaskToDeliveryRetryMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const waitForA2AIntegrationCampaignMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
+const hasActiveA2AContinuationsForIntegrationTaskMock = vi.hoisted(() =>
   vi.fn(async () => true),
 );
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
@@ -102,24 +117,33 @@ vi.mock("./integration-campaign-recovery.js", () => ({
 vi.mock("./integration-campaigns-store.js", () => ({
   claimIntegrationCampaignDeliveryForTask:
     claimIntegrationCampaignDeliveryForTaskMock,
+  completeIntegrationCampaignTaskAfterA2A:
+    completeIntegrationCampaignTaskAfterA2AMock,
   completeIntegrationCampaign: completeIntegrationCampaignMock,
   failIntegrationCampaign: failIntegrationCampaignMock,
   failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
+  refreshIntegrationCampaignTaskA2AReceiptRetry:
+    refreshIntegrationCampaignTaskA2AReceiptRetryMock,
   terminalizeIntegrationCampaignForTask:
     terminalizeIntegrationCampaignForTaskMock,
   transitionIntegrationCampaignTaskToDeliveryRetry:
     transitionIntegrationCampaignTaskToDeliveryRetryMock,
+  transitionIntegrationCampaignTaskToA2AReceiptRetry:
+    transitionIntegrationCampaignTaskToA2AReceiptRetryMock,
+  waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
 }));
 
-vi.mock("./a2a-continuation-processor.js", async () => {
-  const actual = await vi.importActual<
-    typeof import("./a2a-continuation-processor.js")
-  >("./a2a-continuation-processor.js");
-  return {
-    ...actual,
-    recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
-  };
-});
+vi.mock("./a2a-continuations-store.js", () => ({
+  failA2AContinuation: vi.fn(),
+  hasActiveA2AContinuationsForIntegrationTask:
+    hasActiveA2AContinuationsForIntegrationTaskMock,
+}));
+
+vi.mock("./a2a-continuation-processor.js", () => ({
+  processA2AContinuationById: vi.fn(),
+  processDueA2AContinuations: vi.fn(),
+  recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
+}));
 
 vi.mock("./integration-durable-dispatch.js", async () => {
   const actual = await vi.importActual<
@@ -635,6 +659,7 @@ describe("integrations plugin routes", () => {
         incoming: JSON.parse(baseTask.payload).incoming,
         message: { text: "Parent checkpoint", platformContext: {} },
         deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        campaignTerminalStatus: "completed",
       }),
     };
     getPendingTaskMock.mockResolvedValueOnce(task);
@@ -668,6 +693,8 @@ describe("integrations plugin routes", () => {
 
   it("leases an unreceipted campaign delivery so overlapping wakes send once", async () => {
     process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
     const sendResponse = vi.fn(async () => ({
       status: "delivered" as const,
@@ -738,6 +765,43 @@ describe("integrations plugin routes", () => {
     expect(claimPendingTaskMock).not.toHaveBeenCalled();
     expect(processIntegrationTaskMock).not.toHaveBeenCalled();
     expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("finishes an A2A parent after its partial receipt is reconciled last", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    hasActiveA2AContinuationsForIntegrationTaskMock.mockResolvedValueOnce(
+      false,
+    );
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(200);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      task.id,
+    );
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
   });
 
   it("does not send an unreceipted campaign delivery after scope is disabled", async () => {
@@ -814,6 +878,46 @@ describe("integrations plugin routes", () => {
       task.id,
       expect.stringContaining("exhausted"),
     );
+  });
+
+  it("keeps an A2A-waiting campaign active after reconciling its partial receipt", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        deliveryReceipt: { status: "delivered", messageRefs: ["parent-1"] },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+    );
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({
+      ok: true,
+      taskId: task.id,
+      continuing: true,
+    });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
   });
 
   it("loads compact owner resources when processing queued integration tasks", async () => {
@@ -1011,6 +1115,102 @@ describe("integrations plugin routes", () => {
       dispatchPendingIntegrationTaskMock.mock.calls.at(-1)?.[0]
         ?.campaignContinuation,
     ).toBeUndefined();
+  });
+
+  it("hands partial A2A delivery retry custody to the continuation without reopening the task", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Parent result", platformContext: {} },
+      awaitingA2ACompletion: true as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+      campaignLease: {
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+        campaignStatus: "waiting-a2a",
+      },
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(
+      transitionIntegrationCampaignTaskToA2AReceiptRetryMock,
+    ).toHaveBeenCalledWith(
+      task.id,
+      expect.objectContaining({
+        payload: JSON.stringify(deliveryPayload),
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+      }),
+    );
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: false,
+      }),
+    );
+  });
+
+  it("retries partial A2A history while preserving processing custody", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Parent result", platformContext: {} },
+      deliveryReceipt: { status: "delivered" as const },
+      awaitingA2ACompletion: true as const,
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "history checkpoint failed",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(
+      refreshIntegrationCampaignTaskA2AReceiptRetryMock,
+    ).toHaveBeenCalledWith(task.id, {
+      payload: JSON.stringify(deliveryPayload),
+      errorMessage: "history checkpoint failed",
+    });
+    expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: task.id,
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    );
   });
 
   it("lets a successor campaign keep custody when the delivery lease is superseded", async () => {
@@ -1326,6 +1526,10 @@ describe("integrations plugin routes", () => {
         taskId: task.id,
       }),
     ).resolves.toMatchObject({ status: 500 });
+    expect(failTaskDeliveryTransitionMock).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("retry transition unavailable"),
+    );
     expect(markTaskFailedMock).not.toHaveBeenCalled();
   });
 

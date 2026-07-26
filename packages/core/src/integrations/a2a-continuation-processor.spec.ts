@@ -16,8 +16,14 @@ const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getNextPendingTaskForThreadMock = vi.hoisted(() => vi.fn());
 const getIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
+const hasActiveA2AContinuationsForIntegrationTaskMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationsForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -44,6 +50,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
   failA2AContinuationsForIntegrationTask:
     failA2AContinuationsForIntegrationTaskMock,
   getA2AContinuation: getA2AContinuationMock,
+  hasActiveA2AContinuationsForIntegrationTask:
+    hasActiveA2AContinuationsForIntegrationTaskMock,
   listRecoverableA2AIntegrationTasks: listRecoverableA2ATasksMock,
   recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
   rescheduleA2AContinuation: rescheduleA2AContinuationMock,
@@ -60,6 +68,8 @@ vi.mock("./integration-durable-dispatch.js", () => ({
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
+  completeIntegrationCampaignTaskAfterA2A:
+    completeIntegrationCampaignTaskAfterA2AMock,
   getIntegrationCampaignForTask: getIntegrationCampaignForTaskMock,
   failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
 }));
@@ -455,6 +465,60 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the waiting parent campaign and wakes its successor after the last A2A reply", async () => {
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "waiting",
+    });
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "task-2",
+      dispatchScope: "C999",
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter()]]),
+    });
+
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith(claimed.id);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+    );
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith({
+      taskId: "task-2",
+      task: {
+        platform: "slack",
+        externalThreadId: claimed.externalThreadId,
+        platformContext: { channelId: "C999" },
+      },
+    });
+  });
+
+  it("keeps the parent campaign waiting while a sibling A2A continuation remains active", async () => {
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "waiting",
+    });
+    hasActiveA2AContinuationsForIntegrationTaskMock.mockResolvedValueOnce(true);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter()]]),
+    });
+
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith(claimed.id);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
   });
 
   it("rechecks durable scope immediately before claiming terminal delivery", async () => {

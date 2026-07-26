@@ -22,6 +22,7 @@ import {
   failA2AContinuationsForIntegrationTask,
   failA2AContinuation,
   getA2AContinuation,
+  hasActiveA2AContinuationsForIntegrationTask,
   listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
   rescheduleA2AContinuation,
@@ -29,6 +30,7 @@ import {
   type RecoverableA2AIntegrationTask,
 } from "./a2a-continuations-store.js";
 import {
+  completeIntegrationCampaignTaskAfterA2A,
   failDisabledIntegrationCampaignTask,
   getIntegrationCampaignForTask,
 } from "./integration-campaigns-store.js";
@@ -531,6 +533,7 @@ async function notifyAndFailA2AContinuation(
   }
 
   await failA2AContinuation(deliveryContinuation.id, reason);
+  await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
 }
 
 async function deliverAndCompleteA2AContinuation(
@@ -719,6 +722,7 @@ async function completeAfterSuccessfulDelivery(
   for (let attempt = 0; attempt < COMPLETE_AFTER_DELIVERY_ATTEMPTS; attempt++) {
     try {
       await completeA2AContinuation(continuation.id);
+      await completeParentCampaignAfterTerminalA2A(continuation);
       return;
     } catch (err) {
       lastError = err;
@@ -730,6 +734,47 @@ async function completeAfterSuccessfulDelivery(
       "but marking it completed failed. Leaving it in delivering for stale-delivery recovery.",
     lastError,
   );
+}
+
+async function completeParentCampaignAfterTerminalA2A(
+  continuation: A2AContinuation,
+): Promise<void> {
+  const campaign = await getIntegrationCampaignForTask(
+    continuation.integrationTaskId,
+  );
+  if (!campaign) return;
+  if (
+    await hasActiveA2AContinuationsForIntegrationTask(
+      continuation.integrationTaskId,
+    )
+  ) {
+    return;
+  }
+  const completed = await completeIntegrationCampaignTaskAfterA2A(
+    continuation.integrationTaskId,
+  );
+  if (!completed) return;
+
+  const nextTask = await getNextPendingTaskForThread(
+    continuation.platform,
+    continuation.externalThreadId,
+  );
+  if (!nextTask) return;
+  await dispatchPendingIntegrationTask({
+    taskId: nextTask.id,
+    task: {
+      platform: continuation.platform,
+      externalThreadId: continuation.externalThreadId,
+      platformContext: nextTask.dispatchScope
+        ? { channelId: nextTask.dispatchScope }
+        : undefined,
+    },
+  }).catch((err) => {
+    console.error(
+      `[integrations] Failed to wake successor ${nextTask.id} after A2A parent completion:`,
+      err,
+    );
+  });
 }
 
 function formatContinuationFailureMessage(

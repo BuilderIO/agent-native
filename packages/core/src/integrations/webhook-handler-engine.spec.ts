@@ -2550,15 +2550,23 @@ describe("integration webhook handler engine resolution", () => {
         apiKey: "",
         ownerEmail: "dispatch+qa@integration.local",
       },
+      { enabled: true },
     );
 
     expect(result).toMatchObject({
       status: "delivery-pending",
       payload: {
+        awaitingA2ACompletion: true,
         deliveryReceipt: {
           status: "delivered",
           messageRefs: ["queued-parent-reply"],
         },
+      },
+      campaignLease: {
+        campaignId: "campaign-qa",
+        runId: expect.any(String),
+        leaseToken: expect.any(String),
+        campaignStatus: "waiting-a2a",
       },
     });
     expect(sendResponse).toHaveBeenCalledOnce();

@@ -38,7 +38,10 @@ import {
   processDueA2AContinuations,
   recoverDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import { failA2AContinuation } from "./a2a-continuations-store.js";
+import {
+  failA2AContinuation,
+  hasActiveA2AContinuationsForIntegrationTask,
+} from "./a2a-continuations-store.js";
 import { mergeIntegrationAdapters } from "./adapter-overrides.js";
 import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
@@ -73,11 +76,15 @@ import {
 import { recoverDueIntegrationCampaigns } from "./integration-campaign-recovery.js";
 import {
   claimIntegrationCampaignDeliveryForTask,
+  completeIntegrationCampaignTaskAfterA2A,
   completeIntegrationCampaign,
   failDisabledIntegrationCampaignTask,
   failIntegrationCampaign,
+  refreshIntegrationCampaignTaskA2AReceiptRetry,
   terminalizeIntegrationCampaignForTask,
+  transitionIntegrationCampaignTaskToA2AReceiptRetry,
   transitionIntegrationCampaignTaskToDeliveryRetry,
+  waitForA2AIntegrationCampaign,
 } from "./integration-campaigns-store.js";
 import {
   dispatchPendingIntegrationTask,
@@ -197,18 +204,54 @@ async function checkpointIntegrationDeliveryRetry(
     campaignId: string;
     runId: string;
     leaseToken: string;
-    campaignStatus: "completed" | "failed";
+    campaignStatus: "completed" | "failed" | "waiting-a2a";
   },
 ): Promise<"requeued" | "superseded"> {
   let terminalStatus: "completed" | "failed" | undefined;
   let confirmedReceipt = false;
+  let awaitingA2ACompletion = false;
   try {
     const parsed = JSON.parse(
       payload,
     ) as Partial<IntegrationResponseDeliveryTaskPayload>;
     terminalStatus = parsed.campaignTerminalStatus;
     confirmedReceipt = parsed.deliveryReceipt?.status === "delivered";
+    awaitingA2ACompletion = parsed.awaitingA2ACompletion === true;
   } catch {}
+  if (awaitingA2ACompletion) {
+    if (campaignLease && campaignLease.campaignStatus !== "waiting-a2a") {
+      throw new Error("A2A receipt retry lease has the wrong custody mode");
+    }
+    const transitioned = campaignLease
+      ? await transitionIntegrationCampaignTaskToA2AReceiptRetry(task.id, {
+          payload,
+          errorMessage,
+          campaignId: campaignLease.campaignId,
+          runId: campaignLease.runId,
+          leaseToken: campaignLease.leaseToken,
+          nextRunAt: Date.now() + 15_000,
+        })
+      : await refreshIntegrationCampaignTaskA2AReceiptRetry(task.id, {
+          payload,
+          errorMessage,
+        });
+    if (!transitioned) return "superseded";
+    await dispatchPendingIntegrationTask({
+      taskId: task.id,
+      task: {
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
+        platformContext: task.dispatchScope
+          ? { channelId: task.dispatchScope }
+          : undefined,
+      },
+      event,
+      baseUrl: getBaseUrl(event),
+      campaignContinuation: true,
+      allowPortableConfirmedReceiptReconciliation: confirmedReceipt,
+    });
+    return "requeued";
+  }
   if (terminalStatus && !campaignLease && !confirmedReceipt) {
     throw new Error("Campaign delivery retry is missing its lease");
   }
@@ -1875,7 +1918,7 @@ export function createIntegrationsPlugin(
               campaignId: string;
               runId: string;
               leaseToken: string;
-              campaignStatus: "completed" | "failed";
+              campaignStatus: "completed" | "failed" | "waiting-a2a";
             }
           | undefined;
         try {
@@ -1944,7 +1987,10 @@ export function createIntegrationsPlugin(
                   campaignDeliveryLease = {
                     ...deliveryLease,
                     campaignStatus:
-                      taskPayload.campaignTerminalStatus ?? "completed",
+                      taskPayload.campaignTerminalStatus ??
+                      (taskPayload.awaitingA2ACompletion
+                        ? "waiting-a2a"
+                        : "completed"),
                   };
                 }
                 if (!receipt) {
@@ -1989,8 +2035,7 @@ export function createIntegrationsPlugin(
                   receipt,
                 );
                 const campaignTerminalStatus =
-                  taskPayload.campaignTerminalStatus ??
-                  (campaignContinuation ? "completed" : undefined);
+                  taskPayload.campaignTerminalStatus;
                 if (campaignTerminalStatus) {
                   const errorMessage =
                     "Integration campaign exhausted its continuation limit";
@@ -2023,6 +2068,34 @@ export function createIntegrationsPlugin(
                   return campaignTerminalStatus === "failed"
                     ? ("campaign-failed" as const)
                     : ("completed" as const);
+                }
+                if (taskPayload.awaitingA2ACompletion) {
+                  if (deliveryLease) {
+                    const waiting = await waitForA2AIntegrationCampaign(
+                      deliveryLease.campaignId,
+                      {
+                        runId: deliveryLease.runId,
+                        leaseToken: deliveryLease.leaseToken,
+                        nextRunAt: Date.now() + 15_000,
+                      },
+                    );
+                    if (!waiting) return "campaign-active" as const;
+                  }
+                  if (
+                    !(await hasActiveA2AContinuationsForIntegrationTask(
+                      task.id,
+                    ))
+                  ) {
+                    const completed =
+                      await completeIntegrationCampaignTaskAfterA2A(task.id);
+                    return completed
+                      ? ("completed" as const)
+                      : ("campaign-active" as const);
+                  }
+                  return "campaign-active" as const;
+                }
+                if (campaignContinuation) {
+                  return "campaign-active" as const;
                 }
                 return;
               }
@@ -2190,10 +2263,26 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 202);
               return { ok: true, taskId, retrying: "response-delivery" };
             } catch (transitionError) {
+              const transitionMessage =
+                transitionError instanceof Error
+                  ? transitionError.message
+                  : String(transitionError);
               console.error(
                 "[integrations] Failed to requeue confirmed delivery history:",
                 transitionError,
               );
+              await failTaskDeliveryTransition(
+                taskId,
+                `Could not safely checkpoint confirmed delivery history: ${transitionMessage}`,
+              ).catch((failureTransitionError) => {
+                console.error(
+                  "[integrations] Failed to contain confirmed delivery history transition failure:",
+                  failureTransitionError,
+                );
+              });
+              console.error("[integrations] process-task failure:", err);
+              setResponseStatus(event, 500);
+              return { error: "Internal task failed" };
             }
           } else if (deliveryRetryTransitionStarted) {
             await failTaskDeliveryTransition(

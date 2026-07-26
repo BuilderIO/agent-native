@@ -716,6 +716,170 @@ export async function transitionIntegrationCampaignTaskToDeliveryRetry(
   throw new Error("Database does not support atomic campaign delivery retry");
 }
 
+export async function transitionIntegrationCampaignTaskToA2AReceiptRetry(
+  integrationTaskId: string,
+  input: {
+    payload: string;
+    errorMessage: string;
+    campaignId: string;
+    runId: string;
+    leaseToken: string;
+    nextRunAt: number;
+  },
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const errorMessage =
+    boundedOpaqueValue(
+      input.errorMessage,
+      MAX_ERROR_MESSAGE_CHARS,
+      "errorMessage",
+    ) ?? "A2A partial response history needs retry";
+  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const statements: DbExecStatement[] = [
+    {
+      sql: `UPDATE integration_campaigns
+            SET status = 'waiting', current_run_id = NULL, lease_token = NULL,
+                lease_expires_at = NULL, next_run_at = ?, checkpoint = ?,
+                error_message = NULL, updated_at = ?
+            WHERE id = ? AND integration_task_id = ?
+              AND status = 'processing'
+              AND current_run_id = ? AND lease_token = ?`,
+      args: [
+        input.nextRunAt,
+        A2A_WAITING_CHECKPOINT,
+        now,
+        input.campaignId,
+        integrationTaskId,
+        input.runId,
+        input.leaseToken,
+      ],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+            SET payload = ?, error_message = ?, updated_at = ?
+            WHERE id = ? AND status = 'processing'
+              ${previousWriteGuard}
+              AND EXISTS (
+                SELECT 1 FROM integration_campaigns
+                WHERE id = ? AND integration_task_id = ?
+                  AND status = 'waiting' AND checkpoint = ?
+                  AND updated_at = ? AND current_run_id IS NULL
+                  AND lease_token IS NULL
+              )`,
+      args: [
+        input.payload,
+        errorMessage,
+        now,
+        integrationTaskId,
+        input.campaignId,
+        integrationTaskId,
+        A2A_WAITING_CHECKPOINT,
+        now,
+      ],
+    },
+  ];
+  const db = getDbExec();
+  if (db.atomicBatch) {
+    const results = await db.atomicBatch(statements);
+    return (
+      results.length === statements.length &&
+      results.every((result) => affectedRows(result) > 0)
+    );
+  }
+  if (db.transaction) {
+    return await db.transaction(async (tx) => {
+      const campaignResult = await tx.execute(statements[0]!);
+      if (affectedRows(campaignResult) === 0) return false;
+      const taskResult = await tx.execute(statements[1]!);
+      if (affectedRows(taskResult) === 0) {
+        throw new Error("A2A receipt custody transition lost its race");
+      }
+      return true;
+    });
+  }
+  throw new Error("Database does not support atomic A2A receipt custody");
+}
+
+export async function refreshIntegrationCampaignTaskA2AReceiptRetry(
+  integrationTaskId: string,
+  input: { payload: string; errorMessage: string },
+): Promise<boolean> {
+  await ensureTable();
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET payload = ?, error_message = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing'
+            AND EXISTS (
+              SELECT 1 FROM integration_campaigns
+              WHERE integration_task_id = ? AND status = 'waiting'
+                AND checkpoint = ?
+            )`,
+    args: [
+      input.payload,
+      input.errorMessage.slice(0, MAX_ERROR_MESSAGE_CHARS),
+      Date.now(),
+      integrationTaskId,
+      integrationTaskId,
+      A2A_WAITING_CHECKPOINT,
+    ],
+  });
+  return affectedRows(result) > 0;
+}
+
+export async function completeIntegrationCampaignTaskAfterA2A(
+  integrationTaskId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const statements: DbExecStatement[] = [
+    {
+      sql: `UPDATE integration_campaigns
+            SET status = 'completed', current_run_id = NULL,
+                lease_token = NULL, lease_expires_at = NULL,
+                progress_ref = NULL, checkpoint = NULL, error_message = NULL,
+                updated_at = ?, completed_at = ?
+            WHERE integration_task_id = ? AND status = 'waiting'
+              AND checkpoint = ?`,
+      args: [now, now, integrationTaskId, A2A_WAITING_CHECKPOINT],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+            SET status = 'completed', payload = '{}', error_message = NULL,
+                updated_at = ?, completed_at = ?
+            WHERE id = ? AND status = 'processing'
+              ${previousWriteGuard}
+              AND EXISTS (
+                SELECT 1 FROM integration_campaigns
+                WHERE integration_task_id = ? AND status = 'completed'
+                  AND updated_at = ? AND completed_at = ?
+              )`,
+      args: [now, now, integrationTaskId, integrationTaskId, now, now],
+    },
+  ];
+  const db = getDbExec();
+  if (db.atomicBatch) {
+    const results = await db.atomicBatch(statements);
+    return (
+      results.length === statements.length &&
+      results.every((result) => affectedRows(result) > 0)
+    );
+  }
+  if (db.transaction) {
+    return await db.transaction(async (tx) => {
+      const campaignResult = await tx.execute(statements[0]!);
+      if (affectedRows(campaignResult) === 0) return false;
+      const taskResult = await tx.execute(statements[1]!);
+      if (affectedRows(taskResult) === 0) {
+        throw new Error("A2A parent completion transition lost its race");
+      }
+      return true;
+    });
+  }
+  throw new Error("Database does not support atomic A2A parent completion");
+}
+
 export async function listDueIntegrationCampaignIds(
   limit = 25,
 ): Promise<string[]> {

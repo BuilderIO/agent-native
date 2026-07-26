@@ -555,6 +555,78 @@ describe("integration campaigns store", () => {
     expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
   });
 
+  it("atomically hands a partial A2A receipt from the campaign lease to the parent task", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock.mockResolvedValue([
+      { rows: [], rowsAffected: 1 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    const { transitionIntegrationCampaignTaskToA2AReceiptRetry } =
+      await loadStore();
+
+    await expect(
+      transitionIntegrationCampaignTaskToA2AReceiptRetry("task-1", {
+        payload: '{"kind":"response-delivery","awaitingA2ACompletion":true}',
+        errorMessage: "history needs retry",
+        campaignId: "campaign-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+        nextRunAt: 1234,
+      }),
+    ).resolves.toBe(true);
+
+    const statements = atomicBatchMock.mock.calls[0]![0];
+    expect(sqlOf(statements[0]!)).toContain("SET status = 'waiting'");
+    expect(sqlOf(statements[0]!)).toContain(
+      "current_run_id = ? AND lease_token = ?",
+    );
+    expect(sqlOf(statements[1]!)).toContain("status = 'processing'");
+    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
+  });
+
+  it("refreshes a partial A2A receipt retry only while the campaign owns waiting custody", async () => {
+    const { refreshIntegrationCampaignTaskA2AReceiptRetry } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await expect(
+      refreshIntegrationCampaignTaskA2AReceiptRetry("task-1", {
+        payload: '{"kind":"response-delivery","awaitingA2ACompletion":true}',
+        errorMessage: "history still needs retry",
+      }),
+    ).resolves.toBe(true);
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      sqlOf(query).includes("checkpoint = ?"),
+    )?.[0];
+    expect(sqlOf(update!)).toContain("status = 'processing'");
+    expect(argsOf(update!)).toContain(JSON.stringify({ waitingForA2A: true }));
+  });
+
+  it("atomically completes an A2A parent campaign and its processing task", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock.mockResolvedValue([
+      { rows: [], rowsAffected: 1 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    const { completeIntegrationCampaignTaskAfterA2A } = await loadStore();
+
+    await expect(
+      completeIntegrationCampaignTaskAfterA2A("task-1"),
+    ).resolves.toBe(true);
+
+    const statements = atomicBatchMock.mock.calls[0]![0];
+    expect(sqlOf(statements[0]!)).toContain("status = 'completed'");
+    expect(sqlOf(statements[0]!)).toContain("status = 'waiting'");
+    expect(sqlOf(statements[1]!)).toContain("payload = '{}'");
+    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
+  });
+
   it("uses an atomic batch when interactive transactions are unavailable", async () => {
     getDbExecMock.mockReturnValue({
       execute: executeMock,

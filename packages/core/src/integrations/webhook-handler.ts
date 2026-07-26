@@ -159,6 +159,7 @@ export type IntegrationResponseDeliveryTaskPayload = {
   deliveredAt?: string;
   artifacts?: A2AArtifactIdentity[];
   campaignTerminalStatus?: "completed" | "failed";
+  awaitingA2ACompletion?: true;
 };
 
 export type ProcessIntegrationTaskResult =
@@ -173,7 +174,7 @@ export type ProcessIntegrationTaskResult =
         campaignId: string;
         runId: string;
         leaseToken: string;
-        campaignStatus: "completed" | "failed";
+        campaignStatus: "completed" | "failed" | "waiting-a2a";
       };
     };
 
@@ -1433,6 +1434,9 @@ async function processIncomingMessage(
               artifacts: extractA2AArtifactIdentities(toolResults, {
                 persistedArtifactSecrets: artifactSecrets,
               }),
+              ...(campaign && queuedA2AContinuation
+                ? { awaitingA2ACompletion: true as const }
+                : {}),
               ...(campaign &&
               !queuedA2AContinuation &&
               !durableCampaignContinuation
@@ -1709,14 +1713,17 @@ async function processIncomingMessage(
                   ? { assistantMessageId: threadCheckpoint.assistantMessageId }
                   : {}),
               },
-              ...(campaign && stagedDeliveryPayload?.campaignTerminalStatus
+              ...(campaign &&
+              (stagedDeliveryPayload?.campaignTerminalStatus ||
+                stagedDeliveryPayload?.awaitingA2ACompletion)
                 ? {
                     campaignLease: {
                       campaignId: campaign.row.id,
                       runId: campaign.runId,
                       leaseToken: campaign.leaseToken,
                       campaignStatus:
-                        stagedDeliveryPayload.campaignTerminalStatus,
+                        stagedDeliveryPayload.campaignTerminalStatus ??
+                        ("waiting-a2a" as const),
                     },
                   }
                 : {}),
