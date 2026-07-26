@@ -33,6 +33,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "expo-web-browser",
       "expo-secure-store",
       "@bacons/apple-targets",
