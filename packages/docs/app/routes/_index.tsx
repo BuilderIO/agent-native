@@ -505,11 +505,12 @@ function ComparisonSection() {
           <video
             className="homepage-comparison-video"
             src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+            poster="https://cdn.builder.io/api/v1/image/assets%2Fc5b47d20f6a943e485717e5895739988%2F3d99ddf85c9040e38cb7c989fa4a7735"
             autoPlay
             controls
             muted
             playsInline
-            preload="metadata"
+            preload="auto"
           />
         </div>
       </div>
