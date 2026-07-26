@@ -279,6 +279,50 @@ describe("agent-native skills", () => {
     },
   );
 
+  it.each([["--no-mcp"], ["--mcp-url", "https://example.com/mcp"]])(
+    "rejects prompted multi-skill Rewind selections before telemetry or writes (%s)",
+    async (...flags) => {
+      const root = tmpDir();
+      const home = path.join(root, "home");
+      const codexHome = path.join(root, "codex-home");
+      const telemetry = {
+        track: vi.fn(),
+        captureException: vi.fn(),
+        flush: vi.fn(async () => {}),
+      };
+      fs.mkdirSync(home, { recursive: true });
+      fs.mkdirSync(codexHome, { recursive: true });
+      const previousHome = process.env.HOME;
+      const previousCodexHome = process.env.CODEX_HOME;
+      process.env.HOME = home;
+      process.env.CODEX_HOME = codexHome;
+
+      try {
+        await expect(
+          runSkills(["add", ...flags], {
+            baseDir: root,
+            isInteractive: () => true,
+            promptSkills: async () => ["assets", "rewind"],
+            telemetry,
+          }),
+        ).rejects.toThrow(
+          /Rewind (requires|uses) the local Clips Screen Memory MCP/,
+        );
+
+        expect(fs.existsSync(path.join(codexHome, "skills"))).toBe(false);
+        expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+        expect(telemetry.track).not.toHaveBeenCalled();
+        expect(telemetry.captureException).not.toHaveBeenCalled();
+        expect(telemetry.flush).not.toHaveBeenCalled();
+      } finally {
+        if (previousHome === undefined) delete process.env.HOME;
+        else process.env.HOME = previousHome;
+        if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = previousCodexHome;
+      }
+    },
+  );
+
   it("directs missing-store installs to Clips without claiming native setup", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");

@@ -884,6 +884,17 @@ function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
   return screenMemoryDir;
 }
 
+function preflightResolvedRewindTargets(
+  parsed: ParsedSkillsArgs,
+  targets: string[],
+): void {
+  preflightRewindStore({
+    ...parsed,
+    target: undefined,
+    plainSkillNames: [...(parsed.plainSkillNames ?? []), ...targets],
+  });
+}
+
 function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
@@ -4202,6 +4213,41 @@ function readCliVersion(): string {
   }
 }
 
+function deferCliTelemetry(target: CliTelemetry): {
+  telemetry: CliTelemetry;
+  commit: () => void;
+} {
+  type TrackCall = Parameters<CliTelemetry["track"]>;
+  type ExceptionCall = Parameters<CliTelemetry["captureException"]>;
+  const trackCalls: TrackCall[] = [];
+  const exceptionCalls: ExceptionCall[] = [];
+  let committed = false;
+
+  return {
+    telemetry: {
+      track(...args) {
+        if (committed) target.track(...args);
+        else trackCalls.push(args);
+      },
+      captureException(...args) {
+        if (committed) target.captureException(...args);
+        else exceptionCalls.push(args);
+      },
+      async flush() {
+        if (committed) await target.flush();
+      },
+    },
+    commit() {
+      if (committed) return;
+      committed = true;
+      for (const args of trackCalls) target.track(...args);
+      for (const args of exceptionCalls) target.captureException(...args);
+      trackCalls.length = 0;
+      exceptionCalls.length = 0;
+    },
+  };
+}
+
 export async function runSkills(
   argv: string[],
   options: RunSkillsOptions = {},
@@ -4246,7 +4292,7 @@ export async function runSkills(
   // finally so events send on success, error, and cancellation — the CLI is
   // short-lived, so flushing before exit is essential or the events never send.
   const startedAt = Date.now();
-  const telemetry =
+  const telemetryTarget =
     options.telemetry ??
     createCliTelemetry({
       cli: "core",
@@ -4254,6 +4300,13 @@ export async function runSkills(
       command: parsed.command,
       interactive: shouldPrompt(parsed, options),
     });
+  const deferredTelemetry = deferCliTelemetry(telemetryTarget);
+  const telemetry = deferredTelemetry.telemetry;
+  const deferUntilSkillSelection =
+    parsed.command === "add" &&
+    !parsed.target &&
+    !(parsed.plainSkillNames?.length ?? 0);
+  if (!deferUntilSkillSelection) deferredTelemetry.commit();
   const optionsWithTelemetry: RunSkillsOptions = {
     ...options,
     telemetry,
@@ -4294,9 +4347,12 @@ export async function runSkills(
 
     const targets = await resolveSkillTargets(parsed, optionsWithTelemetry);
     if (!targets) {
+      deferredTelemetry.commit();
       telemetry.track("skills_cli cancelled", { step: "skills" });
       return;
     }
+    preflightResolvedRewindTargets(parsed, targets);
+    deferredTelemetry.commit();
     const preselected = Boolean(parsed.target);
     telemetry.track("skills_cli skills selected", {
       selected: targets.join(","),

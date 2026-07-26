@@ -10,12 +10,17 @@ describe("shouldTrackCliRun", () => {
     ["skills", ["add", "screen-memory", "--yes"]],
     ["skills", ["add", "--skill", "clips-rewind", "--yes"]],
     ["skills", ["add", "--skill=agent-native-rewind", "--yes"]],
+    ["skills", ["rewind", "--yes"]],
+    ["skills", ["screen-memory", "--yes"]],
+    ["skills", ["clips-rewind", "--yes"]],
+    ["skills", ["agent-native-rewind", "--yes"]],
   ])("defers telemetry for explicit Rewind installs", (command, args) => {
     expect(shouldTrackCliRun(command, args)).toBe(false);
   });
 
   it("tracks other CLI invocations immediately", () => {
     expect(shouldTrackCliRun("skills", ["add", "visual-plan"])).toBe(true);
+    expect(shouldTrackCliRun("skills", ["list"])).toBe(true);
     expect(shouldTrackCliRun("create", ["my-app"])).toBe(true);
   });
 });
