@@ -401,6 +401,29 @@ describe("dashboard report email", () => {
     expect(sentEmails()[0].attachments).toBeUndefined();
   });
 
+  it("never reports a dashboard of only extension panels as complete", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith([
+        panel("widget-a", { chartType: "extension" }),
+        panel("widget-b", { chartType: "extension" }),
+      ]),
+    );
+    const onCaptureOutcome = vi.fn(async () => {});
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      onCaptureOutcome,
+    });
+
+    // Nothing failed, so degradedPanelIds is empty — but no panel is backed by
+    // data, so the report is a page of "open the dashboard" links and must not
+    // claim to be complete.
+    expect(result.reportMode).toBe("degraded");
+    expect(result.reportError).toBeDefined();
+    expect(onCaptureOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "partial" }),
+    );
+  });
+
   it("stops before reading the dashboard when the delivery deadline has already passed", async () => {
     await expect(
       sendDashboardReportSubscription(subscription(), {
@@ -437,11 +460,11 @@ describe("dashboard report email", () => {
         return fakePanelData(args.snapshot);
       });
 
+      // Whichever bounded step notices first, the invariant is that it rejects
+      // and nothing is delivered.
       await expect(
         sendDashboardReportSubscription(subscription(), { deadlineAt }),
-      ).rejects.toThrow(
-        "Dashboard report rendering exceeded the report delivery deadline",
-      );
+      ).rejects.toThrow("exceeded the report delivery deadline");
       expect(mocks.sendEmail).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
