@@ -37,6 +37,12 @@ inventory existing public kits and installed package seams. Use
 `customizing-agent-native` for the configure → compose → eject → propose seam
 ladder.
 
+## Actions
+
+- Resolve templates or prior designs with `list-design-templates` and
+  `list-designs`, copy with `create-design-from-template`, then inspect and
+  adapt copied files with `get-design-snapshot` and `edit-design`.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

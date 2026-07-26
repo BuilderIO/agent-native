@@ -309,6 +309,29 @@ async function navigateAndSettle(
   return seen;
 }
 
+/**
+ * Ask for a protected route until the client gate answers.
+ *
+ * Retried rather than waited on: a cold Vite dep-optimize triggers full page
+ * reloads that restart the session query, so a single long wait can expire
+ * mid-reload on a fresh checkout while the gate itself is fine.
+ */
+async function reachSignIn(page: Page, url: string): Promise<URL> {
+  let lastUrl = "";
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await page.goto(url, { waitUntil: "commit", timeout: 60_000 });
+    try {
+      await page.waitForURL(/_agent-native\/sign-in/, { timeout: 30_000 });
+      return new URL(page.url());
+    } catch {
+      lastUrl = page.url();
+    }
+  }
+  throw new Error(
+    `anonymous visitor never reached sign-in from ${url} (stuck at ${lastUrl})`,
+  );
+}
+
 async function signInThroughTheRealForm(page: Page): Promise<void> {
   await page.click('.tab[data-tab="signup"]');
   await page.fill("#s-email", qaEmail);
@@ -328,9 +351,7 @@ async function runDeploySuite(
 
   // 1. Anonymous visitor to a protected route reaches sign-in with a
   //    continuation for THAT route.
-  await page.goto(`${app.origin}${protectedPath}`, { waitUntil: "commit" });
-  await page.waitForURL(/_agent-native\/sign-in/, { timeout: 60_000 });
-  const gateUrl = new URL(page.url());
+  const gateUrl = await reachSignIn(page, `${app.origin}${protectedPath}`);
   assert.equal(
     gateUrl.pathname,
     `${app.basePath}/_agent-native/sign-in`,
@@ -453,7 +474,7 @@ async function runIframeSuite(
   const page = await context.newPage();
   try {
     await page.goto(parentOrigin, { waitUntil: "commit", timeout: 60_000 });
-    const deadline = Date.now() + 60_000;
+    const deadline = Date.now() + 120_000;
     let frameUrl = "";
     while (Date.now() < deadline) {
       const frame = page.frames().find((f) => f !== page.mainFrame());

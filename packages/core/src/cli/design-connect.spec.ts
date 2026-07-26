@@ -565,6 +565,167 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("serves N simultaneously-mounted overview frames independently: concurrent registration, live-edit fetch, proxied asset requests, and HMR upgrades never let one frame starve or overwrite another", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const frameCount = 6;
+    const devServer = http.createServer((req, res) => {
+      const url = new URL(req.url ?? "/", `http://127.0.0.1:${devPort}`);
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!doctype html><html><body><main data-route="${url.pathname}">Screen ${url.pathname}</main></body></html>`,
+      );
+    });
+    const upstreamUpgradePaths: string[] = [];
+    devServer.on("upgrade", (req, socket) => {
+      upstreamUpgradePaths.push(req.url ?? "");
+      const key = String(req.headers["sec-websocket-key"] ?? "");
+      const accept = crypto
+        .createHash("sha1")
+        .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest("base64");
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+          "Upgrade: websocket\r\n" +
+          "Connection: Upgrade\r\n" +
+          `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const openClientSockets: Array<{ destroy(): void }> = [];
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const auth = { "x-design-preview-token": bridge.previewToken };
+      const frames = Array.from({ length: frameCount }, (_, i) => ({
+        bridgeKey: `frame-${i}`,
+        route: `/screen-${i}`,
+        marker: `MARK_${i}_ONLY`,
+      }));
+
+      // All N frames register their screen-specific bridge script AT THE SAME
+      // TIME, mirroring N iframes mounting together in an overview. If
+      // registration were serialized behind shared mutable state (rather than
+      // each landing independently in the keyed map), a late arrival could
+      // clobber an earlier one before it's ever read back.
+      await Promise.all(
+        frames.map((frame) =>
+          postJson(
+            `${base}/live-edit-bridge`,
+            {
+              script: `<script>window.__frame="${frame.marker}";window.parent.postMessage({type:"agent-native:editor-chrome-ready"},"*");</script>`,
+              bridgeKey: frame.bridgeKey,
+            },
+            auth,
+          ),
+        ),
+      );
+
+      // All N frames fetch their live-edit document AT THE SAME TIME. Each
+      // response must contain only its own marker and route — never another
+      // frame's, and never blank/hung.
+      const liveEditResults = await Promise.all(
+        frames.map((frame) =>
+          getText(
+            `${base}/live-edit?path=${encodeURIComponent(frame.route)}&bridgeKey=${frame.bridgeKey}&previewToken=${bridge.previewToken}`,
+          ),
+        ),
+      );
+      liveEditResults.forEach((result, i) => {
+        const frame = frames[i]!;
+        expect(result.status).toBe(200);
+        expect(result.body).toContain(`window.__frame="${frame.marker}"`);
+        expect(result.body).toContain(`data-route="${frame.route}"`);
+        for (const other of frames) {
+          if (other === frame) continue;
+          expect(result.body).not.toContain(other.marker);
+        }
+      });
+
+      // All N frames also request an ordinary proxied asset AT THE SAME TIME
+      // (simulating each iframe's own JS/CSS module graph loading in
+      // parallel). None should starve behind another.
+      const assetResults = await Promise.all(
+        frames.map((frame) =>
+          getText(
+            `${base}${frame.route}/asset.js?previewToken=${bridge.previewToken}`,
+          ),
+        ),
+      );
+      assetResults.forEach((result, i) => {
+        expect(result.status).toBe(200);
+        expect(result.body).toContain(`data-route="${frames[i]!.route}/asset.js"`);
+      });
+
+      // All N frames open their Vite HMR WebSocket tunnel AT THE SAME TIME.
+      // Every upgrade must independently reach the upstream dev server and
+      // come back 101 — none should hang waiting on another frame's tunnel.
+      const upgradeStatuses = await Promise.all(
+        frames.map(
+          (frame, i) =>
+            new Promise<number>((resolve, reject) => {
+              const request = http.request({
+                hostname: "127.0.0.1",
+                port,
+                path: `/@vite/client?token=hmr-${i}`,
+                headers: {
+                  connection: "Upgrade",
+                  upgrade: "websocket",
+                  origin: base,
+                  cookie: `agent-native-preview-token=${bridge.previewToken}`,
+                  "sec-websocket-key": Buffer.from(`nonce-${i}-nonce`)
+                    .toString("base64")
+                    .padEnd(24, "A")
+                    .slice(0, 24),
+                  "sec-websocket-version": "13",
+                },
+              });
+              const timeout = setTimeout(
+                () => reject(new Error(`frame ${i} upgrade stalled`)),
+                4_000,
+              );
+              request.on("upgrade", (response, socket) => {
+                clearTimeout(timeout);
+                openClientSockets.push(socket);
+                resolve(response.statusCode ?? 0);
+              });
+              request.on("response", (response) => {
+                clearTimeout(timeout);
+                response.resume();
+                resolve(response.statusCode ?? 0);
+              });
+              request.on("error", (error) => {
+                clearTimeout(timeout);
+                reject(error);
+              });
+              request.end();
+            }),
+        ),
+      );
+      expect(upgradeStatuses).toEqual(frames.map(() => 101));
+      expect(upstreamUpgradePaths).toHaveLength(frameCount);
+      expect(new Set(upstreamUpgradePaths).size).toBe(frameCount);
+    } finally {
+      for (const socket of openClientSockets) socket.destroy();
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("signals an unregistered bridgeKey with a machine-readable code and the process's bridgeInstanceId, so a client can tell a restarted bridge apart from a real bug", async () => {
     const root = tmpDir();
     const devPort = await freePort();
