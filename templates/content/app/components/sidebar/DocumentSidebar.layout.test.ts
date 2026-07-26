@@ -74,9 +74,9 @@ describe("document sidebar layout", () => {
   it("gates page tree actions by document capabilities", () => {
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(treeItem).toContain("const canEdit = node.canEdit !== false");
-    expect(treeItem).toContain("const canManage =");
-    expect(treeItem).toContain("{canEdit && (");
+    expect(treeItem).toContain("favoriteAvailable: true");
+    expect(treeItem).toContain("{canFavorite && (");
+    expect(treeItem).toContain("const canCreateChild = canEdit");
     expect(treeItem).toContain("{canManage && (");
   });
 

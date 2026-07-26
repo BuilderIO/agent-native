@@ -43,6 +43,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
@@ -109,11 +111,8 @@ export function FavoriteDocumentItem({
 }) {
   const t = useT();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const canEdit = document.canEdit !== false;
-  const canManage =
-    document.canManage === true ||
-    document.accessRole === "owner" ||
-    document.accessRole === "admin";
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(document, { favoriteAvailable: true });
   const canCreateChild = canEdit && document.source?.mode !== "local-files";
   const title = document.title || t("sidebar.untitled");
 
@@ -154,7 +153,7 @@ export function FavoriteDocumentItem({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
-        {(canEdit || canManage) && (
+        {hasMenuActions && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -167,7 +166,7 @@ export function FavoriteDocumentItem({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
-              {canEdit && (
+              {canFavorite && (
                 <DropdownMenuItem
                   onClick={(event) => {
                     event.stopPropagation();
@@ -178,7 +177,7 @@ export function FavoriteDocumentItem({
                   {t("sidebar.removeFromFavorites")}
                 </DropdownMenuItem>
               )}
-              {canEdit && canManage && <DropdownMenuSeparator />}
+              {canFavorite && canManage && <DropdownMenuSeparator />}
               {canManage && (
                 <DropdownMenuItem
                   className="text-destructive"
@@ -279,12 +278,8 @@ export function DocumentTreeItem({
   const isActive = node.id === activeId;
   const isLocalFileNode = node.source?.mode === "local-files";
   const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
-  const canEdit = node.canEdit !== false;
-  const canManage =
-    node.canManage === true ||
-    node.accessRole === "owner" ||
-    node.accessRole === "admin";
-  const hasMenuActions = canEdit || canManage;
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contextSheetOpen, setContextSheetOpen] = useState(false);
@@ -407,7 +402,7 @@ export function DocumentTreeItem({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
-                {canEdit && (
+                {canFavorite && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
@@ -423,7 +418,7 @@ export function DocumentTreeItem({
                       : "Add to favorites"}
                   </DropdownMenuItem>
                 )}
-                {canEdit && canManage && <DropdownMenuSeparator />}
+                {canFavorite && canManage && <DropdownMenuSeparator />}
                 {canEdit && !isLocalFileNode && (
                   <DropdownMenuItem
                     onSelect={(event) => {

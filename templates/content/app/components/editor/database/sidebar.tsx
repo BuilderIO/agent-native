@@ -20,6 +20,7 @@ import {
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 
+import { documentSidebarActionAvailability } from "@/components/sidebar/document-sidebar-actions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -506,15 +507,12 @@ function DatabaseSidebarRow({
 }) {
   const t = useT();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const canEdit = item.document.canEdit !== false;
-  const canManage =
-    item.document.canManage === true ||
-    item.document.accessRole === "owner" ||
-    item.document.accessRole === "admin";
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(item.document, {
+      favoriteAvailable: Boolean(onToggleFavorite),
+      manageAvailable: Boolean(onDeleteItem),
+    });
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
-  const hasMenuActions =
-    (canEdit && Boolean(onToggleFavorite)) ||
-    (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -611,7 +609,7 @@ function DatabaseSidebarRow({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {canEdit && onToggleFavorite ? (
+                  {canFavorite && onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
                       <IconStar
                         className={cn(
@@ -624,7 +622,10 @@ function DatabaseSidebarRow({
                         : "Add to favorites"}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit && onToggleFavorite && canManage && onDeleteItem ? (
+                  {canFavorite &&
+                  onToggleFavorite &&
+                  canManage &&
+                  onDeleteItem ? (
                     <DropdownMenuSeparator />
                   ) : null}
                   {canManage && onDeleteItem ? (

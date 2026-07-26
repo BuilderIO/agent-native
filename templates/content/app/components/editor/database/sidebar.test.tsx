@@ -588,4 +588,99 @@ describe("DatabaseSidebarView", () => {
     expect(markup).toContain("group-hover:pointer-events-auto");
     expect(markup).not.toContain("shadow-sm");
   });
+
+  it("lets viewers invoke only the personal Favorite database-row action", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onToggleFavorite = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [
+                    {
+                      ...item("shared", "Shared page"),
+                      document: {
+                        ...item("shared", "Shared page").document,
+                        accessRole: "viewer",
+                        canEdit: false,
+                        canManage: false,
+                      },
+                    },
+                  ],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints={false}
+              openPagesIn="full_page"
+              loadingLabel="Loading list"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              onCreateChildPage={() => {}}
+              onCreateChildDatabase={() => {}}
+              onDeleteItem={() => {}}
+              onToggleFavorite={onToggleFavorite}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Shared page"]',
+    );
+    expect(trigger).toBeTruthy();
+    expect(
+      container.querySelectorAll('button[aria-haspopup="menu"]'),
+    ).toHaveLength(1);
+    expect(
+      container.querySelector('button[aria-label="Add child to Shared page"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    const menuItems = Array.from(
+      document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    );
+    expect(menuItems.map((menuItem) => menuItem.textContent?.trim())).toEqual([
+      "Add to favorites",
+    ]);
+
+    await act(async () => {
+      menuItems[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(onToggleFavorite).toHaveBeenCalledOnce();
+    expect(onToggleFavorite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        document: expect.objectContaining({ id: "shared" }),
+      }),
+    );
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });
