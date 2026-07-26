@@ -368,11 +368,38 @@ export default defineAction({
       }
     }
 
+    const viewports = resolveViewports(args.viewports);
+    const requestedRoutes = args.routes?.length
+      ? args.routes
+      : args.paths?.length
+        ? args.paths.map((path) => ({ path }))
+        : viewports
+          ? routeManifest.routes.map((route) => ({
+              routeId: route.id,
+              path: route.path,
+              title: route.title,
+            }))
+          : undefined;
+    if (viewports && !requestedRoutes?.length) {
+      throw new Error(
+        "viewports needs at least one route: pass routes/paths, or connect a bridge whose manifest lists routes.",
+      );
+    }
+
     const screens = await addLocalhostScreensAction.run({
       designId,
       connectionId: connection.id,
-      routes: args.routes,
-      paths: args.paths,
+      routes:
+        viewports && requestedRoutes
+          ? expandRoutesAcrossViewports({
+              routes: requestedRoutes,
+              viewports,
+              startX: args.startX,
+              startY: args.startY,
+              gap: args.gap,
+            })
+          : args.routes,
+      paths: viewports ? undefined : args.paths,
       defaultWidth: args.defaultWidth,
       defaultHeight: args.defaultHeight,
       startX: args.startX,
