@@ -38,7 +38,6 @@ import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import {
   deleteRecordingChunks,
-  pruneStaleRecordingChunks,
   sumRecordingChunkBytes,
 } from "../../../../lib/recording-upload-state.js";
 import {
@@ -52,6 +51,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
+import { renewUploadLease } from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
@@ -211,13 +211,6 @@ export default defineEventHandler(async (event: H3Event) => {
   debugLog("[chunk] resolved owner:", ownerEmail);
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
-    await pruneStaleRecordingChunks(ownerEmail).catch((err) => {
-      console.warn("[chunk] stale recording chunk prune failed:", {
-        ownerEmail,
-        err: err instanceof Error ? err.message : String(err),
-      });
-    });
-
     const db = getDb();
 
     // Verify the recording belongs to the current user.

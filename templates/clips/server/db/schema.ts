@@ -165,6 +165,9 @@ export const recordings = table("recordings", {
     .notNull()
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
+  // Authoritative liveness for an in-flight upload: renewed by every chunk
+  // POST, and the only thing the upload reaper is allowed to consult.
+  uploadLeaseExpiresAt: text("upload_lease_expires_at"),
   failureReason: text("failure_reason"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
