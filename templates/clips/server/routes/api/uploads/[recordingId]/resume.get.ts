@@ -1,3 +1,5 @@
+// guard:allow-api-route — Upload transport resume endpoint returns lease and offset state for the chunk protocol.
+
 /**
  * Report the authoritative received-offset for an in-flight upload, so a
  * client whose stream dropped can continue instead of stranding.

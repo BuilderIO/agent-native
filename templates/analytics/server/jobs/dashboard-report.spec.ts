@@ -26,10 +26,13 @@ vi.mock("../lib/dashboard-report-subscriptions", () => ({
     mocks.recordDashboardReportCaptureOutcome,
 }));
 
+import type { DashboardReportResult } from "../lib/dashboard-report";
 import type { DashboardReportSubscription } from "../lib/dashboard-report-subscriptions";
 import { runDashboardReportsOnce } from "./dashboard-report";
 
-function subscription(): DashboardReportSubscription {
+function subscription(
+  overrides: Partial<DashboardReportSubscription> = {},
+): DashboardReportSubscription {
   return {
     id: "sub_1",
     dashboardId: "agent-native",
@@ -51,6 +54,20 @@ function subscription(): DashboardReportSubscription {
     updatedAt: "2026-06-29T00:00:00.000Z",
     ownerEmail: "steve@builder.io",
     orgId: "org_1",
+    ...overrides,
+  };
+}
+
+function completeResult(
+  overrides: Partial<DashboardReportResult> = {},
+): DashboardReportResult {
+  return {
+    dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+    recipientCount: 1,
+    reportMode: "complete",
+    degradedPanelIds: [],
+    emailsSent: true,
+    ...overrides,
   };
 }
 
@@ -75,37 +92,181 @@ describe("dashboard report sweep", () => {
     vi.unstubAllEnvs();
   });
 
-  it("sets the serverless delivery deadline before claiming work", async () => {
-    vi.useFakeTimers();
-    vi.stubEnv("NETLIFY", "true");
-    const startedAt = new Date("2026-07-23T12:00:00.000Z");
-    vi.setSystemTime(startedAt);
+  it("persists a complete report as success with zero failures", async () => {
     const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockImplementation(async () => {
-      vi.setSystemTime(new Date(startedAt.getTime() + 80_000));
-      return [sub];
-    });
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: true,
-      screenshotMode: "full",
-      emailsSent: true,
-    });
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
 
-    await runDashboardReportsOnce();
+    const result = await runDashboardReportsOnce();
 
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: false,
-        deadlineAt: startedAt.getTime() + 220_000,
-        onCaptureOutcome: expect.any(Function),
-      }),
+      "success",
     );
   });
 
-  it("persists the capture checkpoint before email delivery continues", async () => {
+  it("counts a degraded-but-emailed report as failed and names the degraded panels", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(
+      completeResult({
+        reportMode: "degraded",
+        degradedPanelIds: ["panel_revenue", "panel_signups"],
+        emailsSent: true,
+      }),
+    );
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({ skipEmailWhenDegraded: false }),
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 sent a degraded report:",
+      "panels unavailable: panel_revenue, panel_signups",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "panels unavailable: panel_revenue, panel_signups",
+    );
+  });
+
+  it("holds back a degraded report inside the retry window without counting it as failed", async () => {
+    const sub = subscription();
+    const retryAt = "2026-07-13T11:16:00.000Z";
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(
+      completeResult({
+        reportMode: "degraded",
+        degradedPanelIds: ["panel_revenue"],
+        reportError: "dashboard render timed out",
+        emailsSent: false,
+      }),
+    );
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({ skipEmailWhenDegraded: true }),
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 held back a degraded report, will retry:",
+      "dashboard render timed out",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "dashboard render timed out (retry scheduled)",
+      { nextRunAt: retryAt },
+    );
+  });
+
+  it("persists the held-back error without a nextRunAt once the retry window has closed", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(null);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(
+      completeResult({
+        reportMode: "degraded",
+        degradedPanelIds: ["panel_revenue"],
+        emailsSent: false,
+      }),
+    );
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({ skipEmailWhenDegraded: false }),
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "panels unavailable: panel_revenue (retry scheduled)",
+    );
+  });
+
+  it("marks the subscription failed when send throws and persists the thrown message", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockRejectedValue(
+      new Error("Email provider rejected the message"),
+    );
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 failed:",
+      "Email provider rejected the message",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "Email provider rejected the message",
+    );
+  });
+
+  it("swallows a persist failure, counts it as failed, and still processes the rest of the batch", async () => {
+    const subA = subscription({ id: "sub_a" });
+    const subB = subscription({ id: "sub_b" });
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([subA, subB]);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
+    mocks.markDashboardReportResult.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 2, failed: 1, remaining: 0 });
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledTimes(2);
+    expect(mocks.markDashboardReportResult).toHaveBeenNthCalledWith(
+      1,
+      subA,
+      "success",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenNthCalledWith(
+      2,
+      subB,
+      "success",
+    );
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Failed to persist subscription sub_a result:",
+      "database unavailable",
+    );
+  });
+
+  it("continues processing later subscriptions after an earlier one throws", async () => {
+    const subA = subscription({ id: "sub_a" });
+    const subB = subscription({ id: "sub_b" });
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([subA, subB]);
+    mocks.sendDashboardReportSubscription
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce(completeResult());
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 2, failed: 1, remaining: 0 });
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      subA,
+      "error",
+      "boom",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      subB,
+      "success",
+    );
+  });
+
+  it("wires onCaptureOutcome to persist the capture checkpoint for the subscription", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockImplementation(
@@ -119,18 +280,14 @@ describe("dashboard report sweep", () => {
         },
       ) => {
         await options.onCaptureOutcome?.({
-          mode: "none",
-          error: "report chunk timed out",
+          mode: "partial",
+          error: "part 2 timed out",
         });
-        return {
-          dashboardUrl:
-            "https://analytics.example.test/dashboards/agent-native",
-          recipientCount: 1,
-          screenshotAttached: false,
-          screenshotMode: "none" as const,
-          screenshotError: "report chunk timed out",
-          emailsSent: true,
-        };
+        return completeResult({
+          reportMode: "degraded",
+          degradedPanelIds: ["panel_2"],
+          reportError: "part 2 timed out",
+        });
       },
     );
 
@@ -138,266 +295,102 @@ describe("dashboard report sweep", () => {
 
     expect(mocks.recordDashboardReportCaptureOutcome).toHaveBeenCalledWith(
       sub,
-      { mode: "none", error: "report chunk timed out" },
+      { mode: "partial", error: "part 2 timed out" },
     );
   });
 
-  it("keeps Netlify sweeps to one report even when an override requests more", async () => {
+  it("captures the serverless delivery deadline before claiming work", async () => {
+    vi.useFakeTimers();
     vi.stubEnv("NETLIFY", "true");
-    vi.stubEnv("DASHBOARD_REPORT_SWEEP_LIMIT", "5");
+    const startedAt = new Date("2026-07-23T12:00:00.000Z");
+    vi.setSystemTime(startedAt);
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockImplementation(async () => {
+      vi.setSystemTime(new Date(startedAt.getTime() + 80_000));
+      return [sub];
+    });
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
+      sub,
+      expect.objectContaining({
+        deadlineAt: startedAt.getTime() + 220_000,
+        onCaptureOutcome: expect.any(Function),
+      }),
+    );
+  });
+
+  it("omits the delivery deadline off Netlify", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
+
+    await runDashboardReportsOnce();
+
+    const options = mocks.sendDashboardReportSubscription.mock.calls[0][1];
+    expect(options).not.toHaveProperty("deadlineAt");
+  });
+
+  it("claims up to 5 reports per sweep on Netlify regardless of the override", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DASHBOARD_REPORT_SWEEP_LIMIT", "1");
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([]);
 
     await runDashboardReportsOnce();
 
-    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(1);
+    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(5);
   });
 
-  it("does not spend a second write budget when result persistence fails", async () => {
-    const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: true,
-      screenshotMode: "full",
-      emailsSent: true,
-    });
-    mocks.markDashboardReportResult.mockRejectedValue(
-      new Error("database unavailable"),
-    );
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledOnce();
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Failed to persist subscription sub_1 result:",
-      "database unavailable",
-    );
-  });
-
-  it("marks a screenshotless delivery failed while preserving its diagnostic", async () => {
-    const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: false,
-      screenshotMode: "none",
-      screenshotError: "dashboard render timed out",
-      emailsSent: true,
-    });
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
-      sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: false,
-        onCaptureOutcome: expect.any(Function),
-      }),
-    );
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Subscription sub_1 sent without a screenshot:",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
-  });
-
-  it("marks delivery as failed when the email send throws", async () => {
-    const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.sendDashboardReportSubscription.mockRejectedValue(
-      new Error("Email provider rejected the message"),
-    );
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
-      sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: false,
-        onCaptureOutcome: expect.any(Function),
-      }),
-    );
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Email provider rejected the message",
-    );
-  });
-
-  it("skips the fallback email and reschedules a retry within the retry window", async () => {
-    const sub = subscription();
-    const retryAt = "2026-07-13T11:16:00.000Z";
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: false,
-      screenshotMode: "none",
-      screenshotError: "dashboard render timed out",
-      emailsSent: false,
-    });
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
-      sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: true,
-        onCaptureOutcome: expect.any(Function),
-      }),
-    );
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Subscription sub_1 skipped sending without a screenshot, will retry:",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Dashboard screenshot unavailable: dashboard render timed out (retry scheduled)",
-      { nextRunAt: retryAt },
-    );
-  });
-
-  it("falls back to the no-screenshot email once the retry window has elapsed", async () => {
-    const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(null);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: false,
-      screenshotMode: "none",
-      screenshotError: "dashboard render timed out",
-      emailsSent: true,
-    });
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
-      sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: false,
-        onCaptureOutcome: expect.any(Function),
-      }),
-    );
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Subscription sub_1 sent without a screenshot:",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Dashboard screenshot unavailable: dashboard render timed out",
-    );
-  });
-
-  it("keeps suppressing link-only delivery while the retry window is active", async () => {
-    const sub = subscription();
-    const retryAt = "2026-06-30T11:10:00.000Z";
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: false,
-      screenshotMode: "none",
-      screenshotError: "dashboard render timed out",
-      emailsSent: false,
-    });
+  it("honors DASHBOARD_REPORT_SWEEP_LIMIT off Netlify", async () => {
+    vi.stubEnv("DASHBOARD_REPORT_SWEEP_LIMIT", "3");
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([]);
 
     await runDashboardReportsOnce();
 
-    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
-      sub,
-      expect.objectContaining({
-        skipEmailWithoutScreenshot: true,
-        onCaptureOutcome: expect.any(Function),
-      }),
-    );
+    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(3);
   });
 
-  it("reschedules a partial capture while the complete-report retry window is active", async () => {
-    const sub = subscription();
-    const retryAt = "2026-06-30T11:10:00.000Z";
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: false,
-      screenshotMode: "partial",
-      screenshotError: "part 2 timed out",
-      emailsSent: false,
-    });
+  it("defaults to a sweep limit of 5 off Netlify with no override", async () => {
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([]);
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.claimDueDashboardReportSubscriptions).toHaveBeenCalledWith(5);
+  });
+
+  it("reports remaining work when the batch fills the sweep limit", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const subs = Array.from({ length: 5 }, (_, i) =>
+      subscription({ id: `sub_${i}` }),
+    );
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue(subs);
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Dashboard screenshot unavailable: part 2 timed out (retry scheduled)",
-      { nextRunAt: retryAt },
-    );
+    expect(result).toEqual({ processed: 5, failed: 0, remaining: 1 });
   });
 
-  it("marks a complete screenshot delivery successful", async () => {
+  it("returns zeros for a concurrent call while a sweep is already running", async () => {
     const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(null);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: true,
-      screenshotMode: "full",
-      emailsSent: true,
-    });
-
-    const result = await runDashboardReportsOnce();
-
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "success",
+    let releaseClaim!: (subs: DashboardReportSubscription[]) => void;
+    mocks.claimDueDashboardReportSubscriptions.mockImplementation(
+      () =>
+        new Promise<DashboardReportSubscription[]>((resolve) => {
+          releaseClaim = resolve;
+        }),
     );
-  });
+    mocks.sendDashboardReportSubscription.mockResolvedValue(completeResult());
 
-  it("delivers an honest partial final report while preserving the failure diagnostic", async () => {
-    const sub = subscription();
-    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
-    mocks.dashboardReportRetryAt.mockReturnValue(null);
-    mocks.sendDashboardReportSubscription.mockResolvedValue({
-      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
-      recipientCount: 1,
-      screenshotAttached: true,
-      screenshotMode: "partial",
-      screenshotError: "part 2 timed out",
-      emailsSent: true,
-    });
+    const firstRun = runDashboardReportsOnce();
+    const concurrentResult = await runDashboardReportsOnce();
 
-    const result = await runDashboardReportsOnce();
+    expect(concurrentResult).toEqual({ processed: 0, failed: 0, remaining: 0 });
 
-    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
-    expect(console.error).toHaveBeenCalledWith(
-      "[dashboard-report] Subscription sub_1 sent with a partial screenshot:",
-      "Dashboard screenshot partially available: part 2 timed out",
-    );
-    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
-      sub,
-      "error",
-      "Dashboard screenshot partially available: part 2 timed out",
-    );
+    releaseClaim([sub]);
+    const firstResult = await firstRun;
+    expect(firstResult).toEqual({ processed: 1, failed: 0, remaining: 0 });
   });
 });

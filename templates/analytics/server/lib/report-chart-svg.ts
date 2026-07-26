@@ -108,6 +108,202 @@ function truncate(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 2).trimEnd()}...` : value;
 }
 
+/**
+ * resvg gives no text metrics, so every width here is estimated from glyph
+ * classes. Overestimating is the safe direction: layout leaves a gap, it does
+ * not clip.
+ */
+function estimateTextWidth(value: string, fontSize: number): number {
+  let units = 0;
+  for (const char of value) {
+    if (char === " ") {
+      units += 0.28;
+    } else if (/[MW@#%&]/.test(char)) {
+      units += 0.86;
+    } else if (/[A-Z]/.test(char)) {
+      units += 0.64;
+    } else if (/[ilI.,:;|!']/u.test(char)) {
+      units += 0.26;
+    } else if (/[0-9]/.test(char)) {
+      units += 0.56;
+    } else {
+      units += 0.54;
+    }
+  }
+  return units * fontSize;
+}
+
+function trimToWidth(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+): string {
+  if (estimateTextWidth(value, fontSize) <= maxWidth) return value;
+  let trimmed = value;
+  while (trimmed && estimateTextWidth(`${trimmed}...`, fontSize) > maxWidth) {
+    trimmed = trimmed.slice(0, -1).trimEnd();
+  }
+  return trimmed ? `${trimmed}...` : "";
+}
+
+function wrapToWidth(
+  value: string,
+  fontSize: number,
+  maxWidth: number,
+  maxLines: number,
+): string[] {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const lines: string[] = [];
+  let current = words[0];
+  for (const word of words.slice(1)) {
+    const next = `${current} ${word}`;
+    if (estimateTextWidth(next, fontSize) <= maxWidth) {
+      current = next;
+      continue;
+    }
+    lines.push(current);
+    current = word;
+  }
+  lines.push(current);
+
+  const kept = lines.slice(0, maxLines);
+  if (lines.length > maxLines) {
+    kept[maxLines - 1] =
+      `${kept[maxLines - 1]} ${lines.slice(maxLines).join(" ")}`;
+  }
+  return kept.map((line) => trimToWidth(line, fontSize, maxWidth));
+}
+
+const TITLE_BASELINE = 32;
+const SUBTITLE_BASELINE = 54;
+const SUBTITLE_LINE_HEIGHT = 17;
+const HEADER_INSET = 24;
+
+function renderChartHeader({
+  title,
+  subtitle,
+  width,
+  theme,
+  fontFamily,
+  fit,
+}: {
+  title: string;
+  subtitle: string;
+  width: number;
+  theme: ChartSvgTheme;
+  fontFamily: string;
+  fit: boolean;
+}): { titleMarkup: string; subtitleMarkup: string; headerBottom: number } {
+  const maxWidth = width - HEADER_INSET * 2;
+  // Bold glyphs run wider than the regular-weight estimate.
+  const titleText = fit ? trimToWidth(title, 22 * 1.06, maxWidth) : title;
+  const subtitleLines = !subtitle
+    ? []
+    : fit
+      ? wrapToWidth(subtitle, 13, maxWidth, 2)
+      : [subtitle];
+
+  return {
+    titleMarkup: `<text x="${HEADER_INSET}" y="${TITLE_BASELINE}" font-family="${fontFamily}" font-size="22" font-weight="700" fill="${theme.titleColor}">${escapeXml(titleText)}</text>`,
+    subtitleMarkup: subtitleLines
+      .map(
+        (line, index) =>
+          `<text x="${HEADER_INSET}" y="${SUBTITLE_BASELINE + index * SUBTITLE_LINE_HEIGHT}" font-family="${fontFamily}" font-size="13" fill="${theme.tickColor}">${escapeXml(line)}</text>`,
+      )
+      .join(""),
+    headerBottom: subtitleLines.length
+      ? SUBTITLE_BASELINE + (subtitleLines.length - 1) * SUBTITLE_LINE_HEIGHT
+      : TITLE_BASELINE,
+  };
+}
+
+const LEGEND_FONT_SIZE = 12;
+const LEGEND_LABEL_INSET = 18;
+const LEGEND_ENTRY_GAP = 20;
+const LEGEND_ROW_HEIGHT = 18;
+const LEGEND_MAX_ROWS = 3;
+
+type LegendEntry = { label: string; color: string; x: number; width: number };
+
+function layoutLegend(
+  entries: Array<{ label: string; color: string }>,
+  maxWidth: number,
+): { rows: LegendEntry[][]; marker: string | null; markerX: number } {
+  const rows: LegendEntry[][] = [[]];
+  let cursor = 0;
+  let placed = 0;
+
+  for (const entry of entries) {
+    const label = trimToWidth(
+      entry.label,
+      LEGEND_FONT_SIZE,
+      maxWidth - LEGEND_LABEL_INSET,
+    );
+    const width =
+      LEGEND_LABEL_INSET + estimateTextWidth(label, LEGEND_FONT_SIZE);
+    if (cursor > 0 && cursor + width > maxWidth) {
+      if (rows.length >= LEGEND_MAX_ROWS) break;
+      rows.push([]);
+      cursor = 0;
+    }
+    rows[rows.length - 1].push({ label, color: entry.color, x: cursor, width });
+    cursor += width + LEGEND_ENTRY_GAP;
+    placed += 1;
+  }
+
+  const lastRow = rows[rows.length - 1];
+  let hidden = entries.length - placed;
+  while (hidden > 0) {
+    const marker = `+${hidden} more`;
+    const fits =
+      cursor + estimateTextWidth(marker, LEGEND_FONT_SIZE) <= maxWidth;
+    if (fits || lastRow.length <= 1) {
+      return { rows, marker, markerX: cursor };
+    }
+    cursor = lastRow[lastRow.length - 1].x;
+    lastRow.pop();
+    hidden += 1;
+  }
+  return { rows, marker: null, markerX: 0 };
+}
+
+/**
+ * Every stepped label plus both endpoints, minus any that would collide with
+ * the label to its left. The final label wins ties so the range end is always
+ * readable, and both endpoints are nudged inward to stay on canvas.
+ */
+function layoutXLabels(
+  texts: string[],
+  centerFor: (index: number) => number,
+  step: number,
+  width: number,
+): Array<{ text: string; x: number }> {
+  const last = texts.length - 1;
+  if (last < 0) return [];
+  const candidates = texts
+    .map((_, index) => index)
+    .filter((index) => index % step === 0 || index === last);
+
+  const drawn: Array<{ text: string; x: number; right: number }> = [];
+  for (const index of candidates) {
+    const text = texts[index];
+    const half = estimateTextWidth(text, 11) / 2;
+    const x = Math.min(
+      Math.max(centerFor(index), 6 + half),
+      width - 6 - half,
+    );
+    const collides = () =>
+      drawn.length > 0 && x - half < drawn[drawn.length - 1].right + 8;
+    if (index === last) {
+      while (drawn.length > 1 && collides()) drawn.pop();
+    }
+    if (collides()) continue;
+    drawn.push({ text, x, right: x + half });
+  }
+  return drawn.map(({ text, x }) => ({ text, x }));
+}
+
 function clampedValue(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
@@ -134,6 +330,7 @@ function renderCartesianChartSvg({
   theme,
   fontFamily,
   stacked,
+  fit,
 }: {
   title: string;
   subtitle: string;
@@ -145,14 +342,36 @@ function renderCartesianChartSvg({
   theme: ChartSvgTheme;
   fontFamily: string;
   stacked: boolean;
+  fit: boolean;
 }): string {
   const safeWidth = clampSize(width, 360, 2000);
   const safeHeight = clampSize(height, 240, 1200);
   const chartLeft = 58;
   const chartRight = safeWidth - 28;
-  const chartTop = subtitle ? 88 : 66;
   const chartBottom = safeHeight - 48;
   const plotWidth = Math.max(1, chartRight - chartLeft);
+
+  const header = renderChartHeader({
+    title,
+    subtitle,
+    width: safeWidth,
+    theme,
+    fontFamily,
+    fit,
+  });
+  const legendTop = subtitle ? header.headerBottom + 4 : 42;
+  const legendLayout =
+    fit && series.length > 1 ? layoutLegend(series, plotWidth) : null;
+  const legendHeight = legendLayout
+    ? (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 12
+    : 12;
+  const chartTop = fit
+    ? series.length > 1
+      ? legendTop + legendHeight + 18
+      : header.headerBottom + 34
+    : subtitle
+      ? 88
+      : 66;
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
@@ -196,13 +415,25 @@ function renderCartesianChartSvg({
     return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value))}</text>`;
   }).join("");
 
-  const xLabels = labels
-    .map((label, index) => {
-      if (index % labelStep !== 0 && index !== labels.length - 1) return "";
-      const x = chartLeft + slot * index + slot / 2;
-      return `<text x="${x.toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(truncate(label, 14))}</text>`;
-    })
-    .join("");
+  const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
+  const xLabels = fit
+    ? layoutXLabels(
+        labels.map((label) => truncate(label, 14)),
+        centerFor,
+        labelStep,
+        safeWidth,
+      )
+        .map(
+          ({ text, x }) =>
+            `<text x="${x.toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(text)}</text>`,
+        )
+        .join("")
+    : labels
+        .map((label, index) => {
+          if (index % labelStep !== 0 && index !== labels.length - 1) return "";
+          return `<text x="${centerFor(index).toFixed(1)}" y="${safeHeight - 18}" text-anchor="middle" font-size="11" fill="${theme.tickColor}">${escapeXml(truncate(label, 14))}</text>`;
+        })
+        .join("");
 
   let marks = "";
   if (stackedBars) {
@@ -290,20 +521,36 @@ function renderCartesianChartSvg({
       : ""
   }`;
 
+  const legendEntries = legendLayout
+    ? legendLayout.rows
+        .map((row, rowIndex) => {
+          const y = rowIndex * LEGEND_ROW_HEIGHT;
+          return row
+            .map(
+              (entry) =>
+                `<rect x="${formatCoord(entry.x)}" y="${y}" width="12" height="12" rx="3" fill="${entry.color}"/><text x="${formatCoord(entry.x + LEGEND_LABEL_INSET)}" y="${y + 11}" font-size="12" fill="${theme.labelColor}">${escapeXml(entry.label)}</text>`,
+            )
+            .join("");
+        })
+        .join("") +
+      (legendLayout.marker
+        ? `<text x="${formatCoord(legendLayout.markerX)}" y="${(legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 11}" font-size="12" fill="${theme.tickColor}">${escapeXml(legendLayout.marker)}</text>`
+        : "")
+    : series
+        .map((entry, index) => {
+          const x = index * 148;
+          return `<rect x="${x}" y="0" width="12" height="12" rx="3" fill="${entry.color}"/><text x="${x + 18}" y="11" font-size="12" fill="${theme.labelColor}">${escapeXml(entry.label)}</text>`;
+        })
+        .join("");
   const legend =
     series.length > 1
-      ? `<g transform="translate(${chartLeft},${subtitle ? 58 : 42})">${series
-          .map((entry, index) => {
-            const x = index * 148;
-            return `<rect x="${x}" y="0" width="12" height="12" rx="3" fill="${entry.color}"/><text x="${x + 18}" y="11" font-size="12" fill="${theme.labelColor}">${escapeXml(entry.label)}</text>`;
-          })
-          .join("")}</g>`
+      ? `<g transform="translate(${chartLeft},${legendTop})">${legendEntries}</g>`
       : "";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${fontFamily}" role="img" aria-label="${escapeXml(title)}">
   <rect width="${safeWidth}" height="${safeHeight}" rx="8" fill="${theme.background}"/>
-  <text x="24" y="32" font-family="${fontFamily}" font-size="22" font-weight="700" fill="${theme.titleColor}">${escapeXml(title)}</text>
-  ${subtitle ? `<text x="24" y="54" font-family="${fontFamily}" font-size="13" fill="${theme.tickColor}">${escapeXml(subtitle)}</text>` : ""}
+  ${header.titleMarkup}
+  ${header.subtitleMarkup}
   ${legend}
   <g font-family="${fontFamily}">
     ${grid}
@@ -341,7 +588,15 @@ function renderPieChartSvg({
 }): string {
   const safeWidth = clampSize(width, 360, 2000);
   const safeHeight = clampSize(height, 240, 1200);
-  const top = subtitle ? 88 : 66;
+  const header = renderChartHeader({
+    title,
+    subtitle,
+    width: safeWidth,
+    theme,
+    fontFamily,
+    fit: true,
+  });
+  const top = header.headerBottom + 34;
   const bottom = safeHeight - 24;
   const diameter = Math.max(
     60,
@@ -414,8 +669,8 @@ function renderPieChartSvg({
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${fontFamily}" role="img" aria-label="${escapeXml(title)}">
   <rect width="${safeWidth}" height="${safeHeight}" rx="8" fill="${theme.background}"/>
-  <text x="24" y="32" font-family="${fontFamily}" font-size="22" font-weight="700" fill="${theme.titleColor}">${escapeXml(title)}</text>
-  ${subtitle ? `<text x="24" y="54" font-family="${fontFamily}" font-size="13" fill="${theme.tickColor}">${escapeXml(subtitle)}</text>` : ""}
+  ${header.titleMarkup}
+  ${header.subtitleMarkup}
   ${wedges}
   ${hole}
   ${legend}
@@ -484,6 +739,7 @@ export function renderStaticChartSvg({
     theme,
     fontFamily: BROWSER_FONT_FAMILY,
     stacked,
+    fit: false,
   });
 }
 
