@@ -1254,6 +1254,95 @@ describe("resolveSecret (generic)", () => {
   });
 });
 
+describe("pre-org solo workspace fallback (generic secrets)", () => {
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("owner@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+  });
+
+  it("finds a pre-org solo workspace row when the org has none", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "pre-org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({
+      value: "pre-org-secret",
+      lookupFailed: false,
+    });
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      { key: "GOOGLE_CLIENT_SECRET", scope: "user", scopeId: "owner@b.com" },
+      { key: "GOOGLE_CLIENT_SECRET", scope: "org", scopeId: "builder_io" },
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "workspace",
+        scopeId: "builder_io",
+      },
+      {
+        key: "GOOGLE_CLIENT_SECRET",
+        scope: "workspace",
+        scopeId: "solo:owner@b.com",
+      },
+    ]);
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe("pre-org-secret");
+  });
+
+  it("prefers the current org-scoped row over a stale pre-org solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "org" && scopeId === "builder_io") {
+        return { value: "current-org-secret", last4: "cret", updatedAt: 2 };
+      }
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "current-org-secret",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scopeId)).not.toContain(
+      "solo:owner@b.com",
+    );
+  });
+
+  it("prefers the org's workspace row over a stale pre-org solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "workspace" && scopeId === "builder_io") {
+        return { value: "org-workspace-secret", last4: "cret", updatedAt: 2 };
+      }
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe(
+      "org-workspace-secret",
+    );
+  });
+
+  it("still reports a failed org-scoped read as retryable instead of answering from the solo row", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) => {
+      if (scope === "org") throw new Error("db query timed out after 12000ms");
+      if (scope === "workspace" && scopeId === "solo:owner@b.com") {
+        return { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 };
+      }
+      return null;
+    });
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    await expect(resolveSecret("GOOGLE_CLIENT_SECRET")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+});
+
 describe("unreadable credential store is not 'not configured'", () => {
   beforeEach(() => {
     mockGetRequestUserEmail.mockReturnValue("tim@b.com");

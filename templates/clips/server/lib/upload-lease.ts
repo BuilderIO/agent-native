@@ -162,9 +162,9 @@ export async function reapExpiredUploads(
             SET status = 'failed',
                 failure_reason = ${p(1)},
                 updated_at = ${p(2)}
-            WHERE id IN (${ids.map((_, i) => p(i + 4)).join(", ")})
-              AND status IN ('uploading', 'processing')
-              AND upload_lease_expires_at < ${p(3)}`,
+            WHERE status IN ('uploading', 'processing')
+              AND upload_lease_expires_at < ${p(3)}
+              AND id IN (${ids.map((_, i) => p(i + 4)).join(", ")})`,
       args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
     });
     failed = result.rowsAffected ?? 0;
