@@ -31,7 +31,6 @@ import {
   engineToProvider,
   type ActionEntry,
 } from "../agent/production-agent.js";
-<<<<<<< HEAD
 import {
   appendDurableContinuationContext,
   runAgentLoopDirectWithSoftTimeout,
