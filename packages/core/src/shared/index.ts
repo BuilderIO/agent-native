@@ -6,6 +6,19 @@ export {
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  SIGN_IN_CONTINUATION_MAX_LENGTH,
+  SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
+  encodeContinuation,
+  normalizeAppPath,
+  signInJourney,
+  signInJourneyInlineScript,
+  type SignInJourney,
+  type SignInJourneyInput,
+} from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {

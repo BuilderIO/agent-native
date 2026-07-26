@@ -142,6 +142,107 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("expands each path across viewports as a row-per-route, column-per-viewport grid", async () => {
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/tasks", "/inbox"],
+      viewports: ["desktop", "mobile"],
+      navigate: false,
+    });
+
+    const routes = mocks.addLocalhostScreensRun.mock.calls[0]![0].routes;
+    expect(routes).toEqual([
+      expect.objectContaining({
+        path: "/tasks",
+        width: 1280,
+        height: 900,
+        x: 0,
+        y: 0,
+        title: "Tasks — Desktop",
+      }),
+      expect.objectContaining({
+        path: "/tasks",
+        width: 390,
+        height: 844,
+        x: 1440,
+        y: 0,
+        title: "Tasks — Mobile",
+      }),
+      expect.objectContaining({
+        path: "/inbox",
+        width: 1280,
+        height: 900,
+        x: 0,
+        y: 1060,
+        title: "Inbox — Desktop",
+      }),
+      expect.objectContaining({
+        path: "/inbox",
+        width: 390,
+        height: 844,
+        x: 1440,
+        y: 1060,
+      }),
+    ]);
+    // paths must not also be forwarded, or add-localhost-screens would ignore
+    // the expanded routes and place one default-size frame per path instead.
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].paths).toBeUndefined();
+  });
+
+  it("accepts explicit viewport sizes and leaves a single viewport's titles alone", async () => {
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      routes: [{ path: "/pricing", title: "Pricing" }],
+      viewports: [{ label: "Wide", width: 1920, height: 1080 }],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
+      expect.objectContaining({
+        path: "/pricing",
+        title: "Pricing",
+        width: 1920,
+        height: 1080,
+      }),
+    ]);
+  });
+
+  it("falls back to the manifest routes when viewports are requested without paths", async () => {
+    await action.run({
+      designId: "design_1",
+      connectionId: "localhost_existing",
+      devServerUrl: "http://localhost:5173",
+      routeManifest: {
+        version: 1,
+        sourceType: "localhost",
+        devServerUrl: "http://localhost:5173",
+        routes: [{ path: "/", title: "Home" }],
+      },
+      viewports: ["mobile"],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun.mock.calls[0]![0].routes).toEqual([
+      expect.objectContaining({ path: "/", width: 390, height: 844 }),
+    ]);
+  });
+
+  it("fails loudly when viewports are requested but no route can be resolved", async () => {
+    await expect(
+      action.run({
+        designId: "design_1",
+        connectionId: "localhost_existing",
+        devServerUrl: "http://localhost:5173",
+        viewports: ["desktop", "mobile"],
+        navigate: false,
+      }),
+    ).rejects.toThrow(/viewports needs at least one route/);
+  });
+
   it("accepts the complete capability list emitted by design connect route discovery", () => {
     const parsed = action.schema.safeParse({
       designId: "design_1",

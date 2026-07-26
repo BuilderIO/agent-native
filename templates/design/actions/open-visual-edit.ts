@@ -394,9 +394,9 @@ export default defineAction({
           ? expandRoutesAcrossViewports({
               routes: requestedRoutes,
               viewports,
-              startX: args.startX,
-              startY: args.startY,
-              gap: args.gap,
+              startX: args.startX ?? 0,
+              startY: args.startY ?? 0,
+              gap: args.gap ?? 160,
             })
           : args.routes,
       paths: viewports ? undefined : args.paths,

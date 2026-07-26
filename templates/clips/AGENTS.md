@@ -13,7 +13,7 @@ ladder.
 Read the matching skill before deeper work in that area:
 
 - `recording` — capture, upload, playback, Loom import, mobile, folders and bulk
-  moves, Chrome extension, diagnostics.
+  moves, Chrome extension.
 - `ai-video-tools` — transcription, cleanup, titles, summaries, chapters,
   `voiceContext`, AI setup and Builder credits.
 - `video-editing` — `editsJson`, trim/split/cut/speed/blur, export.
@@ -25,8 +25,6 @@ Read the matching skill before deeper work in that area:
 - `screen-memory` — local-only desktop screen/app context.
 - `bug-reports` — embedded `/bug-report` launcher and intake limits.
 - `external-integrations` — Slack install, Atlassian/Jira, provider-API limits.
-- `agent-native-toolkit`, then `customizing-agent-native`, before building
-  workspace/agent UI or customizing an installed feature.
 - `actions`, `security`, `storing-data`, `frontend-design`, `shadcn-ui` as
   needed.
 
@@ -80,7 +78,7 @@ Read the matching skill before deeper work in that area:
 
 | Action | Purpose |
 | --- | --- |
-| `view-screen`, `navigate`, `refresh-list` | Read context; open a surface |
+| `view-screen`, `navigate` | Read context; open a surface |
 | `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
 | `get-recording-player-data` | Full transcript, chapters, diagnostics |
 | `create-recording`, `finalize-recording` | Create row; finish upload |
@@ -92,13 +90,12 @@ Read the matching skill before deeper work in that area:
 | `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
-| `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings, notes |
+| `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `create-folder`, `create-space` | Comments, folders |
-| `share-resource`, `set-resource-visibility`, `build-embed-url` | Sharing |
+| `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
 | `create-recording-agent-link` | Two-hour `agent_access` share URL |
 | `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |
 | `export-to-brain` | Send ready transcripts to Brain |
 | `get-builder-credit-status` | Whether credits pause AI work |
-| `get-screen-memory-status`, `query-screen-memory-context` | Local context |
-| `tool-search` | Find any other Clips action |
+| `tool-search` | Any other Clips action, e.g. screen-memory reads |

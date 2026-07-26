@@ -57,7 +57,7 @@ Fence keys: `src` (required, same-origin path), `title`, and either `height` (px
 - `sql` — required, non-empty.
 - `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.
 - `chartType` — required, one of `line`, `area`, `bar`, `metric`, `table`, `pie`. Dashboard-layout types (`section`, `heatmap`, `callout`, `extension`) are rejected.
-- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `columns`, `stacked`, `legend`, …).
+- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `rightYKeys`/`rightYFormatter` for a dual-axis line/area/bar chart, `columns`, `stacked`, `legend`, …).
 
 An unknown `source`/`chartType` or blank `sql` renders an error card, not a chart.
 
