@@ -25,7 +25,10 @@ vi.mock("./request-context.js", () => ({
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (...args: any[]) => mockResolveOrgIdForEmail(...args),
 }));
-vi.mock("../db/client.js", () => ({
+vi.mock("../db/client.js", async (importOriginal) => ({
+  // Real isTransientDatabaseError: "unreadable vs absent" is the behavior
+  // under test here, so the classifier must not be stubbed.
+  ...(await importOriginal<typeof import("../db/client.js")>()),
   isLocalDatabase: () => mockIsLocalDatabase(),
 }));
 vi.mock("../settings/store.js", () => ({
@@ -1291,11 +1294,13 @@ describe("unreadable credential store is not 'not configured'", () => {
       CredentialStoreUnavailableError,
     );
     const detailed = await resolveSecretDetailed("OPENAI_API_KEY");
-    expect(detailed).toEqual({ value: null, lookupFailed: true });
+    expect(detailed).toMatchObject({ value: null, lookupFailed: true });
   });
 
   it("throws when the org lookup fails, because org-scoped rows were never searched", async () => {
-    mockResolveOrgIdForEmail.mockRejectedValue(new Error("connection ended"));
+    mockResolveOrgIdForEmail.mockRejectedValue(
+      Object.assign(new Error("db query timed out"), { code: "57014" }),
+    );
     mockReadAppSecret.mockResolvedValue(null);
 
     await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
@@ -1306,7 +1311,7 @@ describe("unreadable credential store is not 'not configured'", () => {
   it("still returns null (definitively absent) when the store answers with no row", async () => {
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
-    expect(await resolveSecretDetailed("OPENAI_API_KEY")).toEqual({
+    expect(await resolveSecretDetailed("OPENAI_API_KEY")).toMatchObject({
       value: null,
       lookupFailed: false,
     });

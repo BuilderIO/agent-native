@@ -11,8 +11,8 @@
 import { createRequire } from "node:module";
 
 import {
+  assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
-  CredentialStoreUnavailableError,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
@@ -587,7 +587,7 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
  */
 async function hasUsableBuilderConnection(): Promise<boolean> {
   const creds = await resolveBuilderCredentialsDetailed();
-  if (creds.lookupFailed) throw new CredentialStoreUnavailableError();
+  assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
 }
 
