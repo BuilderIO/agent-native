@@ -85,7 +85,7 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
@@ -1478,10 +1478,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
     }
-    fetch(appApiPath("/api/theme"))
-      .then((r) => r.json())
+    callAction("get-theme", {}, { method: "GET" })
       .then((d) => {
-        if (d.theme === "light" || d.theme === "dark") {
+        if (d?.theme === "light" || d?.theme === "dark") {
           setTheme(d.theme);
         }
       })

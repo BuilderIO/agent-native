@@ -1024,19 +1024,30 @@ export function shouldShowAssistantMessageFooter({
   return statusIsTerminal;
 }
 
+/**
+ * Server-authoritative "a run for this thread is still active and running".
+ * Local `chatRunning` dips to not-running at every chunk boundary and transport
+ * re-attach while the turn is alive server-side, so it cannot decide on its own
+ * that the agent stopped.
+ */
+export const ServerRunActiveContext = React.createContext(false);
+
 export function shouldShowMissingFinalResponse({
   isCurrentTurnRunning,
+  serverRunActive,
   statusIsTerminal,
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
 }: {
   isCurrentTurnRunning: boolean;
+  serverRunActive?: boolean;
   statusIsTerminal: boolean;
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
 }): boolean {
+  if (serverRunActive) return false;
   // A completed tool can make the latest message look terminal before the
   // active turn attaches its follow-up text.
   return (
@@ -1278,9 +1289,11 @@ export function AssistantMessage() {
     msg.content,
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
+  const serverRunActive = React.useContext(ServerRunActiveContext);
   const showMissingFinalResponse = useSettledFlag(
     shouldShowMissingFinalResponse({
       isCurrentTurnRunning: isLast && chatRunning,
+      serverRunActive: isLast && serverRunActive,
       statusIsTerminal,
       hasAssistantText: responseConnectionText.trim().length > 0,
       hasUnresolvedTool,

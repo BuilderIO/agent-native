@@ -28,6 +28,8 @@ import {
   resolveErroredRunTerminalEvent,
   setRunError,
   setRunTerminalReason,
+  persistRunCheckpointEvent,
+  terminalEventForAbortReason,
 } from "./run-store.js";
 import { isContinuationTerminalReason } from "./types.js";
 import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
@@ -160,23 +162,107 @@ export const DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS =
  * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
  * like the soft timeout, so the normal continuation machinery recovers it.
  *
- * Sits above the 90s in-loop watchdogs (they get first chance to recover with
- * better context). Foreground hosted chunks keep this short so the user sees
- * recovery promptly; proven durable-background chunks use
+ * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
+ * clamps the foreground backstop to a fraction of the chunk's soft timeout
+ * (~30s at a 40s chunk), which is BELOW the 90s in-loop watchdogs rather than
+ * above them. That ordering is deliberate — the in-loop watchdogs could never
+ * fire inside a hosted foreground chunk anyway, since the serverless wall
+ * (~57-59s) arrives first. Proven durable-background chunks keep the full
  * `DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS` so large outputs can use the
  * background budget. Only armed when a soft-timeout regime is active (hosted
  * runs); local dev stays unbounded.
  */
 export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
 
-/** Default SQL retention for completed run event logs (24 hours). */
+/**
+ * Fraction of the soft timeout a foreground no-progress backstop may consume.
+ * The hosted foreground path rides a synchronous serverless function whose
+ * REAL wall is ~57-59s, not the configured 75s — so every watchdog derived
+ * from a fixed constant above the soft timeout (the old flat 150s backstop
+ * included) was unreachable dead code. Deriving from the soft timeout keeps
+ * the backstop inside the budget by construction: at a 40s chunk this is 30s,
+ * comfortably under both the wall and the client-side stuck detector.
+ */
+const FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION = 0.75;
+
+/**
+ * Headroom reserved between a foreground tool call's ceiling and the chunk's
+ * own soft timeout. A tool given a budget at or above the soft timeout can
+ * never be interrupted by its own timeout — the chunk boundary always fires
+ * first — so its timeout is dead code. Callers that impose a per-tool timeout
+ * must clamp to `resolveRunToolTimeoutCeilingMs`.
+ */
+const RUN_TOOL_TIMEOUT_HEADROOM_MS = 5_000;
+
+/**
+ * Largest per-tool timeout that can actually fire inside this run's chunk
+ * budget. `0` means "no run-imposed ceiling" (local dev / unbounded runs), in
+ * which case the caller keeps its own default.
+ */
+export function resolveRunToolTimeoutCeilingMs(softTimeoutMs: number): number {
+  if (!(softTimeoutMs > 0)) return 0;
+  return Math.max(1_000, softTimeoutMs - RUN_TOOL_TIMEOUT_HEADROOM_MS);
+}
+
+/**
+ * Resolve the no-progress backstop for a run.
+ *
+ * Foreground values are clamped to a fraction of the chunk's soft timeout so a
+ * template cannot configure a background-sized window (templates/analytics
+ * passed 3min unconditionally) that outlives the serverless wall AND the
+ * client-side watchdog — which is how the server's whole recovery ladder came
+ * to never run. Background-function runs keep the full background budget and
+ * take `backgroundOverrideMs` when a caller wants to tune only that regime.
+ */
+export function resolveRunNoProgressTimeoutMs(params: {
+  softTimeoutMs: number;
+  backgroundFunction?: boolean;
+  overrideMs?: number;
+  backgroundOverrideMs?: number;
+}): number {
+  const { softTimeoutMs, backgroundFunction } = params;
+  const explicit = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? value
+      : undefined;
+
+  if (backgroundFunction === true) {
+    const override =
+      explicit(params.backgroundOverrideMs) ?? explicit(params.overrideMs);
+    if (override !== undefined) return override;
+    return softTimeoutMs > 0 ? DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS : 0;
+  }
+
+  const override = explicit(params.overrideMs);
+  // Local dev keeps runs unbounded unless a caller explicitly asks otherwise.
+  if (!(softTimeoutMs > 0)) return override ?? 0;
+
+  const ceiling = Math.min(
+    RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+    Math.floor(softTimeoutMs * FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION),
+  );
+  if (override === undefined) return ceiling;
+  return override === 0 ? 0 : Math.min(override, ceiling);
+}
+
+/**
+ * Default SQL retention for completed run event logs (24 hours).
+ *
+ * Deliberately SHORTER than the errored retention below. Reading outcome rates
+ * straight off `agent_runs` over any wider window therefore undercounts
+ * successes — `cleanupOldRuns` rolls each pruned row into
+ * `agent_run_outcome_daily` (see `getRunOutcomeCounters`) so rates stay
+ * correct; use counters plus live rows, not live rows alone.
+ */
 export const DEFAULT_COMPLETED_RUN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Default SQL retention for errored/aborted run event logs (7 days). Kept
- * longer than completed runs so cut-off / failed chats survive for pattern
- * analysis (listErroredRuns) — these are rare and small, and they are exactly
- * the runs we need to study to keep hardening reliability.
+ * Default SQL retention for unsuccessful run event logs — errored, aborted, AND
+ * truncated (7 days). Kept longer than completed runs so cut-off / failed chats
+ * survive for pattern analysis (listErroredRuns): they are exactly the runs we
+ * need to study to keep hardening reliability. Truncations only reach this
+ * window because they are no longer filed as `completed`; while they were, the
+ * most-reported failures were also the fastest-deleted evidence.
  */
 export const DEFAULT_ERRORED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -292,11 +378,19 @@ export interface StartRunOptions {
    */
   noProgressTimeoutMs?: number;
   /**
+   * Override the no-progress backstop for a `backgroundFunction` run only.
+   * Exists so a template can raise the background window without also raising
+   * the foreground one — `noProgressTimeoutMs` is clamped to a fraction of the
+   * foreground chunk budget precisely so it can never outlive the serverless
+   * wall. See `resolveRunNoProgressTimeoutMs`.
+   */
+  backgroundNoProgressTimeoutMs?: number;
+  /**
    * Lifecycle metadata persisted to `agent_runs.dispatch_mode` and surfaced to
    * clients through `/runs/active`. This does not change run-manager behavior;
    * callers use it to describe who owns continuation at hosted chunk boundaries.
    */
-  dispatchMode?: "foreground" | "foreground-self-chain";
+  dispatchMode?: "foreground" | "foreground-self-chain" | "background";
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -444,9 +538,10 @@ function abortInMemoryRun(run: ActiveRun, reason: string = "user") {
     threadToRun.delete(run.threadId);
   }
   run.abort.abort(reason);
+  const terminalEvent = terminalEventForAbortReason(reason);
   for (const subscriber of run.subscribers) {
     try {
-      subscriber({ seq: run.events.length, event: { type: "done" } });
+      subscriber({ seq: run.events.length, event: terminalEvent });
     } catch {
       // ignore — subscriber is being removed below
     }
@@ -700,6 +795,20 @@ export function startRun(
       setRunInFlightMarker(runId, false).catch(() => {});
     }
   };
+  // Make a chunk boundary durable at the instant it is decided. The terminal
+  // event is otherwise only persisted after the agent loop unwinds, and
+  // wind-down routinely eats the little budget left under the ~58s serverless
+  // wall — the process is killed, the auto_continue is never written, and the
+  // reaper records a `stale_run` lie for a run that had honestly checkpointed.
+  // Written into the reserved seq band so it cannot collide with, or be
+  // streamed ahead of, the events the loop is still emitting.
+  const checkpointRunBoundary = (
+    event: AgentChatEvent,
+    terminalReason: string,
+  ) => {
+    persistRunCheckpointEvent(runId, event, terminalReason).catch(() => {});
+  };
+
   const checkNoProgressBackstop = () => {
     if (noProgressTimeoutMs <= 0) return;
     if (run.status !== "running" || abort.signal.aborted) return;
@@ -715,7 +824,12 @@ export function startRun(
     // server-chained for background workers, client-driven for foreground —
     // recovers the turn.
     softTimedOut = true;
-    send({ type: "auto_continue", reason: "no_progress" });
+    const event: AgentChatEvent = {
+      type: "auto_continue",
+      reason: "no_progress",
+    };
+    send(event);
+    checkpointRunBoundary(event, "no_progress");
     abort.abort("no_progress");
   };
 
@@ -799,22 +913,23 @@ export function startRun(
   // Armed only when a soft-timeout regime is active (hosted): local dev keeps
   // unbounded runs. For 40s foreground chunks the soft timeout always fires
   // first, so in practice this guards the long background chunks.
-  const noProgressTimeoutMs =
-    options?.noProgressTimeoutMs ??
-    (softTimeoutMs > 0
-      ? options?.backgroundFunction === true
-        ? DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS
-        : RUN_NO_PROGRESS_HARD_TIMEOUT_MS
-      : 0);
+  const noProgressTimeoutMs = resolveRunNoProgressTimeoutMs({
+    softTimeoutMs,
+    backgroundFunction: options?.backgroundFunction === true,
+    overrideMs: options?.noProgressTimeoutMs,
+    backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
+  });
   const softTimeoutTimer =
     softTimeoutMs > 0
       ? setTimeout(() => {
           if (run.status !== "running" || abort.signal.aborted) return;
           softTimedOut = true;
-          send({
+          const event: AgentChatEvent = {
             type: "auto_continue",
             reason: "run_timeout",
-          });
+          };
+          send(event);
+          checkpointRunBoundary(event, "run_timeout");
           abort.abort("run_timeout");
         }, softTimeoutMs)
       : null;
@@ -979,10 +1094,13 @@ export function startRun(
       };
       let terminalEventForCompletion = resolveTerminalEventForCompletion();
       let terminalEvent = terminalEventForCompletion?.event ?? null;
-      if (
-        onComplete &&
-        !(run.status === "aborted" && run.abortReason === "no_progress")
-      ) {
+      // Runs the completion callback for EVERY terminal outcome, aborts
+      // included. A no-progress abort used to skip it, which discarded the
+      // whole partial turn — prod saw 1471 events, 348 of them streamed text,
+      // vanish on reload. `foldAssistantTurn` in the thread_data writer is
+      // keyed on turnId, so a successor chunk folding onto the same turn
+      // merges rather than duplicating.
+      if (onComplete) {
         try {
           const completionStatus =
             run.status !== "aborted" &&
@@ -1033,6 +1151,17 @@ export function startRun(
         run.abortReason,
         completionError,
       );
+      // A run that stopped at a continuation boundary did not finish, so it is
+      // not `completed`. Persisted directly here rather than left for
+      // `setRunTerminalReason` to correct, so the row is never briefly readable
+      // as a success. `finalStatus` still drives terminal-event emission and
+      // error classification below — those key on "did this fail", not on
+      // "did this finish".
+      const persistedStatus =
+        finalStatus === "completed" &&
+        isContinuationTerminalReason(terminalReason)
+          ? "truncated"
+          : finalStatus;
 
       // 3. Emit the terminal event only after thread_data is durable. Live
       //    SSE clients close on this event and usually fetch thread_data
@@ -1123,7 +1252,10 @@ export function startRun(
         if (!terminalPersistenceError) {
           let statusUpdated = false;
           try {
-            statusUpdated = await updateRunStatusIfRunning(runId, finalStatus);
+            statusUpdated = await updateRunStatusIfRunning(
+              runId,
+              persistedStatus,
+            );
           } catch {
             statusUpdated = false;
           }
@@ -1419,24 +1551,46 @@ function subscribeFromSQL(
                 }
               }
               if (run?.status === "aborted") {
+                // Same treatment as the `completed` branch below: a synthetic
+                // `done` is indistinguishable from a real finish, so an abort
+                // rendered as "the agent stopped without sending a final
+                // message" and dropped the client out of continuation. Prefer
+                // the REAL terminal event, then the reason recorded on the row.
+                const existing = await getLastTerminalRunEvent(runId).catch(
+                  () => null,
+                );
+                const abortReason = run.terminalReason?.startsWith("aborted:")
+                  ? run.terminalReason.slice("aborted:".length)
+                  : undefined;
+                const terminalEvent = existing
+                  ? existing.event
+                  : terminalEventForAbortReason(abortReason);
                 try {
                   controller.enqueue(
                     encoder.encode(
-                      `data: ${JSON.stringify({ type: "done", seq: lastSeq })}\n\n`,
+                      `data: ${JSON.stringify({
+                        ...terminalEvent,
+                        seq: existing?.seq ?? lastSeq,
+                      })}\n\n`,
                     ),
                   );
                 } catch {
                   cancelled = true;
                   return;
                 }
-              } else if (run?.status === "completed") {
-                // A chunk boundary is also status "completed" (with a
-                // continuation terminal_reason, and a chained successor run
-                // already carrying the turn). Synthesizing `done` here told the
-                // client the agent stopped while it was still working, which
-                // surfaced as a premature "stopped without sending a final
-                // message". Prefer the run's REAL terminal event, then the
-                // terminal_reason, before falling back to `done`.
+              } else if (
+                run?.status === "completed" ||
+                run?.status === "truncated"
+              ) {
+                // A chunk boundary is status "truncated" (with a continuation
+                // terminal_reason, and a chained successor run already carrying
+                // the turn). Synthesizing `done` here told the client the agent
+                // stopped while it was still working, which surfaced as a
+                // premature "stopped without sending a final message". Prefer
+                // the run's REAL terminal event, then the terminal_reason,
+                // before falling back to `done`. "completed" is still checked
+                // for chunk-boundary rows written before the truncated status
+                // existed, which linger for one retention window.
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
@@ -1547,6 +1701,24 @@ export function getActiveRunForThread(threadId: string): ActiveRun | null {
 }
 
 /**
+ * `/runs/active` wire compatibility for the `truncated` status.
+ *
+ * Shipped clients key their chunk-boundary handling off
+ * `status === "completed"` plus `terminalReason`
+ * (`BACKGROUND_CONTINUATION_TERMINAL_REASONS` in `client/agent-chat-adapter.ts`)
+ * and would treat an unrecognized status as non-terminal, re-attaching to the
+ * same finished run until a budget expires. SQL keeps the honest status for
+ * retention and telemetry; only the wire reports the legacy value, and
+ * `terminalReason` on the same payload still distinguishes the two.
+ *
+ * DELETE THIS once `client/agent-chat-adapter.ts` reads `truncated` directly —
+ * that is also what lets its hand-maintained reason mirror go away.
+ */
+function legacyWireRunStatus(status: string): string {
+  return status === "truncated" ? "completed" : status;
+}
+
+/**
  * Async version that also checks SQL — for cross-isolate access.
  * Used by the /runs/active endpoint.
  *
@@ -1653,7 +1825,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       }
     }
 
-    const status = sqlSnapshot?.status ?? memRun.status;
+    const status = legacyWireRunStatus(sqlSnapshot?.status ?? memRun.status);
     const heartbeatAt =
       status === "running"
         ? Date.now()
@@ -1771,7 +1943,11 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         hasInFlightWork: sqlRun.inFlightSince != null,
       };
     }
-    if (sqlRun.status === "completed" || sqlRun.status === "errored") {
+    if (
+      sqlRun.status === "completed" ||
+      sqlRun.status === "truncated" ||
+      sqlRun.status === "errored"
+    ) {
       // Cap how far back we'll surface terminal runs as "active". The goal
       // is to catch the recently-completed-but-reconnecting case, not to
       // resurrect ancient turns when the user reopens an old thread.
@@ -1791,7 +1967,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         runId: sqlRun.id,
         threadId: sqlRun.threadId,
         turnId: sqlRun.turnId ?? sqlRun.id,
-        status: sqlRun.status,
+        status: legacyWireRunStatus(sqlRun.status),
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,

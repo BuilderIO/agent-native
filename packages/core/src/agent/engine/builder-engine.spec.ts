@@ -8,6 +8,7 @@ import {
   createBuilderEngine,
 } from "./builder-engine.js";
 import { DEFAULT_BUILDER_MAX_OUTPUT_TOKENS } from "./output-tokens.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "./prompt-cache.js";
 import type { EngineStreamOptions } from "./types.js";
 
 const credentialState = vi.hoisted(() => ({
@@ -214,12 +215,13 @@ describe("createBuilderEngine", () => {
     expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     // With prompt caching enabled the system prompt is wrapped in an array
-    // with a cache_control block on the last element.
+    // with a cache_control block on the last element. The stable prefix takes
+    // the 1h TTL; the per-iteration message breakpoint stays on the default.
     expect(body.system).toEqual([
       {
         type: "text",
         text: "You are helpful.",
-        cache_control: { type: "ephemeral" },
+        cache_control: { type: "ephemeral", ttl: "1h" },
       },
     ]);
     // Message should have a cache_control block on its last content element.
@@ -231,6 +233,48 @@ describe("createBuilderEngine", () => {
         ],
       },
     ]);
+  });
+
+  it("splits the system prompt at the cache sentinel, keeping the breakpoint on the stable prefix", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toEqual([
+      {
+        type: "text",
+        text: "stable",
+        cache_control: { type: "ephemeral", ttl: "1h" },
+      },
+      { type: "text", text: "volatile" },
+    ]);
+  });
+
+  it("strips the cache sentinel when prompt caching is disabled", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        systemPrompt: `stable${SYSTEM_PROMPT_CACHE_SPLIT}volatile`,
+        providerOptions: { anthropic: { cacheControl: false } },
+      }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.system).toBe("stablevolatile");
   });
 
   it("honors an explicit max output token override", async () => {
@@ -379,6 +423,111 @@ describe("createBuilderEngine", () => {
       },
     ]);
     expect(events.find((e) => e.type === "tool-call")).toBeDefined();
+  });
+
+  it("assembles a tool call whose arguments arrive across multiple deltas without a terminal tool-call frame", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '3 plan"',
+          },
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: "}",
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "toolu_01",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+    const assistantContent = events.find((e) => e.type === "assistant-content");
+    expect(assistantContent?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input: { title: "Q3 plan" },
+      },
+    ]);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
+  });
+
+  it("reports a tool call truncated mid-arguments as an in-band tool-call error instead of dropping it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "create_document",
+            argsTextDelta: '{"title":"Q',
+          },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const toolCallError = events.find((e) => e.type === "tool-call-error");
+    expect(toolCallError).toMatchObject({
+      id: "toolu_01",
+      name: "create_document",
+      input: '{"title":"Q',
+    });
+    expect(toolCallError?.error).toMatch(/never finished streaming/i);
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual(
+      [],
+    );
+  });
+
+  it("does not re-emit a tool call the gateway already delivered", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "tool-call-delta",
+            id: "toolu_01",
+            name: "x",
+            argsTextDelta: '{"a":1}',
+          },
+          { type: "tool-call", id: "toolu_01", name: "x", input: { a: 1 } },
+          { type: "stop", reason: "tool_use", requestId: "req_1" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
   });
 
   it("maps gateway heartbeat frames to gateway-heartbeat engine events", async () => {

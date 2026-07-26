@@ -11,6 +11,7 @@ import {
   IconChevronLeft,
   IconExternalLink,
   IconCircleCheck,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect } from "react";
 
@@ -25,6 +26,7 @@ import {
   useIntegrationStatus,
   type IntegrationStatus,
 } from "./useIntegrationStatus.js";
+import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
 // ─── Platform config ─────────────────────────────────────────────────────────
 
@@ -43,15 +45,17 @@ interface PlatformInfo {
 const PLATFORMS: PlatformInfo[] = [
   {
     id: "slack",
-    label: "Slack (legacy)",
+    label: "Slack",
     icon: IconBrandSlack,
     description:
-      "Legacy single-workspace setup. Use Settings → Messaging for new Slack connections.",
+      "@mention the agent in a Slack thread or DM it, and it replies in that thread.",
     envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
-      "Open Settings → Messaging for the supported managed Slack setup",
-      "Use this legacy setup only for an existing single-workspace installation",
-      "Managed OAuth stores workspace bot tokens automatically; do not add SLACK_BOT_TOKEN for new connections",
+      "At api.slack.com/apps, create an app for your workspace, then under OAuth & Permissions add the bot scopes app_mentions:read, chat:write, channels:history, and im:history",
+      "Click Install to Workspace, then copy the Bot User OAuth Token and the Signing Secret (Basic Information → App Credentials) into the two secrets listed below",
+      "Under Event Subscriptions, turn events on, paste the webhook URL below as the Request URL, and subscribe to the bot events app_mention and message.im",
+      "Invite the bot to a channel, @mention it in a thread, and confirm it replies in that same thread",
+      "Running inside a Dispatch workspace instead? Connect Slack from Settings → Messaging there — it stores workspace tokens for you and this page is not needed.",
     ],
     docsUrl: "https://api.slack.com/apps",
   },
@@ -365,22 +369,34 @@ function IntegrationDetail({
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
             {t("integrations.webhookUrl")}
           </div>
-          <div className="flex items-center gap-1">
-            <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-              {serverStatus.webhookUrl}
-            </code>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleCopy(serverStatus.webhookUrl!)}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                >
-                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("integrations.copy")}</TooltipContent>
-            </Tooltip>
-          </div>
+          {isNonPublicWebhookUrl(serverStatus.webhookUrl) ? (
+            <div className="flex gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              <IconInfoCircle size={12} className="mt-px shrink-0" />
+              <span>
+                {t("integrations.webhookUrlLocalOnly", {
+                  platform: platform.label,
+                  url: serverStatus.webhookUrl,
+                })}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
+                {serverStatus.webhookUrl}
+              </code>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleCopy(serverStatus.webhookUrl!)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  >
+                    {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("integrations.copy")}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
         </div>
       )}
 

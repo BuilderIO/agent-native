@@ -6,7 +6,10 @@ const mockGetUserSetting = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetSetting = vi.fn();
 
-vi.mock("../db/client.js", () => ({
+vi.mock("../db/client.js", async (importOriginal) => ({
+  // Real isTransientDatabaseError: the transient-vs-absent split is the
+  // behavior under test, so it must not be stubbed.
+  ...(await importOriginal<typeof import("../db/client.js")>()),
   getDbExec: () => ({ execute: mockExecute }),
   isPostgres: () => false,
   isLocalDatabase: () => true,
@@ -514,6 +517,27 @@ describe("getOrgContext", () => {
     });
   });
 
+  describe("membership-lookup failure (database unreadable)", () => {
+    const transient = () =>
+      Object.assign(new Error("db query timed out"), { code: "57014" });
+
+    it("surfaces the failure instead of reporting no org", async () => {
+      mockGetSession.mockResolvedValue({ email: "tim@b.com" });
+      mockExecute.mockRejectedValueOnce(transient());
+      await expect(getOrgContext(EVENT)).rejects.toThrow("db query timed out");
+    });
+
+    it("does not memoize the failure as 'no memberships'", async () => {
+      mockGetSession.mockResolvedValue({ email: "tim@b.com" });
+      mockExecute.mockRejectedValueOnce(transient());
+      await expect(getOrgContext(EVENT)).rejects.toThrow();
+
+      queueSelect([{ orgId: "builder_io", role: "owner", orgName: "Builder" }]);
+      const ctx = await getOrgContext(EVENT);
+      expect(ctx.orgId).toBe("builder_io");
+    });
+  });
+
   describe("per-event memoization", () => {
     it("returns the same result for two calls on the same event without an extra DB query", async () => {
       mockGetSession.mockResolvedValue({
@@ -787,6 +811,15 @@ describe("resolveOrgIdForEmail", () => {
   it("returns null on a DB error (missing tables) rather than throwing", async () => {
     mockExecute.mockRejectedValueOnce(new Error("no such table: org_members"));
     expect(await resolveOrgIdForEmail("a@b.com")).toBeNull();
+  });
+
+  it("throws when org_members is unreadable, so callers cannot mistake it for 'no org'", async () => {
+    mockExecute.mockRejectedValueOnce(
+      Object.assign(new Error("db query timed out"), { code: "57014" }),
+    );
+    await expect(resolveOrgIdForEmail("a@b.com")).rejects.toThrow(
+      "db query timed out",
+    );
   });
 });
 

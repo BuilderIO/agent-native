@@ -1,7 +1,5 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-
-import { getIdToken } from "@/lib/auth";
 
 export interface DashboardView {
   id: string;
@@ -11,28 +9,13 @@ export interface DashboardView {
   createdAt?: string;
 }
 
-async function fetchWithAuth(url: string, options?: RequestInit) {
-  const token = await getIdToken();
-  return fetch(appApiPath(url), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options?.headers,
-    },
-  });
-}
-
-async function responseError(res: Response, fallback: string): Promise<Error> {
-  try {
-    const body = (await res.json()) as { error?: unknown };
-    if (typeof body.error === "string" && body.error.trim()) {
-      return new Error(body.error.trim());
-    }
-  } catch {
-    // Keep the status fallback when the server did not return JSON.
-  }
-  return new Error(`${fallback}: ${res.status}`);
+async function loadViews(dashboardId: string): Promise<DashboardView[]> {
+  const data = await callAction(
+    "list-dashboard-views",
+    { dashboardId },
+    { method: "GET" },
+  );
+  return (data?.views ?? []) as DashboardView[];
 }
 
 export function useDashboardViews(dashboardId: string | undefined) {
@@ -43,12 +26,7 @@ export function useDashboardViews(dashboardId: string | undefined) {
     queryKey,
     queryFn: async (): Promise<DashboardView[]> => {
       if (!dashboardId) return [];
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
-      );
-      if (!res.ok) throw new Error(`Load failed: ${res.status}`);
-      const data = await res.json();
-      return data.views ?? [];
+      return await loadViews(dashboardId);
     },
     enabled: !!dashboardId,
     staleTime: 30_000,
@@ -58,14 +36,12 @@ export function useDashboardViews(dashboardId: string | undefined) {
   const { mutateAsync: saveView } = useMutation({
     mutationFn: async (view: DashboardView) => {
       if (!dashboardId) return;
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
-        {
-          method: "POST",
-          body: JSON.stringify(view),
-        },
-      );
-      if (!res.ok) throw await responseError(res, "Save failed");
+      await callAction("save-dashboard-view", {
+        dashboardId,
+        id: view.id,
+        name: view.name,
+        filters: view.filters,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -77,11 +53,11 @@ export function useDashboardViews(dashboardId: string | undefined) {
   const { mutateAsync: deleteView } = useMutation({
     mutationFn: async (viewId: string) => {
       if (!dashboardId) return;
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
+      await callAction(
+        "delete-dashboard-view",
+        { dashboardId, viewId },
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -114,11 +90,11 @@ export function useDeleteDashboardView() {
       dashboardId: string;
       viewId: string;
     }) => {
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
+      await callAction(
+        "delete-dashboard-view",
+        { dashboardId, viewId },
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
     },
     onSettled: (_data, _err, { dashboardId }) => {
       queryClient.invalidateQueries({
@@ -140,12 +116,10 @@ export function useAllDashboardViews(dashboardIds: string[]) {
       const results: Record<string, DashboardView[]> = {};
       await Promise.all(
         dashboardIds.map(async (id) => {
-          const res = await fetchWithAuth(
-            `/api/dashboard-views/${encodeURIComponent(id)}`,
-          );
-          if (res.ok) {
-            const data = await res.json();
-            results[id] = data.views ?? [];
+          try {
+            results[id] = await loadViews(id);
+          } catch {
+            // One unreadable dashboard must not blank out the sidebar.
           }
         }),
       );

@@ -96,11 +96,21 @@ needed.
   and remaining-unread counts are the proof of completion.
 - Use `view-screen` when the active thread, selected message, draft, or queue
   item is unclear.
-- Aliases (Settings → Aliases) and provider API-key connections (Gong, Pylon,
-  Apollo, HubSpot) are managed only through raw `/api/*` routes from the
-  Settings UI — there are no `manage-aliases` or `save-*-key` actions. The
-  agent can read HubSpot data via `get-hubspot-contact` but cannot configure
-  any of these connections on the user's behalf.
+- Some Settings surfaces are backed by UI-only actions marked
+  `agentTool: false`, so they are callable from the frontend but invisible to
+  the agent: aliases (`list-aliases`, `create-alias`, `update-alias`,
+  `delete-alias`), the full mail preferences object behind the Settings screen
+  (`get-mail-preferences`, `update-mail-preferences`), automation rule CRUD for
+  the Settings list (`list-automations`, `create-automation`,
+  `update-automation`, `delete-automation`, `get-automation-settings`,
+  `update-automation-settings`), and scheduled-job plumbing
+  (`list-scheduled-jobs`, `create-scheduled-job`). Use the agent-facing
+  equivalents instead: `get-mail-settings` / `update-mail-settings` for
+  signature and writing style, and `manage-automations` for automation rules.
+- Provider API-key connections (Gong, Pylon, Apollo, HubSpot) are managed only
+  through raw `/api/*` routes from the Settings UI — there are no `save-*-key`
+  actions. The agent can read HubSpot data via `get-hubspot-contact` but cannot
+  configure any of these connections on the user's behalf.
 
 ## Action Map
 

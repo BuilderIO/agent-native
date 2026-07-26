@@ -378,9 +378,17 @@ export async function readAppSecret(
       last4: last4(decrypted.value),
       updatedAt: Number(rows[0].updated_at ?? 0),
     };
-  } catch {
+  } catch (error) {
     // Decryption failure — key rotated, tampered row, etc. Don't throw up the
     // stack in a way that could leak the ciphertext; just report missing.
+    // Name the key and scope (never the value) so an encryption-key
+    // misconfiguration is distinguishable from a genuinely absent secret.
+    console.warn(
+      `[agent-native/secrets] Found "${key}" in scope=${scope} but could not decrypt it. ` +
+        "Check that SECRETS_ENCRYPTION_KEY / BETTER_AUTH_SECRET (or A2A_SECRET on a hosted " +
+        "workspace deploy) match the runtime that wrote this row, then re-save the secret.",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }

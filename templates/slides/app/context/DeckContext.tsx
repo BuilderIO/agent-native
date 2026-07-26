@@ -195,11 +195,30 @@ const DeckContext = createContext<DeckContextType | null>(null);
 
 const OPEN_DECK_FALLBACK_POLL_MS = 5_000;
 const DECK_LIST_FALLBACK_POLL_MS = 15_000;
+// Safety-net interval used while the SSE channel is actually connected. The
+// fast intervals above are for when the live channel is genuinely down; running
+// them unconditionally cost an idle deck page ~36 requests/minute.
+const LIVE_CHANNEL_IDLE_POLL_MS = 60_000;
 // Bounded exponential backoff for SSE reconnect after a fatal error (e.g. a
 // non-2xx response, which EventSource treats as terminal and never retries
 // on its own — see the SSE effect below). Doubles from BASE up to MAX.
 const SSE_RECONNECT_BASE_MS = 1_000;
 const SSE_RECONNECT_MAX_MS = 30_000;
+
+/**
+ * How long to wait before the next fallback poll. The poll only takes over at
+ * its fast intervals when the live channel is genuinely not carrying updates;
+ * while SSE is connected it drops to a slow safety net.
+ */
+export function fallbackPollIntervalMs(state: {
+  liveChannelConnected: boolean;
+  hasOpenDeck: boolean;
+}): number {
+  if (state.liveChannelConnected) return LIVE_CHANNEL_IDLE_POLL_MS;
+  return state.hasOpenDeck
+    ? OPEN_DECK_FALLBACK_POLL_MS
+    : DECK_LIST_FALLBACK_POLL_MS;
+}
 
 type DeckListActionResult = {
   decks?: unknown[];
@@ -245,30 +264,6 @@ const saveStateListeners = new Set<() => void>();
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 
-// Every raw deck fetch (the legacy full-replace PUT, the create POST) MUST be
-// bounded. Without a timeout, a stalled connection leaves the awaited promise
-// forever pending, so the `finally` that drains `inFlightSaves` /
-// `pendingCreateIdsRef` never runs — wedging the deck id in a set that
-// `hasUncommittedDeckChanges` reads, which permanently suppresses the poll's
-// and the SSE resync's open-deck refetch (the editor goes blind to agent edits
-// until a full page reload). Matches the granular `patch-deck` path, which is
-// already bounded at 60s by `actionFetch`'s DEFAULT_ACTION_TIMEOUT_MS.
-const RAW_DECK_FETCH_TIMEOUT_MS = 60_000;
-
-async function fetchWithTimeout(
-  input: string,
-  init: RequestInit = {},
-  timeoutMs = RAW_DECK_FETCH_TIMEOUT_MS,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // Cached snapshot for useSyncExternalStore. MUST be stable when the boolean
 // is unchanged or React will infinite-loop (it compares snapshots with
 // Object.is — a fresh object literal every call schedules a new update,
@@ -303,6 +298,14 @@ export function getSaveSnapshot(): { saving: boolean } {
 }
 
 /**
+ * `Deck` is an interface, so it has no implicit index signature and cannot be
+ * passed straight to an action that takes an opaque JSON deck payload.
+ */
+function deckPayload(deck: Deck): Record<string, unknown> {
+  return { ...deck };
+}
+
+/**
  * Enqueue a granular operation for a deck and (re-)arm the debounce.
  *
  * When a `full-replace` op is enqueued, all previously-queued ops for that
@@ -314,8 +317,8 @@ export function getSaveSnapshot(): { saving: boolean } {
  *
  * The debounce fires after 500 ms of quiet, draining the queue via the
  * granular `patch-deck` action. If the queue starts with a `full-replace` op,
- * a direct PUT to `/api/decks/:id` is used first, then any trailing granular
- * ops are sent through `patch-deck`.
+ * the `save-deck` action is called first, then any trailing granular ops are
+ * sent through `patch-deck`.
  */
 function enqueueDeckOp(deckId: string, op: GranularOp) {
   // Clear any pending save timer — we're about to reset it
@@ -344,16 +347,16 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
       if (ops.length === 0) return;
 
       if (ops[0].op === "full-replace") {
-        // Legacy full-deck PUT — used by undo/redo and setDeckSlides.
-        // Bounded so a stalled PUT can't wedge `inFlightSaves` forever (its
-        // `finally` cleanup below only runs once this await settles; an
-        // AbortError from the timeout is a rejection that still reaches it).
+        // Legacy full-deck write — used by undo/redo and setDeckSlides.
+        // `callAction` bounds it so a stalled save can't wedge `inFlightSaves`
+        // forever (its `finally` cleanup below only runs once this await
+        // settles; an AbortError from the timeout still reaches it).
         const deck = ops[0].deck;
-        await fetchWithTimeout(`${appBasePath()}/api/decks/${deckId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(deck),
-        });
+        await callAction(
+          "save-deck",
+          { deckId, deck: deckPayload(deck) },
+          { method: "PUT" },
+        );
         const trailingOps = ops.slice(1) as PatchDeckOp[];
         if (trailingOps.length > 0) {
           await callAction("patch-deck", {
@@ -382,8 +385,9 @@ function enqueueDeckOp(deckId: string, op: GranularOp) {
 
 /**
  * @deprecated Use enqueueDeckOp for new callers. This legacy helper still
- * does a full-deck PUT and is kept only for the initial deck creation path
- * which already inserts via POST — it is NOT called for edits any more.
+ * does a full-deck `save-deck` write and is kept only for the initial deck
+ * creation path which already inserts via `add-deck` — it is NOT called for
+ * edits any more.
  */
 function saveDeckToAPI(deck: Deck) {
   enqueueDeckOp(deck.id, { op: "full-replace", deck });
@@ -401,7 +405,9 @@ function saveDeckToAPI(deck: Deck) {
  * to send keepalive the normal debounce/poll path still catches up on reopen.
  */
 function flushPendingSaves() {
-  const actionUrl = `${agentNativePath("/_agent-native/actions")}/patch-deck`;
+  const actionsBase = agentNativePath("/_agent-native/actions");
+  const actionUrl = `${actionsBase}/patch-deck`;
+  const saveDeckUrl = `${actionsBase}/save-deck`;
   for (const [deckId, timer] of pendingSaves) {
     clearTimeout(timer);
     const ops = pendingOpsQueue.get(deckId);
@@ -410,10 +416,13 @@ function flushPendingSaves() {
     try {
       if (ops[0].op === "full-replace") {
         const deck = ops[0].deck;
-        void fetch(`${appBasePath()}/api/decks/${deckId}`, {
+        void fetch(saveDeckUrl, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(deck),
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Frontend": "1",
+          },
+          body: JSON.stringify({ deckId, deck }),
           keepalive: true,
         });
         const trailingOps = ops.slice(1) as PatchDeckOp[];
@@ -797,32 +806,18 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
   try {
-    await fetch(`${appBasePath()}/api/decks/${id}`, { method: "DELETE" });
+    await callAction("delete-deck", { id }, { method: "DELETE" });
   } catch (err) {
     console.error(`Failed to delete deck ${id}:`, err);
   }
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
-  // Bounded so a stalled create response can't leave the deck id in
-  // `pendingCreateIdsRef` forever (cleared only in the caller's `.finally`,
-  // which needs this promise to settle). A wedged pending-create id would
-  // otherwise suppress the open-deck refetch just like a wedged save.
-  const res = await fetchWithTimeout(`${appBasePath()}/api/decks`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(deck),
-  });
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    try {
-      const body = (await res.json()) as { error?: string; message?: string };
-      message = body.error || body.message || message;
-    } catch {
-      // Keep the HTTP status fallback.
-    }
-    throw new Error(message);
-  }
+  // `callAction` bounds the request so a stalled create response can't leave
+  // the deck id in `pendingCreateIdsRef` forever (cleared only in the caller's
+  // `.finally`, which needs this promise to settle). A wedged pending-create id
+  // would otherwise suppress the open-deck refetch just like a wedged save.
+  await callAction("add-deck", { deck: deckPayload(deck) });
 }
 
 export function changedDeckIds(before: Deck[], after: Deck[]): string[] {
@@ -974,6 +969,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deckBaselineRequestIdRef = useRef(0);
+  // True only while the SSE channel is actually open. Stays false when SSE is
+  // never started (embed auth), so the poll keeps its fast intervals there.
+  const liveChannelConnectedRef = useRef(false);
+  // Lets the SSE effect wake the poll the moment the live channel drops.
+  const pollNowRef = useRef<() => void>(() => {});
+  // Bumped on every local deck create. A deck-list snapshot fetched before a
+  // bump cannot prove that deck is absent server-side.
+  const localCreateSeqRef = useRef(0);
 
   const markDeckDirty = useCallback((deckId: string) => {
     lastExternalUpdateRef.current = 0;
@@ -1111,6 +1114,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   // (rare — usually zero per poll) get a follow-up full fetch so DeckCard can
   // still render an immediate preview for them.
   const refetchDeckListIfChanged = useCallback(async () => {
+    const createSeqAtRequest = localCreateSeqRef.current;
     const fresh = await fetchDeckListLightFromAPI();
     // A null result means the fetch failed (network error or non-2xx). Skip
     // the diff so we don't wipe local state on a transient failure.
@@ -1120,14 +1124,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     const currentDecks = decksRef.current;
     const currentIds = new Set(currentDecks.map((d) => d.id));
     const freshIds = new Set(fresh.map((d) => d.id));
+    // A deck created locally while this request was in flight is absent from
+    // the response because the snapshot predates it, not because the server
+    // dropped it — `pending` alone doesn't cover it, since the create can
+    // resolve (clearing `pending`) before the older list response arrives.
+    // Treating that as a removal is what wiped a just-created deck back to the
+    // "Create your first deck" empty state.
+    const snapshotPredatesLocalCreate =
+      localCreateSeqRef.current !== createSeqAtRequest;
     // Check if deck list changed (added or removed). Optimistic decks still
     // in flight are preserved (not treated as removed).
     const addedIds = fresh
       .filter((d) => !currentIds.has(d.id))
       .map((d) => d.id);
-    const removed = currentDecks.filter(
-      (d) => !freshIds.has(d.id) && !pending.has(d.id),
-    );
+    const removed = snapshotPredatesLocalCreate
+      ? []
+      : currentDecks.filter((d) => !freshIds.has(d.id) && !pending.has(d.id));
     if (addedIds.length === 0 && removed.length === 0) return;
 
     const addedDecks = (
@@ -1135,11 +1147,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     ).filter((d): d is Deck => d !== null);
 
     lastExternalUpdateRef.current = Date.now();
+    const removedIds = new Set(removed.map((d) => d.id));
     setDecks((prev) => {
       const prevIds = new Set(prev.map((d) => d.id));
+      // Drop only the decks this diff actually judged removed — a deck added to
+      // `prev` after the snapshot was taken must survive.
+      let next = prev.filter((d) => !removedIds.has(d.id));
       // Only add decks that aren't already in prev (prevents duplicates when
       // the closure's deck snapshot is stale compared to `prev`).
-      let next = prev.filter((d) => freshIds.has(d.id) || pending.has(d.id));
       for (const a of addedDecks) {
         if (!prevIds.has(a.id)) next = [...next, a];
       }
@@ -1304,10 +1319,13 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const schedule = () => {
       if (stopped || isHidden()) return;
-      const intervalMs = readOpenDeckId()
-        ? OPEN_DECK_FALLBACK_POLL_MS
-        : DECK_LIST_FALLBACK_POLL_MS;
-      timer = setTimeout(poll, intervalMs);
+      timer = setTimeout(
+        poll,
+        fallbackPollIntervalMs({
+          liveChannelConnected: liveChannelConnectedRef.current,
+          hasOpenDeck: Boolean(readOpenDeckId()),
+        }),
+      );
     };
 
     async function poll() {
@@ -1360,12 +1378,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     };
 
     void poll();
+    pollNowRef.current = pollNow;
     window.addEventListener("focus", pollNow);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if (pollNowRef.current === pollNow) pollNowRef.current = () => {};
       window.removeEventListener("focus", pollNow);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -1465,6 +1485,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     const connect = () => {
       if (stopped || isHidden()) return;
+      liveChannelConnectedRef.current = false;
       // Never leak the previous connection.
       if (es) {
         es.close();
@@ -1476,6 +1497,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       next.onmessage = handleMessage;
       next.onopen = () => {
         retryCount = 0;
+        liveChannelConnectedRef.current = true;
         // Every reconnect after the first can have missed broadcasts made
         // while we were disconnected — the SSE channel has no backlog, so
         // resync authoritative state instead of trusting the stream alone
@@ -1487,6 +1509,14 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       };
       next.onerror = () => {
         if (es !== next) return;
+        // Whether the browser is retrying (CONNECTING) or gave up (CLOSED),
+        // the live channel is not delivering — hand liveness back to the
+        // fallback poll instead of letting it idle at 60s. Only the
+        // connected→dropped transition wakes the poll, so a stream of retry
+        // errors during a long outage doesn't turn into a poll per error.
+        const wasConnected = liveChannelConnectedRef.current;
+        liveChannelConnectedRef.current = false;
+        if (wasConnected) pollNowRef.current();
         if (next.readyState === EventSource.CLOSED) {
           // Fatal per spec (non-2xx status, bad content-type, etc.) — the
           // browser will not retry on its own. Reconnect ourselves.
@@ -1516,6 +1546,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stopped = true;
+      liveChannelConnectedRef.current = false;
       clearReconnectTimer();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (es) {
@@ -1615,6 +1646,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Save to API immediately (not debounced). Track as pending so the
       // poll doesn't wipe the optimistic deck before the POST completes.
       pendingCreateIdsRef.current.add(newDeck.id);
+      localCreateSeqRef.current += 1;
       const createPromise = createDeckOnAPI(newDeck);
       pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
       createPromise
@@ -1694,6 +1726,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // Track as pending so the poll doesn't wipe the optimistic deck before
       // the duplicate-deck action's INSERT lands.
       pendingCreateIdsRef.current.add(newId);
+      localCreateSeqRef.current += 1;
       pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.

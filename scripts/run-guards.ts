@@ -34,6 +34,7 @@ const guards = [
   "guard:agent-chat-context",
   "guard:request-storms",
   "guard:ssr-cache-shell",
+  "guard:route-chunk-recovery",
 ] as const;
 
 type GuardName = (typeof guards)[number];

@@ -55,6 +55,15 @@ const messages = {
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
   },
+  secrets: {
+    scopeLabel: "Scope",
+    scopePersonal: "Personal",
+    scopeWorkspace: "Workspace",
+    scopePersonalDescription:
+      "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
+    scopeWorkspaceDescription:
+      "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+  },
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
@@ -775,6 +784,8 @@ const messages = {
   integrations: {
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
+    webhookUrlLocalOnly:
+      "{{platform}} can't call {{url}} — that address only exists on this machine. Deploy the app, or expose this server through an HTTPS tunnel, then open this page from the public address to get a webhook URL you can paste.",
     notConfigured:
       "Not configured. Set the required secrets to enable this integration.",
     enable: "Enable",

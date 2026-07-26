@@ -39,6 +39,9 @@ agent should know.
 
 ## Shared Conventions
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the app's existing checks — not a codebase survey, unrequested
+  tests, or browser automation.
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
@@ -117,7 +120,9 @@ create `defineAction` files in `actions/`, mark reads with
 the same data unless the route is for uploads, streaming, webhooks, OAuth, or
 another route-only concern. Do not add routes whose main job is to wrap,
 proxy, or re-export an action; the action endpoint already exists at
-`/_agent-native/actions/:name`. Action-backed UI is what makes agent-created or
+`/_agent-native/actions/:name`. If you are about to create a file under
+`server/routes/api/`, or middleware to guard one, stop and write a
+`defineAction` instead. Action-backed UI is what makes agent-created or
 agent-edited records appear without a manual refresh.
 
 App database code must be provider-agnostic. Define schemas with

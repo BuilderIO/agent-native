@@ -12,6 +12,7 @@ import {
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread } from "../chat-threads/store.js";
@@ -427,11 +428,15 @@ async function isJobRunAsStillValid(
       return { ok: false, reason: `user "${jobUserEmail}" no longer exists` };
     }
     if (jobOrgId) {
-      const memberResult = await db.execute({
+      const { queryOrgMembers } = await import("../org/context.js");
+      // Shared reader so this and getOrgContext cannot disagree about what a
+      // failed org_members read means: null = tables absent on a brand-new
+      // install (nothing to validate against), throw = unreadable.
+      const memberRows = await queryOrgMembers({
         sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = LOWER(?) LIMIT 1`,
         args: [jobOrgId, jobUserEmail],
       });
-      if (!memberResult.rows || memberResult.rows.length === 0) {
+      if (memberRows && memberRows.length === 0) {
         return {
           ok: false,
           reason: `user "${jobUserEmail}" is no longer a member of org "${jobOrgId}"`,
@@ -440,26 +445,40 @@ async function isJobRunAsStillValid(
     }
     return { ok: true };
   } catch (err: any) {
-    // Tables may not exist on a brand-new install (no auth tables yet).
-    // Treat that as "valid" rather than blocking every job. The check is
-    // only meaningful once the auth tables exist.
-    const msg = err?.message?.toLowerCase() ?? "";
-    if (
-      msg.includes("does not exist") ||
-      msg.includes("no such table") ||
-      msg.includes("undefined table")
-    ) {
-      return { ok: true };
-    }
-    // Any other DB error: be conservative and let the job run rather than
-    // blocking on an unexpected failure mode (e.g. transient connection
-    // issue). We log so it's visible.
+    // Unreadable user/membership state: let the job run rather than blocking
+    // on a failure mode we cannot interpret (e.g. transient connection issue,
+    // or auth tables missing on a brand-new install). We log so it's visible.
     console.warn(
       `[recurring-jobs] User/membership validation failed for "${jobUserEmail}":`,
       err?.message,
     );
     return { ok: true };
   }
+}
+
+/**
+ * A soft-timeout / no-progress checkpoint is a continuation boundary, not a
+ * finish — but `terminalStatusForEvent` maps `auto_continue` to status
+ * "completed". A scheduled job has no client to drive that continuation, so
+ * without this check a truncated half-answer is recorded as a success and
+ * shipped to the job's delivery target. Only the LAST terminal event decides:
+ * an earlier boundary the in-invocation resume already recovered from is
+ * followed by `done`, and that job really did finish.
+ */
+export function jobRunCutOffReason(run: {
+  events?: readonly { event: { type: string; reason?: string } }[];
+}): string | null {
+  const events = run.events ?? [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i].event;
+    if (event.type === "auto_continue") {
+      return event.reason === "run_timeout" || event.reason === "no_progress"
+        ? event.reason
+        : null;
+    }
+    if (event.type === "done" || event.type === "error") return null;
+  }
+  return null;
 }
 
 async function executeJob(
@@ -623,8 +642,12 @@ async function executeJob(
             runId,
             thread.id,
             async (send, signal) => {
-              try {
-                jobUsageRef.current = await runAgentLoop({
+              // Wrapper, not raw `runAgentLoop`: a job has no browser to
+              // re-POST a continuation, so an interrupted transport (gateway
+              // 45s cut, socket hang up, upstream 5xx) has to be resumed
+              // inside this same invocation or the job is simply lost.
+              jobUsageRef.current = await runAgentLoopDirectWithSoftTimeout(
+                {
                   engine,
                   model,
                   systemPrompt,
@@ -635,10 +658,9 @@ async function executeJob(
                   send,
                   signal,
                   threadId: thread.id,
-                });
-              } catch (err) {
-                throw err;
-              }
+                },
+                softTimeoutMs,
+              );
             },
             // onComplete: run finished (completed or aborted)
             async (run) => {
@@ -646,7 +668,14 @@ async function executeJob(
                 clearTimeout(hardAbortTimer);
                 hardAbortTimer = null;
               }
-              if (run.status === "completed") {
+              const cutOffReason = jobRunCutOffReason(run);
+              if (cutOffReason) {
+                reject(
+                  new Error(
+                    `Job run was cut off before finishing (${cutOffReason})`,
+                  ),
+                );
+              } else if (run.status === "completed") {
                 responseText = collectFinalResponseTextFromAgentEvents(
                   (run.events ?? []).map((event) => event.event),
                 );
@@ -657,6 +686,11 @@ async function executeJob(
             },
             {
               softTimeoutMs,
+              // Without this the row is dispatch_mode NULL and the stale
+              // reaper applies RUN_STALE_MS (15s) — a window sized for a
+              // foreground run a browser is actively streaming. Nothing
+              // streams a job, so it gets reaped mid-flight.
+              dispatchMode: "background",
               // turnId defaults to runId — fine for single-turn jobs
             },
           );

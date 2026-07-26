@@ -1,3 +1,4 @@
+import { getDbExec } from "../db/client.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
@@ -89,8 +90,10 @@ export async function resolveCredentialForScope(
  *   3. org-scoped app_secrets
  *   4. legacy workspace-scoped app_secrets for the org
  *   5. org-scoped legacy settings credential
+ *   6. solo workspace scope
  *
- * Without an active org, step 3 is replaced by the solo workspace scope.
+ * Step 6 runs whether or not an org is active, so a credential written before
+ * the user joined an org stays reachable afterwards.
  */
 export async function resolveCredential(
   key: string,
@@ -118,10 +121,73 @@ export async function resolveCredential(
     );
     if (workspaceSecret) return workspaceSecret;
 
-    return resolveCredentialForScope(key, { ...ctx, scope: "org" });
+    const orgSetting = await resolveCredentialForScope(key, {
+      ...ctx,
+      scope: "org",
+    });
+    if (orgSetting) return orgSetting;
   }
 
   return readScopedAppSecret(key, "workspace", `solo:${ctx.userEmail}`);
+}
+
+/**
+ * Explain an empty credential lookup when a key of that name is saved in a
+ * scope the caller cannot read.
+ *
+ * Non-interactive runs — integration/webhook deliveries, scheduled jobs,
+ * automations, and inbound A2A calls — resolve credentials as an owner
+ * identity rather than as the person who triggered them, so a teammate's
+ * Personal key is invisible to them even though the vault visibly holds it.
+ * That produces a "the key is right there and it still says it's missing"
+ * report, which this turns into a self-explanatory one.
+ *
+ * SECURITY: the probe is bounded to the caller's own organization, reports
+ * only the scope kind, and never returns the owning account, how many rows
+ * matched, or any part of the value. Without an active org there is no
+ * boundary to bound the probe to, so it declines to answer rather than
+ * revealing that some other tenant holds a key of the same name.
+ *
+ * Returns null when nothing safe and useful can be said.
+ */
+export async function describeCredentialScopeGap(
+  keys: readonly string[],
+  ctx: CredentialContext,
+): Promise<string | null> {
+  if (!ctx?.userEmail || !ctx.orgId) return null;
+
+  for (const key of keys) {
+    if (!(await hasForeignPersonalCredentialInOrg(key, ctx))) continue;
+    return (
+      `A "${key}" key is saved in this workspace with Personal scope. ` +
+      `Personal keys are readable only by their own owner's signed-in sessions, ` +
+      `and this run resolves credentials as the owner identity behind the ` +
+      `integration, job, or automation — so it needs "${key}" saved with ` +
+      `Workspace or Organization scope instead.`
+    );
+  }
+  return null;
+}
+
+async function hasForeignPersonalCredentialInOrg(
+  key: string,
+  ctx: CredentialContext,
+): Promise<boolean> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT 1 FROM app_secrets s
+              JOIN org_members m ON LOWER(m.email) = LOWER(s.scope_id)
+             WHERE s.key = ? AND s.scope = 'user'
+               AND m.org_id = ? AND LOWER(s.scope_id) <> ?
+             LIMIT 1`,
+      args: [key, ctx.orgId!, ctx.userEmail.toLowerCase()],
+    });
+    return rows.length > 0;
+  } catch {
+    // Missing app_secrets/org_members table, or any other read failure — a
+    // diagnostic must never replace the real "not configured" error.
+    return false;
+  }
 }
 
 /**

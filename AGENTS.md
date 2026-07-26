@@ -7,6 +7,9 @@ read the relevant skill before changing that area.
 
 ## Always-On Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation. Save deep exploration for ambiguous or cross-cutting work.
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
   stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.
@@ -70,7 +73,12 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions.
+  actions. If you are about to write a handler under `server/routes/api/`, or
+  middleware to guard one, stop and write an action instead. The only
+  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
+  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
+  is a grandfathered baseline being migrated, not a pattern to copy;
+  `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
@@ -248,8 +256,6 @@ Read the relevant skill before making changes in that area:
 - `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
   collaboration workflow, subscription metering, checkpoints, and recovery.
 - `self-modifying-code` for source edits by the agent.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
 - `upgrade-agent-native` for bringing an older app/workspace to current
   `@agent-native/*` packages without patching core/dispatch.
 - `server-plugins` for `/_agent-native/*` routes and plugins.

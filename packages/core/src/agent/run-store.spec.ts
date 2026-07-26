@@ -204,6 +204,13 @@ const {
   UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS,
   shouldRedispatchUnclaimedBackgroundRun,
   claimBackgroundRun,
+  terminalEventForAbortReason,
+  persistRunCheckpointEvent,
+  reconcileTerminalRunFromEvents,
+  setRunTerminalReason,
+  getRunEventsSince,
+  CHECKPOINT_TERMINAL_EVENT_SEQ,
+  getCurrentTurnEventsForThread,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -300,6 +307,78 @@ describe("run store", () => {
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
     expect(insert?.args[3]).toBe('{"type":"done"}');
+  });
+
+  it("persists a reason-shaped terminal event for a recovery abort", async () => {
+    // A synthetic `done` is indistinguishable from a real finish on the wire —
+    // 45 of 49 prod no_progress runs ended on one, and the client rendered
+    // every one as "the agent stopped without sending a final message".
+    await markRunAborted("run-abort-no-progress", "no_progress");
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(insert?.args[3]).toBe(
+      '{"type":"auto_continue","reason":"no_progress"}',
+    );
+  });
+
+  it("maps abort reasons to truthful terminal events", () => {
+    expect(terminalEventForAbortReason("run_timeout")).toEqual({
+      type: "auto_continue",
+      reason: "run_timeout",
+    });
+    expect(terminalEventForAbortReason(undefined)).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason("user")).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason("user_stuck_retry")).toEqual({
+      type: "done",
+    });
+    // The displacing writer already recorded the row's real terminal state.
+    expect(terminalEventForAbortReason("displaced")).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason("background_worker_died")).toEqual({
+      type: "error",
+      error: "The agent run was stopped before it finished.",
+      errorCode: "aborted_background_worker_died",
+      recoverable: true,
+    });
+  });
+
+  it("writes a chunk-boundary checkpoint into the reserved seq band", async () => {
+    await persistRunCheckpointEvent(
+      "run-checkpoint",
+      { type: "auto_continue", reason: "run_timeout" },
+      "run_timeout",
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(insert?.args[1]).toBe(CHECKPOINT_TERMINAL_EVENT_SEQ);
+    expect(insert?.args[3]).toBe(
+      '{"type":"auto_continue","reason":"run_timeout"}',
+    );
+    const reason = execCalls.find((call) =>
+      /UPDATE agent_runs SET terminal_reason/i.test(call.sql),
+    );
+    expect(reason?.args).toEqual(["run_timeout", "run-checkpoint"]);
+  });
+
+  it("hides the reserved checkpoint band from the live event feed", async () => {
+    // Streaming the checkpoint to a live subscriber would close the SSE stream
+    // at the chunk boundary before onComplete has made thread_data durable.
+    await getRunEventsSince("run-feed", 3);
+
+    const select = execCalls.find((call) =>
+      /SELECT seq, event_data FROM agent_run_events WHERE run_id = \? AND seq >= \?/i.test(
+        call.sql,
+      ),
+    );
+    expect(select?.sql).toMatch(/AND seq < \?/i);
+    expect(select?.args).toEqual([
+      "run-feed",
+      3,
+      CHECKPOINT_TERMINAL_EVENT_SEQ,
+    ]);
   });
 
   it("atomically rejects producer events after the run becomes terminal", async () => {
@@ -799,7 +878,9 @@ describe("run store", () => {
       /DELETE FROM agent_run_events/i.test(call.sql),
     );
     expect(deleteEvents?.sql).toContain("status = 'completed'");
-    expect(deleteEvents?.sql).toContain("status IN ('errored', 'aborted')");
+    expect(deleteEvents?.sql).toContain(
+      "status IN ('errored', 'aborted', 'truncated')",
+    );
     expect(Number(deleteEvents?.args[1])).toBeLessThan(
       Number(deleteEvents?.args[0]),
     );
@@ -808,7 +889,9 @@ describe("run store", () => {
       /DELETE FROM agent_runs/i.test(call.sql),
     );
     expect(deleteRuns?.sql).toContain("status = 'completed'");
-    expect(deleteRuns?.sql).toContain("status IN ('errored', 'aborted')");
+    expect(deleteRuns?.sql).toContain(
+      "status IN ('errored', 'aborted', 'truncated')",
+    );
     expect(Number(deleteRuns?.args[1])).toBeLessThan(
       Number(deleteRuns?.args[0]),
     );
@@ -1112,6 +1195,28 @@ describe("run store", () => {
     expect(select?.sql).toContain("COALESCE(heartbeat_at, started_at)");
   });
 
+  it("getCurrentTurnEventsForThread uses a supplied turnId instead of inferring it from the latest run row", async () => {
+    await getCurrentTurnEventsForThread("thread-1", "turn-known");
+
+    const inference = execCalls.find((c) =>
+      /SELECT id, turn_id FROM agent_runs/i.test(c.sql),
+    );
+    expect(inference).toBeUndefined();
+
+    const eventsCall = execCalls.find((c) =>
+      /COALESCE\(r\.turn_id, r\.id\) = \?/i.test(c.sql),
+    );
+    expect(eventsCall?.args).toEqual(["thread-1", "turn-known"]);
+  });
+
+  it("getCurrentTurnEventsForThread still infers the turn when the caller has none", async () => {
+    await getCurrentTurnEventsForThread("thread-1");
+
+    expect(
+      execCalls.some((c) => /SELECT id, turn_id FROM agent_runs/i.test(c.sql)),
+    ).toBe(true);
+  });
+
   it("listUnclaimedBackgroundRunIds casts the now param to BIGINT and binds a full ms epoch", async () => {
     // Regression guard mirroring the tryClaimRunSlot BIGINT-cast test: without
     // an explicit cast, Postgres can infer the parameter as int4 from the
@@ -1279,5 +1384,103 @@ describe("run store", () => {
     expect(worstCaseWithOneRetryMs).toBeLessThan(
       UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS / 2,
     );
+  });
+});
+
+/**
+ * The invariant that was never tested, and whose absence let 30 `run_timeout`
+ * runs outnumber 20 real completions on Plan while all 50 were filed as
+ * `completed`: a terminal event yields `completed` if and only if its reason is
+ * `done`. Anything else is a failure or a truncation, and retention/telemetry
+ * key off exactly that distinction.
+ */
+describe("terminal status is `completed` iff the terminal reason is `done`", () => {
+  beforeEach(() => {
+    execCalls.length = 0;
+    latestEventRows = [];
+    vi.clearAllMocks();
+  });
+
+  async function reconcileStatusFor(
+    event: Record<string, unknown>,
+  ): Promise<{ status: unknown; terminalReason: unknown }> {
+    latestEventRows = [
+      {
+        seq: 3,
+        event_at: 1_700_000_000_000,
+        event_data: JSON.stringify(event),
+      },
+    ];
+    await reconcileTerminalRunFromEvents("run-invariant");
+    const update = execCalls.find(
+      (call) =>
+        /UPDATE agent_runs/i.test(call.sql) &&
+        /terminal_reason = \?/i.test(call.sql),
+    );
+    return { status: update?.args[0], terminalReason: update?.args[4] };
+  }
+
+  const terminalEvents: Array<Record<string, unknown>> = [
+    { type: "done" },
+    { type: "loop_limit", maxIterations: 25 },
+    { type: "auto_continue", reason: "run_timeout" },
+    { type: "auto_continue", reason: "no_progress" },
+    { type: "auto_continue", reason: "loop_limit" },
+    { type: "auto_continue", reason: "max_tokens" },
+    { type: "auto_continue", reason: "stream_ended" },
+    { type: "auto_continue", reason: "gateway_timeout" },
+    { type: "auto_continue", reason: "network_interrupted" },
+    { type: "auto_continue" },
+    { type: "error", error: "boom", errorCode: "provider_network_error" },
+    { type: "missing_api_key" },
+  ];
+
+  for (const event of terminalEvents) {
+    const label = `${event.type}${event.reason ? `:${event.reason}` : ""}`;
+    it(`records ${label} as completed only when the reason is done`, async () => {
+      const { status, terminalReason } = await reconcileStatusFor(event);
+      expect(terminalReason).toBeTruthy();
+      expect(status === "completed").toBe(terminalReason === "done");
+    });
+  }
+
+  it("records every non-error boundary event as truncated, not completed", async () => {
+    for (const event of terminalEvents) {
+      execCalls.length = 0;
+      const { status, terminalReason } = await reconcileStatusFor(event);
+      if (terminalReason === "done") continue;
+      const expected =
+        event.type === "error" || event.type === "missing_api_key"
+          ? "errored"
+          : "truncated";
+      expect(status).toBe(expected);
+    }
+  });
+
+  it("setRunTerminalReason downgrades a completed row to truncated for a boundary reason", async () => {
+    await setRunTerminalReason("run-boundary", "no_progress");
+
+    const update = execCalls.find((call) =>
+      /UPDATE agent_runs/i.test(call.sql),
+    );
+    expect(update?.sql).toContain(
+      "status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END",
+    );
+    expect(update?.args).toEqual(["no_progress", "run-boundary"]);
+  });
+
+  it("setRunTerminalReason never rewrites the status for a genuine finish or failure", async () => {
+    for (const reason of [
+      "done",
+      "error:provider_network_error",
+      "aborted:user",
+    ]) {
+      execCalls.length = 0;
+      await setRunTerminalReason("run-final", reason);
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).not.toContain("status");
+    }
   });
 });

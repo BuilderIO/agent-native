@@ -1,6 +1,6 @@
 import type { H3Event } from "h3";
 
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
@@ -13,6 +13,27 @@ const EMPTY_CONTEXT: OrgContext = {
   orgName: null,
   role: null,
 };
+
+/**
+ * The single way to read `org_members`, so no two call sites can pick opposite
+ * defaults for the same failure. `null` means the org tables do not exist yet
+ * (a fresh install before migrations) — a definitive "no rows". A transient
+ * database failure is NOT an answer and propagates: a caller that turns it into
+ * "no memberships" silently drops org scope, which hides every org-scoped
+ * credential behind a permanent-sounding "not configured".
+ */
+export async function queryOrgMembers(query: {
+  sql: string;
+  args: unknown[];
+}): Promise<Record<string, unknown>[] | null> {
+  try {
+    const { rows } = await getDbExec().execute(query);
+    return rows as Record<string, unknown>[];
+  } catch (err) {
+    if (isTransientDatabaseError(err)) throw err;
+    return null;
+  }
+}
 
 function normalizeOrgRole(value: unknown): OrgRole | null {
   return value === "owner" || value === "admin" || value === "member"
@@ -79,7 +100,14 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
   const ctx = event.context as {
     __anOrgContextCache?: Promise<OrgContext>;
   };
-  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event));
+  // Evict on failure. A memoized failure would otherwise answer every later
+  // caller in this request with the wrong org.
+  return (ctx.__anOrgContextCache ??= resolveOrgContextUncached(event).catch(
+    (err) => {
+      delete ctx.__anOrgContextCache;
+      throw err;
+    },
+  ));
 }
 
 type MembershipRow = {
@@ -127,7 +155,6 @@ function loadActiveOrgSettingForEvent(
  */
 function loadMembershipsForEvent(
   event: H3Event,
-  exec: ReturnType<typeof getDbExec>,
   email: string,
 ): Promise<MembershipRow[] | null> {
   const ctx = event.context as Record<string, unknown>;
@@ -140,7 +167,12 @@ function loadMembershipsForEvent(
     >())) as Map<string, Promise<MembershipRow[] | null>>;
   let promise = cache.get(email);
   if (!promise) {
-    promise = loadMemberships(exec, email);
+    // A failed read is evicted rather than memoized: caching it would make one
+    // transient error answer every later lookup in this request.
+    promise = loadMemberships(email).catch((err) => {
+      cache.delete(email);
+      throw err;
+    });
     cache.set(email, promise);
   }
   return promise;
@@ -170,7 +202,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  let memberships = await loadMembershipsForEvent(event, exec, email);
+  let memberships = await loadMembershipsForEvent(event, email);
   if (memberships === null) {
     if (sessionOrgId) {
       return {
@@ -223,7 +255,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     });
     const joinedOrgId = joined.joined[0]?.orgId ?? null;
     if (joinedOrgId) {
-      const refreshed = await loadMemberships(exec, email);
+      const refreshed = await loadMemberships(email);
       if (refreshed !== null) {
         memberships = refreshed;
         updateMembershipsForEvent(event, email, refreshed);
@@ -312,20 +344,17 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   };
 }
 
-async function loadMemberships(
-  exec: ReturnType<typeof getDbExec>,
-  email: string,
-): Promise<MembershipRow[] | null> {
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
-                   o.allowed_domain AS "allowedDomain"
-            FROM org_members m
-            INNER JOIN organizations o ON m.org_id = o.id
-            WHERE LOWER(m.email) = ?`,
-      args: [email.toLowerCase()],
-    });
-    return rows.map((r: any) => {
+async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
+  const rows = await queryOrgMembers({
+    sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
+                 o.allowed_domain AS "allowedDomain"
+          FROM org_members m
+          INNER JOIN organizations o ON m.org_id = o.id
+          WHERE LOWER(m.email) = ?`,
+    args: [email.toLowerCase()],
+  });
+  return (
+    rows?.map((r: any) => {
       const domain = r.allowedDomain ?? r.allowed_domain;
       return {
         orgId: String(r.orgId ?? r.org_id),
@@ -333,11 +362,8 @@ async function loadMemberships(
         orgName: String(r.orgName ?? r.org_name),
         allowedDomain: domain ? String(domain) : null,
       };
-    });
-  } catch {
-    // Tables may not exist yet on first boot before migrations finish.
-    return null;
-  }
+    }) ?? null
+  );
 }
 
 /**
@@ -350,27 +376,21 @@ async function loadMemberships(
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
-  const exec = getDbExec();
-  if (!exec) return null;
-  try {
-    const { rows } = await exec.execute({
-      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
-      args: [email.toLowerCase()],
-    });
-    if (rows.length === 0) return null;
-    const ids = rows.map((r: any) => String(r.org_id));
-    const activeOrgSetting = (await getUserSetting(
-      email,
-      "active-org-id",
-    )) as ActiveOrgSetting;
-    if (activeOrgSetting?.orgId === null) return null;
-    if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
-      return activeOrgSetting.orgId;
-    }
-    return ids[0];
-  } catch {
-    return null;
+  const rows = await queryOrgMembers({
+    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+    args: [email.toLowerCase()],
+  });
+  if (!rows?.length) return null;
+  const ids = rows.map((r: any) => String(r.org_id));
+  const activeOrgSetting = (await getUserSetting(
+    email,
+    "active-org-id",
+  )) as ActiveOrgSetting;
+  if (activeOrgSetting?.orgId === null) return null;
+  if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
+    return activeOrgSetting.orgId;
   }
+  return ids[0];
 }
 
 /**
@@ -383,23 +403,17 @@ export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
-  try {
-    const exec = getDbExec();
-    if (!exec) return null;
-    const memberships = await loadMembershipsForEvent(event, exec, email);
-    if (!memberships || memberships.length === 0) return null;
-    const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
-    if (activeOrgSetting?.orgId === null) return null;
-    if (
-      activeOrgSetting?.orgId &&
-      memberships.some((m) => m.orgId === activeOrgSetting.orgId)
-    ) {
-      return activeOrgSetting.orgId;
-    }
-    return memberships[0].orgId;
-  } catch {
-    return null;
+  const memberships = await loadMembershipsForEvent(event, email);
+  if (!memberships || memberships.length === 0) return null;
+  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  if (activeOrgSetting?.orgId === null) return null;
+  if (
+    activeOrgSetting?.orgId &&
+    memberships.some((m) => m.orgId === activeOrgSetting.orgId)
+  ) {
+    return activeOrgSetting.orgId;
   }
+  return memberships[0].orgId;
 }
 
 /**

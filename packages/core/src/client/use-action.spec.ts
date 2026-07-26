@@ -330,6 +330,75 @@ describe("callAction", () => {
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
   });
+
+  it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {
+    // Nobody asked for this: no caller signal, no timeout. The browser killed
+    // the request (connection reset, bfcache eviction, exhausted socket pool)
+    // while the user was still waiting on it.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.reject(
+          new DOMException("The operation was aborted.", "AbortError"),
+        ),
+      ),
+    );
+
+    const error = await callAction("list-meetings").catch((err) => err);
+
+    // Must be a renderable, retryable failure — rethrowing the raw AbortError
+    // would let React Query treat it as a cancellation and park the query in
+    // `pending` behind a loading skeleton forever.
+    expect(String(error.message)).toContain("Action list-meetings failed");
+    expect(defaultActionQueryRetry(0, error)).toBe(true);
+  });
+
+  it("times out a transport that never settles and ignores the abort signal", async () => {
+    vi.useFakeTimers();
+    try {
+      // A patched fetch, a wedged service worker, or a browser that drops the
+      // promise: aborting the controller accomplishes nothing, so the timeout
+      // has to reject the caller itself.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>(() => {})),
+      );
+
+      const promise = callAction("stuck-action", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out an unabortable body stream after headers arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          text: () => new Promise<string>(() => {}),
+        })),
+      );
+
+      const promise = callAction("stuck-body", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("tryCallActionKeepalive", () => {

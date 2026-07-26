@@ -313,7 +313,7 @@ export default function Index() {
     prompt: string,
     files: UploadedFile[],
   ) => {
-    // Pre-flight auth check. The /api/decks POST returns 403 silently
+    // Pre-flight auth check. The add-deck action returns 403 silently
     // when unauthenticated, leaving the user stuck on a deck page that
     // doesn't exist server-side and a small auth error in the chat
     // sidebar. Catch it here so the user sees a clear sign-in prompt

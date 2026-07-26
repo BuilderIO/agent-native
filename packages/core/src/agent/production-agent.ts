@@ -19,6 +19,7 @@ import {
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import { getDbExec } from "../db/client.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
 import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
@@ -109,9 +110,11 @@ import { EngineError } from "./engine/types.js";
 import {
   type AgentLoopSettings,
   getDefaultMaxIterations,
+  getDefaultMaxRunInputTokens,
   MAX_AGENT_MAX_ITERATIONS,
   MIN_AGENT_MAX_ITERATIONS,
   normalizeMaxIterations,
+  normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
 import {
@@ -137,6 +140,7 @@ import {
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
+  resolveRunToolTimeoutCeilingMs,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
@@ -144,6 +148,7 @@ import {
   readLedgerEntry,
   clearLedgerForThread,
   insertRun,
+  insertRunEvent,
   isTurnAborted,
   markRunAborted,
   updateRunHeartbeat,
@@ -158,7 +163,10 @@ import {
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
-import { findCompletedJournalEntry } from "./tool-call-journal.js";
+import {
+  findCompletedJournalEntry,
+  type ToolCallJournal,
+} from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -180,6 +188,7 @@ import type {
   AgentChatEvent,
   AgentChatReference,
   AgentChatStructuredMessage,
+  RunEvent,
 } from "./types.js";
 
 // Register built-in engines on first import
@@ -1086,9 +1095,11 @@ const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
  * around 40s, so that watchdog could never actually fire: the run died as a
  * silent platform kill instead of a recoverable checkpoint (observed: ~40s of
  * "Contacting model" with zero tokens, then a hard timeout with no
- * auto_continue ever emitted). Once ANY event (including a heartbeat) has
- * been observed for this model call, subsequent gaps revert to the normal 90s
- * watchdog — this only guards the "nothing has happened yet" window.
+ * auto_continue ever emitted). Once a real model event has been observed for
+ * this model call, subsequent gaps revert to the normal 90s watchdog — this
+ * only guards the "nothing has happened yet" window. A `gateway-heartbeat`
+ * does NOT count as that first event (it proves the transport is up, not that
+ * the model started); it is excluded from stream progress for the same reason.
  *
  * ORDERING INVARIANT (each bound must stay strictly smaller than the next —
  * do not change one without re-checking the others). This cap exists ONLY
@@ -1123,6 +1134,16 @@ const MAX_RESOURCE_INVENTORY_ITEMS = 40;
 const MAX_RESOURCE_INVENTORY_DESCRIPTION_CHARS = 160;
 const MAX_INLINE_SKILL_REFERENCE_CHARS = 40_000;
 const SOURCE_SWEEP_TOOL_CALL_THRESHOLD = 12;
+/**
+ * Serialized-byte threshold at which a run reports how much tool schema
+ * `expandActiveTools` has loaded on top of its starting set. Expansion is
+ * monotonic — schemas added mid-turn are never released — and failing runs
+ * carry ~3.4x the event payload of clean ones, but that is a correlation, not
+ * a cause. Measure first; a cap or LRU eviction can only be sized safely once
+ * the real distribution is known (dropping a tool the model is about to call
+ * is worse than a large request).
+ */
+const EXPANDED_TOOL_SCHEMA_WARN_BYTES = 32_000;
 
 /**
  * Hard cap on the `<current-screen>` block injected into EVERY user message.
@@ -1320,6 +1341,43 @@ export function trimOldToolResults(
   });
 
   return trimmed ? result : null;
+}
+
+/** Upper bound (jitter included) on what `retryDelay(attempt)` will sleep. */
+function maxRetryDelayMs(attempt: number): number {
+  return RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * 1.1;
+}
+
+/**
+ * Wall-clock left in this invocation's soft-timeout budget, measured from
+ * `startedAt`. `Infinity` off the hosted soft-timeout regime (local dev,
+ * self-hosted), where runs are genuinely unbounded. Uses the same ceiling
+ * `startRun` sizes the round to, so budget math here can't disagree with the
+ * soft timeout that actually aborts the run.
+ */
+export function remainingRunBudgetMs(startedAt: number): number {
+  const ceilingMs = resolveRunSoftTimeoutMs(undefined, {
+    useHostedDefault: true,
+    backgroundFunction: isInBackgroundFunctionRuntime(),
+  });
+  if (ceilingMs <= 0) return Number.POSITIVE_INFINITY;
+  return ceilingMs - (Date.now() - startedAt);
+}
+
+/**
+ * Whether one more engine retry — its backoff sleep, plus a minimal window for
+ * the resume layer above — still fits in the run budget. Count-based retries
+ * alone burn the entire hosted foreground budget on a deterministic failure
+ * (observed: every failing run spent all 3 retries, ~14s of it asleep, and
+ * left nothing for recovery).
+ */
+function hasBudgetForEngineRetry(startedAt: number, attempt: number): boolean {
+  const remainingMs = remainingRunBudgetMs(startedAt);
+  if (remainingMs === Number.POSITIVE_INFINITY) return true;
+  return (
+    remainingMs - maxRetryDelayMs(attempt) >=
+    SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
+  );
 }
 
 /** Wait with exponential backoff, respecting abort signal */
@@ -2332,11 +2390,63 @@ async function applyObservationalMemoryToContext(
   }
 }
 
-function seedReadOnlyToolResultsFromHistory(
-  messages: EngineMessage[],
+/**
+ * Cross-chunk read-only result cache seed.
+ *
+ * A chained continuation chunk rebuilds `messages` without the prior chunk's
+ * tool results, so `seedReadOnlyToolResultsFromHistory` sees nothing and every
+ * read-only tool (run-code, provider-api-request, tool-search, every research
+ * tool) re-executes from scratch. Their only cross-chunk protection was the
+ * prompt-level resume note, which truncates each result to 400 chars — a
+ * 50,000-char run-code result came back as 400 chars, leaving the model no
+ * option but to re-run it. Re-executed reads were the dominant term in
+ * production spend.
+ *
+ * The full `tool_done` result IS in the durable run ledger, so seed the same
+ * cache the in-run duplicate guard uses. The tool layer then serves the real
+ * result while the prompt note keeps its short summary.
+ *
+ * Staleness is bounded to the CURRENT TURN: the journal is built from
+ * `getCurrentTurnEventsForThread`, so nothing older than the user's current
+ * request can be replayed, and a successful write inside the turn clears the
+ * cache exactly as it does for in-chunk reads.
+ */
+function seedReadOnlyToolResultsFromJournal(
+  journal: ToolCallJournal | null,
   actions: Record<string, ActionEntry>,
 ): Map<string, string> {
   const cache = new Map<string, string>();
+  if (!journal) return cache;
+  for (const entry of journal.completed) {
+    const action = actions[entry.tool];
+    if (action?.readOnly !== true) {
+      // Mirror the live loop: a completed write invalidates every cached read.
+      cache.clear();
+      continue;
+    }
+    if (action.dedupe === false) continue;
+    const result = entry.result ?? "";
+    if (
+      !isReusableReadOnlyToolResult({
+        type: "tool-result",
+        toolCallId: "",
+        toolName: entry.tool,
+        content: result,
+      } as EngineToolResultPart)
+    ) {
+      continue;
+    }
+    cache.set(toolCallCacheKey(entry.tool, entry.input), result);
+  }
+  return cache;
+}
+
+function seedReadOnlyToolResultsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+  seed?: Map<string, string>,
+): Map<string, string> {
+  const cache = new Map<string, string>(seed);
   if (!isInternalContinuationTurn(messages)) return cache;
 
   // Scoped to the current turn only (same slice as
@@ -2552,6 +2662,21 @@ const INTERRUPTED_TOOL_RESULT_MARKER =
   "Interrupted before this tool returned a result.";
 const MAX_WRITE_TOOL_INTERRUPTIONS = 2;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
+/**
+ * Identical (tool, arguments) invocations tolerated in one turn before the turn
+ * is stopped, whether or not they errored.
+ *
+ * This is the guard that distinguishes a spiral from deep work. Volume ceilings
+ * cannot: prod contains a legitimate 117-tool-call analysis alongside turns that
+ * issued 39 identical `run-code` webFetches and 43 identical `docs-search`
+ * calls. Repetition is what separates them, so repetition is what we bound —
+ * leaving genuinely long analyses free to keep making NEW calls.
+ *
+ * Above `MAX_IDENTICAL_TOOL_ERRORS` (3) because a repeated SUCCESS is weaker
+ * evidence of a loop than a repeated failure: a few identical reads can be a
+ * legitimate re-check after a write.
+ */
+export const MAX_IDENTICAL_TOOL_CALLS = 8;
 
 function seedWriteToolInterruptionsFromHistory(
   messages: EngineMessage[],
@@ -3482,6 +3607,12 @@ export async function runAgentLoop(opts: {
   automation?: ActionAutomationContext;
   /** Concrete execution id used for cross-app trace correlation. */
   runId?: string;
+  /**
+   * Wall-clock anchor for run-budget math (engine-retry backoff, in-process
+   * resume). Defaults to loop entry; a continuation wrapper passes the round's
+   * start so later attempts don't each believe they have a fresh budget.
+   */
+  budgetStartedAt?: number;
   /** Verified/telemetry-only delegated lineage supplied by the transport. */
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
@@ -3499,6 +3630,19 @@ export async function runAgentLoop(opts: {
   maxOutputTokens?: number;
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
+  /**
+   * Per-TURN input-token ceiling. Iteration count and wall clock do not bound
+   * spend — retained tool results are re-sent every iteration, so cost is
+   * quadratic in tool-call count. Crossing this stops the turn outright
+   * (unlike `maxIterations`, which hands off to the next chunk).
+   */
+  maxRunInputTokens?: number;
+  /**
+   * Input tokens already consumed by EARLIER chunks of this same logical turn.
+   * Without it every chained chunk would get a fresh allowance and 25 chunks
+   * would multiply the ceiling by 25.
+   */
+  priorTurnInputTokens?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
   /**
    * Stable real-user request text preserved across internal continuation
@@ -3541,6 +3685,7 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(messages);
@@ -3550,6 +3695,8 @@ export async function runAgentLoop(opts: {
   const activeToolNames = new Set(tools.map((tool) => tool.name));
   let activeTools = tools;
 
+  let expandedToolSchemaBytes = 0;
+  let reportedExpandedToolSchemaBytes = false;
   const expandActiveTools = (names: string[]): string[] => {
     const added: string[] = [];
     for (const name of names) {
@@ -3557,11 +3704,21 @@ export async function runAgentLoop(opts: {
       const tool = availableToolMap.get(name);
       if (!tool) continue;
       activeToolNames.add(name);
+      expandedToolSchemaBytes += JSON.stringify(tool).length;
       added.push(name);
     }
     if (added.length > 0) {
       activeTools = (availableTools ?? tools).filter((tool) =>
         activeToolNames.has(tool.name),
+      );
+    }
+    if (
+      !reportedExpandedToolSchemaBytes &&
+      expandedToolSchemaBytes > EXPANDED_TOOL_SCHEMA_WARN_BYTES
+    ) {
+      reportedExpandedToolSchemaBytes = true;
+      console.warn(
+        `[agent-loop] expanded tool schemas reached ${expandedToolSchemaBytes} bytes across ${activeToolNames.size} active tools (runId=${opts.runId ?? "none"})`,
       );
     }
     return added;
@@ -3588,6 +3745,25 @@ export async function runAgentLoop(opts: {
     opts.maxIterations,
     getDefaultMaxIterations(),
   );
+  const maxRunInputTokens = normalizeMaxRunInputTokens(
+    opts.maxRunInputTokens,
+    getDefaultMaxRunInputTokens(),
+  );
+  const priorTurnInputTokens =
+    typeof opts.priorTurnInputTokens === "number" &&
+    Number.isFinite(opts.priorTurnInputTokens)
+      ? Math.max(0, opts.priorTurnInputTokens)
+      : 0;
+  // A per-tool timeout above the chunk's own soft timeout can never fire — the
+  // chunk boundary always wins — so the 12-minute default is dead code on a
+  // ~40s hosted foreground chunk. Background-function runs resolve to a ~13min
+  // ceiling and keep the default unchanged.
+  const runToolTimeoutCeilingMs = resolveRunToolTimeoutCeilingMs(
+    resolveRunSoftTimeoutMs(undefined, {
+      useHostedDefault: true,
+      backgroundFunction: isInBackgroundFunctionRuntime(),
+    }),
+  );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
     messages,
@@ -3603,20 +3779,6 @@ export async function runAgentLoop(opts: {
     runCtx.toolCalls = toolCallHistory;
     runCtx.toolResults = toolResultHistory;
   }
-  const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
-    messages,
-    actions,
-  );
-  const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
-    messages,
-    actions,
-  );
-  const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
-    messages,
-    actions,
-  );
-  const repeatedToolErrors = new Map<string, number>();
-
   // Tool-call journal hard-block (resume safety). See
   // `loadPriorTurnToolCallJournal` for the full rationale — snapshotted ONCE
   // here, before any tool runs in this chunk, and its prior-chunk tool
@@ -3627,13 +3789,32 @@ export async function runAgentLoop(opts: {
     toolCallJournal,
     priorToolCalls: journaledPriorToolCalls,
     priorToolResults: journaledPriorToolResults,
-  } = await loadPriorTurnToolCallJournal(opts.threadId);
+  } = await loadPriorTurnToolCallJournal(opts.threadId, opts.turnId);
   toolCallHistory.push(...journaledPriorToolCalls);
   toolResultHistory.push(...journaledPriorToolResults);
+
+  const readOnlyToolResultCache = seedReadOnlyToolResultsFromHistory(
+    messages,
+    actions,
+    seedReadOnlyToolResultsFromJournal(toolCallJournal, actions),
+  );
+  const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
+    messages,
+    actions,
+  );
+  const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
+    messages,
+    actions,
+  );
+  const repeatedToolErrors = new Map<string, number>();
+  const repeatedToolCalls = new Map<string, number>();
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
   let iterations = 0;
+  // `loop_limit` and `done` share one terminal-event slot in run-manager, so a
+  // trailing `done` would overwrite the boundary the continuation logic reads.
+  let endedAtLoopLimit = false;
   // Overridden (raised tokens, lowered effort) only after an empty-final-
   // response retry below — kept separate from `opts.maxOutputTokens`/
   // `opts.reasoningEffort` so the very first attempt is unaffected and later
@@ -3661,9 +3842,30 @@ export async function runAgentLoop(opts: {
 
   while (true) {
     if (signal.aborted) break;
+    const turnInputTokens = priorTurnInputTokens + usage.inputTokens;
+    if (turnInputTokens > maxRunInputTokens) {
+      // Terminal for the whole TURN, not a chunk boundary: emitting
+      // `loop_limit` here would hand off to a successor chunk that inherits the
+      // same exhausted total and immediately re-terminate, burning the run
+      // ledger 25 times over.
+      emitTripwire(
+        new TripWire(
+          `I stopped because this request consumed ${turnInputTokens.toLocaleString()} input tokens, past the ${maxRunInputTokens.toLocaleString()} budget for a single turn. ` +
+            `Anything already completed above is saved. Please retry as a smaller, more specific follow-up.`,
+          { processor: "run-input-token-budget" },
+        ),
+      );
+      break;
+    }
+    // Terminal, NOT a nudge-and-reset: the run ends at `loop_limit` and the
+    // durable per-turn ledger (or the client's own continuation) decides
+    // whether the turn gets another chunk. Resetting the counter in-process
+    // made the budget unenforceable and meant this event was never emitted,
+    // even though run-manager, thread-data-builder and the client all handle it.
     if (++iterations > maxIterations) {
-      appendAgentLoopContinuation(messages, "loop_limit");
-      iterations = 1;
+      send({ type: "loop_limit", maxIterations });
+      endedAtLoopLimit = true;
+      break;
     }
 
     let assistantContent: EngineContentPart[] | undefined;
@@ -3755,10 +3957,10 @@ export async function runAgentLoop(opts: {
         let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         let lastModelStreamProgressAt = Date.now();
-        // FIX 2: true once ANY engine-stream event (including a heartbeat)
-        // has been retrieved for THIS model call — gates
-        // `FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS` below to only the first
-        // await on a fresh `engine.stream()` call, never subsequent gaps.
+        // FIX 2: true once a real (non-heartbeat) engine-stream event has been
+        // retrieved for THIS model call — gates
+        // `FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS` below to the window before
+        // the model has produced anything, never subsequent gaps.
         let hasReceivedFirstEngineEvent = false;
         // Resolved once per model-call attempt (not per event) so a single
         // call's deadline math can't observe the runtime predicates changing
@@ -3961,17 +4163,17 @@ export async function runAgentLoop(opts: {
               eventIteratorDone = true;
               break;
             }
-            // FIX 2: only the deadline for THIS await could have been
-            // tightened by FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS — every
-            // subsequent call in this model call reverts to the normal 90s
-            // watchdog regardless of what kind of event this turned out to be.
-            hasReceivedFirstEngineEvent = true;
             const event = nextEvent.value;
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
             }
+            // A gateway keepalive proves the transport is up, not that the
+            // model started: it must not release the 25s first-model-event cap
+            // any more than it counts as stream progress, or an endless
+            // keepalive stream rides the unreachable 90s watchdog instead.
             if (event.type !== "gateway-heartbeat") {
+              hasReceivedFirstEngineEvent = true;
               lastModelStreamProgressAt = Date.now();
             }
             // In-loop processor seam (stream hook). Each chunk is offered to every
@@ -4146,7 +4348,11 @@ export async function runAgentLoop(opts: {
             { errorCode: "context_length_exceeded" },
           );
         }
-        if (retry < maxRetriesForError(err) && isRetryableError(err)) {
+        if (
+          retry < maxRetriesForError(err) &&
+          isRetryableError(err) &&
+          hasBudgetForEngineRetry(budgetStartedAt, retry)
+        ) {
           // Clear partial text from the failed attempt so the retry
           // doesn't produce garbled duplicate output. Keep the retry itself
           // silent so transient provider/backend failures do not leak into
@@ -4388,6 +4594,20 @@ export async function runAgentLoop(opts: {
     let requestedActionStop: { message: string; errorCode?: string } | null =
       null;
 
+    const noteRepeatedToolCall = (toolName: string, input: unknown) => {
+      const key = toolCallCacheKey(toolName, input);
+      const count = (repeatedToolCalls.get(key) ?? 0) + 1;
+      repeatedToolCalls.set(key, count);
+      if (count < MAX_IDENTICAL_TOOL_CALLS) return;
+      requestedActionStop ??= {
+        message:
+          `Stopped because ${toolName} was called ${count} times with identical arguments in one turn, ` +
+          `which means the same step is repeating rather than making progress. ` +
+          `Everything completed before this point is preserved above.`,
+        errorCode: "repeated_tool_call",
+      };
+    };
+
     // Human-in-the-loop approvals granted by the user for this turn (opt-in;
     // empty for the overwhelming majority of turns). Keyed by the stable
     // tool-call approval key so a re-issued continuation can let an approved
@@ -4397,6 +4617,9 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      // Counted before any journal/cache short-circuit: serving a repeat from
+      // cache still means the model is asking the same question again.
+      noteRepeatedToolCall(toolCall.name, toolCall.input);
       const actionEntry = actions[toolCall.name];
       const placeholderNormalization = actionEntry
         ? normalizeOptionalToolPlaceholders(
@@ -4659,10 +4882,14 @@ export async function runAgentLoop(opts: {
       // run-manager still aborts foreground hosted runs around 40s, while
       // background runs get nearly the full 15-minute function budget.
       const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
-      const toolTimeoutMs =
+      const requestedToolTimeoutMs =
         actionEntry.timeoutMs ??
         opts.toolLimits?.timeoutMs ??
         DEFAULT_TOOL_TIMEOUT_MS;
+      const toolTimeoutMs =
+        runToolTimeoutCeilingMs > 0
+          ? Math.min(requestedToolTimeoutMs, runToolTimeoutCeilingMs)
+          : requestedToolTimeoutMs;
       const toolMaxResultChars =
         actionEntry.maxResultChars ??
         opts.toolLimits?.maxResultChars ??
@@ -4680,6 +4907,12 @@ export async function runAgentLoop(opts: {
       // calls with no completed journal entry are completely unaffected). The
       // snapshot was taken before this chunk's tools ran, so it can only match a
       // PRIOR completion, never one from the current chunk.
+      //
+      // Read-only tools take the OTHER half of this protection:
+      // `seedReadOnlyToolResultsFromJournal` puts their journaled results into
+      // `readOnlyToolResultCache`, so the duplicate-read guard below serves them
+      // as a cache hit (respecting `dedupe: false` and write invalidation)
+      // instead of re-executing.
       if (!actionEntry.readOnly && toolCallJournal) {
         const journaled = findCompletedJournalEntry(
           toolCallJournal,
@@ -5328,7 +5561,7 @@ export async function runAgentLoop(opts: {
     return usage;
   }
 
-  if (!signal.aborted) {
+  if (!signal.aborted && !endedAtLoopLimit) {
     // In-loop processor seam (result hook). Fires once at clean run end with the
     // final assistant text so processors (e.g. a proof-of-done gate) can record
     // a verdict. A result-hook abort cannot un-finish a completed run, so a
@@ -5600,26 +5833,21 @@ export function backgroundContinuationReasonForRun(
 export async function runAgentLoopWithMainChatInternalContinuations(
   opts: Parameters<typeof runAgentLoop>[0] & {
     /**
-     * Opt-in: also catch a thrown `isResumableEngineError` (gateway drop /
-     * transport interruption surviving engine retries) and retry it in-process
-     * — the same "continue from where you left off" treatment already applied
-     * to in-loop `auto_continue` events below — instead of letting it
-     * propagate out to the caller. Default false/omitted preserves the exact
-     * prior behavior: such an error is NOT caught here and propagates to
-     * `startRun`'s outer catch, which marks the run "errored" and (for a
-     * background worker) hands off to `chainServerDrivenContinuation` for a
-     * fresh invocation.
+     * Resume a thrown `isResumableEngineError` (gateway drop / transport
+     * interruption surviving engine retries) in-process UNCONDITIONALLY — the
+     * same "continue from where you left off" treatment applied to in-loop
+     * `auto_continue` events below.
      *
-     * Only safe to enable when the CALLER is a proven durable-background
-     * worker (`isInBackgroundFunctionRuntime()`): such a worker has minutes of
-     * remaining budget on this same invocation, so resuming in-process avoids
-     * a self-dispatch entirely — critically, it avoids the bg-function
-     * self-dispatch 404 (a background function cannot invoke its own public
-     * URL from inside a live invocation) that this same recoverable-error
-     * path would otherwise hit via `chainServerDrivenContinuation`. A
-     * foreground turn (~40s budget) must NOT set this — it keeps depending on
-     * the existing cross-invocation recovery (foreground self-chain or the
-     * client's `auto_continue` re-POST), unchanged.
+     * Set it only for a proven durable-background worker
+     * (`isInBackgroundFunctionRuntime()`), which has minutes of budget left on
+     * this invocation AND cannot fall back to `chainServerDrivenContinuation`
+     * (a background function cannot invoke its own public URL from inside a
+     * live invocation — that self-dispatch 404s).
+     *
+     * When omitted, the resume still happens but only while enough wall-clock
+     * remains (`SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS`); below that the error
+     * propagates to `startRun`'s outer catch and the cross-invocation recovery
+     * paths (foreground self-chain, client `auto_continue` re-POST) as before.
      */
     resumeResumableErrorsInProcess?: boolean;
     /**
@@ -5651,6 +5879,7 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     usage.model = next.model;
   };
 
+  const budgetStartedAt = opts.budgetStartedAt ?? Date.now();
   const resumeResumableErrorsInProcess =
     opts.resumeResumableErrorsInProcess === true;
   const maxContinuations =
@@ -5683,19 +5912,25 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     try {
       const nextUsage = await runAgentLoop({
         ...opts,
+        budgetStartedAt,
         send,
         finalResponseGuardRequestText,
       });
       addUsage(nextUsage);
     } catch (err) {
-      // Preserve exact prior behavior unless explicitly opted in: an aborted
-      // signal (real soft-timeout / user stop) or a non-resumable error is
-      // always rethrown, and when `resumeResumableErrorsInProcess` is not
-      // set, EVERY thrown error is rethrown exactly as before.
+      // An aborted signal (real soft-timeout / user stop) or a non-resumable
+      // error is always rethrown.
+      if (opts.signal.aborted || !isResumableEngineError(err)) throw err;
+      // A caller with a proven long budget (`resumeResumableErrorsInProcess`)
+      // always resumes here. Everyone else — notably the foreground chat turn,
+      // where a resumable transport error previously ALWAYS propagated and in
+      // practice was never resumed by any other layer — resumes too, but only
+      // while enough wall-clock remains to attempt it without being cut off
+      // mid-stream by the platform wall.
       if (
-        !resumeResumableErrorsInProcess ||
-        opts.signal.aborted ||
-        !isResumableEngineError(err)
+        !resumeResumableErrorsInProcess &&
+        remainingRunBudgetMs(budgetStartedAt) <
+          SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS
       ) {
         throw err;
       }
@@ -5971,9 +6206,100 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   return { claimed: true };
 }
 
+/**
+ * Wall-clock ceiling on a single logical turn. The run-count ledger alone is
+ * not a time bound: in durable mode each of the ~25 permitted chunks may burn
+ * ~780s, so the ledger's real worst case is over five hours (production has an
+ * observed 2h34m turn). Nobody is waiting that long, and every minute past
+ * this point is spend on a request the user has abandoned.
+ */
+export const MAX_TURN_WALL_CLOCK_MS = 90 * 60_000;
+
+/**
+ * Request-body field carrying the turn's running input-token total across
+ * chunks. It rides the BODY (not the background-run marker) because the marker
+ * is stripped from `continuationBody` on every handoff while the body is the
+ * successor's persisted rehydration payload.
+ */
+export const AGENT_CHAT_TURN_INPUT_TOKENS_FIELD =
+  "__agentNativeTurnInputTokens";
+
+/**
+ * First `started_at` for a logical turn — the turn's true wall-clock origin
+ * (`agent_runs.started_at` is never bumped by heartbeats). Returns null when
+ * the turn has no rows or the read fails, in which case the deadline simply
+ * does not apply and the run-count ledger remains the only bound.
+ *
+ * Costs one extra round trip per chain. Folding `MIN(started_at)` into
+ * `countRunsForTurn`'s existing SELECT in run-store.ts would remove it.
+ */
+async function readTurnStartedAt(
+  threadId: string,
+  turnId: string,
+): Promise<number | null> {
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(started_at) AS turn_started_at FROM agent_runs WHERE thread_id = ? AND turn_id = ?`,
+    args: [threadId, turnId],
+  });
+  const raw = (rows?.[0] as { turn_started_at?: unknown } | undefined)
+    ?.turn_started_at;
+  const startedAt = Number(raw);
+  return Number.isFinite(startedAt) && startedAt > 0 ? startedAt : null;
+}
+
+/**
+ * Append a user-visible assistant text event to a live run from outside the
+ * agent loop. The budget-exhaustion paths below terminate a turn that has
+ * already done real work; without this the user sees only a bare
+ * `turn_continuation_budget_exhausted` error string and every completed tool
+ * result looks discarded. Best-effort — a failed ledger write must not turn a
+ * budget stop into a thrown error.
+ */
+async function emitRunText(run: ActiveRun, text: string): Promise<void> {
+  const runEvent: RunEvent = {
+    seq: run.events.length,
+    event: { type: "text", text },
+  };
+  run.events.push(runEvent);
+  for (const subscriber of run.subscribers) {
+    try {
+      subscriber(runEvent);
+    } catch {}
+  }
+  await insertRunEvent(
+    run.runId,
+    runEvent.seq,
+    JSON.stringify(runEvent.event),
+  ).catch(() => {});
+}
+
+/**
+ * One sentence naming what the turn actually finished, derived from the same
+ * per-turn journal the resume note uses (no new ledger read shape).
+ */
+async function describeTurnProgress(
+  threadId: string,
+  turnId?: string,
+): Promise<string> {
+  const { toolCallJournal } = await loadPriorTurnToolCallJournal(
+    threadId,
+    turnId,
+  );
+  const completed = toolCallJournal?.completed ?? [];
+  if (completed.length === 0) return "No steps had completed yet.";
+  const names = [...new Set(completed.map((entry) => entry.tool))];
+  const shown = names.slice(0, 8).join(", ");
+  return (
+    `${completed.length} step(s) completed before I stopped (${shown}` +
+    `${names.length > 8 ? ", …" : ""}). Their results are in the messages above.`
+  );
+}
+
 /** Injectable dependencies for `chainServerDrivenContinuation` (unit tests). */
 export interface ChainServerDrivenContinuationDeps {
   countRunsForTurn?: typeof countRunsForTurn;
+  readTurnStartedAt?: typeof readTurnStartedAt;
+  emitRunText?: typeof emitRunText;
   insertRun?: typeof insertRun;
   fireInternalDispatch?: typeof fireInternalDispatch;
   readBackgroundRunClaim?: typeof readBackgroundRunClaim;
@@ -6180,6 +6506,12 @@ export async function chainServerDrivenContinuation(opts: {
    *  is derived from it (marker stripped, `internalContinuation` set). */
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
+  /**
+   * Input tokens this logical turn has consumed across every chunk so far,
+   * carried on the successor's body so the per-turn token ceiling is a real
+   * turn budget instead of a fresh allowance per chunk.
+   */
+  turnInputTokens?: number;
   chainViaDurableBackground: boolean;
   /** True only when this worker is PROVEN (by runtime function name) to
    *  already be executing inside a real Netlify `-background` function —
@@ -6192,6 +6524,8 @@ export async function chainServerDrivenContinuation(opts: {
 }): Promise<void> {
   const d = {
     countRunsForTurn: opts.deps?.countRunsForTurn ?? countRunsForTurn,
+    readTurnStartedAt: opts.deps?.readTurnStartedAt ?? readTurnStartedAt,
+    emitRunText: opts.deps?.emitRunText ?? emitRunText,
     insertRun: opts.deps?.insertRun ?? insertRun,
     fireInternalDispatch:
       opts.deps?.fireInternalDispatch ?? fireInternalDispatch,
@@ -6223,22 +6557,59 @@ export async function chainServerDrivenContinuation(opts: {
   const turnRunCount = await d
     .countRunsForTurn(effectiveThreadId, effectiveTurnId)
     .catch(() => null);
-  if (
-    turnRunCount !== null &&
-    turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
-  ) {
-    console.error(
-      `[agent-chat] turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
-      runId,
-    );
+  const stopTurn = async (
+    terminalReason: string,
+    logLine: string,
+    userMessage: string,
+  ) => {
+    console.error(`[agent-chat] ${logLine}`, runId);
+    const progress = await describeTurnProgress(
+      effectiveThreadId,
+      effectiveTurnId,
+    ).catch(() => "");
+    await d
+      .emitRunText(
+        run,
+        progress ? `${userMessage}\n\n${progress}` : userMessage,
+      )
+      .catch(() => {});
     const statusUpdated = await d
       .updateRunStatusIfRunning(runId, "errored")
       .catch(() => false);
     if (statusUpdated) {
-      await d
-        .setRunTerminalReason(runId, "turn_continuation_budget_exhausted")
-        .catch(() => {});
+      await d.setRunTerminalReason(runId, terminalReason).catch(() => {});
     }
+  };
+
+  if (
+    turnRunCount !== null &&
+    turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
+  ) {
+    await stopTurn(
+      "turn_continuation_budget_exhausted",
+      `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
+      `I stopped after ${turnRunCount} internal continuations without finishing this request.`,
+    );
+    return;
+  }
+
+  // WALL-CLOCK CEILING. The run-count ledger above bounds chunks, not time: in
+  // durable mode 25 chunks x ~780s is over five hours, and prod has an observed
+  // 2h34m turn. Measured from the turn's FIRST run row, so it survives every
+  // recovery path exactly like the run count does.
+  const turnStartedAt = await d
+    .readTurnStartedAt(effectiveThreadId, effectiveTurnId)
+    .catch(() => null);
+  const turnElapsedMs = turnStartedAt === null ? 0 : Date.now() - turnStartedAt;
+  if (turnElapsedMs > MAX_TURN_WALL_CLOCK_MS) {
+    const elapsedMinutes = Math.round(turnElapsedMs / 60_000);
+    await stopTurn(
+      "turn_wall_clock_budget_exhausted",
+      `turn ${effectiveTurnId} ran ${elapsedMinutes}min (limit ${Math.round(
+        MAX_TURN_WALL_CLOCK_MS / 60_000,
+      )}min) — refusing to chain further`,
+      `I stopped after ${elapsedMinutes} minutes without finishing this request.`,
+    );
     return;
   }
 
@@ -6274,6 +6645,9 @@ export async function chainServerDrivenContinuation(opts: {
   const continuationBody: Record<string, unknown> = {
     ...opts.requestBody,
     internalContinuation: true,
+    ...(typeof opts.turnInputTokens === "number"
+      ? { [AGENT_CHAT_TURN_INPUT_TOKENS_FIELD]: opts.turnInputTokens }
+      : {}),
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
@@ -6431,8 +6805,13 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
+        // `completed`, not `errored`: this chunk's work IS durably persisted
+        // and a successor row exists for the sweep to redispatch. Only the
+        // handoff attempt failed, and the terminal reason already says so —
+        // recording the chunk as errored made a recoverable deferral look like
+        // a failed turn everywhere run status is read.
         const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "errored")
+          .updateRunStatusIfRunning(runId, "completed")
           .catch(() => false);
         if (statusUpdated) {
           await d
@@ -7295,6 +7674,8 @@ export function createProductionAgentHandler(
       defaultMaxIterations: getDefaultMaxIterations(),
       minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
       maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
+      maxRunInputTokens: getDefaultMaxRunInputTokens(),
+      defaultMaxRunInputTokens: getDefaultMaxRunInputTokens(),
       scope: "default",
       source: "default",
     };
@@ -7473,6 +7854,17 @@ export function createProductionAgentHandler(
       requestDisplayMessage.trim().length > 0
         ? requestDisplayMessage
         : requestMessage;
+    // Running per-turn input-token total. Seeded from the predecessor chunk's
+    // body, advanced by this chunk's own usage, and handed to the successor so
+    // the token ceiling bounds the TURN rather than resetting every chunk.
+    const priorTurnInputTokensFromBody = Number(
+      (body as unknown as Record<string, unknown>)[
+        AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
+      ],
+    );
+    let turnInputTokens = Number.isFinite(priorTurnInputTokensFromBody)
+      ? Math.max(0, priorTurnInputTokensFromBody)
+      : 0;
 
     // Server-driven background continuation: when the background worker re-fired
     // itself at a soft-timeout boundary (a chained continuation chunk), rebuild
@@ -7591,6 +7983,16 @@ export function createProductionAgentHandler(
           // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
+          // A Netlify background function 202s on enqueue in well under a
+          // second, so a 404/401/508 from it is an IMMEDIATE, knowable failure.
+          // Fire-and-forget recorded those as `dispatched = true` and the user
+          // waited out the claim grace for a worker that never existed. Only
+          // for a real background-function target: a regular-function target
+          // replies only after the successor chunk finishes, so awaiting it
+          // would time out on every healthy dispatch.
+          ...(expectsNetlifyBackgroundFunction
+            ? { awaitResponse: true, responseTimeoutMs: 5_000 }
+            : {}),
           // When the row (and its persisted payload) landed, send only the
           // marker — the worker rehydrates the body from dispatch_payload
           // (`payloadRef`), keeping the self-POST far under Netlify's 256KB
@@ -7901,6 +8303,7 @@ export function createProductionAgentHandler(
                 effectiveTurnId,
                 requestBody: body as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
+                turnInputTokens,
                 // Re-evaluate the durable gate rather than keying off
                 // isBackgroundWorker: a successor chunk of a FOREGROUND
                 // self-chain re-enters as a worker too, and must keep
@@ -8158,6 +8561,9 @@ export function createProductionAgentHandler(
                     cacheWriteTokens: subUsage.cacheWriteTokens,
                     model: subUsage.model,
                     label: `custom-agent:${ref.name}`,
+                    runId,
+                    threadId: effectiveThreadId,
+                    taskId: effectiveTurnId,
                   });
                 } catch {}
 
@@ -8295,6 +8701,8 @@ export function createProductionAgentHandler(
           providerOptions: options.providerOptions,
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
+          maxRunInputTokens: loopSettings.maxRunInputTokens,
+          priorTurnInputTokens: turnInputTokens,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -8397,6 +8805,8 @@ export function createProductionAgentHandler(
             await runAgentLoopWithMainChatInternalContinuations(agentLoopOpts);
         }
 
+        turnInputTokens += loopUsage.inputTokens;
+
         // Record token usage for cost monitoring so the Usage panel in
         // settings works in every mode, including local dev.
         try {
@@ -8419,6 +8829,12 @@ export function createProductionAgentHandler(
               cacheWriteTokens: loopUsage.cacheWriteTokens,
               model: loopUsage.model,
               label: body.usageLabel || "chat",
+              // token_usage has had run_id/thread_id/task_id since it was
+              // created and every row was NULL on all three, so no spend could
+              // be tied back to a run, thread, or outcome.
+              runId,
+              threadId: effectiveThreadId,
+              taskId: effectiveTurnId,
             });
           }
         } catch {

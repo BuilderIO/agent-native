@@ -1743,15 +1743,15 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain("checkingAiConnection");
   });
 
-  it("makes the chat composer retryable when provider readiness is unavailable", () => {
+  it("never disables the chat composer on an unresolved provider status check", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).toContain(
-      "missingApiKey || isProviderStatusUnavailable || composerDisabled",
-    );
-    expect(source).not.toContain("UNKNOWN_STATUS_RETRY_MS");
+    // A readiness check that timed out is not evidence that no provider is
+    // configured; disabling on it left an inert box that swallowed keystrokes.
+    expect(source).toContain("const isComposerDisabled = composerDisabled;");
+    expect(source).not.toContain("isProviderStatusUnavailable");
   });
 
   it("clears queued follow-ups and settles stopped tool calls by default", () => {

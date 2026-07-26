@@ -12,7 +12,8 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
-import type { AgentChatEvent } from "./types.js";
+import { isContinuationTerminalReason } from "./types.js";
+import type { AgentChatEvent, ContinuationReason } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -251,6 +252,27 @@ const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
  */
 export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000; // 870_000
 
+/**
+ * Ceiling on how far the liveness basis (`livenessBasisSql`) may lag before
+ * `IN_FLIGHT_RUN_STALE_GRACE_MS` stops applying at all. The grace exists for
+ * ONE scenario: a demonstrably-alive producer whose heartbeat WRITE is failing.
+ * It was never meant to cover a producer that has stopped writing anything —
+ * but as originally written it did, because the marker is set on tool_start and
+ * only cleared on tool_done, so a worker that dies mid-tool leaves the marker
+ * latched and inherits the full 14.5 minutes. Prod: 23 such corpse rows across
+ * five apps sat the entire grace before being reaped (mean age 715-908s), which
+ * made the one mechanism protecting slow tools the reason a dead worker took a
+ * quarter hour to surface.
+ *
+ * Requiring recent liveness for the grace to hold collapses that to this
+ * window. 120s = 80 consecutive missed 1.5s heartbeat writes, and 30s past the
+ * widest normal window (`BACKGROUND_RUN_STALE_MS`) — a write outage that
+ * outlasts it is not "the heartbeat lagged", it is the whole producer being
+ * gone. Beyond it the row falls back to the normal background-aware window and
+ * is reaped like any other stale run.
+ */
+export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
+
 async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -284,6 +306,22 @@ async function ensureRunTables(): Promise<void> {
           event_at ${intType()},
           event_data TEXT NOT NULL,
           PRIMARY KEY (run_id, seq)
+        )
+      `;
+      // Daily terminal-outcome counters, rolled up from `agent_runs` right
+      // before those rows are pruned (see `rollUpPrunedRunOutcomes`). Completed
+      // runs are pruned after ~1 day and unsuccessful ones after ~7, so any
+      // window wider than the shorter retention read from `agent_runs` alone
+      // reports N days of failures against 1 day of successes — the distortion
+      // behind the "~25% completion rate" headline. These counters outlive the
+      // rows, so outcome rates stay queryable (see `getRunOutcomeCounters`).
+      const agentRunOutcomeDailyCreateSql = `
+        CREATE TABLE IF NOT EXISTS agent_run_outcome_daily (
+          day TEXT NOT NULL,
+          status TEXT NOT NULL,
+          terminal_reason TEXT NOT NULL DEFAULT '',
+          run_count ${intType()} NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, status, terminal_reason)
         )
       `;
       // Tool-call result ledger: persists the outcome of write tool calls that
@@ -380,6 +418,10 @@ async function ensureRunTables(): Promise<void> {
           `ALTER TABLE agent_run_events ADD COLUMN IF NOT EXISTS event_at ${intType()}`,
         );
         await ensureTableExists("agent_tool_ledger", agentToolLedgerCreateSql);
+        await ensureTableExists(
+          "agent_run_outcome_daily",
+          agentRunOutcomeDailyCreateSql,
+        );
         // Widen millisecond-timestamp columns that older deployments created as
         // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
         // on every turn, so an int4 column makes every agent prompt fail on
@@ -482,6 +524,7 @@ async function ensureRunTables(): Promise<void> {
         // Column already exists — ignore
       }
       await client.execute(agentToolLedgerCreateSql);
+      await client.execute(agentRunOutcomeDailyCreateSql);
       // Widen millisecond-timestamp columns that older deployments created as
       // 32-bit `INTEGER`. `insertRun()` writes `Date.now()` into `started_at`
       // on every turn, so an int4 column makes every agent prompt fail on
@@ -695,10 +738,17 @@ function livenessBasisSql(): string {
  * `RUN_STALE_MS` behavior is unchanged. See `IN_FLIGHT_RUN_STALE_GRACE_MS`'s
  * doc comment for why this is sound and bounded.
  *
- * Binds one param: the same `now` value the surrounding cutoff clause binds.
+ * The grace additionally requires the producer to still be demonstrably
+ * heartbeating: a marker on a row whose liveness basis is itself dead by more
+ * than `IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS` is a latched corpse, not a slow
+ * tool, and gets no extension.
+ *
+ * Binds two params, both the same `now` the surrounding cutoff clause binds.
  */
 function inFlightGraceSql(): string {
-  return `(in_flight_since IS NULL OR in_flight_since <= (CAST(? AS BIGINT) - ${IN_FLIGHT_RUN_STALE_GRACE_MS}))`;
+  return `(in_flight_since IS NULL
+    OR in_flight_since <= (CAST(? AS BIGINT) - ${IN_FLIGHT_RUN_STALE_GRACE_MS})
+    OR ${livenessBasisSql()} < (CAST(? AS BIGINT) - ${IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS}))`;
 }
 
 /**
@@ -1028,9 +1078,15 @@ export async function setRunError(
 }
 
 /**
- * Record why a run reached its terminal status. Unlike error_code/error_detail,
- * this is set for successful checkpoint boundaries too (for example
- * status='completed' + terminal_reason='run_timeout').
+ * Record why a run reached its terminal status, and correct the status when the
+ * reason says the run did not actually finish.
+ *
+ * Every writer sets the status first and the reason second, so this is the one
+ * place that sees both — correcting it here keeps all of them honest instead of
+ * making each caller re-derive "was that completion real?". Only `completed` is
+ * corrected: an `errored`/`aborted` row must never be softened, and a still
+ * `running` row must not be terminated early (`persistRunCheckpointEvent`
+ * records the reason mid-run, before the boundary is final).
  */
 export async function setRunTerminalReason(
   runId: string,
@@ -1040,26 +1096,31 @@ export async function setRunTerminalReason(
   try {
     await ensureRunTables();
     const client = getDbExec();
+    const reason = terminalReason.slice(0, 200);
     await client.execute({
-      sql: `UPDATE agent_runs SET terminal_reason = ? WHERE id = ?`,
-      args: [terminalReason.slice(0, 200), runId],
+      sql: isContinuationTerminalReason(reason)
+        ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ?`
+        : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ?`,
+      args: [reason, runId],
     });
   } catch {
     // Diagnostics are best-effort; never let them break completion.
   }
 }
 
+/**
+ * INVARIANT: a terminal event yields `completed` if and only if its reason is
+ * `done`. Everything else either failed (`errored`) or stopped short
+ * (`truncated`). Keep this in lockstep with `terminalReasonForEvent` below.
+ */
 function terminalStatusForEvent(
   event: AgentChatEvent,
-): "completed" | "errored" | null {
+): "completed" | "truncated" | "errored" | null {
   if (event.type === "error") return "errored";
   if (event.type === "missing_api_key") return "errored";
-  if (
-    event.type === "done" ||
-    event.type === "loop_limit" ||
-    event.type === "auto_continue"
-  ) {
-    return "completed";
+  if (event.type === "done") return "completed";
+  if (event.type === "loop_limit" || event.type === "auto_continue") {
+    return "truncated";
   }
   return null;
 }
@@ -1634,9 +1695,9 @@ async function reapSingleStaleRun(
   const staleArgs =
     typeof maxStaleMs === "number"
       ? [completedAt - maxStaleMs]
-      : // First `?` is backgroundAwareStaleCutoffSql's CAST param, second is
-        // inFlightGraceSql's — both bound to the same "now".
-        [completedAt, completedAt];
+      : // First `?` is backgroundAwareStaleCutoffSql's CAST param, the next two
+        // are inFlightGraceSql's — all bound to the same "now".
+        [completedAt, completedAt, completedAt];
   const updateSql = `UPDATE agent_runs
           SET status = 'errored',
               completed_at = ?,
@@ -1795,7 +1856,7 @@ export async function reapUnclaimedBackgroundRun(
 
 export async function updateRunStatus(
   runId: string,
-  status: "completed" | "errored" | "aborted",
+  status: "completed" | "truncated" | "errored" | "aborted",
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1817,7 +1878,7 @@ export async function updateRunStatus(
  */
 export async function updateRunStatusIfRunning(
   runId: string,
-  status: "completed" | "errored" | "aborted",
+  status: "completed" | "truncated" | "errored" | "aborted",
 ): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1842,6 +1903,48 @@ export async function getRunStatus(runId: string): Promise<string | null> {
   return String((rows[0] as { status: string }).status);
 }
 
+/**
+ * Abort reasons whose turn genuinely ended, so `done` is the truthful wire
+ * event. `displaced` belongs here because whoever displaced this run already
+ * wrote the row's real terminal state — synthesizing our own would fabricate
+ * a second, competing truth.
+ */
+const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
+
+/**
+ * Truthful terminal event for an aborted run.
+ *
+ * A synthetic `done` is indistinguishable from a real finish on the wire, so
+ * every recovery abort used to render as "The agent stopped without sending a
+ * final message" with the streamed work apparently thrown away. Recoverable
+ * chunk-boundary reasons ride the `auto_continue` channel the client already
+ * routes into continuation; anything else that isn't a user stop surfaces as a
+ * reason-coded, recoverable error.
+ */
+export function terminalEventForAbortReason(
+  reason: string | undefined,
+): AgentChatEvent {
+  const normalized = (reason ?? "").trim() || "user";
+  if (isContinuationTerminalReason(normalized)) {
+    return {
+      type: "auto_continue",
+      reason: normalized as ContinuationReason,
+    };
+  }
+  if (
+    TURN_ENDING_ABORT_REASONS.has(normalized) ||
+    normalized.startsWith("user_")
+  ) {
+    return { type: "done" };
+  }
+  return {
+    type: "error",
+    error: "The agent run was stopped before it finished.",
+    errorCode: `aborted_${normalized}`,
+    recoverable: true,
+  };
+}
+
 export async function markRunAborted(
   runId: string,
   reason?: string,
@@ -1853,7 +1956,11 @@ export async function markRunAborted(
     args: [reason ?? "user", Date.now(), `aborted:${reason ?? "user"}`, runId],
   });
   if ((rowsAffected ?? 0) > 0) {
-    await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
+    await safeAppendTerminalRunEvent(
+      runId,
+      terminalEventForAbortReason(reason) as unknown as Record<string, unknown>,
+      "mark-aborted",
+    );
   }
 }
 
@@ -1898,7 +2005,14 @@ export async function markTurnAborted(
   });
   await Promise.all(
     runIds.map((runId) =>
-      safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-turn-aborted"),
+      safeAppendTerminalRunEvent(
+        runId,
+        terminalEventForAbortReason(reason) as unknown as Record<
+          string,
+          unknown
+        >,
+        "mark-turn-aborted",
+      ),
     ),
   );
 }
@@ -1966,15 +2080,52 @@ export async function insertRunEvent(
   });
 }
 
+/**
+ * Reserved seq for a checkpoint terminal event written BEFORE the agent loop
+ * unwinds. Stream events use contiguous 0-based seqs, so a value this high can
+ * never collide with one and always sorts last — which is what lets
+ * `reconcileTerminalRunFromEvents` / `getLastTerminalRunEvent` read the
+ * checkpoint as the run's real terminal state even when the process is killed
+ * mid-unwind, and what keeps `appendTerminalRunEvent` from stamping a
+ * `stale_run` lie over it.
+ */
+export const CHECKPOINT_TERMINAL_EVENT_SEQ = 1_000_000_000;
+
+/**
+ * Durably record a chunk-boundary terminal event the moment the boundary is
+ * decided, not after the loop unwinds. Wind-down regularly overruns the
+ * remaining serverless budget; without this the auto_continue is never
+ * persisted and the row is reaped as a `stale_run` lie instead of a
+ * sweep-continuable checkpoint.
+ */
+export async function persistRunCheckpointEvent(
+  runId: string,
+  event: AgentChatEvent,
+  terminalReason: string,
+): Promise<void> {
+  await insertRunEvent(
+    runId,
+    CHECKPOINT_TERMINAL_EVENT_SEQ,
+    JSON.stringify(event),
+  );
+  await setRunTerminalReason(runId, terminalReason);
+}
+
 export async function getRunEventsSince(
   runId: string,
   fromSeq: number,
 ): Promise<Array<{ seq: number; eventData: string }>> {
   await ensureRunTables();
   const client = getDbExec();
+  // The reserved checkpoint band is deliberately invisible here. Streaming it
+  // to a live subscriber would close the SSE stream at the chunk boundary
+  // BEFORE onComplete has made thread_data durable, and the client would
+  // continue the turn from a half-saved message. The checkpoint is replayed on
+  // the terminal/reconnect paths instead (`getLastTerminalRunEvent`,
+  // `reconcileTerminalRunFromEvents`), which run after the row is terminal.
   const { rows } = await client.execute({
-    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? ORDER BY seq ASC`,
-    args: [runId, fromSeq],
+    sql: `SELECT seq, event_data FROM agent_run_events WHERE run_id = ? AND seq >= ? AND seq < ? ORDER BY seq ASC`,
+    args: [runId, fromSeq, CHECKPOINT_TERMINAL_EVENT_SEQ],
   });
   return rows.map((r) => {
     const row = r as { seq: number | string; event_data: string };
@@ -2281,19 +2432,25 @@ export async function listRunsForThread(
  */
 export async function getCurrentTurnEventsForThread(
   threadId: string,
+  knownTurnId?: string,
 ): Promise<AgentChatEvent[]> {
   await ensureRunTables();
   const client = getDbExec();
-  // Find the latest run for this thread (terminal or running) to learn the
-  // logical turn id. The journal is consulted on the resume path, where the
-  // just-interrupted run is typically already terminal.
-  const latest = await client.execute({
-    sql: `SELECT id, turn_id FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`,
-    args: [threadId],
-  });
-  if (latest.rows.length === 0) return [];
-  const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
-  const turnId = latestRow.turn_id ?? latestRow.id;
+  // Callers that already know their turn MUST pass it: `startRun` persists the
+  // run row without awaiting the INSERT, so inferring the turn from the latest
+  // row can read a moment before this turn's row commits and return the
+  // PREVIOUS turn's events — which the read-only journal replay would then
+  // serve as a cache hit for an identical tool+input.
+  let turnId = knownTurnId;
+  if (!turnId) {
+    const latest = await client.execute({
+      sql: `SELECT id, turn_id FROM agent_runs WHERE thread_id = ? ORDER BY started_at DESC LIMIT 1`,
+      args: [threadId],
+    });
+    if (latest.rows.length === 0) return [];
+    const latestRow = latest.rows[0] as { id: string; turn_id: string | null };
+    turnId = latestRow.turn_id ?? latestRow.id;
+  }
   // Gather every run that belongs to this logical turn, oldest chunk first, and
   // read their events in seq order. COALESCE(turn_id, id) folds older rows that
   // predate the turn_id backfill into a turn keyed by their own run id.
@@ -2343,7 +2500,7 @@ export async function reapAllStaleRuns(): Promise<number> {
           WHERE status = 'running'
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
             AND ${inFlightGraceSql()}`,
-    args: [now, now],
+    args: [now, now, now],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -2382,11 +2539,119 @@ export async function reapAllStaleRuns(): Promise<number> {
   return reapedCount;
 }
 
+const RUN_OUTCOME_DAY_MS = 86_400_000;
+
+/**
+ * Terminal statuses kept on the long retention window. A truncated run is a
+ * failure — it stopped mid-task — so it must be retained with the errors it
+ * belongs with. Filing truncations as `completed` deleted them at 24h while the
+ * genuine failures they should be compared against survived for 7 days, so
+ * every run id a user pasted into a bug report was gone before anyone looked.
+ */
+const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
+
+/**
+ * Fold the terminal outcomes of the rows `cleanupOldRuns` is about to delete
+ * into `agent_run_outcome_daily`, so success/failure RATES survive pruning even
+ * though the rows do not. Counters cover exactly the pruned rows and `agent_runs`
+ * covers exactly the unpruned ones, so a rate over any window is
+ * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
+ *
+ * The predicate must stay identical to the DELETEs below, or a run is either
+ * counted twice or lost. Grouping divides the ms epoch by a day in SQL (integer
+ * division on both engines) rather than using SQLite `strftime` / Postgres
+ * `to_char`, which are not portable. Best-effort: observability must never
+ * block pruning.
+ */
+async function rollUpPrunedRunOutcomes(
+  client: ReturnType<typeof getDbExec>,
+  cutoff: number,
+  erroredCutoff: number,
+): Promise<void> {
+  try {
+    const { rows } = await client.execute({
+      sql: `SELECT (completed_at / ${RUN_OUTCOME_DAY_MS}) AS day_index,
+                   status,
+                   COALESCE(terminal_reason, '') AS terminal_reason,
+                   COUNT(*) AS run_count
+            FROM agent_runs
+            WHERE (status = 'completed' AND completed_at < ?)
+               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+            GROUP BY (completed_at / ${RUN_OUTCOME_DAY_MS}), status, COALESCE(terminal_reason, '')`,
+      args: [cutoff, erroredCutoff],
+    });
+    for (const r of rows) {
+      const row = r as {
+        day_index?: number | string | null;
+        status?: string;
+        terminal_reason?: string | null;
+        run_count?: number | string | null;
+      };
+      const dayIndex = Number(row.day_index);
+      const count = Number(row.run_count ?? 0);
+      if (!Number.isFinite(dayIndex) || !row.status || count <= 0) continue;
+      const day = new Date(dayIndex * RUN_OUTCOME_DAY_MS)
+        .toISOString()
+        .slice(0, 10);
+      await client.execute({
+        sql: `INSERT INTO agent_run_outcome_daily (day, status, terminal_reason, run_count)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT (day, status, terminal_reason)
+              DO UPDATE SET run_count = agent_run_outcome_daily.run_count + excluded.run_count`,
+        args: [day, row.status, row.terminal_reason ?? "", count],
+      });
+    }
+  } catch {
+    // Counters are diagnostics; never let them break pruning.
+  }
+}
+
+/**
+ * Read the daily terminal-outcome counters rolled up from pruned runs. Pair
+ * with live `agent_runs` rows for a complete picture — see
+ * `rollUpPrunedRunOutcomes`.
+ */
+export async function getRunOutcomeCounters(options?: {
+  /** Inclusive lower bound as YYYY-MM-DD. */
+  sinceDay?: string;
+}): Promise<
+  Array<{
+    day: string;
+    status: string;
+    terminalReason: string;
+    count: number;
+  }>
+> {
+  await ensureRunTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT day, status, terminal_reason, run_count
+          FROM agent_run_outcome_daily
+          WHERE day >= ?
+          ORDER BY day DESC`,
+    args: [options?.sinceDay ?? ""],
+  });
+  return rows.map((r) => {
+    const row = r as {
+      day: string;
+      status: string;
+      terminal_reason: string | null;
+      run_count: number | string | null;
+    };
+    return {
+      day: row.day,
+      status: row.status,
+      terminalReason: row.terminal_reason ?? "",
+      count: Number(row.run_count ?? 0),
+    };
+  });
+}
+
 /** Delete old runs and expire stale "running" rows that haven't had activity
- *  (e.g. worker crashed before updating status). Completed runs are pruned at
- *  `olderThanMs`; errored/aborted runs are kept until `erroredOlderThanMs` (a
- *  longer window, falling back to `olderThanMs`) so their event log survives
- *  for cut-off pattern analysis via listErroredRuns. */
+ *  (e.g. worker crashed before updating status). Genuinely completed runs are
+ *  pruned at `olderThanMs`; errored/aborted/truncated runs are kept until
+ *  `erroredOlderThanMs` (a longer window, falling back to `olderThanMs`) so
+ *  their event log survives for cut-off pattern analysis via listErroredRuns. */
 export async function cleanupOldRuns(
   olderThanMs: number,
   erroredOlderThanMs?: number,
@@ -2418,7 +2683,7 @@ export async function cleanupOldRuns(
               (${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()} AND ${inFlightGraceSql()})
               OR started_at < ?
     )`,
-    args: [now, now, cutoff],
+    args: [now, now, now, cutoff],
   });
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -2471,6 +2736,7 @@ export async function cleanupOldRuns(
       STALE_RUN_ERROR_EVENT.errorCode,
       completedAt,
       completedAt,
+      completedAt,
     ],
   });
   for (const row of stale.rows) {
@@ -2483,29 +2749,35 @@ export async function cleanupOldRuns(
       );
     }
   }
-  // Delete events for old terminal runs. Completed runs prune at `cutoff`;
-  // errored/aborted runs are retained until the (longer) `erroredCutoff`.
+  // Count what is about to disappear before it disappears — otherwise the
+  // asymmetric retention below silently biases every outcome-rate query.
+  await rollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
+  // Delete events for old terminal runs. Genuinely completed runs prune at
+  // `cutoff`; unsuccessful ones are retained until the (longer) `erroredCutoff`.
   await client.execute({
     sql: `DELETE FROM agent_run_events WHERE run_id IN (
       SELECT id FROM agent_runs
       WHERE (status = 'completed' AND completed_at < ?)
-         OR (status IN ('errored', 'aborted') AND completed_at < ?)
+         OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
     )`,
     args: [cutoff, erroredCutoff],
   });
   await client.execute({
     sql: `DELETE FROM agent_runs
           WHERE (status = 'completed' AND completed_at < ?)
-             OR (status IN ('errored', 'aborted') AND completed_at < ?)`,
+             OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)`,
     args: [cutoff, erroredCutoff],
   });
 }
 
 /**
- * List recent errored/aborted runs for cut-off pattern analysis. Read-only,
- * bounded, and ordered newest-first. Surfaced via the list-errored-runs action
- * so the team can see why chats are failing (terminal error code, duration,
- * turn linkage) instead of discovering it ad hoc.
+ * List recent unsuccessful runs (errored, aborted, and truncated) for cut-off
+ * pattern analysis. Read-only, bounded, and ordered newest-first. Surfaced via
+ * the list-errored-runs action so the team can see why chats are failing
+ * (terminal error code, duration, turn linkage) instead of discovering it ad
+ * hoc. Truncations belong here: a run that stopped at a budget boundary is a
+ * cut-off, and they outnumbered genuine completions on Plan in prod while being
+ * invisible to this query.
  */
 export async function listErroredRuns(options?: {
   limit?: number;
@@ -2532,7 +2804,7 @@ export async function listErroredRuns(options?: {
   const { rows } = await client.execute({
     sql: `SELECT id, thread_id, turn_id, status, error_code, error_detail, terminal_reason, started_at, completed_at
           FROM agent_runs
-          WHERE status IN ('errored', 'aborted')
+          WHERE status IN ${UNSUCCESSFUL_STATUS_SQL_LIST}
             AND COALESCE(completed_at, started_at) >= ?
           ORDER BY COALESCE(completed_at, started_at) DESC
           LIMIT ${limit}`,

@@ -34,10 +34,12 @@ vi.mock("../settings/store.js", () => ({
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
+import { isLlmCredentialError } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
+  CredentialStoreUnavailableError,
   getBuilderCredentialAuthFailure,
   getProviderCredentialAuthFailure,
   providerCredentialFingerprint,
@@ -52,6 +54,7 @@ import {
   resolveBuilderCredentialSource,
   resolveHasCompleteBuilderConnection,
   resolveSecret,
+  resolveSecretDetailed,
 } from "./credential-provider.js";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
@@ -1163,6 +1166,65 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
+  it("recovers the org-scoped row when request org context is transiently missing", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue("builder_io");
+    mockReadAppSecret.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      value: "https://academy.example.test",
+      last4: "test",
+      updatedAt: 1,
+    });
+
+    expect(await resolveSecret("ACADEMY_CONVEX_SITE_URL")).toBe(
+      "https://academy.example.test",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0])).toEqual([
+      { key: "ACADEMY_CONVEX_SITE_URL", scope: "user", scopeId: "tim@b.com" },
+      { key: "ACADEMY_CONVEX_SITE_URL", scope: "org", scopeId: "builder_io" },
+    ]);
+  });
+
+  it("still checks the solo workspace scope when an org id is present", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret
+      .mockResolvedValueOnce(null) // user scope miss
+      .mockResolvedValueOnce(null) // org scope miss
+      .mockResolvedValueOnce(null) // workspace/org scope miss
+      .mockResolvedValueOnce({
+        value: "pre-org-secret",
+        last4: "cret",
+        updatedAt: 1,
+      });
+
+    expect(await resolveSecret("ACADEMY_CONVEX_SITE_URL")).toBe(
+      "pre-org-secret",
+    );
+    expect(mockReadAppSecret.mock.calls.map((c) => c[0].scopeId)).toEqual([
+      "tim@b.com",
+      "builder_io",
+      "builder_io",
+      "solo:tim@b.com",
+    ]);
+  });
+
+  it("reads the store on every call rather than caching the first resolution", async () => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue({
+      value: "https://academy.example.test",
+      last4: "test",
+      updatedAt: 1,
+    });
+
+    await resolveSecret("ACADEMY_CONVEX_SITE_URL");
+    const callsAfterFirst = mockReadAppSecret.mock.calls.length;
+    await resolveSecret("ACADEMY_CONVEX_SITE_URL");
+
+    expect(mockReadAppSecret.mock.calls.length).toBe(callsAfterFirst * 2);
+  });
+
   it("uses app-provided Google OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
     process.env.GOOGLE_CLIENT_ID = "deploy-client-id";
@@ -1210,5 +1272,68 @@ describe("resolveSecret (generic)", () => {
     mockGetRequestUserEmail.mockReturnValue(undefined);
     expect(await resolveSecret("SOME_KEY")).toBe("v");
     delete process.env.SOME_KEY;
+  });
+});
+
+describe("unreadable credential store is not 'not configured'", () => {
+  beforeEach(() => {
+    mockGetRequestUserEmail.mockReturnValue("tim@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+  });
+
+  it("throws a retryable error when the secrets read fails and nothing else answers", async () => {
+    mockReadAppSecret.mockRejectedValue(
+      new Error("db query timed out after 12000ms"),
+    );
+
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+    const detailed = await resolveSecretDetailed("OPENAI_API_KEY");
+    expect(detailed).toEqual({ value: null, lookupFailed: true });
+  });
+
+  it("throws when the org lookup fails, because org-scoped rows were never searched", async () => {
+    mockResolveOrgIdForEmail.mockRejectedValue(new Error("connection ended"));
+    mockReadAppSecret.mockResolvedValue(null);
+
+    await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+  });
+
+  it("still returns null (definitively absent) when the store answers with no row", async () => {
+    mockReadAppSecret.mockResolvedValue(null);
+    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecretDetailed("OPENAI_API_KEY")).toEqual({
+      value: null,
+      lookupFailed: false,
+    });
+  });
+
+  it("prefers a working env fallback over throwing", async () => {
+    process.env.OPENAI_API_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(true);
+    mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
+    try {
+      expect(await resolveSecret("OPENAI_API_KEY")).toBe("deploy-key");
+    } finally {
+      delete process.env.OPENAI_API_KEY;
+    }
+  });
+
+  it("throws instead of reporting Builder as not connected", async () => {
+    mockReadAppSecret.mockRejectedValue(new Error("db query timed out"));
+
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
+  it("does not report the retryable error as a missing-LLM-credential error", () => {
+    expect(isLlmCredentialError(new CredentialStoreUnavailableError())).toBe(
+      false,
+    );
   });
 });
