@@ -59,7 +59,6 @@ const IN_PLACE_ALLOWLIST = new Set([
   "Thumbs.db",
 ]);
 
-
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
  * names, etc.). The Sentry `beforeSend` hook in cli/index.ts drops events
