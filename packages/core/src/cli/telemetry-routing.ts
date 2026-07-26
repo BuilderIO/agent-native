@@ -9,6 +9,39 @@ function isRewindSkillTarget(value: string | undefined): boolean {
   return REWIND_SKILL_TARGETS.has(value?.trim().toLowerCase() ?? "");
 }
 
+const SKILLS_VALUE_FLAGS = new Set([
+  "--client",
+  "--agent",
+  "-a",
+  "--scope",
+  "--cwd",
+  "--mcp-url",
+  "--mode",
+]);
+
+function explicitSkillTargets(args: string[]): string[] {
+  const targets: string[] = [];
+  const start = args[0] === "add" ? 1 : 0;
+  for (let index = start; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === "--skill" || arg === "-s") {
+      if (args[index + 1]) targets.push(args[++index]);
+      continue;
+    }
+    if (arg.startsWith("--skill=")) {
+      targets.push(arg.slice("--skill=".length));
+      continue;
+    }
+    if (SKILLS_VALUE_FLAGS.has(arg)) {
+      index++;
+      continue;
+    }
+    if (arg.startsWith("-")) continue;
+    targets.push(arg);
+  }
+  return targets;
+}
+
 export function shouldTrackCliRun(command: string | undefined, args: string[]) {
   if (command !== "skills") return true;
   if (
@@ -16,30 +49,9 @@ export function shouldTrackCliRun(command: string | undefined, args: string[]) {
   )
     return true;
 
-  const skillArgs =
-    args[0] === "add"
-      ? args.slice(1)
-      : isRewindSkillTarget(args[0])
-        ? args
-        : [];
+  const targets = explicitSkillTargets(args);
+  if (targets.length === 0) return false;
 
-  if (args[0] === "add" && skillArgs.length === 0) return false;
-
-  const flagSkillTargets = args.flatMap((arg, index) => {
-    if (arg === "--skill" || arg === "-s") return [args[index + 1]];
-    if (arg.startsWith("--skill=")) return [arg.slice("--skill=".length)];
-    return [];
-  });
-  const positionalTarget = skillArgs[0]?.startsWith("-")
-    ? undefined
-    : skillArgs[0];
-  const explicitSkillTargets = [positionalTarget, ...flagSkillTargets].filter(
-    (target): target is string => Boolean(target),
-  );
-
-  if (explicitSkillTargets.length === 0) return false;
-
-  const explicitlyTargetsRewind =
-    explicitSkillTargets.some(isRewindSkillTarget);
+  const explicitlyTargetsRewind = targets.some(isRewindSkillTarget);
   return !explicitlyTargetsRewind;
 }

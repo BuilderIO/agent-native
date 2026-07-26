@@ -35,6 +35,13 @@ describe("shouldTrackCliRun", () => {
 
   it("tracks other CLI invocations immediately", () => {
     expect(shouldTrackCliRun("skills", ["add", "visual-plan"])).toBe(true);
+    expect(
+      shouldTrackCliRun("skills", ["add", "--client", "codex", "assets"]),
+    ).toBe(true);
+    expect(shouldTrackCliRun("skills", ["add", "--yes", "assets"])).toBe(true);
+    expect(shouldTrackCliRun("skills", ["--client", "codex", "assets"])).toBe(
+      true,
+    );
     expect(shouldTrackCliRun("skills", ["--skill", "assets"])).toBe(true);
     expect(shouldTrackCliRun("skills", ["-s", "assets"])).toBe(true);
     expect(shouldTrackCliRun("skills", ["list"])).toBe(true);
