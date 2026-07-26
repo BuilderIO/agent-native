@@ -924,6 +924,20 @@ export async function rescheduleA2AContinuation(
   });
 }
 
+export async function retainA2AUnconfirmedDeliveryClaim(
+  id: string,
+): Promise<void> {
+  await ensureTable();
+  const now = Date.now();
+  await getDbExec().execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET next_check_at = ?, updated_at = ?
+          WHERE id = ? AND status = 'delivering'
+            AND terminal_delivery_confirmed_at IS NULL`,
+    args: [now + PROCESSING_STUCK_AFTER_MS, now, id],
+  });
+}
+
 export async function saveA2AVerifiedArtifactCheckpoint(
   id: string,
   checkpoint: string,

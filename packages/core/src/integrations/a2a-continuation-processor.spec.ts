@@ -26,6 +26,7 @@ const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
 const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
 const recordA2ATerminalDeliveryReceiptMock = vi.hoisted(() => vi.fn());
+const retainA2AUnconfirmedDeliveryClaimMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationTaskOutcomeMock = vi.hoisted(() =>
   vi.fn(async () => "terminal-delivered"),
 );
@@ -70,6 +71,7 @@ vi.mock("./a2a-continuations-store.js", () => ({
   listRecoverableA2AIntegrationTasks: listRecoverableA2ATasksMock,
   recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
   recordA2ATerminalDeliveryReceipt: recordA2ATerminalDeliveryReceiptMock,
+  retainA2AUnconfirmedDeliveryClaim: retainA2AUnconfirmedDeliveryClaimMock,
   rescheduleA2AContinuation: rescheduleA2AContinuationMock,
   saveA2AVerifiedArtifactCheckpoint: saveA2AVerifiedArtifactCheckpointMock,
 }));
@@ -216,6 +218,7 @@ describe("A2A continuation processor", () => {
           errorMessage: errorMessage ?? null,
         }),
     );
+    retainA2AUnconfirmedDeliveryClaimMock.mockResolvedValue(undefined);
     rescheduleA2AContinuationMock.mockResolvedValue(undefined);
     saveA2AVerifiedArtifactCheckpointMock.mockImplementation(
       async (_id: string, checkpoint: string) => checkpoint,
@@ -456,6 +459,38 @@ describe("A2A continuation processor", () => {
     ).toHaveBeenCalledWith("task-1", "Unknown platform: slack");
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves confirmed sibling custody when adapter exhaustion contains another sibling", async () => {
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "processing", attempts: 30 }),
+    );
+    hasPendingConfirmedA2ADeliveryForIntegrationTaskMock.mockResolvedValueOnce(
+      true,
+    );
+    const { recoverA2AContinuationAfterProcessorFailure } =
+      await import("./a2a-continuation-processor.js");
+
+    await recoverA2AContinuationAfterProcessorFailure("cont-1", {
+      adapters: new Map(),
+      reason: "processor failed after its adapter was removed",
+    });
+
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledWith(
+      "task-1",
+      "Unknown platform: slack",
+    );
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith({
+      taskId: "task-1",
+      task: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    });
   });
 
   it("allows one durable wake-up dispatch failure without stranding the rest", async () => {
@@ -773,6 +808,28 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("retains the successful delivery claim when its receipt cannot be recorded", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    recordA2ATerminalDeliveryReceiptMock.mockRejectedValue(
+      new Error("receipt database unavailable"),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledTimes(3);
+    expect(retainA2AUnconfirmedDeliveryClaimMock).toHaveBeenCalledWith(
+      "cont-1",
+    );
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("closes the waiting parent campaign and wakes its successor after the last A2A reply", async () => {
@@ -1758,6 +1815,39 @@ describe("A2A continuation processor", () => {
       "The deck export failed",
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+  });
+
+  it("retains the failure delivery claim when its receipt cannot be recorded", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    recordA2ATerminalDeliveryReceiptMock.mockRejectedValue(
+      new Error("receipt database unavailable"),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledTimes(3);
+    expect(retainA2AUnconfirmedDeliveryClaimMock).toHaveBeenCalledWith(
+      "cont-1",
+    );
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
   it("retries a terminal failure notification until delivery is confirmed", async () => {

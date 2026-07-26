@@ -29,6 +29,7 @@ import {
   listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
   recordA2ATerminalDeliveryReceipt,
+  retainA2AUnconfirmedDeliveryClaim,
   rescheduleA2AContinuation,
   saveA2AVerifiedArtifactCheckpoint,
   type A2AContinuation,
@@ -216,6 +217,26 @@ export async function recoverA2AContinuationAfterProcessorFailure(
       continuation.integrationTaskId,
       reason,
     );
+    if (
+      await hasPendingConfirmedA2ADeliveryForIntegrationTask(
+        continuation.integrationTaskId,
+      )
+    ) {
+      await dispatchPendingIntegrationTask({
+        taskId: continuation.integrationTaskId,
+        task: {
+          platform: continuation.platform,
+          externalThreadId: continuation.externalThreadId,
+          platformContext: continuation.incoming.platformContext,
+        },
+      }).catch((err) => {
+        console.error(
+          `[integrations] Failed to wake confirmed sibling history for ${continuation.integrationTaskId}:`,
+          err,
+        );
+      });
+      return;
+    }
     await failIntegrationCampaignTaskDeliveryContainment(
       continuation.integrationTaskId,
       reason,
@@ -965,6 +986,14 @@ async function recordTerminalA2ADelivery(
     `[integrations] ${continuation.platform} accepted terminal A2A delivery for ${continuation.id}, ` +
       `but recording its receipt failed after ${COMPLETE_AFTER_DELIVERY_ATTEMPTS} attempts. Leaving it in delivering for stale recovery.`,
   );
+  try {
+    await retainA2AUnconfirmedDeliveryClaim(continuation.id);
+  } catch (err) {
+    console.error(
+      `[integrations] Failed to retain unconfirmed A2A delivery claim ${continuation.id}:`,
+      err instanceof Error ? err.name : "receipt_recovery_error",
+    );
+  }
   return null;
 }
 

@@ -192,6 +192,27 @@ describe("A2A continuations store", () => {
     ).rejects.toThrow("exceeds 16000 characters");
   });
 
+  it("retains an unconfirmed delivery claim until stale recovery", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { retainA2AUnconfirmedDeliveryClaim } = await loadStore();
+    const before = Date.now();
+
+    await retainA2AUnconfirmedDeliveryClaim("cont-1");
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET next_check_at = ?"),
+    );
+    expect(querySql(update![0])).toContain("status = 'delivering'");
+    expect(queryArgs(update![0])).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      "cont-1",
+    ]);
+    expect(Number(queryArgs(update![0])[0])).toBeGreaterThanOrEqual(
+      before + 5 * 60_000,
+    );
+  });
+
   it.each([
     [[], "missing"],
     [
