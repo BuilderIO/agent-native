@@ -194,6 +194,18 @@ export const bigqueryCache = table("bigquery_cache", {
 });
 
 /**
+ * First-party dashboard panel result cache — see
+ * server/lib/first-party-analytics-cache.ts.
+ */
+export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
+  key: text("key").primaryKey(),
+  sql: text("sql").notNull(),
+  result: text("result").notNull(),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+/**
  * Public write keys for the first-party analytics ingestion endpoint.
  * The key is intentionally public/write-only: it can create events for the
  * owning user/org but grants no read or admin access.

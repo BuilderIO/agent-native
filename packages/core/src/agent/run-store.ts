@@ -174,6 +174,34 @@ export const UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS = 20_000;
 const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
 
 /**
+ * Circuit breaker for a DETERMINISTIC dead-on-arrival loop: some request
+ * shapes make the worker hang almost immediately every single time (e.g. an
+ * un-timed-out provider fetch that blocks the event loop) rather than merely
+ * hitting a transient blip. Because `attemptStaleRunRecovery` replays the
+ * SAME captured `dispatch_payload` on every successor (never a fresh
+ * request), such a turn was retrying an unwinnable request up to
+ * `STALE_RUN_RECOVERY_MAX_TURN_RUNS` (25) times — ~25 * 53s ≈ 22 minutes,
+ * each cycle re-billing the full input context — before finally giving up.
+ * Confirmed live in prod (assets: one turn cycled 24x, each attempt an
+ * identical ~32K-token request that made a token of real progress around
+ * ~8s in then went completely silent for the rest of its life until the 45s
+ * reap). Stop recovering after this many CONSECUTIVE stale_run reaps that
+ * each made near-zero real progress — a single blip never trips it (needs
+ * 3 in a row), and a run that's genuinely grinding through long work right
+ * up to its heartbeat window is untouched (see `hasNoForwardProgress`).
+ */
+const STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT = 3;
+
+/**
+ * A reaped run counts as having made no forward progress if it never
+ * emitted a real event (`last_progress_at` unset) or died within this many
+ * ms of starting — well short of the 45s background reap window, so a run
+ * that was legitimately working almost up to the reap boundary is not
+ * penalized. See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`.
+ */
+const STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS = 20_000;
+
+/**
  * Maximum time the stale reapers (`reapIfStale`, `reapAllStaleRuns`,
  * `cleanupOldRuns`'s heartbeat-stale pass) will suspend reaping a "running"
  * row that is marked in-flight (`in_flight_since`, see `setRunInFlightMarker`)
@@ -1361,7 +1389,8 @@ type StaleRunRecoveryOutcome =
   | { outcome: "not_background" }
   | { outcome: "payload_missing" }
   | { outcome: "newer_run_exists" }
-  | { outcome: "budget_exhausted" };
+  | { outcome: "budget_exhausted" }
+  | { outcome: "repeated_no_progress" };
 
 /**
  * Mirrors `production-agent.ts`'s `generateRunId` — duplicated (not
@@ -1475,6 +1504,37 @@ async function attemptStaleRunRecovery(
     turnRunCount > STALE_RUN_RECOVERY_MAX_TURN_RUNS
   ) {
     return { outcome: "budget_exhausted" };
+  }
+
+  // See `STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT`: a run whose last
+  // N attempts (including the one just reaped, already written by the
+  // caller's UPDATE earlier in this same transaction) all died as stale_run
+  // having made essentially no real progress is retrying an unwinnable
+  // request, not recovering from a blip. Stop far short of the 25-run/~22min
+  // budget above instead of grinding through it.
+  const { rows: recentRows } = await db.execute({
+    sql: `SELECT error_code, started_at, last_progress_at FROM agent_runs WHERE turn_id = ? ORDER BY started_at DESC LIMIT ?`,
+    args: [turnId, STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT],
+  });
+  const recent = (recentRows ?? []) as Array<{
+    error_code?: string | null;
+    started_at: number | string;
+    last_progress_at: number | string | null;
+  }>;
+  const allDeadOnArrival =
+    recent.length === STALE_RUN_RECOVERY_CONSECUTIVE_NO_PROGRESS_LIMIT &&
+    recent.every((r) => {
+      if (r.error_code !== STALE_RUN_ERROR_EVENT.errorCode) return false;
+      const started = Number(r.started_at) || 0;
+      const progress =
+        r.last_progress_at == null ? null : Number(r.last_progress_at);
+      return (
+        progress === null ||
+        progress - started < STALE_RUN_RECOVERY_NO_PROGRESS_WINDOW_MS
+      );
+    });
+  if (allDeadOnArrival) {
+    return { outcome: "repeated_no_progress" };
   }
 
   const successorRunId = generateRecoveryRunId();

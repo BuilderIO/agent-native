@@ -48,14 +48,16 @@ status, visibility, and an "Open editor" action.
 
 ## Exporting Responses
 
-Use `export-responses` to export to CSV or JSON:
+Use `export-responses` to export to CSV or JSON. The export is uploaded to
+configured file storage (never written to local disk — serverless hosts have
+a read-only filesystem) and the action returns the resulting file URL:
 
 ```bash
 # CSV export (default)
-pnpm action export-responses --form <form-id> --output data/export.csv
+pnpm action export-responses --form <form-id>
 
 # JSON export
-pnpm action export-responses --form <form-id> --output data/export.json --format json
+pnpm action export-responses --form <form-id> --format json
 ```
 
 The CSV includes headers derived from field labels. Array values (multiselect) are joined with semicolons.
@@ -113,7 +115,7 @@ To analyze responses, the workflow is:
 | ---------------------- | ---------------------------------------------------------------------------- |
 | "@Form setup?"         | `preview-form --formId <id>` and answer from the returned fields/settings    |
 | "How many responses?"  | `response-insights --formId <id>` and report `summary.responses`             |
-| "Export to CSV"        | `export-responses --form <id> --output data/export.csv`                      |
+| "Export to CSV"        | `export-responses --form <id>`                                               |
 | "Submissions by day"   | `response-insights --formId <id> --days 30`                                  |
 | "Summarize feedback"   | `response-insights`, then `list-responses` if more detail is needed          |
 | "Average rating"       | `list-responses`, compute from rating fields and state the sampled row count |

@@ -48,6 +48,8 @@ const SKIP_DIRS = new Set([
 // cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
+  "analytics:first_party_analytics_cache":
+    "internal query cache, accessed through scoped analytics queries",
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
   "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
   "brain:brain_audience_members":
