@@ -856,6 +856,43 @@ describe("integrations plugin routes", () => {
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
   });
 
+  it("finishes a history-finalized A2A parent after its rollout scope is disabled", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-delivered",
+    );
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "The parent work is ready", platformContext: {} },
+        awaitingA2ACompletion: true,
+      }),
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
+    );
+
+    expect(result.status).toBe(200);
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      task.id,
+    );
+  });
+
   it("does not send an unreceipted campaign delivery after scope is disabled", async () => {
     process.env.NODE_ENV = "development";
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;

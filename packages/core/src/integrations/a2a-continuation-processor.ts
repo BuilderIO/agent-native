@@ -229,6 +229,8 @@ export async function recoverA2AContinuationAfterProcessorFailure(
           externalThreadId: continuation.externalThreadId,
           platformContext: continuation.incoming.platformContext,
         },
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
       }).catch((err) => {
         console.error(
           `[integrations] Failed to wake confirmed sibling history for ${continuation.integrationTaskId}:`,
@@ -1043,6 +1045,8 @@ async function persistAndFinalizeConfirmedA2ADelivery(
         externalThreadId: continuation.externalThreadId,
         platformContext: continuation.incoming.platformContext,
       },
+      campaignContinuation: true,
+      allowPortableConfirmedReceiptReconciliation: true,
     }).catch((err) => {
       console.error(
         `[integrations] Failed to wake A2A parent ${continuation.integrationTaskId} after terminal history finalization:`,

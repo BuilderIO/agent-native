@@ -1907,13 +1907,18 @@ export function createIntegrationsPlugin(
               ? { channelId: task.dispatchScope }
               : undefined,
           });
+        const a2aOutcome = campaignContinuation
+          ? await getA2AContinuationTaskOutcome(task.id)
+          : null;
         const confirmedDeliveryReceipt =
           taskPayload.kind === "response-delivery" &&
           taskPayload.deliveryReceipt?.status === "delivered";
+        const confirmedDeliveryProof =
+          confirmedDeliveryReceipt || a2aOutcome === "terminal-delivered";
         if (
           campaignContinuation &&
           !durableCampaignEnabled &&
-          !confirmedDeliveryReceipt
+          !confirmedDeliveryProof
         ) {
           await failDisabledIntegrationCampaignTask(task.id);
           const nextTask = await getNextPendingTaskForThread(
@@ -2112,9 +2117,6 @@ export function createIntegrationsPlugin(
                     );
                     if (!waiting) return "campaign-active" as const;
                   }
-                  const a2aOutcome = await getA2AContinuationTaskOutcome(
-                    task.id,
-                  );
                   if (a2aOutcome === "terminal-delivered") {
                     const completed =
                       await completeIntegrationCampaignTaskAfterA2A(task.id);

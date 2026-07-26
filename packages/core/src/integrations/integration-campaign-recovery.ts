@@ -1,3 +1,4 @@
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import {
   getIntegrationCampaign,
   failDisabledIntegrationCampaignTask,
@@ -72,7 +73,9 @@ export async function recoverDueIntegrationCampaigns(options: {
             : undefined,
         },
       );
-      const confirmedReceipt = hasConfirmedDeliveryReceipt(task.payload);
+      const confirmedReceipt =
+        hasConfirmedDeliveryReceipt(task.payload) ||
+        (await getA2AContinuationTaskOutcome(task.id)) === "terminal-delivered";
       if (!durableDispatchEnabled && !confirmedReceipt) {
         await failDisabledIntegrationCampaignTask(task.id);
         const nextTask = await getNextPendingTaskForThread(

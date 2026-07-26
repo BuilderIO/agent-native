@@ -490,6 +490,8 @@ describe("A2A continuation processor", () => {
         externalThreadId: "C123:123.456",
         platformContext: { channelId: "C123", threadTs: "123.456" },
       },
+      campaignContinuation: true,
+      allowPortableConfirmedReceiptReconciliation: true,
     });
   });
 
@@ -1617,6 +1619,8 @@ describe("A2A continuation processor", () => {
         externalThreadId: "C123:123.456",
         platformContext: { channelId: "C123", threadTs: "123.456" },
       },
+      campaignContinuation: true,
+      allowPortableConfirmedReceiptReconciliation: true,
     });
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("parent completion remains retryable"),
