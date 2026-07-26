@@ -67,6 +67,72 @@ describe("durable integration dispatch", () => {
     );
   });
 
+  it("marks a continuation wake without rewriting task dispatch diagnostics", async () => {
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH", "true");
+    vi.stubEnv("AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES", "slack:C123");
+    const {
+      dispatchPendingIntegrationTask,
+      INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
+    } = await import("./integration-durable-dispatch.js");
+
+    await dispatchPendingIntegrationTask({
+      taskId: "task-campaign",
+      task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+      baseUrl: "https://app.test",
+      campaignContinuation: true,
+    });
+
+    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true,
+        }),
+      }),
+    );
+    expect(recordDispatchAttemptMock).not.toHaveBeenCalled();
+  });
+
+  it("does not portable-fallback a continuation after its canary scope is removed", async () => {
+    const { dispatchPendingIntegrationTask } =
+      await import("./integration-durable-dispatch.js");
+
+    await expect(
+      dispatchPendingIntegrationTask({
+        taskId: "task-disabled-campaign",
+        task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+        baseUrl: "https://app.test",
+        campaignContinuation: true,
+      }),
+    ).resolves.toBe("failed");
+    expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+    expect(recordDispatchAttemptMock).not.toHaveBeenCalled();
+  });
+
+  it("permits an explicit confirmed-receipt reconciliation wake after scope removal", async () => {
+    const {
+      dispatchPendingIntegrationTask,
+      INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
+    } = await import("./integration-durable-dispatch.js");
+
+    await expect(
+      dispatchPendingIntegrationTask({
+        taskId: "task-confirmed-receipt",
+        task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+        baseUrl: "https://app.test",
+        campaignContinuation: true,
+        allowPortableConfirmedReceiptReconciliation: true,
+      }),
+    ).resolves.toBe("portable-unconfirmed");
+
+    expect(fireInternalDispatchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: "/_agent-native/integrations/process-task",
+        body: { [INTEGRATION_CAMPAIGN_PROCESSOR_FIELD]: true },
+      }),
+    );
+    expect(recordDispatchAttemptMock).not.toHaveBeenCalled();
+  });
+
   it("uses the durable handoff when only Netlify's runtime SITE_ID is present", async () => {
     vi.unstubAllEnvs();
     vi.stubEnv("NETLIFY", "");

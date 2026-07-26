@@ -7,6 +7,9 @@ const dispatchPendingTaskMock = vi.hoisted(() =>
 const durableEnabledMock = vi.hoisted(() => vi.fn(() => true));
 const configuredScopesMock = vi.hoisted(() => vi.fn(() => null));
 const ensurePendingTasksTableMock = vi.hoisted(() => vi.fn());
+const hasActiveIntegrationCampaignMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
@@ -27,6 +30,10 @@ vi.mock("./integration-durable-dispatch.js", () => ({
   isIntegrationDurableDispatchEnabledForTask: durableEnabledMock,
 }));
 
+vi.mock("./integration-campaigns-store.js", () => ({
+  hasActiveIntegrationCampaign: hasActiveIntegrationCampaignMock,
+}));
+
 async function loadRetryJob() {
   vi.resetModules();
   return import("./pending-tasks-retry-job.js");
@@ -40,6 +47,7 @@ describe("pending task retry job", () => {
     durableEnabledMock.mockReturnValue(true);
     configuredScopesMock.mockReturnValue(null);
     ensurePendingTasksTableMock.mockResolvedValue(undefined);
+    hasActiveIntegrationCampaignMock.mockResolvedValue(false);
   });
 
   it("resets stuck processing tasks to pending and re-fires the processor", async () => {
@@ -81,6 +89,29 @@ describe("pending task retry job", () => {
       }),
     );
     expect(ensurePendingTasksTableMock).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a processing task owned by an active campaign alone", async () => {
+    hasActiveIntegrationCampaignMock.mockResolvedValueOnce(true);
+    const { retryStuckPendingTasks } = await loadRetryJob();
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "task-campaign",
+          platform: "slack",
+          external_thread_id: "slack:team:C123:1",
+          status: "processing",
+          attempts: 1,
+          updated_at: 10,
+        },
+      ],
+    });
+
+    const result = await retryStuckPendingTasks("https://app.test");
+
+    expect(result.skipped).toBe(1);
+    expect(executeMock).toHaveBeenCalledOnce();
+    expect(dispatchPendingTaskMock).not.toHaveBeenCalled();
   });
 
   it("fails loud when the additive queue schema cannot be ensured", async () => {
