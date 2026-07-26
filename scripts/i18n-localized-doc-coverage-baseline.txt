@@ -97,7 +97,6 @@ de-DE|template-calendar-booking-links
 de-DE|template-calendar-developers
 de-DE|template-calendar-scheduling
 de-DE|template-chat-developers
-de-DE|template-chat-first-edits
 de-DE|template-clips-ai-and-editing
 de-DE|template-clips-capture-everywhere
 de-DE|template-clips-developers
@@ -167,7 +166,6 @@ es-ES|template-calendar-booking-links
 es-ES|template-calendar-developers
 es-ES|template-calendar-scheduling
 es-ES|template-chat-developers
-es-ES|template-chat-first-edits
 es-ES|template-clips-ai-and-editing
 es-ES|template-clips-capture-everywhere
 es-ES|template-clips-developers
@@ -237,7 +235,6 @@ fr-FR|template-calendar-booking-links
 fr-FR|template-calendar-developers
 fr-FR|template-calendar-scheduling
 fr-FR|template-chat-developers
-fr-FR|template-chat-first-edits
 fr-FR|template-clips-ai-and-editing
 fr-FR|template-clips-capture-everywhere
 fr-FR|template-clips-developers
@@ -377,7 +374,6 @@ ja-JP|template-calendar-booking-links
 ja-JP|template-calendar-developers
 ja-JP|template-calendar-scheduling
 ja-JP|template-chat-developers
-ja-JP|template-chat-first-edits
 ja-JP|template-clips-ai-and-editing
 ja-JP|template-clips-capture-everywhere
 ja-JP|template-clips-developers
@@ -447,7 +443,6 @@ ko-KR|template-calendar-booking-links
 ko-KR|template-calendar-developers
 ko-KR|template-calendar-scheduling
 ko-KR|template-chat-developers
-ko-KR|template-chat-first-edits
 ko-KR|template-clips-ai-and-editing
 ko-KR|template-clips-capture-everywhere
 ko-KR|template-clips-developers
@@ -517,7 +512,6 @@ pt-BR|template-calendar-booking-links
 pt-BR|template-calendar-developers
 pt-BR|template-calendar-scheduling
 pt-BR|template-chat-developers
-pt-BR|template-chat-first-edits
 pt-BR|template-clips-ai-and-editing
 pt-BR|template-clips-capture-everywhere
 pt-BR|template-clips-developers
@@ -587,7 +581,6 @@ zh-CN|template-calendar-booking-links
 zh-CN|template-calendar-developers
 zh-CN|template-calendar-scheduling
 zh-CN|template-chat-developers
-zh-CN|template-chat-first-edits
 zh-CN|template-clips-ai-and-editing
 zh-CN|template-clips-capture-everywhere
 zh-CN|template-clips-developers
@@ -656,7 +649,6 @@ zh-TW|template-calendar-booking-links
 zh-TW|template-calendar-developers
 zh-TW|template-calendar-scheduling
 zh-TW|template-chat-developers
-zh-TW|template-chat-first-edits
 zh-TW|template-clips-ai-and-editing
 zh-TW|template-clips-capture-everywhere
 zh-TW|template-clips-developers

@@ -8,14 +8,15 @@ search: "Claude ChatGPT Claude Code Codex Cursor Claude Cowork MCP Apps agent-na
 
 **This page: connect an external agent or MCP host to your app.** Use it when Claude, ChatGPT, Codex, Cursor, Claude Cowork, or another MCP-compatible host should drive a hosted agent-native app and round-trip the result back into the running UI.
 
-| If you want to…                                                          | Read                                                                             |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| Connect an external agent/host to your app                               | **This page** — External Agents                                                  |
-| Look up catalog tiers, tool exposure, or the `link`/open-route internals | [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog) |
-| Give your agent more tools (consume other MCP servers)                   | [MCP Clients](/docs/mcp-clients)                                                 |
-| Build inline UIs that render in Claude/ChatGPT                           | [MCP Apps](/docs/mcp-apps)                                                       |
-| Build generated inline UI inside Agent-Native chat                       | [Generative UI](/docs/generative-ui)                                             |
-| Lower-level MCP server reference (auth, tools, custom mount)             | [MCP Server](/docs/mcp-protocol)                                                 |
+| If you want to…                                                             | Read                                                                             |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Connect an external agent/host to your app                                  | **This page** — External Agents                                                  |
+| Look up catalog tiers, tool exposure, or the `link`/open-route internals    | [External Agents — Catalog & Developer Reference](/docs/external-agents-catalog) |
+| Give your agent more tools (consume other MCP servers)                      | [MCP Clients](/docs/mcp-clients)                                                 |
+| Build inline UIs that render in Claude/ChatGPT                              | [MCP Apps](/docs/mcp-apps)                                                       |
+| Build generated inline UI inside Agent-Native chat                          | [Generative UI](/docs/generative-ui)                                             |
+| Lower-level MCP server reference (auth, tools, custom mount)                | [MCP Server](/docs/mcp-protocol)                                                 |
+| Make public routes crawlable/citable by any agent, no MCP connection needed | [Public Agent Web](/docs/agent-web-surfaces)                                     |
 
 An agent-native app is reachable by any MCP-compatible host — Claude, Claude Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Claude Cowork, VS Code GitHub Copilot, Goose, Postman, MCPJam, and future clients that implement the standard. External agents are great at producing artifacts (a draft, an event, a dashboard) but they often live in a terminal or another app. Without a bridge, the user gets a wall of JSON and has to go find the thing.
 

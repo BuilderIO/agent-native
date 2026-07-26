@@ -1,0 +1,70 @@
+---
+title: "Ihre erste Funktion in Chat"
+description: "Die eine Datei, die den Chat-Startbildschirm rendert, was ihre echten Props tun, und eine vollständige Anleitung zum Hinzufügen einer Funktion von Anfang bis Ende."
+---
+
+# Ihre erste Funktion in Chat
+
+Diese Seite richtet sich an Entwickler, die die [Chat-Vorlage](/docs/template-chat) erweitern. Sie behandelt die einzelne Datei, die den Start-Chat-Bildschirm rendert, und führt dann durch alles, was der Agent typischerweise berührt, wenn Sie nach einer echten Funktion fragen.
+
+## Erster zu prüfender Code {#first-code}
+
+- `actions/hello.ts` ist das Starterverhalten, das der Agent aufrufen kann. Ersetzen Sie es oder
+  Fügen Sie actions daneben hinzu.
+- `app/routes/_index.tsx` rendert die ganzseitige Chatoberfläche. Passen Sie die
+  Vorschläge, leerer Zustand, Komponist oder umgebendes Layout hier.
+- `AGENTS.md` teilt dem integrierten Agent mit, wie er in dieser App arbeiten soll.
+
+<FileTree
+  id="doc-block-1vs7yrp"
+  title="Layout des Chat-Templates"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "Die eine Beispiel-Action; ersetzen oder daneben Actions ergänzen",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Standard-Kontext-Action, die der Agent liest",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Standard-Navigations-Action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Verfassenr bearbeiten",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "exportiert _index.tsx erneut, sodass /chat/:threadId dieselbe Oberfläche mit einer Thread-ID in der URL rendert",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Chat-orientierte Anleitung, die der integrierte Agent liest",
+    },
+  ]}
+/>
+
+Die tatsächliche Startdatei enthält mehr als eine reine `<AgentChatSurface />` – Details zur Thread-URL-Synchronisierung, Tab-Identität und dem Hero-Composer-Layout finden Sie in `app/routes/_index.tsx`.
+
+## Verwenden Sie Ihr eigenes Agent-Backend {#own-agent-backend}
+
+Die Vorlage verwendet standardmäßig die integrierte App-Agent-Schleife. Um ein benutzerdefiniertes Backend zu verbinden, tauschen Sie die Chat-Laufzeit hinter dem Agent-Chat-Plugin aus, anstatt UI neu zu schreiben. Die Chat-Route sollte ein dünner Renderer um die gemeinsame Chat-Oberfläche bleiben; Die Backend-Auswahl gehört zum Server-Plugin/Laufzeitadapter.
+
+Verwenden Sie dies, wenn Ihre Modellorchestrierung bereits an einem anderen Ort vorhanden ist, Sie aber dennoch eine App mit Authentifizierung, Threads, actions-, UI-Status und bereitstellbaren Seiten benötigen.
+
+## Erste Änderungen {#first-edits}
+
+Fragen Sie nach dem Gerüstbau den Agenten:
+
+> Fügen Sie ein Datenmodell für `notes` hinzu. Eine Notiz hat eine ID, einen Titel, einen Text und einen Besitzer. Rendern Sie eine Notizenseite unter `/notes`, fügen Sie actions zum Erstellen/Auflisten hinzu und halten Sie den Chat in der Lage, Notizen zu erstellen.
+
+Der Agent sollte ein Drizzle-Schema, actions, Route, Navigation und Anweisungen hinzufügen. Dann können Sie die Notizenfunktion entweder im UI oder im Chat verwenden.
+
+## Was kommt als nächstes?
+
+- [**Chat-Vorlage**](/docs/template-chat) — was standardmäßig enthalten ist und wann man sie wählt
+- [**Chat – Laufzeit- und Admin-Oberflächen**](/docs/template-chat-developers) — Kerntabellen, Auth und die Admin-Seiten
+- [**Actions**](/docs/actions) – der Aktionssystem-Chat und UI rufen beide auf
+- [**Native Chat-Oberfläche**](/docs/native-chat-ui) – Chat-Oberflächenprimitive und Laufzeitoptionen

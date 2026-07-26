@@ -395,7 +395,7 @@ POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
 Set `NOTIFY_WEBHOOK` to any HTTP endpoint — a Slack incoming webhook, a generic
 notification service, or a custom receiver. The `web-request` tool resolves
 `${keys.NOTIFY_WEBHOOK}` server-side; the raw URL never appears in the agent's
-context. See [Visual Plans — Events and notifications](/docs/template-plan#events)
+context. See [Events and Automations — Event reference](/docs/template-plan-automations#event-reference)
 for the full `plan.commented` payload reference and all four plan events.
 
 ## What's next
@@ -404,4 +404,4 @@ for the full `plan.commented` payload reference and all four plan events.
 - [**Actions**](/docs/actions) — automations can call any registered action via the agent loop
 - [**Workflow Connectors**](/docs/automation-connectors) — pre-configured n8n/Zapier-style workflow invocation, for when ad-hoc `web-request` isn't a strict enough contract
 - [**Security**](/docs/security) — input validation and secret handling
-- [**Visual Plans — Events**](/docs/template-plan#events) — plan events reference and automation recipes
+- [**Events and Automations**](/docs/template-plan-automations) — the Plan event reference and automation recipes

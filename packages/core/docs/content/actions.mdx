@@ -266,7 +266,7 @@ POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `
 Every action the agent can see is a tool in the model's context window, and a long, overlapping tool list degrades the model's tool-selection quality. Design the action surface like an API you maintain, not one action per UI affordance:
 
 - Prefer **one CRUD-style `update`** that takes a patch of optional fields over N per-field actions (`update-name`, `update-order`, `update-color`, …). The caller sends only what changed.
-- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
+- Before adding a new read action per query/filter, reach for a generic escape hatch: the [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
 - Mark UI-only or programmatic actions [`agentTool: false`](#agent-tool) so they stay frontend/HTTP-callable without spending a slot in the model's tool list.
 - Delete or hide actions the UI no longer uses instead of leaving them exposed to the model.
 
