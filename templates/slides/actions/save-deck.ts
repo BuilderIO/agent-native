@@ -27,6 +27,7 @@ import {
   deckTitle,
   type DeckPayload,
 } from "./_deck-write.js";
+import { withDeckLock } from "./patch-deck.js";
 
 function comparableDeckData(raw: unknown): string {
   try {
@@ -59,83 +60,85 @@ export default defineAction({
   }),
   http: { method: "PUT" },
   agentTool: false,
-  run: async (args) => {
-    const deckId = args.deckId;
-    const deck = args.deck as DeckPayload;
-    assertValidAspectRatio(deck);
+  run: async (args) =>
+    withDeckLock(args.deckId, async () => {
+      const deckId = args.deckId;
+      const deck = args.deck as DeckPayload;
+      assertValidAspectRatio(deck);
 
-    const db = getDb();
-    const now = new Date().toISOString();
+      const db = getDb();
+      const now = new Date().toISOString();
 
-    deck.id = deckId;
-    deck.updatedAt = now;
-    const title = deckTitle(deck);
-    const nextDesignSystemId = deckDesignSystemId(deck);
+      deck.id = deckId;
+      deck.updatedAt = now;
+      const title = deckTitle(deck);
+      const nextDesignSystemId = deckDesignSystemId(deck);
 
-    // Resolve access first — this loads the row AND tells us the caller's
-    // effective role in one pass, so we never run an unscoped existence
-    // SELECT that would leak "this id exists" to non-owners.
-    const access = await resolveAccess("deck", deckId);
+      // Resolve access first — this loads the row AND tells us the caller's
+      // effective role in one pass, so we never run an unscoped existence
+      // SELECT that would leak "this id exists" to non-owners.
+      const access = await resolveAccess("deck", deckId);
 
-    if (!access) {
-      // Either the deck does not exist OR the caller cannot see it. In both
-      // cases we treat this as a create for the caller. If the row actually
-      // exists but is owned by someone else, the INSERT below fails on the
-      // primary key — mapped to a 404 so we never reveal that the id is taken.
-      const ownerEmail = getRequestUserEmail();
-      if (!ownerEmail) {
-        throw deckHttpError(403, "Sign in to create a deck");
-      }
-      await assertDesignSystemReadable(nextDesignSystemId);
-      try {
-        await db.insert(schema.decks).values({
-          id: deckId,
-          title,
-          data: JSON.stringify(deck),
-          designSystemId: nextDesignSystemId,
-          ownerEmail,
-          orgId: getRequestOrgId() ?? null,
-          createdAt: now,
-          updatedAt: now,
-        });
-      } catch {
-        // Some adapters wrap duplicate-key failures in a generic query error
-        // that includes bound params, so never surface the raw error here.
+      if (!access) {
+        // Either the deck does not exist OR the caller cannot see it. In both
+        // cases we treat this as a create for the caller. If the row actually
+        // exists but is owned by someone else, the INSERT below fails on the
+        // primary key — mapped to a 404 so we never reveal that the id is taken.
+        const ownerEmail = getRequestUserEmail();
+        if (!ownerEmail) {
+          throw deckHttpError(403, "Sign in to create a deck");
+        }
+        await assertDesignSystemReadable(nextDesignSystemId);
+        try {
+          await db.insert(schema.decks).values({
+            id: deckId,
+            title,
+            data: JSON.stringify(deck),
+            designSystemId: nextDesignSystemId,
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            createdAt: now,
+            updatedAt: now,
+          });
+        } catch {
+          // Some adapters wrap duplicate-key failures in a generic query error
+          // that includes bound params, so never surface the raw error here.
+          throw deckHttpError(404, "Deck not found");
+        }
+      } else if (
+        access.role === "owner" ||
+        access.role === "admin" ||
+        access.role === "editor"
+      ) {
+        await assertDesignSystemReadable(nextDesignSystemId);
+        if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
+          await createDeckVersionSnapshot(
+            {
+              id: access.resource.id,
+              title: access.resource.title,
+              data: access.resource.data,
+              ownerEmail: access.resource.ownerEmail as string,
+            },
+            { label: "Before editor save" },
+          );
+        }
+        await db
+          .update(schema.decks)
+          .set({
+            title,
+            data: JSON.stringify(deck),
+            designSystemId:
+              nextDesignSystemId ?? access.resource.designSystemId,
+            updatedAt: now,
+          })
+          .where(eq(schema.decks.id, deckId));
+      } else {
+        // Viewer-only access — same 404 as no-access so we don't leak that the
+        // deck exists with restricted permissions.
         throw deckHttpError(404, "Deck not found");
       }
-    } else if (
-      access.role === "owner" ||
-      access.role === "admin" ||
-      access.role === "editor"
-    ) {
-      await assertDesignSystemReadable(nextDesignSystemId);
-      if (shouldSnapshotDeckWrite(access.resource, title, deck)) {
-        await createDeckVersionSnapshot(
-          {
-            id: access.resource.id,
-            title: access.resource.title,
-            data: access.resource.data,
-            ownerEmail: access.resource.ownerEmail as string,
-          },
-          { label: "Before editor save" },
-        );
-      }
-      await db
-        .update(schema.decks)
-        .set({
-          title,
-          data: JSON.stringify(deck),
-          designSystemId: nextDesignSystemId ?? access.resource.designSystemId,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
-    } else {
-      // Viewer-only access — same 404 as no-access so we don't leak that the
-      // deck exists with restricted permissions.
-      throw deckHttpError(404, "Deck not found");
-    }
 
-    notifyClients(deckId);
-    return deck;
-  },
+      notifyClients(deckId);
+      return deck;
+    }),
 });

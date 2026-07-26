@@ -192,6 +192,18 @@ describe("createOpenRouteHandler", () => {
     expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
   });
 
+  it("open-redirect guard rejects an auth entry path as `to` so a deep link cannot land on a login form", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?to=%2F_agent-native%2Fsign-in"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
+  });
+
   it("forwards f_* filter params onto the redirect Location", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();

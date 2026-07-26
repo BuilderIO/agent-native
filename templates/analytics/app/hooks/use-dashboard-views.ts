@@ -116,11 +116,7 @@ export function useAllDashboardViews(dashboardIds: string[]) {
       const results: Record<string, DashboardView[]> = {};
       await Promise.all(
         dashboardIds.map(async (id) => {
-          try {
-            results[id] = await loadViews(id);
-          } catch {
-            // One unreadable dashboard must not blank out the sidebar.
-          }
+          results[id] = await loadViews(id);
         }),
       );
       return results;

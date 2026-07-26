@@ -394,11 +394,11 @@ if (ambientViolations.length > 0) {
   console.error(bar);
   console.error("Fix:");
   console.error("");
-  console.error("  - In a request handler, fail closed when there's no caller:");
-  console.error("      const email = getRequestUserEmail();");
   console.error(
-    "      if (!email) throw createError({ statusCode: 401 });",
+    "  - In a request handler, fail closed when there's no caller:",
   );
+  console.error("      const email = getRequestUserEmail();");
+  console.error("      if (!email) throw createError({ statusCode: 401 });");
   console.error(
     "  - If this really is a CLI / cron / seed entrypoint with no request",
   );
@@ -484,6 +484,6 @@ if (violations.length > 0) {
 }
 
 console.log(
-  "guard-no-localhost-fallback: clean (no \"local@localhost\" literals and no " +
+  'guard-no-localhost-fallback: clean (no "local@localhost" literals and no ' +
     "ambient-identity fallbacks in production code).",
 );

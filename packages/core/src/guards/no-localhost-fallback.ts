@@ -17,6 +17,13 @@
  * of hardcoded. The generic allowlist predicates (`*.spec.*`, `*.test.*`,
  * `scripts/**`, `**\/seed(s)/**`) are kept verbatim.
  *
+ * Also refuses to let request-handling code answer "who is the caller" with the
+ * ambient process identity (`?? process.env.AGENT_USER_EMAIL`,
+ * `|| process.env.WORKSPACE_OWNER_EMAIL`, `?? getAmbientUserEmail()`). That
+ * shape fails open toward more privilege: an admin gate reading it admits
+ * whoever the deploy env names rather than whoever signed in. CLI, cron, seed
+ * and test paths are exempt because they have no request by construction.
+ *
  * Opt-out (same line, or the line immediately above):
  *   const x = email ?? "local@localhost" // guard:allow-localhost-fallback — short reason
  */
@@ -143,9 +150,9 @@ export function scanLocalhostFallback(
     // Scanned before the literal bail-out below: aliasing is exactly how this
     // shape hides in a file that never spells out the literal itself.
     SYMBOLIC_FALLBACK_RE.lastIndex = 0;
-    let s: RegExpExecArray | null;
-    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
-      const { line } = lineColForOffset(contents, s.index);
+    let symbolicMatch: RegExpExecArray | null;
+    while ((symbolicMatch = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
+      const { line } = lineColForOffset(contents, symbolicMatch.index);
       const lineText = lines[line - 1] ?? "";
       if (isCommentLine(lineText)) continue;
       if (hasValidOptOut(lines, line - 1)) continue;
@@ -159,9 +166,9 @@ export function scanLocalhostFallback(
     if (!contents.includes("local@localhost")) continue;
 
     LITERAL_RE.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = LITERAL_RE.exec(contents)) !== null) {
-      const { line } = lineColForOffset(contents, m.index);
+    let literalMatch: RegExpExecArray | null;
+    while ((literalMatch = LITERAL_RE.exec(contents)) !== null) {
+      const { line } = lineColForOffset(contents, literalMatch.index);
       const lineText = lines[line - 1] ?? "";
       if (isCommentLine(lineText)) continue;
       if (SQL_DEFAULT_RE.test(lineText)) continue;
@@ -171,20 +178,6 @@ export function scanLocalhostFallback(
         file: rel,
         line,
         message: `"local@localhost" used as a fallback identity: ${lineText.trim()}. Throw/401 on missing session instead — this pools every unauthenticated request onto one shared tenant.`,
-      });
-    }
-
-    SYMBOLIC_FALLBACK_RE.lastIndex = 0;
-    let s: RegExpExecArray | null;
-    while ((s = SYMBOLIC_FALLBACK_RE.exec(contents)) !== null) {
-      const { line } = lineColForOffset(contents, s.index);
-      const lineText = lines[line - 1] ?? "";
-      if (isCommentLine(lineText)) continue;
-      if (hasValidOptOut(lines, line - 1)) continue;
-      findings.push({
-        file: rel,
-        line,
-        message: `DEV_MODE_USER_EMAIL used as a fallback identity: ${lineText.trim()}. Throw/401 on missing session instead.`,
       });
     }
   }

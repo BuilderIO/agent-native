@@ -2000,7 +2000,14 @@ function createAuthGuardFn(): (
       // dev account, so production SSR remains one cacheable anonymous shell
       // and explicit sign-out still works.
       if (getMethod(event) === "GET") {
-        const autoSession = await maybeAutoCreateDevSession(event, url);
+        // Same source of truth as the sign-in entry above. This used to pass
+        // the raw request URL, which made one decision with two sources — the
+        // shape the sign-in unification exists to delete.
+        const { resumeHref } = signInJourney({
+          at: url,
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
       return;

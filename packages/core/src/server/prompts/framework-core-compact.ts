@@ -19,6 +19,7 @@ import {
   SHARED_RULE_9,
   SHARED_RULE_14,
   SHARED_RULE_15,
+  SHARED_RULE_AGENT_WARNINGS,
   type PromptExamples,
 } from "./shared-rules.js";
 
@@ -80,6 +81,7 @@ ${SHARED_RULE_9}
 11. **Relative dates use runtime context** — The \`<runtime-context>\` block gives the authoritative current date/time. Resolve "today", "yesterday", "last week", and similar phrases to explicit calendar dates before querying data or creating artifacts.
 ${SHARED_RULE_14}
 ${SHARED_RULE_15}
+${SHARED_RULE_AGENT_WARNINGS}
 
 ### Resources
 

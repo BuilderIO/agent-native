@@ -158,11 +158,11 @@ The agent always knows what the user is currently viewing. The UI writes navigat
 
 ### Which AI coding tools work with agent-native? {#which-ai-tools-work}
 
-Any AI coding tool that reads project instructions. The framework uses AGENTS.md as the universal standard and auto-creates symlinks for specific tools:
+Any AI coding tool that reads project instructions. The framework uses AGENTS.md as the universal standard:
 
 - **Claude Code** — reads CLAUDE.md (symlinked from AGENTS.md by the CLI setup)
 - **Cursor** — reads AGENTS.md directly, or `.cursorrules` (Cursor's legacy location) if present in your project
-- **Windsurf** — reads .windsurfrules (symlinked from AGENTS.md by the CLI setup)
+- **Windsurf** — reads AGENTS.md directly, or `.windsurfrules` (Windsurf's legacy location) if present in your project
 - **Codex, Gemini, and others** — work via the embedded agent panel
 - **Builder.io** — cloud-hosted agent with visual editing and collaboration
 

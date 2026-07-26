@@ -35,14 +35,21 @@ describe("splitSystemPromptForCache", () => {
 });
 
 describe("stablePrefixCacheControl", () => {
-  it("requests the 1h TTL by default", () => {
+  it("uses the gateway-compatible ephemeral cache by default", () => {
+    expect(stablePrefixCacheControl()).toEqual({
+      type: "ephemeral",
+    });
+  });
+
+  it("opts into the 1h TTL explicitly", () => {
+    process.env.AGENT_PROMPT_CACHE_TTL = "1h";
     expect(stablePrefixCacheControl()).toEqual({
       type: "ephemeral",
       ttl: "1h",
     });
   });
 
-  it("falls back to the provider default when the TTL is opted out", () => {
+  it("keeps the provider default when 5m is selected", () => {
     process.env.AGENT_PROMPT_CACHE_TTL = "5m";
     expect(stablePrefixCacheControl()).toEqual({ type: "ephemeral" });
   });

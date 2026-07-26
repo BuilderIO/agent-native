@@ -1,5 +1,5 @@
 ---
-"@agent-native/core": patch
+"@agent-native/core": minor
 ---
 
 Stop sending the organization A2A secret in `GET /_agent-native/org/me`. That

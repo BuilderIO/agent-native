@@ -313,7 +313,7 @@ useEffect(() => {
 範本可以新增評論系統，對檔案進行對話串討論。內容範本的評論系統包括完整的實現：
 
 - `document_comments` SQL 表（話題、回覆、已解決狀態）
-- 內容範本的REST路由，用於在`/api/comments/:id`處更新/刪除；透過 `add-comment` / `list-comments` actions 建立並列出執行。自訂範本針對核心 `POST /_agent-native/collab/:docId/search-replace` 路由實現自己的等效端點。
+- 內容範本透過 `update-comment` / `delete-comment` actions 更新與刪除；透過 `add-comment` / `list-comments` actions 建立並列出執行。自訂範本針對核心 `POST /_agent-native/collab/:docId/search-replace` 路由實現自己的等效端點。
 - 帶有線索檢視和回覆的評論側邊欄 UI
 - 解析/取消解析對話串
 - **傳送到 AI** 按鈕 - 透過 `sendToAgentChat()` 將評論對話串脈絡傳送到代理聊天

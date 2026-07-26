@@ -971,6 +971,33 @@ describe("buildUserContentWithAttachments", () => {
     ]);
   });
 
+  it("keeps the cross-app discovery tools the `<available-apps>` prompt block names by name on the first request", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({
+        starter: actionEntry({ readOnly: true }),
+        "describe-workspace-apps": actionEntry({ readOnly: true }),
+        "call-agent": actionEntry({ readOnly: false }),
+      }),
+    );
+
+    const initialTools = filterInitialEngineTools(tools, ["starter"]).map(
+      (tool) => tool.name,
+    );
+
+    expect(initialTools).toContain("describe-workspace-apps");
+    expect(initialTools).toContain("call-agent");
+  });
+
+  it("does not invent cross-app tools for a registry that never registered them", () => {
+    const tools = actionsToEngineTools(
+      attachToolSearch({ starter: actionEntry({ readOnly: true }) }),
+    );
+
+    expect(
+      filterInitialEngineTools(tools, ["starter"]).map((t) => t.name),
+    ).toEqual(["starter", "tool-search"]);
+  });
+
   it("records first-request prompt and tool payload sizes without content", () => {
     const detail = buildFirstRequestPayloadDetail({
       isFirstRequest: true,
@@ -6661,6 +6688,136 @@ describe("runAgentLoop", () => {
     );
 
     expect(saveSawQueryResult).toBe(true);
+  });
+
+  describe("agent warnings raised inside an action", () => {
+    async function toolResultFor(
+      run: ActionEntry["run"],
+      runContext: Record<string, unknown> = {},
+    ): Promise<string | undefined> {
+      let streamCalls = 0;
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: "migrate-1",
+                  name: "migrate-roster",
+                  input: {},
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: "done" }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const events: AgentChatEvent[] = [];
+
+      await runWithRequestContext(
+        { userEmail: "a@example.com", run: runContext },
+        () =>
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {
+            "migrate-roster": { ...actionEntry({ readOnly: false }), run },
+          },
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      );
+
+      const done = events.find(
+        (event) =>
+          event.type === "tool_done" && event.tool === "migrate-roster",
+      );
+      return done && "result" in done ? (done.result as string) : undefined;
+    }
+
+    // Additive: an action that never warns must produce the exact same bytes.
+    it("leaves a warning-free tool result byte-identical", async () => {
+      expect(await toolResultFor(async () => "moved 21 members")).toBe(
+        "moved 21 members",
+      );
+      expect(await toolResultFor(async () => ({ moved: 21 }))).toBe(
+        '{\n  "moved": 21\n}',
+      );
+    });
+
+    it("appends warnings raised deep inside the action's call stack", async () => {
+      const result = await toolResultFor(async () => {
+        warnAgent({
+          severity: "critical",
+          code: "org-cross-org-repoint",
+          message: "Repointed an account from builder-io to coach-org.",
+        });
+        return "moved 21 members";
+      });
+
+      expect(result).toBe(
+        "moved 21 members\n\n" +
+          '<agent-warning severity="critical" code="org-cross-org-repoint">\n' +
+          "Repointed an account from builder-io to coach-org.\n" +
+          "</agent-warning>",
+      );
+    });
+
+    // Drained outside the success branch: an action that warns and then fails is
+    // the case most likely to have broken something.
+    it("keeps the warning when the action throws after raising it", async () => {
+      const result = await toolResultFor(async () => {
+        warnAgent({
+          severity: "critical",
+          code: "org-additional-organization",
+          message: "Created an ADDITIONAL organization.",
+        });
+        throw new Error("migration aborted");
+      });
+
+      expect(result).toContain("migration aborted");
+      expect(result).toContain(
+        '<agent-warning severity="critical" code="org-additional-organization">',
+      );
+    });
+
+    it("does not leak a pending warning into a later tool call", async () => {
+      const first = await toolResultFor(async () => {
+        warnAgent({
+          severity: "advisory",
+          code: "probe",
+          message: "Heads up.",
+        });
+        return "one";
+      });
+      const second = await toolResultFor(async () => "two");
+
+      expect(first).toContain("<agent-warning");
+      expect(second).toBe("two");
+    });
   });
 
   it("keeps reads ordered around parallel-safe mutating batches", async () => {

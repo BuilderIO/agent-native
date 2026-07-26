@@ -135,7 +135,7 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("holds back a degraded report inside the retry window without counting it as failed", async () => {
+  it("counts a held-back degraded report as failed inside the retry window", async () => {
     const sub = subscription();
     const retryAt = "2026-07-13T11:16:00.000Z";
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
@@ -151,7 +151,7 @@ describe("dashboard report sweep", () => {
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
       sub,
       expect.objectContaining({ skipEmailWhenDegraded: true }),
@@ -168,7 +168,7 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("persists the held-back error without a nextRunAt once the retry window has closed", async () => {
+  it("persists the held-back error without claiming a retry once the retry window has closed", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.dashboardReportRetryAt.mockReturnValue(null);
@@ -182,7 +182,7 @@ describe("dashboard report sweep", () => {
 
     const result = await runDashboardReportsOnce();
 
-    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(
       sub,
       expect.objectContaining({ skipEmailWhenDegraded: false }),
@@ -190,7 +190,7 @@ describe("dashboard report sweep", () => {
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "error",
-      "panels unavailable: panel_revenue (retry scheduled)",
+      "panels unavailable: panel_revenue",
     );
   });
 

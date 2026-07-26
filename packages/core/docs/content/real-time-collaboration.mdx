@@ -5,6 +5,12 @@ description: "Multi-user collaborative editing where the AI agent is a first-cla
 
 # Real-Time Collaboration
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers wiring collaborative editing and presence. For the end-user experience of co-editing with the agent, see [Using Your Agent](/docs/using-your-agent).
+
+</Callout>
+
 Imagine opening a document and seeing a peer's cursor scroll to a paragraph,
 then the text rewrite itself — surgically, without losing your place. That
 peer might be a teammate. It might be the agent. From the framework's
@@ -326,7 +332,7 @@ User identity is derived from the session email. The framework provides `emailTo
 Templates can add a comments system with threaded discussions on documents. The content template's comments system includes a full implementation with:
 
 - `document_comments` SQL table (threads, replies, resolved status)
-- Comment create and list run through the `add-comment` / `list-comments` actions; the content template also exposes REST routes for update/delete at `/api/comments/:id`. Custom templates can implement their own equivalent endpoints, and comment anchors resolve against the document body through the core `POST /_agent-native/collab/:docId/search-replace` route.
+- Comment create, list, update, and delete all run through the `add-comment` / `list-comments` / `update-comment` / `delete-comment` actions. Comment anchors are resolved entirely in the browser by fuzzy-matching the stored quote text (plus prefix/suffix context) against the live editor document — no server round-trip.
 - Comments sidebar with threaded view and reply UI
 - Resolve/unresolve threads
 - **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
@@ -592,6 +598,37 @@ plugin:
 | Compaction threshold         | Stored blob > 4× fresh encoding triggers tombstone compact |
 | Per-write DB reads           | 1 (CAS version read inside `persistMergedState` only)      |
 
+## Hosted Realtime Sync Gateway {#hosted-gateway}
+
+Self-hosted apps always use the poll/SSE transport described above — nothing
+in this section changes for them. Builder-hosted apps can additionally be
+provisioned onto a hosted Realtime Sync Gateway that fans sync events out
+across multiple serverless instances instead of each instance holding its own
+long-lived connections.
+
+- `AGENT_NATIVE_REALTIME_TRANSPORT=hosted` plus `AGENT_NATIVE_REALTIME_GATEWAY_URL`
+  switch the client onto the gateway transport. Both fail closed — if either
+  is unset, the client silently stays on the local poll/SSE path. The signing
+  secret (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) is a reserved env var injected
+  by Builder's provisioning path, not something you set by hand.
+- `GET /_agent-native/realtime-token` mints a short-lived (10 minute),
+  session-scoped subscribe token the browser uses to open the gateway
+  connection. It's same-origin only and 401s without an active session.
+- `GET /_agent-native/can-see` is the gateway's per-event visibility check: it
+  verifies a signed gateway access token, then re-runs the app's own
+  `resolveAccess` so the gateway can never forward an event to a sharee who
+  has since lost access. Unknown resource types or lookup failures fail closed
+  (`{ allowed: false }`).
+- On Postgres, hosted apps allocate sync versions from the database
+  (`dbAssignedVersions`) instead of an in-process counter, because gateway
+  instances and the app's own serverless instances share one database and
+  must agree on write ordering.
+
+This is an internal hosted-infrastructure detail — most apps never set these
+env vars directly. If you're debugging why hosted realtime isn't active for a
+Builder-hosted app, confirm both the transport env var and the gateway URL are
+set; either being absent falls back to local polling rather than erroring.
+
 ## Security {#security}
 
 ### Choose the access model explicitly
@@ -625,8 +662,10 @@ poll path (safe, higher latency).
 
 All collab routes require authentication. In resource mode, reads require at
 least viewer access and writes require editor access, using the
-same `resolveAccess` / `assertAccess` helpers as the sharing system. A 404
-(not 403) is returned on access failures to avoid leaking document existence.
+same `resolveAccess` / `assertAccess` helpers as the sharing system. Reads and
+awareness routes return 404 on access failure, to avoid leaking document
+existence. Writes require editor access and return 403 (via `assertAccess`)
+when the caller has some access to the document but not editor access.
 
 ### Payload limits
 

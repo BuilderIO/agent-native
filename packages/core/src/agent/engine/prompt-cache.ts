@@ -33,12 +33,12 @@ export type PromptCacheControl = { type: "ephemeral"; ttl?: "1h" };
  * boundaries sit ~6 minutes apart on average with a quarter of them past 5
  * minutes, so the default expires between chunks and the whole prefix is
  * re-written at full price. A 1h entry costs 2x to write and 0.1x to read,
- * which is net positive at that boundary rate. Set
- * `AGENT_PROMPT_CACHE_TTL=5m` to fall back to the default if a gateway ever
- * rejects the `ttl` field.
+ * which can be useful for long hosted turns, but gateways may reject the
+ * newer `ttl` field. Opt into it explicitly with
+ * `AGENT_PROMPT_CACHE_TTL=1h`.
  */
 export function stablePrefixCacheControl(): PromptCacheControl {
-  return process.env.AGENT_PROMPT_CACHE_TTL === "5m"
-    ? { type: "ephemeral" }
-    : { type: "ephemeral", ttl: "1h" };
+  return process.env.AGENT_PROMPT_CACHE_TTL === "1h"
+    ? { type: "ephemeral", ttl: "1h" }
+    : { type: "ephemeral" };
 }

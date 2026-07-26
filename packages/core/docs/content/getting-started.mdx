@@ -8,7 +8,9 @@ description: "Create a chat-first agentic app, add an action, render structured 
 Agent-Native is for agentic applications: apps where the AI agent and the UI
 share the same [actions](/docs/actions), SQL data, and application state. Start
 with chat so users can talk to the agent immediately, then add the app surfaces
-your workflow earns.
+your workflow earns. New to the concept rather than the code? Read
+[What Is Agent-Native?](/docs/what-is-agent-native) first — this page is the
+hands-on build path.
 
 The quickest way in is the **Chat template**: a minimal app that gives you a
 working AI chat interface, durable threads, auth, and an `actions/` directory
@@ -56,26 +58,35 @@ terminal output.
 When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made up login to satisfy the login screen.
 For local development, no email verification is actually required.
 
+> **Want to attach a real debugger?** Run `agent-native dev --inspect` (or
+> `--inspect-brk[=<port>]`) instead of `pnpm dev` to attach the Node inspector
+> to the dev server, on port `9229` by default. Override the dev runner with
+> the `NITRO_DEV_RUNNER` env var if your setup needs a different one.
+
 ### If you want a different type of app
 
 This guide uses the Chat template because it is the shortest path
 to an agentic application: the agent can act on day one, and you have a real app
-surface to grow from. However, if you want to create a different kind of app, run `create` with no flags for the CLI picker for domain templates and advanced app shapes:
+surface to grow from. However, if you want to create a different kind of app, run `create` with no flags:
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
+The CLI first asks **How do you want to start?** with three choices: **Chat**
+(what this guide uses), **Full template(s)**, or **Headless**. Only picking
+**Full template(s)** takes you to the domain-template multi-select (Mail,
+Calendar, Forms, Analytics, Plan, and more) — Chat and Headless each scaffold a
+single standalone app directly, with no further picker.
+
 ## 2. Connect an AI engine {#connect-ai}
 
-The agent chat can't respond until you connect an AI engine. After you're logged in, click the **Connect AI** button.
+The agent chat can't respond until you connect an AI engine. After you're logged in, click the **Connect AI** button and pick one of two paths:
 
-You have two options:
-
-**Option A: Connect Builder.** Click **Connect Builder.io**, choose the Builder Space, and click the **Authorize** button. You don't have to manually provide any keys.
-
-**Option B: Add your own keys.** Enter your Anthropic or OpenAI API key. You can get an
-Anthropic key at [console.anthropic.com](https://console.anthropic.com).
+| Path                   | Steps                                                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Connect Builder**    | Click **Connect Builder.io**, choose the Builder Space, then click **Authorize**. No keys to manage yourself.                              |
+| **Bring your own key** | Enter your Anthropic or OpenAI API key in the Setup panel. Get an Anthropic key at [console.anthropic.com](https://console.anthropic.com). |
 
 Alternatively, create a `.env` file in the `my-app/` directory (the same
 directory that contains `package.json`) before running `pnpm dev`:
@@ -602,23 +613,35 @@ with a few saved rows:
 
 ## 7. Extend the navigation {#extend-navigation}
 
-The sidebar is configured in `app/config/nav.ts`. Open it and add an entry for
-the Text analyses page:
+The sidebar's links are a plain array in `app/components/layout/Sidebar.tsx`,
+not a separate config file. Open it and add an entry for the Text analyses
+page next to the existing Chat entry:
 
-```ts filename="app/config/nav.ts"
-export const navConfig = [
+```tsx filename="app/components/layout/Sidebar.tsx"
+import { IconList, IconMessageCircle } from "@tabler/icons-react";
+
+const navItems = [
   {
-    label: "Chat",
+    icon: IconMessageCircle,
+    labelKey: "navigation.chat",
     href: "/",
-    icon: "chat",
+    view: "chat",
   },
   {
-    label: "Text analyses",
+    icon: IconList,
+    labelKey: "navigation.textAnalyses",
     href: "/text-analyses",
-    icon: "list",
+    view: "text-analyses",
   },
 ];
 ```
+
+`icon` takes an imported Tabler icon component, not a string name. `labelKey`
+looks up a string in the i18n catalog (`app/i18n/en-US.ts` and the other
+locale files); an unregistered key still renders — it falls back to a
+humanized version of the key (`navigation.textAnalyses` becomes "Text
+analyses") — but add it to the catalogs if you want the label translated. See
+[Internationalization](/docs/internationalization).
 
 Save the file. The dev server picks up the change automatically and the sidebar
 updates without a restart.
@@ -665,6 +688,10 @@ customize the app from there.
 
 ## What's next {#next}
 
+- **[What Is Agent-Native?](/docs/what-is-agent-native)**: the vision and the
+  case for building this way.
+- **[Key Concepts](/docs/key-concepts)**: the architecture underneath this
+  tutorial — SQL, actions, live sync, context awareness.
 - **[Actions](/docs/actions)**: schemas, auth, approvals, hooks, and transport.
 - **[Native Chat UI](/docs/native-chat-ui)**: render action results as tables,
   charts, and typed cards.
@@ -677,3 +704,4 @@ customize the app from there.
 - **[Agent Surfaces](/docs/agent-surfaces)**: chat, inline UI, app pages,
   embedded sidecars, automation, and external agents.
 - **[Deployment](/docs/deployment)**: put your app on your own domain.
+- **[FAQ](/docs/faq)**: quick answers on cost, hosting, models, and templates.

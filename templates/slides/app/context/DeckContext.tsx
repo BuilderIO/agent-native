@@ -805,11 +805,7 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
-  try {
-    await callAction("delete-deck", { id }, { method: "DELETE" });
-  } catch (err) {
-    console.error(`Failed to delete deck ${id}:`, err);
-  }
+  await callAction("delete-deck", { id }, { method: "DELETE" });
 }
 
 async function createDeckOnAPI(deck: Deck): Promise<void> {
@@ -989,7 +985,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const isNewerThanSnapshot = useCallback((deckId: string, seq: number) => {
     return (
       pendingCreateIdsRef.current.has(deckId) ||
-      (localCreateSeqByIdRef.current.get(deckId) ?? 0) > seq
+      (localCreateSeqByIdRef.current.get(deckId) ?? 0) >= seq
     );
   }, []);
 
@@ -998,19 +994,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     dirtyDeckIdsRef.current.add(deckId);
   }, []);
 
-  const deleteDeckAfterPendingCreate = useCallback((deckId: string) => {
-    const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
-    if (!pendingCreate) {
-      void deleteDeckFromAPI(deckId);
-      return;
-    }
-
-    void pendingCreate
-      .then(() => deleteDeckFromAPI(deckId))
-      .catch(() => {
-        // The create/duplicate failed, so there is nothing on the server to delete.
+  const deleteDeckAfterPendingCreate = useCallback(
+    (deckId: string, onFailure?: () => void) => {
+      const pendingCreate = pendingCreatePromisesRef.current.get(deckId);
+      const deletion = pendingCreate
+        ? pendingCreate.then(
+            () => deleteDeckFromAPI(deckId),
+            () => undefined,
+          )
+        : deleteDeckFromAPI(deckId);
+      void deletion.catch((err) => {
+        console.error(`Failed to delete deck ${deckId}:`, err);
+        onFailure?.();
       });
-  }, []);
+    },
+    [],
+  );
 
   // Plain local decks update. Undo entries are recorded explicitly by each
   // mutation via `recordUndo` (inverse ops), so this no longer snapshots the
@@ -1807,7 +1806,19 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
-      deleteDeckAfterPendingCreate(id);
+      deleteDeckAfterPendingCreate(id, () => {
+        if (!beforeDeck) return;
+        setDecks((prev) => {
+          if (prev.some((deck) => deck.id === id)) return prev;
+          const next = [...prev];
+          next.splice(
+            Math.max(0, Math.min(beforeIndex, next.length)),
+            0,
+            beforeDeck,
+          );
+          return next;
+        });
+      });
       setDecksLocal((prev) => prev.filter((d) => d.id !== id));
       if (beforeDeck) {
         undoControllerRef.current?.push({

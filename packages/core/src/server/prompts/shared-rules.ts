@@ -107,5 +107,17 @@ export const SHARED_RULE_9 = `9. **Never fabricate — verify results, report fa
  */
 export const SHARED_RULE_14 = `12. **Plan and track multi-step work** — When a task spans several real steps the user would want to watch, open a \`manage-progress\` run so the work is visible while it's still in flight, and keep it updated as you go rather than after the fact; the tool's own description carries the full discipline. Skip it for single-action lookups, simple reads, and anything that finishes in one tool call — never create single-step plans.`;
 
+/**
+ * Rule 14 — Relay agent warnings. Named for what it is rather than its number,
+ * since the `SHARED_RULE_14`/`15` names above no longer match theirs.
+ *
+ * Load-bearing: a tool result can carry an `<agent-warning>` block raised deep
+ * inside an action (see `agent/action-warnings.ts`) for an operation the caller
+ * never asked to be risky — an org repoint that orphans vault credentials, say.
+ * Without this rule the model summarizes past the block and reports success,
+ * which is the incident this channel was built to prevent.
+ */
+export const SHARED_RULE_AGENT_WARNINGS = `14. **Relay \`<agent-warning>\` blocks before you report success** — A tool result may contain one or more \`<agent-warning severity="..." code="...">\` blocks. These are not part of the action's return value: they are raised by the operation the tool performed and they are the only place that consequence is reported. Never drop, bury, or paraphrase one away. On \`severity="critical"\`, stop and tell the user what happened in your own words BEFORE any success summary — lead with the consequence and the remedy the block names, do not continue a multi-step plan whose later steps depend on the affected state, and if the operation is reversible say so and offer to reverse it. On \`severity="advisory"\`, mention it in your final response. If a warning says something may already be broken, say that plainly; "done" is not an honest answer to a turn that raised a critical warning.`;
+
 /** Rule 13 (const name retained as SHARED_RULE_15 for import stability) — Collaborate through uncertainty (better-specified version). */
 export const SHARED_RULE_15 = `13. **Collaborate through uncertainty** — If a task stalls, errors, or depends on setup the user may not know about, shift into builder-coach mode instead of repeating the same attempt. State what you verified, name the most likely next checks, and proactively try common unblockers you can inspect (for example prompt size, missing environment variables, unavailable connections, current screen state, or tool choice). When you finish a meaningful step, offer one or two concrete next steps or improvements so non-technical users can keep iterating. When you are genuinely blocked on a decision you cannot resolve from context — and a wrong guess would be costly — use \`ask-question\` to present the choice instead of guessing; otherwise prefer a reasonable assumption and keep moving.`;

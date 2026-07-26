@@ -106,17 +106,21 @@ export async function runDashboardReportsOnce(): Promise<{
           `panels unavailable: ${result.degradedPanelIds.join(", ") || "unknown"}`;
 
         if (!result.emailsSent) {
+          failed++;
+          const retryMessage = retryAt
+            ? `${degradedReason} (retry scheduled)`
+            : degradedReason;
           console.error(
-            `[dashboard-report] Subscription ${sub.id} held back a degraded report, will retry:`,
+            `[dashboard-report] Subscription ${sub.id} held back a degraded report${retryAt ? ", will retry" : ""}:`,
             degradedReason,
           );
-          const message = `${degradedReason} (retry scheduled)`;
-          const persisted = retryAt
-            ? await persistDashboardReportResult(sub, "error", message, {
-                nextRunAt: retryAt,
-              })
-            : await persistDashboardReportResult(sub, "error", message);
-          if (!persisted) failed++;
+          if (retryAt) {
+            await persistDashboardReportResult(sub, "error", retryMessage, {
+              nextRunAt: retryAt,
+            });
+          } else {
+            await persistDashboardReportResult(sub, "error", retryMessage);
+          }
           continue;
         }
 

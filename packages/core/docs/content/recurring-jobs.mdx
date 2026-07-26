@@ -215,7 +215,7 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 </Callout>
 
-<Callout id="doc-block-rj2" tone="warn">
+<Callout id="doc-block-rj2" tone="warning">
 
 **Disabled by default in local dev.** The scheduler's `setInterval` loop never starts when `NODE_ENV` is `development` or `test`, or when the app URL points at `localhost` / `127.0.0.1` / `*.localhost` — which covers most local dev setups. Set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` to run the scheduler locally anyway. On a hosted deployment that runs its own dedicated sweep instead of this in-process scheduler, set `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` as the matching kill switch.
 

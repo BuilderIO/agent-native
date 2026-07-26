@@ -107,7 +107,7 @@ vi.mock("./run-store.js", () => ({
       type: "error",
       error: "The agent run was stopped before it finished.",
       errorCode: `aborted_${normalized}`,
-      recoverable: true,
+      recoverable: normalized === "background_worker_died",
     };
   },
   STALE_RUN_ERROR_EVENT: {

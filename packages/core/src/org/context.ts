@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 
+import { warnAgent } from "../agent/action-warnings.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
@@ -209,7 +210,22 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
-  let memberships = await loadMembershipsForEvent(event, email);
+  let memberships: MembershipRow[] | null;
+  try {
+    memberships = await loadMembershipsForEvent(event, email);
+  } catch (err) {
+    // A transient membership read must not downgrade an authenticated request
+    // to a private/solo scope when the session already carries its org.
+    if (sessionOrgId && isTransientDatabaseError(err)) {
+      return {
+        email,
+        orgId: sessionOrgId,
+        orgName: null,
+        role: sessionOrgRole,
+      };
+    }
+    throw err;
+  }
   if (memberships === null) {
     if (sessionOrgId) {
       return {
@@ -499,18 +515,34 @@ async function warnOnAdditionalOrganization(
     });
     if (rows.length === 0) return;
   } catch {
+    // "Couldn't tell" is not "it didn't" — swallowing the failed probe here made
+    // the function whose entire job is to not be silent, silent.
+    warnAgent({
+      severity: "critical",
+      code: "org-additional-org-membership-unreadable",
+      message:
+        `Created an organization "${newOrgName}" (${newOrgId}) and made it the account's active org, ` +
+        `but could not read whether that account already belonged to another organization. If it did, ` +
+        `every vault credential synced under the previous organization is now unreadable for it, and ` +
+        `requests will fail with missing-credential errors that name the key rather than this org ` +
+        `change. Confirm the account's memberships before continuing; if this came from a roster, ` +
+        `identity, or user-list migration, add the members to the EXISTING organization instead.`,
+    });
     return;
   }
 
-  console.warn(
-    `[agent-native][org] Created an ADDITIONAL organization "${newOrgName}" (${newOrgId}) ` +
+  warnAgent({
+    severity: "critical",
+    code: "org-additional-organization",
+    message:
+      `Created an ADDITIONAL organization "${newOrgName}" (${newOrgId}) ` +
       `for an account that already belongs to another organization, and made it their active org. ` +
       `Vault credentials are scoped per organization and are NOT shared between them: every API key ` +
       `synced under the previous organization is now unreadable for this account until it is re-saved ` +
       `in "${newOrgName}". Requests will fail with missing-credential errors that name the key rather ` +
       `than this org change. If this came from a roster, identity, or user-list migration, add the ` +
       `members to the EXISTING organization instead of creating a new one.`,
-  );
+  });
 }
 
 function defaultOrgName(

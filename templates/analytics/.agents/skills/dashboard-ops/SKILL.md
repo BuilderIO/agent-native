@@ -20,9 +20,9 @@ action names and the user-facing constraints already in `AGENTS.md`.
 
 ## Dashboard Email Report Rendering
 
-- Reports render entirely server-side. There is no headless browser, no
-  Chromium pack download, and no `reportScreenshot=1` embed-session
-  screenshot URL — the previous browser-capture pipeline is gone.
+- Scheduled reports render entirely server-side. They do not use a headless
+  browser, Chromium pack download, or the old `reportScreenshot=1` embed-session
+  screenshot URL; interactive dashboard screenshot capture remains separate.
 - Each panel's query runs through the same source dispatcher the UI uses
   (`runDashboardPanelQuery`), inside the subscription owner's request
   context, so per-source access scoping (BigQuery/Gong/HubSpot credentials,

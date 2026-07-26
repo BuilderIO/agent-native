@@ -28779,9 +28779,14 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto">
-        {deviceFrameControl}
-        {responsiveEditScopeControl}
+      {/* Zoom sits here rather than in the inspector tab row below: sharing
+          that row truncated the "Comments" tab label at normal panel widths. */}
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto">
+          {deviceFrameControl}
+          {responsiveEditScopeControl}
+        </div>
+        <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
   );
@@ -30071,7 +30076,6 @@ function DesignEditor() {
                     canEditDesign ? handleCreateScreenFromPreset : undefined
                   }
                   zoom={zoom}
-                  headerTrailing={renderZoomControl("inspector")}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}

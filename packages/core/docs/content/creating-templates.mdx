@@ -317,6 +317,10 @@ useQuery({
 
 Common sources: `"action"` (every successful agent action — the reliable fallback), `"app-state"`, `"settings"`, plus any custom resource source your store emits via `recordChange`. See the `real-time-sync` skill for the full pattern.
 
+Templates render with the default shadcn-style UI. If your company already has
+its own React design system, see [Custom Design Systems](/docs/custom-design-system)
+to register it as a typed adapter instead of adopting the default primitives.
+
 ## Add Application State {#application-state}
 
 Application state is how the agent knows what the user is seeing. At minimum, add:
@@ -527,7 +531,11 @@ workspace pointed at current build output.
   keep `AGENTS.md` and skills skimmable as the template grows.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — reusable sharing,
   settings, history, and review surfaces instead of rebuilding them per app.
+- [**Custom Design Systems**](/docs/custom-design-system) — render the UI with
+  your company's own React components instead of the default shadcn-style UI.
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — make the template fit
   naturally alongside sibling apps and Dispatch.
+- [**Syncing Template Changes**](/docs/syncing-template-changes) — pull later
+  upstream template fixes into an app that already forked from it.
 - [**Templates**](/docs/cloneable-saas) — turn a template into a
   publishable product you can share and deploy.

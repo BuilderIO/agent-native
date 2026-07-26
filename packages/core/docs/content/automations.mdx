@@ -222,13 +222,19 @@ Placeholders are resolved **server-side** after the agent emits the tool call �
 
 ### Parameters {#web-request-params}
 
-| Parameter    | Type   | Default | Description                                         |
-| ------------ | ------ | ------- | --------------------------------------------------- |
-| `url`        | string | —       | Full URL. May contain `${keys.NAME}` references.    |
-| `method`     | string | `GET`   | HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD).  |
-| `headers`    | string | `{}`    | JSON object of headers. May contain `${keys.NAME}`. |
-| `body`       | string | —       | Request body. May contain `${keys.NAME}`.           |
-| `timeout_ms` | number | 15000   | Timeout in milliseconds (max 30000).                |
+| Parameter      | Type    | Default       | Description                                                                                                                                                    |
+| -------------- | ------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | string  | —             | Full URL. May contain `${keys.NAME}` references.                                                                                                               |
+| `method`       | string  | `GET`         | HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD).                                                                                                             |
+| `headers`      | string  | `{}`          | JSON object of headers. May contain `${keys.NAME}`.                                                                                                            |
+| `body`         | string  | —             | Request body. May contain `${keys.NAME}`.                                                                                                                      |
+| `timeout_ms`   | number  | 15000         | Timeout in milliseconds (max 30000).                                                                                                                           |
+| `maxChars`     | number  | 32000         | Maximum response characters to return (max 200000). Raise it to read a large page or dataset in full.                                                          |
+| `responseMode` | string  | `auto`        | How to return the response: `auto` (HTML becomes markdown, JSON/text stays raw), `raw`, `text`, `markdown`, `links`, `metadata`, or `matches` (with `search`). |
+| `extract`      | string  | `readability` | HTML extraction strategy: `readability`, `all-visible` (full visible body text), or `none` (full document).                                                    |
+| `includeLinks` | boolean | `true`        | Whether extracted HTML responses include a compact links list.                                                                                                 |
+| `search`       | object  | —             | Optional post-fetch search over the extracted content: `{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`.        |
+| `saveToFile`   | string  | —             | Workspace file path to save the full response to instead of returning it inline — useful for large pages or API responses.                                     |
 
 ## Keys {#keys}
 

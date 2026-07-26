@@ -100,17 +100,19 @@ being rebuilt in slightly different ways every time.
 
 ## Package maturity and ownership {#package-maturity-and-ownership}
 
-- The rich editor is **Toolkit-owned**. Existing Core editor imports remain thin
-  compatibility re-exports during migration.
+- The rich editor is **Toolkit-owned**. The old `@agent-native/core/client`
+  and `@agent-native/core/client/editor` import paths are deprecated
+  tombstones, not compatibility re-exports — see
+  [Editors & Canvases](/docs/toolkit-editors-canvases) for the migration path.
 - Design is a **template pattern** with reusable `design-tweaks`; it is not a
   full drop-in editor or canvas package.
 - Blocks remain **Core-owned** in this phase.
 - The Context X-Ray engine remains **Core-owned**; its reusable presentation is
   Toolkit-owned.
-- Scheduling, Creative Context, and Pinpoint are **Toolkit capability modules,
-  installed on demand**. They remain separate npm packages so each domain can
-  keep an independent lifecycle manifest, dependency graph, and release cadence.
-- Dispatch remains a **separate product**, not a Toolkit capability module.
+- Scheduling, Creative Context, and Pinpoint are Toolkit capability modules
+  installed on demand; Dispatch is a separate product, not one of them — see
+  [Toolkit Capability Modules](/docs/toolkit-capability-packages#package-maturity-and-ownership)
+  for package maturity and ownership.
 
 ## Dashboard kit {#dashboard-kit}
 

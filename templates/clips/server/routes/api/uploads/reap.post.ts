@@ -40,10 +40,8 @@ export default defineEventHandler(async (event: H3Event) => {
   const scheduled =
     globalThis.__AGENT_NATIVE_CLIPS_BRAIN_EXPORT_SCHEDULED_RUNTIME__ === true;
   const secret = process.env.CLIPS_BRAIN_EXPORT_JOBS_SECRET?.trim(); // guard:allow-env-credential — deployment scheduler route secret
-  const productionLike =
-    process.env.NODE_ENV === "production" || process.env.NETLIFY === "true";
   if (!scheduled) {
-    if (!secret && productionLike) {
+    if (!secret) {
       throw createError({
         statusCode: 503,
         statusMessage: "CLIPS_BRAIN_EXPORT_JOBS_SECRET is required",

@@ -1941,6 +1941,11 @@ export async function getRunStatus(runId: string): Promise<string | null> {
  */
 const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
 
+// Only infrastructure interruptions that the client can safely resume are
+// recoverable. An arbitrary caller-supplied abort reason must never become an
+// auto-continue signal, because that turns an explicit stop into new work.
+const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
+
 /**
  * Truthful terminal event for an aborted run.
  *
@@ -1949,7 +1954,8 @@ const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
  * final message" with the streamed work apparently thrown away. Recoverable
  * chunk-boundary reasons ride the `auto_continue` channel the client already
  * routes into continuation; anything else that isn't a user stop surfaces as a
- * reason-coded, recoverable error.
+ * reason-coded error. Only known infrastructure aborts are recoverable;
+ * every other abort is terminal and non-recoverable.
  */
 export function terminalEventForAbortReason(
   reason: string | undefined,
@@ -1971,7 +1977,7 @@ export function terminalEventForAbortReason(
     type: "error",
     error: "The agent run was stopped before it finished.",
     errorCode: `aborted_${normalized}`,
-    recoverable: true,
+    recoverable: RECOVERABLE_ABORT_REASONS.has(normalized),
   };
 }
 

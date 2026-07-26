@@ -341,6 +341,12 @@ describe("run store", () => {
       errorCode: "aborted_background_worker_died",
       recoverable: true,
     });
+    expect(terminalEventForAbortReason("slack_cancel")).toEqual({
+      type: "error",
+      error: "The agent run was stopped before it finished.",
+      errorCode: "aborted_slack_cancel",
+      recoverable: false,
+    });
   });
 
   it("writes a chunk-boundary checkpoint into the reserved seq band", async () => {

@@ -54,21 +54,25 @@ organization plugin. The built-in flow supports:
 The framework mounts the server surface under `/_agent-native/org/*`. The main
 routes are:
 
-| Route                                            | Purpose                                                      |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| `GET /_agent-native/org/me`                      | Active org, memberships, pending invites, and domain matches |
-| `POST /_agent-native/org`                        | Create an organization                                       |
-| `PATCH /_agent-native/org`                       | Rename the active organization                               |
-| `PUT /_agent-native/org/switch`                  | Switch the active organization                               |
-| `GET /_agent-native/org/members`                 | List members in the active organization                      |
-| `DELETE /_agent-native/org/members/:email`       | Remove a member                                              |
-| `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                       |
-| `POST /_agent-native/org/invitations`            | Invite one or more people                                    |
-| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                         |
-| `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                 |
-| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                        |
-| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner/admin, on demand)  |
-| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                |
+| Route                                            | Purpose                                                         |
+| ------------------------------------------------ | --------------------------------------------------------------- |
+| `GET /_agent-native/org/me`                      | Active org, memberships, pending invites, and domain matches    |
+| `POST /_agent-native/org`                        | Create an organization                                          |
+| `PATCH /_agent-native/org`                       | Rename the active organization                                  |
+| `DELETE /_agent-native/org`                      | Delete the organization (owner only)                            |
+| `PUT /_agent-native/org/switch`                  | Switch the active organization                                  |
+| `GET /_agent-native/org/members`                 | List members in the active organization                         |
+| `DELETE /_agent-native/org/members/:email`       | Remove a member                                                 |
+| `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                          |
+| `GET /_agent-native/org/invitations`             | List pending invites                                            |
+| `POST /_agent-native/org/invitations`            | Invite one or more people                                       |
+| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                            |
+| `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                    |
+| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                           |
+| `GET /_agent-native/org/a2a-secret`              | Reveal the active org's A2A secret (owner/admin, on demand)     |
+| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                   |
+| `POST /_agent-native/org/a2a-secret/sync`        | Push the org's A2A secret to every connected app (owner/admin)  |
+| `POST /_agent-native/org/a2a-secret/receive`     | Accept a peer app's secret push (JWT-authenticated, no session) |
 
 Use the shared UI and hooks instead of recreating this flow in each app:
 
@@ -182,38 +186,10 @@ Shareable resources use three layers together:
 `admin` on a resource does not transfer ownership. The resource owner remains
 separate from every share grant.
 
-For new tenant-aware tables, use `ownableColumns()` and the access helpers:
-
-```ts
-import { table, text, ownableColumns } from "@agent-native/core/db/schema";
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-
-export const projects = table("projects", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  ...ownableColumns(), // owner_email + org_id + visibility
-});
-
-const visibleProjects = await db
-  .select()
-  .from(projects)
-  .where(accessFilter(projects, projectShares));
-
-await assertAccess("project", projectId, "editor");
-```
-
-Use these helpers consistently:
-
-- `accessFilter(table, sharesTable)` for list/read queries.
-- `resolveAccess(resourceType, resourceId)` when the action needs to inspect
-  the effective access role.
-- `assertAccess(resourceType, resourceId, minRole)` at the top of a write or
-  single-record action.
-
-The framework's SQL agent tools are scoped as well, but direct Drizzle queries
-in actions and custom routes still need the access helpers. Run
-`pnpm action db-check-scoping` and `pnpm guards` while developing to catch
-missing ownership or unscoped query paths.
+For the `ownableColumns()` schema helper, the `accessFilter` / `resolveAccess` /
+`assertAccess` helper API, and the CI guard that enforces scoped queries, see
+[Security → Data Scoping](/docs/security#data-scoping) — the single source of
+truth for the scoping pipeline every resource role above rides on.
 
 ## Environment variables: what belongs where
 
@@ -283,29 +259,20 @@ on the page for the feature that owns them.
 
 ### Authentication, cookies, and org defaults
 
-| Variable                                | What it does                                                                                                |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                    | Production session-signing secret and fallback key material. Generate a fresh 32+ character value.          |
-| `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes; falls back to `BETTER_AUTH_SECRET` when unset.                |
-| `SECRETS_ENCRYPTION_KEY`                | AES-256-GCM key for encrypted credentials and vault rows; falls back to `BETTER_AUTH_SECRET`.               |
-| `AUTH_DISABLED`                         | Local/demo escape hatch that makes every request one shared user. Never use it with real production users.  |
-| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` for QA/preview signup without email verification.                                                |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost's automatic throwaway account.                                              |
-| `AUTH_MODE`                             | Controls CLI/agent identity resolution such as `pnpm action`; it is not a browser login bypass.             |
-| `COOKIE_DOMAIN`                         | Shares cookies across same-database subdomains when explicitly configured.                                  |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set to `1` with `COOKIE_DOMAIN` when intentionally sharing one auth database across first-party subdomains. |
-| `AGENT_NATIVE_WORKSPACE`                | Enables the shared workspace session realm for a multi-app workspace.                                       |
-| `VITE_AGENT_NATIVE_WORKSPACE`           | Build-time/browser equivalent of `AGENT_NATIVE_WORKSPACE`.                                                  |
-| `AUTO_CREATE_DEFAULT_ORG`               | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership.      |
+Signing-key, cookie, and social-login variables (`BETTER_AUTH_SECRET`,
+`OAUTH_STATE_SECRET`, `AUTH_DISABLED`, `AUTH_SKIP_EMAIL_VERIFICATION`,
+`COOKIE_DOMAIN`, `GOOGLE_CLIENT_ID` / `GITHUB_CLIENT_ID`, and the rest) are
+documented once in [Authentication → Environment Variables](/docs/authentication#environment-variables);
+the secrets-encryption-key fallback chain is in
+[Security → Secrets Management](/docs/security#secrets). The variables below are
+org/workspace-specific and aren't covered on either of those pages:
 
-### OAuth providers
-
-| Variable                                                    | What it does                                                                               |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google OAuth client for signing users in.                              |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                 | Google OAuth fallback and client credentials for Google API integrations such as Calendar. |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`                 | Enable GitHub sign-in.                                                                     |
-| `GOOGLE_AUTH_MODE`                                          | Chooses Google sign-in UX: `auto`, `popup`, or `redirect`; defaults to `auto`.             |
+| Variable                      | What it does                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `AGENT_NATIVE_WORKSPACE`      | Enables the shared workspace session realm for a multi-app workspace.                                  |
+| `VITE_AGENT_NATIVE_WORKSPACE` | Build-time/browser equivalent of `AGENT_NATIVE_WORKSPACE`.                                             |
+| `AUTO_CREATE_DEFAULT_ORG`     | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership. |
+| `GOOGLE_AUTH_MODE`            | Chooses Google sign-in UX: `auto`, `popup`, or `redirect`; defaults to `auto`.                         |
 
 ### Agent providers and runtime
 
@@ -336,15 +303,14 @@ can take precedence over the deploy environment.
 | `GITHUB_TOKEN`                                                                  | Workspace-level GitHub API fallback for repository and PR operations.                                                                           |
 | `RESEND_API_KEY`                                                                | Enables Resend email delivery.                                                                                                                  |
 | `SENDGRID_API_KEY` / `EMAIL_FROM`                                               | Enables SendGrid email delivery and supplies its sender address. Production email requires Resend or SendGrid; SendGrid also requires a sender. |
-| `SENTRY_SERVER_DSN` / `SENTRY_CLIENT_DSN` / `SENTRY_DSN`                        | Optional Sentry error reporting for Nitro, browser, or both. No DSN means that surface is disabled.                                             |
-| `VITE_SENTRY_CLIENT_DSN`                                                        | Build-time browser Sentry DSN; runtime `SENTRY_CLIENT_DSN` or shared `SENTRY_DSN` can also configure SSR apps.                                  |
-| `SENTRY_ENVIRONMENT` / `SENTRY_SERVER_TRACES_SAMPLE_RATE`                       | Label Sentry events and opt into server performance traces (`0`–`1`; default `0`).                                                              |
-| `POSTHOG_API_KEY` / `POSTHOG_HOST`                                              | Configure PostHog tracking and its optional host.                                                                                               |
-| `MIXPANEL_TOKEN` / `AMPLITUDE_API_KEY`                                          | Configure Mixpanel or Amplitude tracking.                                                                                                       |
-| `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` / `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`  | Public write key for first-party analytics ingestion; the `VITE_*` form is for browser builds.                                                  |
-| `AGENT_NATIVE_ANALYTICS_ENDPOINT` / `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT`      | Override the first-party analytics ingestion endpoint for server or browser events.                                                             |
-| `TRACKING_WEBHOOK_URL` / `TRACKING_WEBHOOK_AUTH`                                | Send tracking events to a webhook and optionally provide its `Authorization` header value.                                                      |
-| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`                                        | Set to `1` only for local development while configuring webhook signing secrets. Never set it in production.                                    |
+
+Product-analytics variables (PostHog, Mixpanel, Amplitude, the tracking
+webhook, and the first-party analytics keys) are documented once in
+[Tracking → Built-in providers](/docs/tracking#built-in). Sentry
+error-reporting variables are in
+[Observability → Error Reporting](/docs/observability#sentry).
+`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` is in
+[Security → Inbound Webhooks](/docs/security#webhooks).
 
 Template-specific variables belong with the template that owns the feature and
 its `.env.example` or feature docs. Start with [Messaging](/docs/messaging),
@@ -354,16 +320,20 @@ map.
 
 ### MCP, A2A, and CLI identity
 
-| Variable                     | What it does                                                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `A2A_SECRET`                 | Shared signing secret for production cross-app A2A and queued integration dispatch. Use the same value across sibling apps. |
-| `ACCESS_TOKEN`               | One static bearer fallback for MCP clients that cannot use OAuth. It is not browser authentication.                         |
-| `ACCESS_TOKENS`              | Comma-separated static bearer fallbacks for MCP clients.                                                                    |
-| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`.                                                                    |
-| `AGENT_USER_EMAIL`           | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests.                   |
-| `AGENT_USER_NAME`            | CLI-only display-name fallback.                                                                                             |
-| `AGENT_ORG_ID`               | CLI-only active-org fallback when no request context exists. It does not override a browser session.                        |
-| `AGENT_USER_TIMEZONE`        | CLI/agent timezone fallback.                                                                                                |
+`A2A_SECRET` and the static MCP bearer fallbacks (`ACCESS_TOKEN` /
+`ACCESS_TOKENS`) are documented in
+[Authentication → Environment Variables](/docs/authentication#environment-variables)
+and [Security → A2A Identity Verification](/docs/security#a2a-identity). The
+variables below are CLI/agent-identity fallbacks specific to running outside a
+browser session:
+
+| Variable                     | What it does                                                                                              |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`.                                                  |
+| `AGENT_USER_EMAIL`           | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests. |
+| `AGENT_USER_NAME`            | CLI-only display-name fallback.                                                                           |
+| `AGENT_ORG_ID`               | CLI-only active-org fallback when no request context exists. It does not override a browser session.      |
+| `AGENT_USER_TIMEZONE`        | CLI/agent timezone fallback.                                                                              |
 
 `A2A_SECRET` is deployment-wide signing material. The organization-level
 `organizations.a2a_secret` is a separate, UI-managed secret used when an org

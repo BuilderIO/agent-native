@@ -16,7 +16,8 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   run: async (args) => {
-    const email = getRequestUserEmail() ?? "";
+    const email = getRequestUserEmail();
+    if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
     const views = await listDashboardViews(args.dashboardId, { email, orgId });
     return { views };

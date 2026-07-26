@@ -232,5 +232,10 @@ async function deleteUnclaimedChunkScratch(limit: number): Promise<number> {
     sql: `DELETE FROM application_state WHERE key IN (${placeholders})`,
     args: keys,
   });
-  return result.rowsAffected ?? keys.length;
+  if (typeof result.rowsAffected !== "number") {
+    throw new Error(
+      "Upload scratch cleanup did not report rowsAffected; refusing to claim deletion succeeded",
+    );
+  }
+  return result.rowsAffected;
 }

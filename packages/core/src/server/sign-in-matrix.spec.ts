@@ -31,6 +31,9 @@
  * Electron cookie jar, a custom-scheme deep link, an opaque-origin MCP frame —
  * are asserted against the shipped code rather than mimed.
  */
+import fs from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -230,7 +233,13 @@ const SURFACES: Surface[] = [
     basePath: "",
     protectedPath: "/database?table=todos",
     siblingPath: "/login",
-    driver: "browser",
+    // Request-level, deliberately: the smoke sets
+    // AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1, because otherwise the loopback
+    // auto-session signs its "anonymous" visitor in before the gate runs and
+    // every browser assertion silently tests nothing. So this row is NOT
+    // browser-driven, and saying otherwise would be the exact overclaim that
+    // let five previous fixes ship as "verified".
+    driver: "request",
   },
   {
     id: 14,
@@ -585,6 +594,42 @@ describe("sign-in matrix", () => {
           expect(html, `${gone} must not come back`).not.toContain(gone);
         }
       }
+    });
+  });
+
+  /**
+   * A matrix nobody runs stops nothing, and the browser half is the part that
+   * gets dropped first when a pipeline is slow. These two assertions are the
+   * only things standing between "we have cross-surface coverage" and a claim.
+   */
+  describe("the browser-driven half is real and runs", () => {
+    const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+    const read = (rel: string) =>
+      fs.readFileSync(path.join(repoRoot, rel), "utf8");
+
+    it("no row claims browser coverage the smoke does not boot", () => {
+      const claimed = SURFACES.filter((s) => s.driver === "browser").map(
+        (s) => s.id,
+      );
+      expect(claimed).toEqual([...BROWSER_DRIVEN_SURFACES]);
+      // …and the smoke really starts both deploys those rows describe.
+      const smoke = read("scripts/qa-sign-in-matrix-smoke.ts");
+      expect(smoke).toContain('for (const basePath of ["", "/chatapp"])');
+      expect(smoke).toContain("runIframeSuite");
+    });
+
+    it("stays wired into a CI job, not just into package.json", () => {
+      expect(JSON.parse(read("package.json")).scripts["qa:sign-in"]).toBe(
+        "tsx scripts/qa-sign-in-matrix-smoke.ts",
+      );
+      const workflows = fs
+        .readdirSync(path.join(repoRoot, ".github/workflows"))
+        .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+        .map((f) => read(`.github/workflows/${f}`));
+      expect(
+        workflows.some((w) => w.includes("pnpm qa:sign-in")),
+        "some workflow must run `pnpm qa:sign-in`",
+      ).toBe(true);
     });
   });
 });

@@ -409,10 +409,11 @@ state, and anything the UI fetches as JSON. If a route needs new middleware to
 scope it to the current user, that is a signal it should be an action — actions
 already run inside request context with access checks.
 
-Existing first-party templates (mail, calendar, slides, analytics, content)
-still contain older `/api/*` CRUD routes for app data. Those are a
-grandfathered baseline being migrated, not a pattern to copy. The
-`guard:no-action-twin-routes` CI check fails on new ones.
+Existing first-party templates still contain a shrinking, explicitly
+grandfathered set of older `/api/*` CRUD routes for app data. The repository's
+`guard:no-action-twin-routes` CI check ratchets that baseline down across the
+first-party template route trees (with the separately owned Plan template
+fenced out); it is not a substitute for keeping generated apps action-first.
 
 When the agent needs a durable image or file URL, call the core `upload-image`
 action or use `uploadFile()` in server code. Do not write base64 into SQL,
