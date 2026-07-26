@@ -14,6 +14,7 @@ import { z } from "zod";
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { uploadLeaseExpiry } from "../lib/upload-lease.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and

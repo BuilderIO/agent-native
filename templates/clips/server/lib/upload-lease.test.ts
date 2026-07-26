@@ -140,6 +140,48 @@ describe("upload lease", () => {
     expect((await statusOf("stuck")).status).toBe("failed");
   });
 
+  it("leaves a recording whose lease is renewed mid-reap fully intact", async () => {
+    await insertRecording({
+      id: "renewing",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await insertChunk("renewing", 0);
+    await sqlite.execute({
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: ["resumable-session-renewing", "{}"],
+    });
+
+    // The writer renews between the reaper's probe and its compare-and-set.
+    const realExecute = sqlite.execute.bind(sqlite);
+    let renewed = false;
+    vi.spyOn(sqlite, "execute").mockImplementation(async (stmt: any) => {
+      const sql = typeof stmt === "string" ? stmt : stmt.sql;
+      if (!renewed && /^\s*UPDATE recordings/i.test(sql)) {
+        renewed = true;
+        await realExecute({
+          sql: `UPDATE recordings SET upload_lease_expires_at = ? WHERE id = ?`,
+          args: [iso(60 * 60 * 1000), "renewing"],
+        });
+      }
+      return realExecute(stmt);
+    });
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(renewed).toBe(true);
+    expect(result.failed).toBe(0);
+    expect(result.expired).toEqual([]);
+    expect((await statusOf("renewing")).status).toBe("uploading");
+    // Its streaming session must survive too — losing it strands the upload
+    // just as thoroughly as failing the row would.
+    const { rows } = await realExecute(
+      `SELECT key FROM application_state WHERE key = 'resumable-session-renewing'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(await chunkKeys()).toEqual(["recording-chunks-renewing-000000"]);
+  });
+
   it("reclaims scratch left by finalized and hard-deleted recordings", async () => {
     await insertRecording({ id: "done", status: "ready", lease: iso(30_000) });
     await insertChunk("done", 0);

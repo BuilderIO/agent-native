@@ -11,6 +11,12 @@ import {
 let running = false;
 const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
 const SERVERLESS_REPORT_DELIVERY_BUDGET_MS = 220_000;
+/**
+ * Reports render from SQL in seconds now, so one sweep can drain the whole
+ * batch. When capture still drove a headless browser this was forced to 1 and
+ * every subscription after the first missed its same-day retry window.
+ */
+const SERVERLESS_MAX_REPORTS_PER_SWEEP = 5;
 
 async function persistDashboardReportResult(
   ...args: Parameters<typeof markDashboardReportResult>
@@ -46,7 +52,7 @@ async function persistDashboardReportCaptureOutcome(
 }
 
 function maxReportsPerSweep(): number {
-  if (process.env.NETLIFY === "true") return 1;
+  if (process.env.NETLIFY === "true") return SERVERLESS_MAX_REPORTS_PER_SWEEP;
   const raw = process.env.DASHBOARD_REPORT_SWEEP_LIMIT?.trim();
   if (!raw) return DEFAULT_MAX_REPORTS_PER_SWEEP;
   const parsed = Number.parseInt(raw, 10);
