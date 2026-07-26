@@ -69,15 +69,15 @@ interface RunningApp {
 }
 
 /**
- * The dev server runs core from source; only the `agent-native` bin comes from
- * dist. Requiring a build here would make this smoke fail for whatever else is
- * mid-edit in the tree, which is not what it is testing.
+ * Assert core has been built once, rather than rebuilding it here: a rebuild
+ * would make this smoke fail for whatever else happens to be mid-edit in the
+ * tree, which is not what it is testing.
  */
-function requireCoreCli(): void {
-  const cli = path.join(repoRoot, "packages/core/dist/cli/index.js");
-  if (fs.existsSync(cli)) return;
+function requireCoreBuild(): void {
+  const dist = path.join(repoRoot, "packages/core/dist/cli/index.js");
+  if (fs.existsSync(dist)) return;
   throw new Error(
-    `Missing ${cli}. Run \`pnpm --filter @agent-native/core build\` first.`,
+    `Missing ${dist}. Run \`pnpm --filter @agent-native/core build\` first.`,
   );
 }
 
@@ -206,7 +206,12 @@ async function stopApp(running: RunningApp): Promise<void> {
 }
 
 async function launchBrowser(): Promise<Browser> {
-  const channel = process.env.PLAYWRIGHT_CHANNEL || "chrome";
+  // CI installs only the bundled headless shell, so asking for the Chrome
+  // channel there is a guaranteed failed launch before the fallback.
+  const channel =
+    process.env.PLAYWRIGHT_CHANNEL ||
+    (process.env.CI || process.env.GITHUB_ACTIONS ? "" : "chrome");
+  if (!channel) return await chromium.launch({ headless: true });
   try {
     return await chromium.launch({ channel, headless: true });
   } catch (channelError) {
@@ -482,7 +487,7 @@ async function runIframeSuite(
 }
 
 async function main(): Promise<void> {
-  requireCoreCli();
+  requireCoreBuild();
   let browser: Browser | null = null;
   let running: RunningApp | null = null;
   try {

@@ -2590,7 +2590,8 @@ const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
  * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
  * observe a row, but only the caller that deletes it receives it to roll up.
  * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
- * Counter upserts are best-effort and never block pruning.
+ * Counter upserts run in the same transaction as the delete; a failed upsert
+ * rolls back the claim so the source rows remain available for a retry.
  */
 async function pruneAndRollUpPrunedRunOutcomes(
   client: ReturnType<typeof getDbExec>,
@@ -2646,17 +2647,13 @@ async function pruneAndRollUpPrunedRunOutcomes(
     }
 
     for (const group of groups.values()) {
-      try {
-        await tx.execute({
-          sql: `INSERT INTO agent_run_outcome_daily (day, status, terminal_reason, run_count)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT (day, status, terminal_reason)
-                DO UPDATE SET run_count = agent_run_outcome_daily.run_count + excluded.run_count`,
-          args: [group.day, group.status, group.terminalReason, group.count],
-        });
-      } catch {
-        // Counters are diagnostics; a failed upsert must not prevent pruning.
-      }
+      await tx.execute({
+        sql: `INSERT INTO agent_run_outcome_daily (day, status, terminal_reason, run_count)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT (day, status, terminal_reason)
+              DO UPDATE SET run_count = agent_run_outcome_daily.run_count + excluded.run_count`,
+        args: [group.day, group.status, group.terminalReason, group.count],
+      });
     }
   };
 

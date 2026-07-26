@@ -6193,7 +6193,9 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       .join(" "),
   ).catch(() => {});
 
-  if (await turnAborted(threadId, turnId).catch(() => false)) {
+  // A failed durable abort read is fail-closed: never let a worker execute
+  // after cancellation just because the database was temporarily unreadable.
+  if (await turnAborted(threadId, turnId).catch(() => true)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6204,7 +6206,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     }).catch(() => {});
   }
 
-  if (await turnAborted(threadId, turnId).catch(() => false)) {
+  if (await turnAborted(threadId, turnId).catch(() => true)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6217,7 +6219,7 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
   await heartbeat(opts.runId).catch(() => {});
-  if (await turnAborted(threadId, turnId).catch(() => false)) {
+  if (await turnAborted(threadId, turnId).catch(() => true)) {
     await abortRun(opts.runId, "user").catch(() => {});
     return { claimed: false, skipped: "turn-aborted" };
   }
@@ -6676,7 +6678,7 @@ export async function chainServerDrivenContinuation(opts: {
     if (
       await d
         .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => false)
+        .catch(() => true)
     ) {
       await d.markRunAborted(runId, "user").catch(() => {});
       return;
@@ -6729,7 +6731,7 @@ export async function chainServerDrivenContinuation(opts: {
     if (
       await d
         .isTurnAborted(effectiveThreadId, effectiveTurnId)
-        .catch(() => false)
+        .catch(() => true)
     ) {
       if (nextRowInserted)
         await d.markRunAborted(nextRunId, "user").catch(() => {});
@@ -7892,7 +7894,7 @@ export function createProductionAgentHandler(
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
-        () => false,
+        () => true,
       ))
     ) {
       await markRunAborted(runId, "user").catch(() => {});

@@ -9970,6 +9970,28 @@ describe("claimBackgroundWorkerRunEarly", () => {
     expect(d.claimBackgroundRun).not.toHaveBeenCalled();
     expect(d.markRunAborted).toHaveBeenCalledWith("run-stopped", "user");
   });
+
+  it("fails closed when the durable abort marker cannot be read", async () => {
+    const d = deps();
+    d.isTurnAborted.mockRejectedValue(new Error("database unavailable"));
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-unreadable-abort",
+        threadId: "thread-unreadable-abort",
+        markerTurnId: "turn-unreadable-abort",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: false, skipped: "turn-aborted" });
+
+    expect(d.claimBackgroundRun).not.toHaveBeenCalled();
+    expect(d.markRunAborted).toHaveBeenCalledWith(
+      "run-unreadable-abort",
+      "user",
+    );
+  });
 });
 
 describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {

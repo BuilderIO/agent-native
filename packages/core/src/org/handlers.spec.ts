@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExecute = vi.fn();
+const mockTransaction = vi.fn(
+  async (fn: (tx: { execute: typeof mockExecute }) => unknown) =>
+    fn({ execute: mockExecute }),
+);
 const mockGetOrgContext = vi.fn();
 
 vi.mock("h3", () => ({
@@ -12,7 +16,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: mockExecute }),
+  getDbExec: () => ({ execute: mockExecute, transaction: mockTransaction }),
   isPostgres: () => false,
 }));
 
@@ -46,15 +50,10 @@ vi.mock("../server/h3-helpers.js", () => ({
   readBody: (event: any) => Promise.resolve(event._body),
 }));
 
-vi.mock("../settings/org-settings.js", () => ({
-  deleteAllOrgSettings: vi.fn(),
-}));
-
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: vi.fn(),
 }));
 
-import { deleteAllOrgSettings } from "../settings/org-settings.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { listMembersHandler, deleteOrgHandler } from "./handlers.js";
 
@@ -92,6 +91,8 @@ describe("org handlers", () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 }) // SELECT name
         .mockResolvedValueOnce({ rows: [], rowsAffected: 2 }) // DELETE org_invitations
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 }) // DELETE app_secrets
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 }) // DELETE settings
         .mockResolvedValueOnce({ rows: [], rowsAffected: 3 }) // DELETE org_members
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 }) // DELETE organizations
         .mockResolvedValueOnce({ rows: [{ orgId: "org-2" }], rowsAffected: 0 }); // SELECT next org
@@ -106,20 +107,28 @@ describe("org handlers", () => {
         nextOrgId: "org-2",
       });
 
-      expect(mockExecute).toHaveBeenCalledTimes(5);
+      expect(mockTransaction).toHaveBeenCalledTimes(1);
+      expect(mockExecute).toHaveBeenCalledTimes(7);
       expect(mockExecute.mock.calls[1][0].sql).toContain(
         "DELETE FROM org_invitations WHERE org_id = ?",
       );
       expect(mockExecute.mock.calls[1][0].args).toEqual(["org-1"]);
-      expect(deleteAllOrgSettings).toHaveBeenCalledWith("org-1");
       expect(mockExecute.mock.calls[2][0].sql).toContain(
-        "DELETE FROM org_members WHERE org_id = ?",
+        "DELETE FROM app_secrets WHERE scope IN ('org', 'workspace') AND scope_id = ?",
       );
       expect(mockExecute.mock.calls[2][0].args).toEqual(["org-1"]);
       expect(mockExecute.mock.calls[3][0].sql).toContain(
+        "DELETE FROM settings WHERE key LIKE ? ESCAPE '!'",
+      );
+      expect(mockExecute.mock.calls[3][0].args).toEqual(["o:org-1:%"]);
+      expect(mockExecute.mock.calls[4][0].sql).toContain(
+        "DELETE FROM org_members WHERE org_id = ?",
+      );
+      expect(mockExecute.mock.calls[4][0].args).toEqual(["org-1"]);
+      expect(mockExecute.mock.calls[5][0].sql).toContain(
         "DELETE FROM organizations WHERE id = ?",
       );
-      expect(mockExecute.mock.calls[3][0].args).toEqual(["org-1"]);
+      expect(mockExecute.mock.calls[5][0].args).toEqual(["org-1"]);
 
       expect(putUserSetting).toHaveBeenCalledWith(
         "owner@example.test",
@@ -134,6 +143,8 @@ describe("org handlers", () => {
       mockExecute
         .mockResolvedValueOnce({ rows: [{ name: "Example" }], rowsAffected: 0 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 2 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 4 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 5 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 3 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 }); // no other membership
@@ -189,7 +200,7 @@ describe("org handlers", () => {
         message: "Organization name does not match",
       });
       expect(mockExecute).toHaveBeenCalledTimes(1);
-      expect(deleteAllOrgSettings).not.toHaveBeenCalled();
+      expect(mockTransaction).not.toHaveBeenCalled();
       expect(putUserSetting).not.toHaveBeenCalled();
     });
 

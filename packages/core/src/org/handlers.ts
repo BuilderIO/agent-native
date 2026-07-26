@@ -36,14 +36,13 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
-import { deleteAllOrgSettings } from "../settings/org-settings.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
@@ -727,19 +726,46 @@ export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await e.execute({
-    sql: `DELETE FROM org_invitations WHERE org_id = ?`,
-    args: [ctx.orgId],
-  });
-  await deleteAllOrgSettings(ctx.orgId);
-  await e.execute({
-    sql: `DELETE FROM org_members WHERE org_id = ?`,
-    args: [ctx.orgId],
-  });
-  await e.execute({
-    sql: `DELETE FROM organizations WHERE id = ?`,
-    args: [ctx.orgId],
-  });
+  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsPrefix = `o:${ctx.orgId}:`.replace(
+    /[!%_]/g,
+    (character) => `!${character}`,
+  );
+  const deleteStatements = [
+    {
+      sql: `DELETE FROM org_invitations WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM app_secrets WHERE scope IN ('org', 'workspace') AND scope_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM ${settingsTable} WHERE key LIKE ? ESCAPE '!'`,
+      args: [`${settingsPrefix}%`],
+    },
+    {
+      sql: `DELETE FROM org_members WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM organizations WHERE id = ?`,
+      args: [ctx.orgId],
+    },
+  ];
+
+  if (e.transaction) {
+    await e.transaction(async (tx) => {
+      for (const statement of deleteStatements) await tx.execute(statement);
+    });
+  } else if (e.atomicBatch) {
+    await e.atomicBatch(deleteStatements);
+  } else {
+    throw createError({
+      statusCode: 503,
+      message: "Organization deletion requires atomic database support",
+    });
+  }
 
   const nextRes = await e.execute({
     sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,

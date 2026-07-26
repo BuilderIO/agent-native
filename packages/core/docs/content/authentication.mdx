@@ -133,10 +133,11 @@ database/origin share sign-in and apps that don't stay isolated:
 
 First-party hosted apps each have their own auth database, so cross-app sign-in
 goes through [Cross-App SSO](/docs/cross-app-sso) rather than a shared cookie.
-These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`, `URL`,
-`DEPLOY_PRIME_URL`, or `DEPLOY_URL`); otherwise startup fails instead of falling
-back to the shared `an_session` name. To intentionally share one auth database
-across subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
+These deploys must provide `APP_NAME` or a derivable app URL (`APP_URL`,
+`BETTER_AUTH_URL`, `VITE_BETTER_AUTH_URL`, `URL`, `DEPLOY_PRIME_URL`, or
+`DEPLOY_URL`); otherwise startup fails instead of falling back to the shared
+`an_session` name. To intentionally share one auth database across
+subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
 ## QA Accounts {#qa-accounts}

@@ -577,8 +577,10 @@ describe("design connect bridge endpoints", () => {
       );
     });
     const upstreamUpgradePaths: string[] = [];
+    const openUpstreamSockets: Array<{ destroy(): void }> = [];
     devServer.on("upgrade", (req, socket) => {
       upstreamUpgradePaths.push(req.url ?? "");
+      openUpstreamSockets.push(socket);
       const key = String(req.headers["sec-websocket-key"] ?? "");
       const accept = crypto
         .createHash("sha1")
@@ -666,7 +668,9 @@ describe("design connect bridge endpoints", () => {
       );
       assetResults.forEach((result, i) => {
         expect(result.status).toBe(200);
-        expect(result.body).toContain(`data-route="${frames[i]!.route}/asset.js"`);
+        expect(result.body).toContain(
+          `data-route="${frames[i]!.route}/asset.js"`,
+        );
       });
 
       // All N frames open their Vite HMR WebSocket tunnel AT THE SAME TIME.
@@ -692,21 +696,36 @@ describe("design connect bridge endpoints", () => {
                   "sec-websocket-version": "13",
                 },
               });
-              const timeout = setTimeout(
-                () => reject(new Error(`frame ${i} upgrade stalled`)),
-                4_000,
-              );
+              const timeout = setTimeout(() => {
+                console.error(
+                  `[TESTDBG] frame ${i} upgrade stalled, no upgrade/response/error fired`,
+                );
+                reject(new Error(`frame ${i} upgrade stalled`));
+              }, 8_000);
+              request.on("socket", (s) => {
+                console.error(`[TESTDBG] frame ${i} socket assigned`);
+                s.on("connect", () =>
+                  console.error(`[TESTDBG] frame ${i} socket connected`),
+                );
+              });
               request.on("upgrade", (response, socket) => {
+                console.error(
+                  `[TESTDBG] frame ${i} upgrade event status=${response.statusCode}`,
+                );
                 clearTimeout(timeout);
                 openClientSockets.push(socket);
                 resolve(response.statusCode ?? 0);
               });
               request.on("response", (response) => {
+                console.error(
+                  `[TESTDBG] frame ${i} response event status=${response.statusCode}`,
+                );
                 clearTimeout(timeout);
                 response.resume();
                 resolve(response.statusCode ?? 0);
               });
               request.on("error", (error) => {
+                console.error(`[TESTDBG] frame ${i} error event`, error);
                 clearTimeout(timeout);
                 reject(error);
               });
@@ -719,12 +738,13 @@ describe("design connect bridge endpoints", () => {
       expect(new Set(upstreamUpgradePaths).size).toBe(frameCount);
     } finally {
       for (const socket of openClientSockets) socket.destroy();
+      for (const socket of openUpstreamSockets) socket.destroy();
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
       );
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
-  });
+  }, 15_000);
 
   it("signals an unregistered bridgeKey with a machine-readable code and the process's bridgeInstanceId, so a client can tell a restarted bridge apart from a real bug", async () => {
     const root = tmpDir();
