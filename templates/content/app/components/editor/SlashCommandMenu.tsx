@@ -69,8 +69,29 @@ interface SlashCommandMenuProps {
 }
 
 interface EditorMenuPosition {
-  top: number;
+  top?: number;
+  bottom?: number;
   left: number;
+}
+
+const SLASH_MENU_PREFERRED_HEIGHT = 360;
+const SLASH_MENU_GAP = 4;
+
+export function getSlashMenuVerticalPosition(
+  anchor: { top: number; bottom: number },
+  container: { top: number; bottom: number },
+  viewportHeight: number,
+): Pick<EditorMenuPosition, "top" | "bottom"> {
+  const spaceBelow = viewportHeight - anchor.bottom;
+  const spaceAbove = anchor.top;
+  if (spaceBelow < SLASH_MENU_PREFERRED_HEIGHT && spaceAbove > spaceBelow) {
+    return {
+      bottom: container.bottom - anchor.top + SLASH_MENU_GAP,
+    };
+  }
+  return {
+    top: anchor.bottom - container.top + SLASH_MENU_GAP,
+  };
 }
 
 export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
@@ -82,7 +103,11 @@ export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
   try {
     const coords = editor.view.coordsAtPos(editor.state.selection.from);
     return {
-      top: coords.bottom - containerRect.top + 4,
+      ...getSlashMenuVerticalPosition(
+        coords,
+        containerRect,
+        window.innerHeight,
+      ),
       left: coords.left - containerRect.left,
     };
   } catch {
@@ -99,7 +124,11 @@ export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
       const rect = element?.getBoundingClientRect();
       if (rect) {
         return {
-          top: rect.bottom - containerRect.top + 4,
+          ...getSlashMenuVerticalPosition(
+            rect,
+            containerRect,
+            window.innerHeight,
+          ),
           left: rect.left - containerRect.left,
         };
       }
@@ -1190,8 +1219,11 @@ export function SlashCommandMenu({
           style={{
             position: "absolute",
             top: position.top,
+            bottom: position.bottom,
             left: 0,
             right: 0,
+            maxHeight: "min(360px, calc(100vh - 2rem))",
+            overflowY: "auto",
             maxWidth: "min(330px, calc(100vw - 2rem))",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,

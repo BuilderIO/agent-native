@@ -23,6 +23,7 @@ import {
   equationNodeContent,
   excludeCommandsWithDuplicateTitles,
   getEquationInsertionRange,
+  getSlashMenuVerticalPosition,
   inlineDatabaseBlockContent,
   insertEquation,
   insertInlineDatabaseBlock,
@@ -81,6 +82,26 @@ describe("generate command affordances", () => {
 });
 
 describe("slash command menu trigger", () => {
+  it("opens above a caret near the viewport bottom", () => {
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 760, bottom: 780 },
+        { top: 100, bottom: 1200 },
+        840,
+      ),
+    ).toEqual({ bottom: 444 });
+  });
+
+  it("opens below a caret when the viewport has room", () => {
+    expect(
+      getSlashMenuVerticalPosition(
+        { top: 200, bottom: 220 },
+        { top: 100, bottom: 1200 },
+        840,
+      ),
+    ).toEqual({ top: 124 });
+  });
+
   it("keeps native commands when registry commands have the same visible title", () => {
     const native = [
       { title: "Callout" },
