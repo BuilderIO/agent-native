@@ -113,7 +113,7 @@ function truncate(value: string, max: number): string {
  * classes. Overestimating is the safe direction: layout leaves a gap, it does
  * not clip.
  */
-function estimateTextWidth(value: string, fontSize: number): number {
+export function estimateTextWidth(value: string, fontSize: number): number {
   let units = 0;
   for (const char of value) {
     if (char === " ") {

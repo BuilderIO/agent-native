@@ -5,6 +5,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 import {
+  estimateTextWidth,
   REPORT_CHART_FONT_FAMILY,
   renderReportChartSvg,
   type ReportChartType,
@@ -27,6 +28,56 @@ function pathCoordinates(svg: string): Array<[number, number]> {
     Number(match[1]),
     Number(match[2]),
   ]);
+}
+
+function legendEntries(
+  svg: string,
+): Array<{ label: string; x: number; row: number }> {
+  const group =
+    svg.match(/<g transform="translate\(58,[\d.]+\)">([\s\S]*?)<\/g>/)?.[1] ??
+    "";
+  return [
+    ...group.matchAll(
+      /<rect x="([\d.]+)" y="([\d.]+)"[^>]*\/><text x="[\d.]+" y="[\d.]+"[^>]*>([^<]*)<\/text>/g,
+    ),
+  ].map((match) => ({
+    x: Number(match[1]),
+    row: Number(match[2]),
+    label: match[3],
+  }));
+}
+
+function legendOverflow(svg: string): string | null {
+  const group =
+    svg.match(/<g transform="translate\(58,[\d.]+\)">([\s\S]*?)<\/g>/)?.[1] ??
+    "";
+  return group.match(/>(\+\d+ more)</)?.[1] ?? null;
+}
+
+function headerLines(svg: string, fontSize: number): string[] {
+  return [
+    ...svg.matchAll(
+      new RegExp(`<text x="24"[^>]*font-size="${fontSize}"[^>]*>([^<]*)<`, "g"),
+    ),
+  ].map((match) => match[1]);
+}
+
+function xAxisLabels(
+  svg: string,
+  height: number,
+): Array<{ text: string; x: number; left: number; right: number }> {
+  return [
+    ...svg.matchAll(
+      new RegExp(
+        `<text x="([\\d.]+)" y="${height - 18}" text-anchor="middle"[^>]*>([^<]*)<`,
+        "g",
+      ),
+    ),
+  ].map((match) => {
+    const x = Number(match[1]);
+    const half = estimateTextWidth(match[2], 11) / 2;
+    return { text: match[2], x, left: x - half, right: x + half };
+  });
 }
 
 describe("renderReportChartSvg", () => {
@@ -269,6 +320,122 @@ describe("renderReportChartSvg", () => {
 
     expect(svg).toContain('width="360"');
     expect(svg).toContain('height="1200"');
+  });
+
+  it("wraps a many-series legend instead of dropping entries", () => {
+    const templates = [
+      "analytics",
+      "assets",
+      "brain",
+      "calendar",
+      "chat",
+      "clips",
+      "content",
+      "crm",
+      "design",
+      "forms",
+      "mail",
+      "plan",
+      "slides",
+      "todo",
+      "workspace",
+    ];
+    const svg = renderReportChartSvg({
+      ...base,
+      width: 920,
+      type: "area",
+      stacked: true,
+      series: templates.map((label, index) => ({
+        label,
+        data: base.labels.map(() => index + 1),
+      })),
+    });
+
+    const entries = legendEntries(svg);
+    expect(entries.map((entry) => entry.label)).toEqual(templates);
+    expect(legendOverflow(svg)).toBeNull();
+    expect(new Set(entries.map((entry) => entry.row)).size).toBeGreaterThan(1);
+
+    const plotWidth = 920 - 28 - 58;
+    for (const entry of entries) {
+      const width = 18 + estimateTextWidth(entry.label, 12);
+      expect(entry.x + width).toBeLessThanOrEqual(plotWidth);
+    }
+
+    // The plot has to start below the taller legend.
+    const lastRow = Math.max(...entries.map((entry) => entry.row));
+    const legendBottom = 75 + lastRow + 12;
+    const firstGridY = Number(svg.match(/<line [^>]*y1="([\d.]+)"/)?.[1]);
+    expect(firstGridY).toBeGreaterThan(legendBottom);
+  });
+
+  it("marks legend overflow instead of silently dropping series", () => {
+    const series = Array.from({ length: 40 }, (_, index) => ({
+      label: `a-fairly-long-series-label-${index}`,
+      data: base.labels.map(() => index),
+    }));
+    const svg = renderReportChartSvg({ ...base, type: "bar", series });
+
+    const entries = legendEntries(svg);
+    const overflow = legendOverflow(svg);
+    expect(entries.length).toBeGreaterThan(0);
+    expect(entries.length).toBeLessThan(series.length);
+    expect(overflow).toBe(`+${series.length - entries.length} more`);
+    expect(new Set(entries.map((entry) => entry.row)).size).toBe(3);
+  });
+
+  it("fits a long title and subtitle inside the chart width", () => {
+    const subtitle =
+      "Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, so the same person can count once per template and the totals overlap.";
+    const svg = renderReportChartSvg({
+      ...base,
+      title:
+        "Signed-In Daily Active Visitors by Template, Excluding Documentation Traffic and Internal Sessions",
+      subtitle,
+      width: 920,
+      type: "line",
+      series: [{ label: "Visitors", data: [1, 2, 3, 4] }],
+    });
+
+    const available = 920 - 48;
+    const titleLines = headerLines(svg, 22);
+    expect(titleLines).toHaveLength(1);
+    expect(titleLines[0]).toMatch(/\.\.\.$/);
+    expect(estimateTextWidth(titleLines[0], 22)).toBeLessThanOrEqual(available);
+
+    const subtitleLines = headerLines(svg, 13);
+    expect(subtitleLines.length).toBeGreaterThan(1);
+    expect(subtitleLines.length).toBeLessThanOrEqual(2);
+    expect(svg).not.toContain(subtitle);
+    for (const line of subtitleLines) {
+      expect(estimateTextWidth(line, 13)).toBeLessThanOrEqual(available);
+    }
+  });
+
+  it("never overlaps or clips an x-axis label", () => {
+    const labels = Array.from({ length: 31 }, (_, index) => {
+      const day = new Date(Date.UTC(2026, 5, 26));
+      day.setUTCDate(day.getUTCDate() + index);
+      return day.toISOString().slice(0, 10);
+    });
+    const svg = renderReportChartSvg({
+      ...base,
+      labels,
+      width: 920,
+      type: "area",
+      series: [{ label: "Visitors", data: labels.map((_, i) => i) }],
+    });
+
+    const drawn = xAxisLabels(svg, 360);
+    expect(drawn.length).toBeGreaterThan(2);
+    expect(drawn[0].text).toBe(labels[0]);
+    expect(drawn[drawn.length - 1].text).toBe(labels[labels.length - 1]);
+    expect(drawn.map((label) => label.text)).not.toContain(labels[29]);
+    expect(drawn[0].left).toBeGreaterThanOrEqual(0);
+    expect(drawn[drawn.length - 1].right).toBeLessThanOrEqual(920);
+    for (let index = 1; index < drawn.length; index += 1) {
+      expect(drawn[index].left).toBeGreaterThan(drawn[index - 1].right);
+    }
   });
 
   it("is deterministic", () => {
