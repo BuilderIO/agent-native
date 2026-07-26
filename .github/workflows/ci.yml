@@ -264,6 +264,37 @@ jobs:
       - name: Build all packages
         run: pnpm build
 
+  trusted-acceptance:
+    name: Trusted acceptance substrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Validate config, provenance, receipts, and workflow boundaries
+        run: pnpm test:trusted-acceptance
+
+      - name: Build the pilot as secretless Netlify artifacts
+        env:
+          AGENT_NATIVE_BUILD_SHA: ${{ github.sha }}
+          NITRO_PRESET: netlify
+        run: |
+          pnpm --filter calendar build
+          pnpm --filter content build
+          test -d templates/calendar/dist
+          test -f templates/calendar/.netlify/functions-internal/server/main.mjs
+          test -d templates/content/dist
+          test -f templates/content/.netlify/functions-internal/server/main.mjs
+
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     runs-on: ubuntu-latest
