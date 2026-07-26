@@ -19,12 +19,30 @@ import {
   claimA2AContinuationDelivery,
   claimDueA2AContinuations,
   completeA2AContinuation,
+  failA2AContinuationsForIntegrationTask,
   failA2AContinuation,
   getA2AContinuation,
+  hasActiveA2AContinuationsForIntegrationTask,
+  listRecoverableA2AIntegrationTasks,
+  recoverDueA2AContinuationIds,
   rescheduleA2AContinuation,
   type A2AContinuation,
+  type RecoverableA2AIntegrationTask,
 } from "./a2a-continuations-store.js";
+import {
+  completeIntegrationCampaignTaskAfterA2A,
+  failDisabledIntegrationCampaignTask,
+  getIntegrationCampaignForTask,
+} from "./integration-campaigns-store.js";
+import {
+  dispatchPendingIntegrationTask,
+  isIntegrationDurableDispatchEnabledForTask,
+} from "./integration-durable-dispatch.js";
 import { signInternalToken } from "./internal-token.js";
+import {
+  getNextPendingTaskForThread,
+  getPendingTask,
+} from "./pending-tasks-store.js";
 import { getThreadMapping } from "./thread-mapping-store.js";
 import type {
   OutgoingMessage,
@@ -150,10 +168,62 @@ export async function processDueA2AContinuations(options: {
   }
 }
 
+/**
+ * Durable scheduler wake-up only: make a bounded set of due/stale rows
+ * eligible, then invoke their normal processors. It never polls remote A2A
+ * tasks or runs a mutation itself, keeping the scheduled route within its
+ * short execution budget. Duplicate wake-ups are safe because each processor
+ * still takes the store's atomic claim before it can progress or deliver.
+ */
+export async function recoverDueA2AContinuations(options?: {
+  limit?: number;
+  webhookBaseUrl?: string;
+}): Promise<{ dispatched: number; failed: number }> {
+  const limit = options?.limit ?? 5;
+  const candidateTasks = await listRecoverableA2AIntegrationTasks(200);
+  const eligibleTaskIds: string[] = [];
+  for (const task of candidateTasks) {
+    const enabled = isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    });
+    if (enabled) {
+      eligibleTaskIds.push(task.id);
+      if (eligibleTaskIds.length >= limit) break;
+    } else {
+      await failDisabledDurableA2ATask(task);
+    }
+  }
+  const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
+  let dispatched = 0;
+  let failed = 0;
+
+  await Promise.all(
+    ids.map(async (id) => {
+      try {
+        await dispatchA2AContinuation(id, options?.webhookBaseUrl);
+        dispatched += 1;
+      } catch (err) {
+        failed += 1;
+        console.error(
+          `[integrations] Failed to recover A2A continuation ${id}:`,
+          err,
+        );
+      }
+    }),
+  );
+
+  return { dispatched, failed };
+}
+
 async function processClaimedContinuation(
   continuation: A2AContinuation,
   options: { adapters: Map<string, PlatformAdapter> },
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const adapter = options.adapters.get(continuation.platform);
   if (!adapter) {
     await failA2AContinuation(
@@ -300,6 +370,66 @@ async function processClaimedContinuation(
   );
 }
 
+async function durableContinuationScopeStillEnabled(
+  continuation: A2AContinuation,
+): Promise<boolean> {
+  const campaign = await getIntegrationCampaignForTask(
+    continuation.integrationTaskId,
+  );
+  if (!campaign) return true;
+  if (campaign.status === "completed" || campaign.status === "failed") {
+    await failA2AContinuation(
+      continuation.id,
+      "Owning integration campaign is already terminal",
+    );
+    return false;
+  }
+  const task = await getPendingTask(continuation.integrationTaskId);
+  const enabled =
+    task?.status === "processing" &&
+    isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    });
+  if (enabled) return true;
+
+  await failDisabledDurableA2ATask({
+    id: continuation.integrationTaskId,
+    platform: task?.platform ?? continuation.platform,
+    externalThreadId: task?.externalThreadId ?? continuation.externalThreadId,
+    dispatchScope: task?.dispatchScope ?? null,
+    status: task?.status ?? "missing",
+  });
+  return false;
+}
+
+async function failDisabledDurableA2ATask(
+  task: RecoverableA2AIntegrationTask,
+): Promise<void> {
+  const message = "Durable integration campaign was disabled for this scope";
+  await failA2AContinuationsForIntegrationTask(task.id, message);
+  await failDisabledIntegrationCampaignTask(task.id, message);
+  const nextTask = await getNextPendingTaskForThread(
+    task.platform,
+    task.externalThreadId,
+  );
+  if (nextTask) {
+    await dispatchPendingIntegrationTask({
+      taskId: nextTask.id,
+      task: {
+        platform: task.platform,
+        externalThreadId: task.externalThreadId,
+        platformContext: nextTask.dispatchScope
+          ? { channelId: nextTask.dispatchScope }
+          : undefined,
+      },
+    });
+  }
+}
+
 async function resumeA2AContinuationProgress(
   continuation: A2AContinuation,
   adapter: PlatformAdapter,
@@ -372,6 +502,7 @@ async function notifyAndFailA2AContinuation(
   reason: string,
   progress: PlatformRunProgress | null = null,
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
   );
@@ -399,9 +530,17 @@ async function notifyAndFailA2AContinuation(
       `[integrations] Failed to notify ${deliveryContinuation.platform} about failed A2A continuation ${deliveryContinuation.id}:`,
       err,
     );
+    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
+      await failA2AContinuation(deliveryContinuation.id, reason);
+      await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
+      return;
+    }
+    await rescheduleAndRedispatchA2AContinuation(deliveryContinuation.id);
+    return;
   }
 
   await failA2AContinuation(deliveryContinuation.id, reason);
+  await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
 }
 
 async function deliverAndCompleteA2AContinuation(
@@ -410,6 +549,7 @@ async function deliverAndCompleteA2AContinuation(
   text: string,
   progress: PlatformRunProgress | null = null,
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const deliveryContinuation = await claimA2AContinuationDelivery(
     continuation.id,
   );
@@ -589,6 +729,7 @@ async function completeAfterSuccessfulDelivery(
   for (let attempt = 0; attempt < COMPLETE_AFTER_DELIVERY_ATTEMPTS; attempt++) {
     try {
       await completeA2AContinuation(continuation.id);
+      await completeParentCampaignAfterTerminalA2A(continuation);
       return;
     } catch (err) {
       lastError = err;
@@ -600,6 +741,47 @@ async function completeAfterSuccessfulDelivery(
       "but marking it completed failed. Leaving it in delivering for stale-delivery recovery.",
     lastError,
   );
+}
+
+async function completeParentCampaignAfterTerminalA2A(
+  continuation: A2AContinuation,
+): Promise<void> {
+  const campaign = await getIntegrationCampaignForTask(
+    continuation.integrationTaskId,
+  );
+  if (!campaign) return;
+  if (
+    await hasActiveA2AContinuationsForIntegrationTask(
+      continuation.integrationTaskId,
+    )
+  ) {
+    return;
+  }
+  const completed = await completeIntegrationCampaignTaskAfterA2A(
+    continuation.integrationTaskId,
+  );
+  if (!completed) return;
+
+  const nextTask = await getNextPendingTaskForThread(
+    continuation.platform,
+    continuation.externalThreadId,
+  );
+  if (!nextTask) return;
+  await dispatchPendingIntegrationTask({
+    taskId: nextTask.id,
+    task: {
+      platform: continuation.platform,
+      externalThreadId: continuation.externalThreadId,
+      platformContext: nextTask.dispatchScope
+        ? { channelId: nextTask.dispatchScope }
+        : undefined,
+    },
+  }).catch((err) => {
+    console.error(
+      `[integrations] Failed to wake successor ${nextTask.id} after A2A parent completion:`,
+      err,
+    );
+  });
 }
 
 function formatContinuationFailureMessage(

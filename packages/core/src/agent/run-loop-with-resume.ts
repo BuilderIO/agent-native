@@ -124,6 +124,18 @@ async function appendContinuationAndJournal(
   appendToolCallJournalNote(messages, events);
 }
 
+/**
+ * Rebuild the same safe continuation context for a logical turn that resumes
+ * in a fresh hosted invocation.
+ */
+export async function appendDurableContinuationContext(
+  messages: EngineMessage[],
+  reason: AgentLoopContinuationReason,
+  threadId: string,
+): Promise<void> {
+  await appendContinuationAndJournal(messages, reason, threadId);
+}
+
 async function hasCompletedSideEffectToolCallInCurrentTurn(
   threadId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
