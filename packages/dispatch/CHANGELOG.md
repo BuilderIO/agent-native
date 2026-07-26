@@ -1,5 +1,53 @@
 # @agent-native/dispatch
 
+## 0.15.23
+
+### Patch Changes
+
+- 52cce19: Fix two independent defects behind intermittent `Missing <KEY>` errors for
+  multi-org users.
+
+  Membership resolution now asks the database for a deterministic order
+  (`ORDER BY joined_at ASC, org_id ASC`), so the oldest membership wins. The three
+  fallback paths in `org/context.ts` — `getOrgContext`, `resolveOrgIdForEmail`, and
+  `resolveOrgIdForEmailViaEvent` — previously read the first row of an unordered
+  `SELECT`. On Postgres that order is a query-plan and physical-layout detail, so
+  any multi-org user without a valid persisted `active-org-id` got an arbitrary
+  answer that could change between two identical requests, and `getSession` then
+  froze it into `session.orgId`. This does not repair users who already have the
+  wrong org persisted in `active-org-id`; that needs a separate data change.
+
+  `syncGrantsToApp` now writes each vault secret under the org that owns the row
+  instead of the org of whoever clicked Sync. In `all-apps` mode it lists secrets
+  across every org the caller can see, then synced them all with the caller's ctx,
+  which `credentialStoreScopeForVaultCtx` turned into `scope: "org"` +
+  `scopeId: <caller org>`. Because `writeAppSecret` upserts, that copied rather
+  than moved, so credential material accumulated in whichever orgs happened to be
+  active during a sync. Grouping by the row's own tenant matches what every other
+  sync path already did via `ctxForSecretRow`. The sync result and audit entry now
+  report `credentialStores` (one entry per tenant written) in place of the single
+  `credentialStore` object.
+
+- 52cce19: Shrink the dispatch and pinpoint install footprint by removing code and
+  dependencies nothing could reach. Dispatch drops the unused pre-auth routing
+  helper — `rootDispatchRedirect` had no callers and was not re-exported from
+  `./server` or any other published subpath — along with the `@libsql/client` and
+  `h3` dependencies, which had no imports in the package but were still installed
+  for every consumer. Pinpoint drops the `HistoryDropdown` and `SettingsPanel`
+  overlay components, which were never rendered by the overlay and were not
+  reachable from any of its `.`, `./react`, `./primitives`, `./server`, or
+  `./types` entry points. No exported API changes.
+- 52cce19: Write NUL group-key delimiters as `\u0000` escapes instead of raw NUL bytes so
+  these files stay searchable. Ripgrep's binary-content heuristic treats any file
+  containing a `\0` byte as binary and prints only a `binary file matches` notice
+  with no lines, so `poll.ts`, `app-skill.ts`, `session-replay.ts`, and
+  `app-creation-store.ts` were invisible to every ripgrep-backed search — agents
+  and humans grepping them for a symbol got zero results and concluded it did not
+  exist. The escape sequence is the same character at runtime; only the on-disk
+  byte the heuristic keys on changes, so there is no behavior change.
+- Updated dependencies [52cce19]
+  - @agent-native/toolkit@0.10.7
+
 ## 0.15.22
 
 ### Patch Changes

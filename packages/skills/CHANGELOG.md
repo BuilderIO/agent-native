@@ -1,5 +1,57 @@
 # @agent-native/skills
 
+## 0.2.414
+
+### Patch Changes
+
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+  - @agent-native/core@0.123.0
+
 ## 0.2.413
 
 ### Patch Changes
