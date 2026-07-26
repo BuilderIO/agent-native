@@ -255,7 +255,7 @@ function registerRequestContextBoundary(nitroApp: any): void {
   if (!h3 || !Array.isArray(h3["~middleware"])) return;
   if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
 
-  const middleware = (event: H3Event, next: () => unknown) => {
+  const middleware = (_event: H3Event, next: () => unknown) => {
     if (hasRequestContext()) return next();
     return runWithRequestContext({}, () => next());
   };

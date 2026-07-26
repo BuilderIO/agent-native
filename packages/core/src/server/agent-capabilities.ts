@@ -1,6 +1,5 @@
 import { A2AClient } from "../a2a/client.js";
 import type { AgentSkill } from "../a2a/types.js";
-
 import { type DiscoveredAgent } from "./agent-discovery.js";
 
 /** Matches the `<available-apps>` prompt block so both surfaces agree. */
