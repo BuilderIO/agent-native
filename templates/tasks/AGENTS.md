@@ -51,33 +51,33 @@ Default navigation shape on `/tasks`:
 
 Methods, arguments, and defaults are in the `action-reference` skill.
 
-| Action                        | Purpose                                       |
-| ----------------------------- | --------------------------------------------- |
-| `list-tasks`                  | List the user's tasks                         |
-| `create-task`                 | Create a task                                 |
-| `update-task`                 | Patch title, done, or field values            |
-| `delete-task`                 | Delete a task                                 |
-| `bulk-update-tasks`           | Patch title or done on many tasks             |
-| `bulk-delete-tasks`           | Delete many tasks                             |
-| `reorder-tasks`               | Reorder the visible task list                 |
-| `list-inbox-items`            | List inbox items                              |
-| `create-inbox-item`           | Capture a not-ready inbox item                |
-| `update-inbox-item`           | Rename an inbox item                          |
-| `delete-inbox-item`           | Delete an inbox item                          |
-| `bulk-delete-inbox-items`     | Delete many inbox items                       |
-| `mark-inbox-item-ready`       | Promote an inbox item to a task               |
-| `bulk-mark-inbox-items-ready` | Promote many inbox items to tasks             |
-| `reorder-inbox-items`         | Reorder inbox items                           |
-| `list-custom-fields`          | List field definitions                        |
-| `create-custom-field`         | Create a field definition                     |
-| `update-custom-field`         | Patch a field title or config                 |
-| `delete-custom-field`         | Delete a field and its values everywhere      |
-| `reorder-custom-fields`       | Reorder field definitions                     |
-| `list-visible-task-fields`    | Read fields shown on task cards               |
-| `update-visible-task-fields`  | Set fields shown on task cards (max 3)        |
-| `view-screen`                 | Read navigation, selection, and visible items |
-| `navigate`                    | Move the UI to a view                         |
-| `render-task-list-inline`     | Render the task list inline in chat           |
+| Action | Purpose |
+| --- | --- |
+| `list-tasks` | List the user's tasks |
+| `create-task` | Create a task |
+| `update-task` | Patch title, done, or field values |
+| `delete-task` | Delete a task |
+| `bulk-update-tasks` | Patch title or done on many tasks |
+| `bulk-delete-tasks` | Delete many tasks |
+| `reorder-tasks` | Reorder the visible task list |
+| `list-inbox-items` | List inbox items |
+| `create-inbox-item` | Capture a not-ready inbox item |
+| `update-inbox-item` | Rename an inbox item |
+| `delete-inbox-item` | Delete an inbox item |
+| `bulk-delete-inbox-items` | Delete many inbox items |
+| `mark-inbox-item-ready` | Promote an inbox item to a task |
+| `bulk-mark-inbox-items-ready` | Promote many inbox items to tasks |
+| `reorder-inbox-items` | Reorder inbox items |
+| `list-custom-fields` | List field definitions |
+| `create-custom-field` | Create a field definition |
+| `update-custom-field` | Patch a field title or config |
+| `delete-custom-field` | Delete a field and its values everywhere |
+| `reorder-custom-fields` | Reorder field definitions |
+| `list-visible-task-fields` | Read fields shown on task cards |
+| `update-visible-task-fields` | Set fields shown on task cards (max 3) |
+| `view-screen` | Read navigation, selection, and visible items |
+| `navigate` | Move the UI to a view |
+| `render-task-list-inline` | Render the task list inline in chat |
 
 ## Authoritative References
 

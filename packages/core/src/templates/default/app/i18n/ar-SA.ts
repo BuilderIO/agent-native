@@ -472,6 +472,14 @@ const messages = {
     remove: "إزالة",
     save: "حفظ",
     loading: "جار التحميل...",
+    dangerZone: "منطقة الخطر",
+    deleteOrg: "حذف المنظمة",
+    deleteOrgDescription:
+      "يؤدي هذا إلى حذف هذه المنظمة وأعضائها ودعواتها المعلقة نهائيًا. ستصبح البيانات المملوكة للمنظمة غير قابلة للوصول. لا يمكن التراجع عن هذا الإجراء.",
+    deleteOrgConfirmPrompt: "اكتب {{name}} للتأكيد.",
+    deleteOrgConfirmPlaceholder: "اسم المنظمة",
+    deleteOrgConfirmCta: "حذف المنظمة",
+    deleteOrgPending: "جارٍ الحذف...",
   },
   integrations: {
     webhookUrl: "ويب هوك URL",

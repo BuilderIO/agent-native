@@ -469,9 +469,47 @@ export async function createOrganization(
     args: [nanoid(), id, email, role, createdAt],
   });
 
+  await warnOnAdditionalOrganization(exec, email, id, trimmedName);
+
   await putUserSetting(email, "active-org-id", { orgId: id });
 
   return { id, name: trimmedName, role, a2aSecret, createdAt };
+}
+
+/**
+ * A second organization is the single most expensive accident in this codebase:
+ * vault credentials are scoped per organization, so creating one and activating
+ * it orphans every key synced under the previous org, and the only symptom is a
+ * missing-env-var error somewhere else entirely. The UI warns humans before
+ * they click (`org.createOrgVaultNotice`); this covers the path that actually
+ * did the damage — app code or a migration action calling `createOrganization`
+ * directly, where no notice is ever rendered.
+ */
+async function warnOnAdditionalOrganization(
+  exec: ReturnType<typeof getDbExec>,
+  email: string,
+  newOrgId: string,
+  newOrgName: string,
+): Promise<void> {
+  try {
+    const { rows } = await exec.execute({
+      sql: `SELECT 1 FROM org_members WHERE LOWER(email) = ? AND org_id <> ? LIMIT 1`,
+      args: [email.toLowerCase(), newOrgId],
+    });
+    if (rows.length === 0) return;
+  } catch {
+    return;
+  }
+
+  console.warn(
+    `[agent-native][org] Created an ADDITIONAL organization "${newOrgName}" (${newOrgId}) ` +
+      `for an account that already belongs to another organization, and made it their active org. ` +
+      `Vault credentials are scoped per organization and are NOT shared between them: every API key ` +
+      `synced under the previous organization is now unreadable for this account until it is re-saved ` +
+      `in "${newOrgName}". Requests will fail with missing-credential errors that name the key rather ` +
+      `than this org change. If this came from a roster, identity, or user-list migration, add the ` +
+      `members to the EXISTING organization instead of creating a new one.`,
+  );
 }
 
 function defaultOrgName(

@@ -12,7 +12,10 @@
  * context) should fall through to the env var.
  */
 
-import { getRequestRunContext } from "../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestRunContext,
+} from "../server/request-context.js";
 import {
   appStateGet,
   appStatePut,
@@ -42,7 +45,7 @@ async function resolveSessionId(): Promise<string> {
     // request-context not available — fall through to env var
   }
 
-  const email = process.env.AGENT_USER_EMAIL;
+  const email = getAmbientUserEmail();
   if (email) return email;
 
   throw new Error(

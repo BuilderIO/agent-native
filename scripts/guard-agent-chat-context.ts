@@ -167,31 +167,12 @@ export function discoverAgentInstructionFiles(repoRoot: string): string[] {
   return files.sort();
 }
 
-// Templates already over the cap when this guard was added. Every one of them is
-// silently losing instructions today; the ratchet stops them growing while they
-// are trimmed one at a time. Lower these numbers as templates are fixed, and
-// delete an entry once its file is under the cap. Do not add new entries.
-const AGENT_INSTRUCTION_SIZE_BASELINE: Record<string, number> = {
-  "packages/core/src/templates/workspace-core/AGENTS.md": 8_294,
-  "templates/assets/AGENTS.md": 9_977,
-  "templates/brain/AGENTS.md": 11_701,
-  "templates/calendar/AGENTS.md": 6_979,
-  "templates/clips/AGENTS.md": 16_254,
-  "templates/content/AGENTS.md": 8_533,
-  "templates/design/AGENTS.md": 6_925,
-  "templates/mail/AGENTS.md": 14_371,
-  "templates/plan/AGENTS.md": 19_447,
-  "templates/tasks/AGENTS.md": 12_028,
-};
-
 export function checkAgentInstructionSizes(repoRoot: string): {
   sizes: Array<{ file: string; chars: number; overCap: boolean }>;
   errors: string[];
-  warnings: string[];
 } {
   const sizes: Array<{ file: string; chars: number; overCap: boolean }> = [];
   const errors: string[] = [];
-  const warnings: string[] = [];
   for (const file of discoverAgentInstructionFiles(repoRoot)) {
     const chars = readFileSync(file, "utf8").trim().length;
     const relative = path.relative(repoRoot, file);
@@ -200,22 +181,11 @@ export function checkAgentInstructionSizes(repoRoot: string): {
     if (!overCap) continue;
 
     const dropped = chars - MAX_AGENT_INSTRUCTION_CHARS;
-    const baseline = AGENT_INSTRUCTION_SIZE_BASELINE[relative];
-    if (baseline === undefined) {
-      errors.push(
-        `${relative}: ${chars} characters exceeds the ${MAX_AGENT_INSTRUCTION_CHARS}-character compact-prompt cap; the last ${dropped} characters are silently dropped before the model sees them. Move detail into .agents/skills/*.`,
-      );
-    } else if (chars > baseline) {
-      errors.push(
-        `${relative}: grew to ${chars} characters from a baseline of ${baseline}. It is already over the ${MAX_AGENT_INSTRUCTION_CHARS}-character cap and losing its last ${dropped} characters; trim it instead of adding to it.`,
-      );
-    } else {
-      warnings.push(
-        `${relative}: ${chars} characters, ${dropped} silently dropped before the model sees them (known, baseline ${baseline}).`,
-      );
-    }
+    errors.push(
+      `${relative}: ${chars} characters exceeds the ${MAX_AGENT_INSTRUCTION_CHARS}-character compact-prompt cap; the last ${dropped} characters are silently dropped before the model sees them. Move detail into .agents/skills/* and point at it from the skills list.`,
+    );
   }
-  return { sizes, errors, warnings };
+  return { sizes, errors };
 }
 
 export function checkAgentChatContextPolicies(repoRoot: string): {
@@ -241,11 +211,6 @@ function main(): void {
   for (const entry of instructions.sizes) {
     console.log(
       `[guard:agent-chat-context] ${entry.file}: ${entry.chars}/${MAX_AGENT_INSTRUCTION_CHARS} instruction chars${entry.overCap ? " (OVER CAP)" : ""}`,
-    );
-  }
-  if (instructions.warnings.length > 0) {
-    console.warn(
-      `[guard:agent-chat-context] ${instructions.warnings.length} template(s) still over the instruction cap:\n${instructions.warnings.map((warning) => `- ${warning}`).join("\n")}`,
     );
   }
   result.errors.push(...instructions.errors);

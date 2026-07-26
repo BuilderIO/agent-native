@@ -461,6 +461,14 @@ const messages = {
     remove: "Retirer",
     save: "Enregistrer",
     loading: "Chargement...",
+    dangerZone: "Zone de danger",
+    deleteOrg: "Supprimer l'organisation",
+    deleteOrgDescription:
+      "Supprime définitivement cette organisation, ses membres et ses invitations en attente. Les données appartenant à l'organisation deviennent inaccessibles. Cette action est irréversible.",
+    deleteOrgConfirmPrompt: "Saisissez {{name}} pour confirmer.",
+    deleteOrgConfirmPlaceholder: "Nom de l'organisation",
+    deleteOrgConfirmCta: "Supprimer l'organisation",
+    deleteOrgPending: "Suppression...",
   },
   integrations: {
     webhookUrl: "URL du webhook",

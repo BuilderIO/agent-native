@@ -80,7 +80,7 @@ ladder.
   `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
   read-only without a session — never run anonymous write actions
   (save/share/generate/localhost connect); send signed-out visitors through
-  `/_agent-native/sign-in?return=...` first.
+  `buildSignInReturnHref()` first.
 - For multi-variant exploration, use `present-design-variants` (2-5, three by
   default) — see `design-generation` Phase 2 for the pick → refine flow.
 - When the user asks to download/export, see `export-handoff`.

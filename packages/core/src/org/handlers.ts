@@ -43,6 +43,7 @@ import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { deleteAllOrgSettings } from "../settings/org-settings.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
@@ -682,6 +683,78 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
   });
 
   return { orgId: ctx.orgId, name };
+});
+
+/**
+ * DELETE /_agent-native/org — permanently delete the current organization
+ * (owner only). Body: { name: string } must match the org's current name
+ * (trim + case-insensitive) as a confirmation guard against misclicks.
+ *
+ * Deletes org_invitations, org-scoped settings, org_members, and the
+ * organizations row, then repoints the caller's active-org-id to another
+ * membership of theirs (or null for Personal) so they aren't left pointing
+ * at a deleted org.
+ */
+export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  if (ctx.role !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can delete an organization",
+    });
+  }
+
+  const body = await readBody(event);
+  const confirmName = String(body?.name ?? "").trim();
+
+  const e = await exec();
+  const orgRes = await e.execute({
+    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    args: [ctx.orgId],
+  });
+  if (orgRes.rows.length === 0) {
+    throw createError({ statusCode: 404, message: "Organization not found" });
+  }
+  const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+
+  if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
+    throw createError({
+      statusCode: 400,
+      message: "Organization name does not match",
+    });
+  }
+
+  await e.execute({
+    sql: `DELETE FROM org_invitations WHERE org_id = ?`,
+    args: [ctx.orgId],
+  });
+  await deleteAllOrgSettings(ctx.orgId);
+  await e.execute({
+    sql: `DELETE FROM org_members WHERE org_id = ?`,
+    args: [ctx.orgId],
+  });
+  await e.execute({
+    sql: `DELETE FROM organizations WHERE id = ?`,
+    args: [ctx.orgId],
+  });
+
+  const nextRes = await e.execute({
+    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const nextOrgId =
+    nextRes.rows.length > 0
+      ? String(
+          (nextRes.rows[0] as any).orgId ?? (nextRes.rows[0] as any).org_id,
+        )
+      : null;
+
+  await putUserSetting(ctx.email, "active-org-id", { orgId: nextOrgId });
+
+  return { success: true, orgId: ctx.orgId, nextOrgId };
 });
 
 /** PUT /_agent-native/org/switch — switch the user's active organization */

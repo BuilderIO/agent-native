@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   Select,
@@ -64,6 +75,7 @@ import {
   useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
+  useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
   useRevealA2ASecret,
@@ -446,6 +458,8 @@ function MembersCard() {
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
       />
+
+      {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
   );
 }
@@ -545,6 +559,92 @@ function MembersTableCard({
           )}
         </TableBody>
       </Table>
+    </section>
+  );
+}
+
+function DangerZoneCard({ orgName }: { orgName: string }) {
+  const t = useT();
+  const deleteOrg = useDeleteOrg();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const canConfirm =
+    confirmText.trim().toLowerCase() === orgName.trim().toLowerCase();
+
+  function handleConfirm(e: { preventDefault: () => void }) {
+    e.preventDefault();
+    if (!canConfirm || deleteOrg.isPending) return;
+    deleteOrg.mutate(orgName, { onSuccess: () => setOpen(false) });
+  }
+
+  return (
+    <section className="rounded-lg border border-destructive/40 bg-card p-4 space-y-3">
+      <div className="flex items-start gap-2.5">
+        <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium text-destructive">
+            {t("org.dangerZone")}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {t("org.deleteOrgDescription")}
+          </p>
+        </div>
+      </div>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setConfirmText("");
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            intent="danger"
+            emphasis="outline"
+            className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+          >
+            {t("org.deleteOrg")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t("org.deleteOrgConfirmPlaceholder")}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
+            autoFocus
+          />
+          <ErrorText error={deleteOrg.error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("org.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canConfirm || deleteOrg.isPending}
+              onClick={handleConfirm}
+              className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleteOrg.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <IconLoader2 size={14} className="animate-spin" />
+                  {t("org.deleteOrgPending")}
+                </span>
+              ) : (
+                t("org.deleteOrgConfirmCta")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

@@ -8,11 +8,14 @@
  */
 
 import { searchThreads, listThreads } from "../../chat-threads/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 function getOwnerEmail(): string {
-  const email = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const email = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!email) {
     fail(
       "search-chats requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

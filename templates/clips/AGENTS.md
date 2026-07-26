@@ -76,26 +76,26 @@ Read the matching skill before deeper work in that area:
 
 ## Actions
 
-| Action                                                               | Purpose                                          |
-| -------------------------------------------------------------------- | ------------------------------------------------ |
-| `view-screen`, `navigate`                                            | Read context; open a surface                     |
-| `list-recordings`, `search-recordings`                               | Library, trash, `--view=shared`                  |
-| `get-recording-player-data`                                          | Full transcript, chapters, diagnostics           |
-| `create-recording`, `finalize-recording`                             | Create row; finish upload                        |
-| `import-loom-recording`                                              | Import a Loom share/embed URL                    |
-| `update-recording`                                                   | Title, password, expiry, visibility              |
-| `move-recording`                                                     | Move `id` or `ids` to a folder or root           |
-| `archive-`, `trash-`, `restore-recording`                            | Lifecycle                                        |
-| `reprocess-recording`                                                | Repair unseekable/frozen media                   |
-| `request-transcript`, `cleanup-transcript`                           | Transcribe; `force`/`regenerate`                 |
-| `regenerate-title`, `-summary`, `-chapters`                          | AI metadata                                      |
-| `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits                                            |
-| `list-meetings`, `get-`, `update-`, `finalize-meeting`               | Meetings                                         |
-| `list-dictations`, `cleanup-dictation`                               | Dictation history                                |
-| `add-comment`, `create-folder`, `create-space`                       | Comments, folders                                |
-| `share-resource`, `set-resource-visibility`, `build-embed-url`       | Share, embed                                     |
-| `create-recording-agent-link`                                        | Two-hour `agent_access` share URL                |
-| `prepare-crm-call-evidence`                                          | Opaque clip id plus `/r/<id>` for CRM            |
-| `export-to-brain`                                                    | Send ready transcripts to Brain                  |
-| `get-builder-credit-status`                                          | Whether credits pause AI work                    |
-| `tool-search`                                                        | Any other Clips action, e.g. screen-memory reads |
+| Action | Purpose |
+| --- | --- |
+| `view-screen`, `navigate` | Read context; open a surface |
+| `list-recordings`, `search-recordings` | Library, trash, `--view=shared` |
+| `get-recording-player-data` | Full transcript, chapters, diagnostics |
+| `create-recording`, `finalize-recording` | Create row; finish upload |
+| `import-loom-recording` | Import a Loom share/embed URL |
+| `update-recording` | Title, password, expiry, visibility |
+| `move-recording` | Move `id` or `ids` to a folder or root |
+| `archive-`, `trash-`, `restore-recording` | Lifecycle |
+| `reprocess-recording` | Repair unseekable/frozen media |
+| `request-transcript`, `cleanup-transcript` | Transcribe; `force`/`regenerate` |
+| `regenerate-title`, `-summary`, `-chapters` | AI metadata |
+| `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
+| `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
+| `list-dictations`, `cleanup-dictation` | Dictation history |
+| `add-comment`, `create-folder`, `create-space` | Comments, folders |
+| `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |
+| `create-recording-agent-link` | Two-hour `agent_access` share URL |
+| `prepare-crm-call-evidence` | Opaque clip id plus `/r/<id>` for CRM |
+| `export-to-brain` | Send ready transcripts to Brain |
+| `get-builder-credit-status` | Whether credits pause AI work |
+| `tool-search` | Any other Clips action, e.g. screen-memory reads |

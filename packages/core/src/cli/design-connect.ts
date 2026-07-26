@@ -2212,8 +2212,33 @@ export async function startDesignConnectBridge(
     manifest.devServerUrl,
   );
 
+  // TEMP DEBUG (remove before finishing)
+  let __dbgInflight = 0;
   const server = http.createServer(
     (req: IncomingMessage, res: ServerResponse) => {
+      __dbgInflight += 1;
+      const __dbgId = __dbgInflight;
+      const __dbgStart = Date.now();
+      const __dbgKey = new URL(
+        req.url ?? "/",
+        manifest.bridgeUrl,
+      ).searchParams.get("bridgeKey");
+      console.error(
+        `[DBG] >> #${__dbgId} inflight=${__dbgInflight} ${req.method} ${req.url?.slice(0, 120)} key=${__dbgKey}`,
+      );
+      res.on("finish", () => {
+        __dbgInflight -= 1;
+        console.error(
+          `[DBG] << #${__dbgId} inflight=${__dbgInflight} status=${res.statusCode} ms=${Date.now() - __dbgStart} key=${__dbgKey}`,
+        );
+      });
+      res.on("close", () => {
+        if (!res.writableEnded) {
+          console.error(
+            `[DBG] XX #${__dbgId} CLOSED-WITHOUT-FINISH ms=${Date.now() - __dbgStart} key=${__dbgKey}`,
+          );
+        }
+      });
       const corsApproved = configureBridgeCors(req, res, configuredOrigins);
       if (req.method === "OPTIONS") {
         sendJson(
@@ -2800,7 +2825,14 @@ export async function startDesignConnectBridge(
   // origin so Fast Refresh remains live inside URL-backed screens. The target
   // is never caller-controlled, bridge credentials are stripped, and only a
   // same-origin iframe (or an explicit preview-token caller) can open it.
+  let __dbgUpgrades = 0;
   server.on("upgrade", (req, clientSocket, clientHead) => {
+    __dbgUpgrades += 1;
+    const __dbgUpId = __dbgUpgrades;
+    console.error(`[DBG] UPGRADE start #${__dbgUpId} ${req.url}`);
+    clientSocket.on("close", () =>
+      console.error(`[DBG] UPGRADE clientSocket close #${__dbgUpId}`),
+    );
     const requestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
     const providedPreviewToken =
       readHeader(req, "x-design-preview-token") ||
@@ -2875,15 +2907,20 @@ export async function startDesignConnectBridge(
         upstreamSocket.once("close", () => clientSocket.destroy());
         upstreamSocket.pipe(clientSocket);
         clientSocket.pipe(upstreamSocket);
+        console.error(`[DBG] UPGRADE established #${__dbgUpId}`);
       },
     );
     upstreamRequest.on("response", (upstreamResponse) => {
+      console.error(
+        `[DBG] UPGRADE non-101 response #${__dbgUpId} status=${upstreamResponse.statusCode}`,
+      );
       clientSocket.end(
         `HTTP/1.1 ${upstreamResponse.statusCode ?? 502} ${upstreamResponse.statusMessage || "WebSocket upgrade failed"}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
       );
       upstreamResponse.resume();
     });
-    upstreamRequest.on("error", () => {
+    upstreamRequest.on("error", (err) => {
+      console.error(`[DBG] UPGRADE upstream error #${__dbgUpId}`, err);
       if (!clientSocket.destroyed) {
         clientSocket.end(
           "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",

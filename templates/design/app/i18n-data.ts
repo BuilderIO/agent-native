@@ -969,6 +969,17 @@ const enUS = {
       stay: "Stay here",
       leave: "Leave without applying",
     },
+    addLocalhostScreen: {
+      title: "Add a screen from your app",
+      description: "Pick a route to add as a new frame, or type a path.",
+      searchPlaceholder: "Search routes…",
+      noRoutes: "No matching routes",
+      useCustomPath: 'Add "{{path}}"',
+      viewportDesktop: "Desktop",
+      viewportMobile: "Mobile",
+      added: "Screen added",
+      addFailed: "Could not add screen",
+    },
     nodeRewrite: {
       composerTitle: "Ask or change selection",
       send: "Send",
@@ -11431,6 +11442,165 @@ const designPendingVisualStyleOverrides = {
   },
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
+const designAddLocalhostScreenOverrides = {
+  "zh-TW": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "從您的應用程式新增畫面",
+        description: "選擇一個路由做為新畫面，或輸入路徑。",
+        searchPlaceholder: "搜尋路由…",
+        noRoutes: "找不到符合的路由",
+        useCustomPath: "新增「{{path}}」",
+        viewportDesktop: "桌面版",
+        viewportMobile: "行動版",
+        added: "已新增畫面",
+        addFailed: "無法新增畫面",
+      },
+    },
+  },
+  "zh-CN": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "从您的应用添加屏幕",
+        description: "选择一个路由作为新屏幕，或输入路径。",
+        searchPlaceholder: "搜索路由…",
+        noRoutes: "未找到匹配的路由",
+        useCustomPath: "添加“{{path}}”",
+        viewportDesktop: "桌面版",
+        viewportMobile: "移动版",
+        added: "已添加屏幕",
+        addFailed: "无法添加屏幕",
+      },
+    },
+  },
+  "es-ES": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Añadir una pantalla desde tu app",
+        description:
+          "Elige una ruta para añadirla como nuevo marco, o escribe una ruta.",
+        searchPlaceholder: "Buscar rutas…",
+        noRoutes: "No hay rutas que coincidan",
+        useCustomPath: 'Añadir "{{path}}"',
+        viewportDesktop: "Escritorio",
+        viewportMobile: "Móvil",
+        added: "Pantalla añadida",
+        addFailed: "No se pudo añadir la pantalla",
+      },
+    },
+  },
+  "fr-FR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Ajouter un écran depuis votre application",
+        description:
+          "Choisissez une route à ajouter comme nouveau cadre, ou saisissez un chemin.",
+        searchPlaceholder: "Rechercher des routes…",
+        noRoutes: "Aucune route correspondante",
+        useCustomPath: "Ajouter « {{path}} »",
+        viewportDesktop: "Bureau",
+        viewportMobile: "Mobile",
+        added: "Écran ajouté",
+        addFailed: "Impossible d’ajouter l’écran",
+      },
+    },
+  },
+  "de-DE": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Einen Screen aus deiner App hinzufügen",
+        description:
+          "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
+        searchPlaceholder: "Routen durchsuchen…",
+        noRoutes: "Keine passenden Routen",
+        useCustomPath: "„{{path}}“ hinzufügen",
+        viewportDesktop: "Desktop",
+        viewportMobile: "Mobil",
+        added: "Screen hinzugefügt",
+        addFailed: "Screen konnte nicht hinzugefügt werden",
+      },
+    },
+  },
+  "ja-JP": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "アプリから画面を追加",
+        description:
+          "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
+        searchPlaceholder: "ルートを検索…",
+        noRoutes: "一致するルートがありません",
+        useCustomPath: "「{{path}}」を追加",
+        viewportDesktop: "デスクトップ",
+        viewportMobile: "モバイル",
+        added: "画面を追加しました",
+        addFailed: "画面を追加できませんでした",
+      },
+    },
+  },
+  "ko-KR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "앱에서 화면 추가",
+        description:
+          "새 프레임으로 추가할 경로를 선택하거나 경로를 입력하세요.",
+        searchPlaceholder: "경로 검색…",
+        noRoutes: "일치하는 경로가 없습니다",
+        useCustomPath: '"{{path}}" 추가',
+        viewportDesktop: "데스크톱",
+        viewportMobile: "모바일",
+        added: "화면이 추가되었습니다",
+        addFailed: "화면을 추가할 수 없습니다",
+      },
+    },
+  },
+  "pt-BR": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "Adicionar uma tela do seu app",
+        description:
+          "Escolha uma rota para adicionar como novo quadro, ou digite um caminho.",
+        searchPlaceholder: "Buscar rotas…",
+        noRoutes: "Nenhuma rota encontrada",
+        useCustomPath: 'Adicionar "{{path}}"',
+        viewportDesktop: "Desktop",
+        viewportMobile: "Celular",
+        added: "Tela adicionada",
+        addFailed: "Não foi possível adicionar a tela",
+      },
+    },
+  },
+  "hi-IN": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "अपनी app से screen जोड़ें",
+        description: "नए frame के रूप में जोड़ने के लिए एक route चुनें, या path टाइप करें।",
+        searchPlaceholder: "Routes खोजें…",
+        noRoutes: "कोई मेल खाता route नहीं मिला",
+        useCustomPath: '"{{path}}" जोड़ें',
+        viewportDesktop: "Desktop",
+        viewportMobile: "Mobile",
+        added: "Screen जोड़ी गई",
+        addFailed: "Screen नहीं जोड़ी जा सकी",
+      },
+    },
+  },
+  "ar-SA": {
+    designEditor: {
+      addLocalhostScreen: {
+        title: "إضافة شاشة من تطبيقك",
+        description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
+        searchPlaceholder: "البحث في المسارات…",
+        noRoutes: "لا توجد مسارات مطابقة",
+        useCustomPath: 'إضافة "{{path}}"',
+        viewportDesktop: "سطح المكتب",
+        viewportMobile: "الجوال",
+        added: "تمت إضافة الشاشة",
+        addFailed: "تعذرت إضافة الشاشة",
+      },
+    },
+  },
+} satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
+
 const designLeftRailOverrides = {
   "zh-TW": {
     designEditor: {
@@ -14881,6 +15051,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-TW"],
       designTemplateFeatureOverrides["zh-TW"],
       designPendingVisualStyleOverrides["zh-TW"],
+      designAddLocalhostScreenOverrides["zh-TW"],
       designFillStylesComingSoonOverrides["zh-TW"],
       breakpointBarOverrides["zh-TW"],
       motionDockOverrides["zh-TW"],
@@ -14903,6 +15074,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["zh-CN"],
       designTemplateFeatureOverrides["zh-CN"],
       designPendingVisualStyleOverrides["zh-CN"],
+      designAddLocalhostScreenOverrides["zh-CN"],
       designFillStylesComingSoonOverrides["zh-CN"],
       designFramePresetsOverrides["zh-CN"],
       designAlignmentOverrides["zh-CN"],
@@ -14980,6 +15152,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["es-ES"],
       designTemplateFeatureOverrides["es-ES"],
       designPendingVisualStyleOverrides["es-ES"],
+      designAddLocalhostScreenOverrides["es-ES"],
       designFillStylesComingSoonOverrides["es-ES"],
       designFramePresetsOverrides["es-ES"],
       designAlignmentOverrides["es-ES"],
@@ -15059,6 +15232,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["fr-FR"],
       designTemplateFeatureOverrides["fr-FR"],
       designPendingVisualStyleOverrides["fr-FR"],
+      designAddLocalhostScreenOverrides["fr-FR"],
       designFillStylesComingSoonOverrides["fr-FR"],
       designFramePresetsOverrides["fr-FR"],
       designAlignmentOverrides["fr-FR"],
@@ -15138,6 +15312,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["de-DE"],
       designTemplateFeatureOverrides["de-DE"],
       designPendingVisualStyleOverrides["de-DE"],
+      designAddLocalhostScreenOverrides["de-DE"],
       designFillStylesComingSoonOverrides["de-DE"],
       designFramePresetsOverrides["de-DE"],
       designAlignmentOverrides["de-DE"],
@@ -15217,6 +15392,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ja-JP"],
       designTemplateFeatureOverrides["ja-JP"],
       designPendingVisualStyleOverrides["ja-JP"],
+      designAddLocalhostScreenOverrides["ja-JP"],
       designFillStylesComingSoonOverrides["ja-JP"],
       designFramePresetsOverrides["ja-JP"],
       designAlignmentOverrides["ja-JP"],
@@ -15297,6 +15473,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ko-KR"],
       designTemplateFeatureOverrides["ko-KR"],
       designPendingVisualStyleOverrides["ko-KR"],
+      designAddLocalhostScreenOverrides["ko-KR"],
       designFillStylesComingSoonOverrides["ko-KR"],
       designFramePresetsOverrides["ko-KR"],
       designAlignmentOverrides["ko-KR"],
@@ -15375,6 +15552,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["pt-BR"],
       designTemplateFeatureOverrides["pt-BR"],
       designPendingVisualStyleOverrides["pt-BR"],
+      designAddLocalhostScreenOverrides["pt-BR"],
       designFillStylesComingSoonOverrides["pt-BR"],
       designFramePresetsOverrides["pt-BR"],
       designAlignmentOverrides["pt-BR"],
@@ -15454,6 +15632,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["hi-IN"],
       designTemplateFeatureOverrides["hi-IN"],
       designPendingVisualStyleOverrides["hi-IN"],
+      designAddLocalhostScreenOverrides["hi-IN"],
       designFillStylesComingSoonOverrides["hi-IN"],
       designFramePresetsOverrides["hi-IN"],
       designAlignmentOverrides["hi-IN"],
@@ -15533,6 +15712,7 @@ export const messagesByLocale = {
       designVisualEditOverrides["ar-SA"],
       designTemplateFeatureOverrides["ar-SA"],
       designPendingVisualStyleOverrides["ar-SA"],
+      designAddLocalhostScreenOverrides["ar-SA"],
       designFillStylesComingSoonOverrides["ar-SA"],
       designFramePresetsOverrides["ar-SA"],
       designAlignmentOverrides["ar-SA"],

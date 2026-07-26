@@ -360,10 +360,13 @@ export {
 export {
   runWithRequestContext,
   hasRequestContext,
+  hasRequestBoundary,
   getRequestContext,
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getAmbientUserEmail,
+  getAmbientOrgId,
   getRequestTimezone,
   getRequestRunContext,
   getCredentialContext,

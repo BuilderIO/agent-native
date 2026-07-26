@@ -11,6 +11,7 @@ export {
   useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
+  useDeleteOrg,
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,

@@ -455,6 +455,14 @@ const messages = {
     remove: "Entfernen",
     save: "Speichern",
     loading: "Wird geladen...",
+    dangerZone: "Gefahrenzone",
+    deleteOrg: "Organisation löschen",
+    deleteOrgDescription:
+      "Löscht diese Organisation, ihre Mitglieder und ausstehenden Einladungen dauerhaft. Daten der Organisation werden unzugänglich. Dies kann nicht rückgängig gemacht werden.",
+    deleteOrgConfirmPrompt: "Geben Sie {{name}} ein, um zu bestätigen.",
+    deleteOrgConfirmPlaceholder: "Name der Organisation",
+    deleteOrgConfirmCta: "Organisation löschen",
+    deleteOrgPending: "Wird gelöscht...",
   },
   integrations: {
     webhookUrl: "Webhook-URL",

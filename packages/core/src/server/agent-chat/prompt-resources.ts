@@ -983,7 +983,7 @@ export async function loadResourcesForPrompt(
           `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
       );
       sections.push(
-        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n</available-apps>`,
+        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n\nThese one-liners are the only cross-app detail in this prompt. Before building a capability another app may already own, before telling the user what is or is not possible across apps, and whenever the user asks which app to use, call \`describe-workspace-apps\` — it reads each peer's live agent card and returns their exact callable actions. Never hand-maintain a list of workspace apps in code or docs; it goes stale silently.\n</available-apps>`,
       );
     }
   } catch {

@@ -119,3 +119,97 @@ describe("describeCredentialScopeGap", () => {
     expect(message).toBeNull();
   });
 });
+
+// Credentials are scoped per organization, so a user who gains a second org —
+// or whose `active-org-id` is repointed at one — reads an empty vault while the
+// key sits visibly in the org it was synced under. The generic error names the
+// key, which sends everyone looking for a deployment or env-var problem.
+describe("describeCredentialScopeGap across organizations", () => {
+  const CROSS_ORG_PROBE = "s.scope IN ('org', 'workspace')";
+
+  /** No Personal-scope holder; the key lives in another org the user is in. */
+  function onlyAnotherMemberOrgHasKey(orgName: string | null) {
+    execute = async ({ sql }) =>
+      sql.includes(CROSS_ORG_PROBE)
+        ? { rows: [{ org_name: orgName }] }
+        : { rows: [] };
+  }
+
+  beforeEach(() => {
+    execCalls.length = 0;
+    execute = async () => ({ rows: [] });
+  });
+
+  it("names the organization holding the key and the mismatch as the cause", async () => {
+    onlyAnotherMemberOrgHasKey("Builder.io");
+
+    const message = await describeCredentialScopeGap(
+      ["ACADEMY_CONVEX_SITE_URL"],
+      { userEmail: "tim@example.com", orgId: "coach-org" },
+    );
+
+    expect(message).toContain("ACADEMY_CONVEX_SITE_URL");
+    expect(message).toContain('"Builder.io" organization');
+    expect(message).toContain(
+      "organization mismatch rather than a missing key",
+    );
+  });
+
+  it("bounds the probe to the caller's own memberships and excludes the active org", async () => {
+    onlyAnotherMemberOrgHasKey("Builder.io");
+
+    await describeCredentialScopeGap(["ACADEMY_CONVEX_SITE_URL"], {
+      userEmail: "Tim@Example.com",
+      orgId: "coach-org",
+    });
+
+    const probe = execCalls.find((call) => call.sql.includes(CROSS_ORG_PROBE));
+    expect(probe).toBeDefined();
+    expect(probe!.sql).toContain("org_members");
+    expect(probe!.sql).toContain("LOWER(m.email) = ?");
+    expect(probe!.sql).toContain("s.scope_id <> ?");
+    expect(probe!.args).toEqual([
+      "tim@example.com",
+      "ACADEMY_CONVEX_SITE_URL",
+      "coach-org",
+    ]);
+  });
+
+  it("never reveals an org id when the organization row is unreadable", async () => {
+    onlyAnotherMemberOrgHasKey(null);
+
+    const message = await describeCredentialScopeGap(["STRIPE_SECRET_KEY"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toContain("another organization");
+    expect(message).not.toContain("org-1");
+  });
+
+  it("prefers the Personal-scope explanation when both apply", async () => {
+    execute = async () => ({ rows: [{ org_name: "Builder.io" }] });
+
+    const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toContain("Personal scope");
+    expect(execCalls).toHaveLength(1);
+  });
+
+  it("stays quiet when the cross-org probe fails", async () => {
+    execute = async ({ sql }) => {
+      if (sql.includes(CROSS_ORG_PROBE)) throw new Error("connection closed");
+      return { rows: [] };
+    };
+
+    const message = await describeCredentialScopeGap(["SLACK_BOT_TOKEN"], {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
+
+    expect(message).toBeNull();
+  });
+});

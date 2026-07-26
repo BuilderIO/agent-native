@@ -949,6 +949,69 @@ describe("createOrganization", () => {
     const memberInsert = mockExecute.mock.calls[1][0];
     expect(memberInsert.args[3]).toBe("admin");
   });
+
+  // A second org silently orphans every vault credential synced under the
+  // first, and the failure surfaces much later as a missing-key error. The UI
+  // notice only reaches humans clicking through org creation, not app code or
+  // a migration action calling this directly.
+  describe("additional-organization warning", () => {
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      warn.mockRestore();
+    });
+
+    it("warns and names the credential consequence for an existing member", async () => {
+      // Two inserts resolve empty, then the membership probe finds a prior org.
+      queueSelect([], [], [{ 1: 1 }]);
+
+      const result = await createOrganization("Coach", "tim@example.com");
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0][0]);
+      expect(message).toContain("ADDITIONAL organization");
+      expect(message).toContain("Coach");
+      expect(message).toContain(result.id);
+      expect(message).toContain("scoped per organization");
+      expect(message).toContain("roster, identity, or user-list migration");
+    });
+
+    it("probes memberships outside the org it just created", async () => {
+      queueSelect([], [], [{ 1: 1 }]);
+
+      const result = await createOrganization("Coach", "Tim@Example.com");
+
+      const probe = mockExecute.mock.calls[2][0];
+      expect(probe.sql).toContain("FROM org_members");
+      expect(probe.sql).toContain("org_id <> ?");
+      expect(probe.args).toEqual(["tim@example.com", result.id]);
+    });
+
+    it("stays silent for a first organization", async () => {
+      await createOrganization("Acme", "founder@acme.com");
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("still activates the new org when the probe read fails", async () => {
+      queueSelect([], []);
+      mockExecute.mockRejectedValueOnce(
+        new Error("no such table: org_members"),
+      );
+
+      const result = await createOrganization("Acme", "founder@acme.com");
+
+      expect(warn).not.toHaveBeenCalled();
+      expect(mockPutUserSetting).toHaveBeenCalledWith(
+        "founder@acme.com",
+        "active-org-id",
+        { orgId: result.id },
+      );
+    });
+  });
 });
 
 describe("domain & A2A secret lookups (A2A receiving-side scoping)", () => {

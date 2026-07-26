@@ -901,6 +901,17 @@ const messages = {
       stay: "留在這裡",
       leave: "不套用並離開",
     },
+    addLocalhostScreen: {
+      title: "從您的應用程式新增畫面",
+      description: "選擇一個路由做為新畫面，或輸入路徑。",
+      searchPlaceholder: "搜尋路由…",
+      noRoutes: "找不到符合的路由",
+      useCustomPath: "新增「{{path}}」",
+      viewportDesktop: "桌面版",
+      viewportMobile: "行動版",
+      added: "已新增畫面",
+      addFailed: "無法新增畫面",
+    },
     capabilities: {
       "deterministic-style-edit": "安全樣式編輯",
       "deterministic-class-edit": "安全 class 編輯",

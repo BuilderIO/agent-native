@@ -138,17 +138,24 @@ export async function resolveCredential(
  * Explain an empty credential lookup when a key of that name is saved in a
  * scope the caller cannot read.
  *
- * Non-interactive runs — integration/webhook deliveries, scheduled jobs,
- * automations, and inbound A2A calls — resolve credentials as an owner
- * identity rather than as the person who triggered them, so a teammate's
- * Personal key is invisible to them even though the vault visibly holds it.
- * That produces a "the key is right there and it still says it's missing"
- * report, which this turns into a self-explanatory one.
+ * Two distinct causes produce the same "the key is right there and it still
+ * says it's missing" report:
  *
- * SECURITY: the probe is bounded to the caller's own organization, reports
- * only the scope kind, and never returns the owning account, how many rows
- * matched, or any part of the value. Without an active org there is no
- * boundary to bound the probe to, so it declines to answer rather than
+ *  - Non-interactive runs — integration/webhook deliveries, scheduled jobs,
+ *    automations, and inbound A2A calls — resolve credentials as an owner
+ *    identity rather than as the person who triggered them, so a teammate's
+ *    Personal key is invisible to them even though the vault visibly holds it.
+ *  - The key is saved in a DIFFERENT organization the caller also belongs to.
+ *    Credentials are per-organization, so gaining a second organization (or
+ *    having `active-org-id` repointed at one) orphans every key synced under
+ *    the first. Without this, the only symptom is a missing-env-var error that
+ *    names the key rather than the org mismatch that actually caused it.
+ *
+ * SECURITY: both probes are bounded to organizations the caller is a member
+ * of, report only the scope kind (and, for the cross-org case, the name of an
+ * org the caller already belongs to), and never return the owning account, how
+ * many rows matched, or any part of the value. Without an active org there is
+ * no boundary to bound the probe to, so it declines to answer rather than
  * revealing that some other tenant holds a key of the same name.
  *
  * Returns null when nothing safe and useful can be said.
@@ -160,14 +167,27 @@ export async function describeCredentialScopeGap(
   if (!ctx?.userEmail || !ctx.orgId) return null;
 
   for (const key of keys) {
-    if (!(await hasForeignPersonalCredentialInOrg(key, ctx))) continue;
-    return (
-      `A "${key}" key is saved in this workspace with Personal scope. ` +
-      `Personal keys are readable only by their own owner's signed-in sessions, ` +
-      `and this run resolves credentials as the owner identity behind the ` +
-      `integration, job, or automation — so it needs "${key}" saved with ` +
-      `Workspace or Organization scope instead.`
-    );
+    if (await hasForeignPersonalCredentialInOrg(key, ctx)) {
+      return (
+        `A "${key}" key is saved in this workspace with Personal scope. ` +
+        `Personal keys are readable only by their own owner's signed-in sessions, ` +
+        `and this run resolves credentials as the owner identity behind the ` +
+        `integration, job, or automation — so it needs "${key}" saved with ` +
+        `Workspace or Organization scope instead.`
+      );
+    }
+
+    const holder = await findMemberOrgHoldingCredential(key, ctx);
+    if (holder) {
+      return (
+        `A "${key}" key is saved in the ${holder} organization, but this ` +
+        `request resolved to a different organization you also belong to. ` +
+        `Credentials are scoped per organization and are not shared between ` +
+        `them, so this is an organization mismatch rather than a missing key. ` +
+        `Either switch your active organization back to ${holder}, or save ` +
+        `"${key}" in the organization this request runs in.`
+      );
+    }
   }
   return null;
 }
@@ -190,6 +210,39 @@ async function hasForeignPersonalCredentialInOrg(
     // Missing app_secrets/org_members table, or any other read failure — a
     // diagnostic must never replace the real "not configured" error.
     return false;
+  }
+}
+
+/**
+ * Name an organization the caller is a member of that holds this key, other
+ * than the one the request resolved to. Returns a quoted display name, or the
+ * bare word `another` when the org row is unreadable — never an org id, which
+ * would be useless to the person reading the error.
+ */
+async function findMemberOrgHoldingCredential(
+  key: string,
+  ctx: CredentialContext,
+): Promise<string | null> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT o.name AS org_name
+              FROM app_secrets s
+              JOIN org_members m ON m.org_id = s.scope_id
+                                AND LOWER(m.email) = ?
+              LEFT JOIN organizations o ON o.id = s.scope_id
+             WHERE s.key = ?
+               AND s.scope IN ('org', 'workspace')
+               AND s.scope_id <> ?
+             LIMIT 1`,
+      args: [ctx.userEmail.toLowerCase(), key, ctx.orgId!],
+    });
+    if (rows.length === 0) return null;
+    const name = (rows[0] as { org_name?: unknown }).org_name;
+    return typeof name === "string" && name.trim()
+      ? `"${name.trim()}"`
+      : "another";
+  } catch {
+    return null;
   }
 }
 

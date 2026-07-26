@@ -75,19 +75,19 @@ Root skills to read before implementation: `adding-a-feature`, `actions`,
 
 ## Actions
 
-| Action                                                                                                                                       | Purpose                                           |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `view-screen`, `navigate`                                                                                                                    | Read the screen; move the UI                      |
-| `list-visual-plans`, `get-visual-plan`, `show-visual-plan`                                                                                   | List, read, render plans                          |
-| `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`                             | Create a plan per mode; one call per plan         |
-| `create-visual-recap`, `search-pr-recaps`                                                                                                    | Create and find recaps                            |
-| `visualize-plan`, `convert-visual-plan-to-prototype`                                                                                         | Convert pasted plans; legacy mock→prototype       |
-| `update-visual-plan`                                                                                                                         | Patch blocks, screens, fidelity, comments, status |
-| `get-plan-blocks`, `list-plan-components`, `visual-answer`                                                                                   | Block schemas, components, visual answers         |
-| `publish-visual-plan`, `export-visual-plan`                                                                                                  | Share hosted; export HTML/MD/JSON/MDX             |
-| `get-plan-access-status`, `request-plan-access`                                                                                              | Check or request access                           |
-| `get-plan-feedback`, `consume-plan-feedback`, `resolve-plan-comment`, `reply-to-plan-comment`, `delete-plan-comment`                         | Read, consume, resolve, reply, delete feedback    |
-| `list-plan-versions`, `get-plan-version`, `restore-plan-version`                                                                             | List, inspect, restore snapshots                  |
-| `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source`                                                           | Read, replace, patch MDX source                   |
-| `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source` | DB-free local plan folders                        |
-| `delete-visual-plan`, `report-visual-plan`                                                                                                   | Delete/restore; report abuse                      |
+| Action | Purpose |
+| --- | --- |
+| `view-screen`, `navigate` | Read the screen; move the UI |
+| `list-visual-plans`, `get-visual-plan`, `show-visual-plan` | List, read, render plans |
+| `create-visual-plan`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions` | Create a plan per mode; one call per plan |
+| `create-visual-recap`, `search-pr-recaps` | Create and find recaps |
+| `visualize-plan`, `convert-visual-plan-to-prototype` | Convert pasted plans; legacy mock→prototype |
+| `update-visual-plan` | Patch blocks, screens, fidelity, comments, status |
+| `get-plan-blocks`, `list-plan-components`, `visual-answer` | Block schemas, components, visual answers |
+| `publish-visual-plan`, `export-visual-plan` | Share hosted; export HTML/MD/JSON/MDX |
+| `get-plan-access-status`, `request-plan-access` | Check or request access |
+| `get-plan-feedback`, `consume-plan-feedback`, `resolve-plan-comment`, `reply-to-plan-comment`, `delete-plan-comment` | Read, consume, resolve, reply, delete feedback |
+| `list-plan-versions`, `get-plan-version`, `restore-plan-version` | List, inspect, restore snapshots |
+| `read-visual-plan-source`, `import-visual-plan-source`, `patch-visual-plan-source` | Read, replace, patch MDX source |
+| `get-local-plan-folder`, `update-local-plan-folder`, `update-local-plan-comments`, `promote-local-plan-folder`, `validate-local-plan-source` | DB-free local plan folders |
+| `delete-visual-plan`, `report-visual-plan` | Delete/restore; report abuse |

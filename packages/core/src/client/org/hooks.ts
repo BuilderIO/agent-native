@@ -274,6 +274,22 @@ export function useSwitchOrg() {
   });
 }
 
+export function useDeleteOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "DELETE",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      // Deleting an org drops the user into a different active org (or none),
+      // so every org-scoped query is stale — same reasoning as create/switch.
+      await qc.invalidateQueries();
+    },
+  });
+}
+
 export function useJoinByDomain() {
   const qc = useQueryClient();
   return useMutation({

@@ -34,11 +34,10 @@ read the relevant skill before changing that area.
 - Before adding a condition to a function that already stacks several special
   cases, stop: that shape is how the same bug ships twice. Fix the boundary that
   made the special case necessary, and delete the ones it subsumes.
-- Write few code comments. Only comment a constraint the code cannot show, such
-  as a non-obvious trap a future change would otherwise reintroduce. Never
-  comment what the next line does, why a change is correct, or where it came
-  from. Keep a comment that earns its place to a line or two; prefer clearer
-  names and smaller functions over prose.
+- Write code that reads like the surrounding code: match its comment density,
+  naming, and idiom. When you do comment, comment a constraint the code cannot
+  show — a non-obvious trap a future change would otherwise reintroduce — not
+  what the next line does, why your change is correct, or where it came from.
 - When changing docs under `packages/core/docs/content`, update the matching
   localized docs under `packages/core/docs/content/locales/*` when the source
   meaning changes. If translations cannot be updated in the same change, call
@@ -160,6 +159,12 @@ instructions, and application state.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
+- Never create an organization, repoint a user's `active-org-id`, or migrate a
+  roster/identity list into a new org on your own initiative. Vault credentials
+  are per-organization, so a second org orphans every key synced under the first
+  and surfaces as a missing-key error elsewhere. One org per workspace is the
+  intended pattern: add members to the existing org, and stop and get an explicit
+  yes before doing otherwise. See the `authentication` skill.
 - Use the `security`, `storing-data`, `sharing`, `portability`, and
   `integration-webhooks` skills for implementation details.
 
@@ -216,64 +221,15 @@ call `appAction` for app actions/data, `dbQuery`, `dbExec`, `appFetch` for
 allowed framework endpoints, and `extensionFetch` for external APIs from the
 iframe bridge. Use the `extensions` skill for the full rules.
 
-## Project Map
+## Skills
 
-```txt
-app/                 React frontend
-actions/             App operations exposed to agent and frontend
-server/              Nitro API, plugins, DB, framework routes
-packages/core/       Framework runtime
-packages/dispatch/   Dispatch package
-packages/scheduling/ Scheduling package
-templates/*/         Template apps
-.agents/skills/      Detailed implementation guidance
-```
+`.agents/skills/` holds the deep guidance, one directory per skill, each with a
+`description` naming when to read it. Read the matching skill before changing
+that area — most encode a decision the surrounding code cannot show. Prefer
+searching the skill directory over guessing from nearby code.
 
-## Skill Index
+Two are entry points rather than area guides:
 
-Read the relevant skill before making changes in that area:
-
-- `adding-a-feature` for the four-area checklist.
-- `feature-flags` for default-off production rollouts, shared evaluation,
-  operator targeting, and removing stale flags after rollout.
-- `context-xray` for inspecting and managing the live agent context window.
-- `actions` for action definitions and invocation.
-- `data-programs` for stored, cached data-source scripts bound to app panels.
-- `storing-data`, `portability`, `security`, `sharing` for data work.
-- `audit-log` for the automatic action-level audit trail (who changed what,
-  when, agent vs human) and the scoped `list-audit-events` read surface.
-- `performance` for keeping lists, reads, and page loads fast — column
-  projection, indexing hot-path queries, and avoiding round-trip waterfalls.
-- `reliable-mutations` for writing data so it persists under the hosted run
-  budget — one atomic call, never loop many small writes, verify and report
-  proof-of-done, fail loud on cutoff.
-- `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
-- `native-navigation` for link-first internal navigation that preserves
-  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
-- `client-methods` for browser/client APIs that must use named helpers instead
-  of raw REST calls.
-- `delegate-to-agent` for LLM/agent delegation.
-- `agent-native-toolkit` for deciding whether settings, app chrome,
-  collaboration, sharing, navigation, organization, comments, or history belong
-  in reusable framework/toolkit primitives.
-- `customizing-agent-native` before configuring, composing, or ejecting an
-  installed Toolkit/Core feature into app-owned source.
-- `composable-mini-apps` for many one-job headless apps that discover siblings
-  and compose through `invoke` / `call-agent`.
-- `visual-answer` for code/product questions answered as visual Plan artifacts.
-- `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
-  Cursor, or Mastra.
-- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
-  collaboration workflow, subscription metering, checkpoints, and recovery.
-- `self-modifying-code` for source edits by the agent.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
-- `server-plugins` for `/_agent-native/*` routes and plugins.
-- `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
-- `automations`, `recurring-jobs`, `integration-webhooks` for background work.
-- `frontend-design`, `shadcn-ui` for interface work.
-- `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
-- `extensions` for sandboxed mini-apps.
-- `generative-ui` for transient or persisted sandboxed inline chat UI.
-- `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
-  `external-agents`, and template-specific skills as needed.
+- `adding-a-feature` — the four-area checklist every feature must satisfy.
+- `writing-agent-instructions` — read before editing any `AGENTS.md`,
+  `SKILL.md`, or tool/action description, including this file.

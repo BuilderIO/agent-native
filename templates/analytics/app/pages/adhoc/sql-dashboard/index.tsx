@@ -537,16 +537,6 @@ async function saveDashboard(
 }
 
 export default function SqlDashboardPage() {
-  const [searchParams] = useSearchParams();
-
-  if (searchParams.get("reportScreenshot") === "1") {
-    return <SqlDashboardPageContent reportScreenshot session={null} />;
-  }
-
-  return <InteractiveSqlDashboardPage />;
-}
-
-function InteractiveSqlDashboardPage() {
   const { session } = useSession();
 
   return <SqlDashboardPageContent reportScreenshot={false} session={session} />;

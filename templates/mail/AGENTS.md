@@ -64,26 +64,26 @@ Read the relevant skill before deeper work:
 
 ## Action Map
 
-| Action                                                                                                                                 | Purpose                                              |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `search-emails` / `list-emails`                                                                                                        | Query mail by view/query.                            |
-| `get-email` / `get-thread`                                                                                                             | Full body/metadata for a message or thread.          |
-| `find-contact`                                                                                                                         | Resolve a name/partial address to a real email.      |
-| `get-hubspot-contact`                                                                                                                  | HubSpot contact + deals + tickets by email.          |
-| `create-attachment-upload`                                                                                                             | Short-lived upload URL for an attachment.            |
-| `manage-draft`                                                                                                                         | Create/update/delete a `compose-{id}` draft.         |
-| `send-email`                                                                                                                           | Real send; `needsApproval: true`.                    |
-| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts`                        | Teammate/Slack draft review.                         |
+| Action | Purpose |
+| --- | --- |
+| `search-emails` / `list-emails` | Query mail by view/query. |
+| `get-email` / `get-thread` | Full body/metadata for a message or thread. |
+| `find-contact` | Resolve a name/partial address to a real email. |
+| `get-hubspot-contact` | HubSpot contact + deals + tickets by email. |
+| `create-attachment-upload` | Short-lived upload URL for an attachment. |
+| `manage-draft` | Create/update/delete a `compose-{id}` draft. |
+| `send-email` | Real send; `needsApproval: true`. |
+| `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts` | Teammate/Slack draft review. |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Message/thread state; `mark-read` does bulk cleanup. |
-| `send-scheduled-email-now` / `cancel-scheduled-email`                                                                                  | Send or cancel a scheduled send.                     |
-| `manage-gmail-filters`                                                                                                                 | Gmail-native filters.                                |
-| `manage-automations` / `trigger-automations`                                                                                           | Inbox automation rules.                              |
-| `respond-calendar-invite`                                                                                                              | Accept/decline/tentative an invite.                  |
-| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature`                                                                | Signature and writing style.                         |
-| `manage-snippets`                                                                                                                      | Saved reply snippets.                                |
-| `get-tracking`                                                                                                                         | Open/click stats for a sent message.                 |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request`                                                                  | Raw Gmail/Calendar/HubSpot API calls.                |
-| `refresh-list`                                                                                                                         | Make the UI refetch.                                 |
+| `send-scheduled-email-now` / `cancel-scheduled-email` | Send or cancel a scheduled send. |
+| `manage-gmail-filters` | Gmail-native filters. |
+| `manage-automations` / `trigger-automations` | Inbox automation rules. |
+| `respond-calendar-invite` | Accept/decline/tentative an invite. |
+| `get-mail-settings` / `update-mail-settings` / `import-gmail-signature` | Signature and writing style. |
+| `manage-snippets` | Saved reply snippets. |
+| `get-tracking` | Open/click stats for a sent message. |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Raw Gmail/Calendar/HubSpot API calls. |
+| `refresh-list` | Make the UI refetch. |
 
 ## Application State
 
