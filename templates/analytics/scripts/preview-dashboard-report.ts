@@ -26,6 +26,7 @@ import {
   fetchReportPanelData,
   renderReportEmail,
 } from "../server/lib/dashboard-report-render";
+import { getDashboardReportSubscription } from "../server/lib/dashboard-report-subscriptions";
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -37,21 +38,37 @@ async function main() {
   const wantedId = arg("subscription");
 
   const db = getDb() as any;
-  const subs = await db
-    .select()
+  const rows = await db
+    .select({
+      id: schema.dashboardReportSubscriptions.id,
+      ownerEmail: schema.dashboardReportSubscriptions.ownerEmail,
+      orgId: schema.dashboardReportSubscriptions.orgId,
+      enabled: schema.dashboardReportSubscriptions.enabled,
+    })
     .from(schema.dashboardReportSubscriptions)
     .limit(25);
-  if (!subs.length) {
+  if (!rows.length) {
     throw new Error(
       "No dashboard_report_subscriptions rows found for this DATABASE_URL.",
     );
   }
-  const sub = wantedId
-    ? subs.find((row: any) => row.id === wantedId)
-    : (subs.find((row: any) => row.enabled) ?? subs[0]);
+  const target = wantedId
+    ? rows.find((row: any) => row.id === wantedId)
+    : (rows.find((row: any) => row.enabled) ?? rows[0]);
+  if (!target) {
+    throw new Error(
+      `Subscription ${wantedId} not found. Available: ${rows.map((r: any) => r.id).join(", ")}`,
+    );
+  }
+  // Load through the access-checked reader so JSON columns (recipients,
+  // filters) arrive parsed exactly as the scheduler sees them.
+  const sub = await getDashboardReportSubscription(target.id, {
+    email: target.ownerEmail,
+    orgId: target.orgId,
+  });
   if (!sub) {
     throw new Error(
-      `Subscription ${wantedId} not found. Available: ${subs.map((s: any) => s.id).join(", ")}`,
+      `Subscription ${target.id} is not readable as ${target.ownerEmail}`,
     );
   }
 
