@@ -289,10 +289,7 @@ function layoutXLabels(
   for (const index of candidates) {
     const text = texts[index];
     const half = estimateTextWidth(text, 11) / 2;
-    const x = Math.min(
-      Math.max(centerFor(index), 6 + half),
-      width - 6 - half,
-    );
+    const x = Math.min(Math.max(centerFor(index), 6 + half), width - 6 - half);
     const collides = () =>
       drawn.length > 0 && x - half < drawn[drawn.length - 1].right + 8;
     if (index === last) {
@@ -801,5 +798,6 @@ export function renderReportChartSvg({
     theme,
     fontFamily: REPORT_CHART_FONT_FAMILY,
     stacked: stacked ?? false,
+    fit: true,
   });
 }
