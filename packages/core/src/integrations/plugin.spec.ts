@@ -50,6 +50,7 @@ const recoverDueIntegrationCampaignsMock = vi.hoisted(() =>
 const recoverDueA2AContinuationsMock = vi.hoisted(() =>
   vi.fn(async () => ({ dispatched: 0, failed: 0 })),
 );
+const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
   vi.fn(async () => true),
@@ -141,7 +142,7 @@ vi.mock("./a2a-continuations-store.js", () => ({
 
 vi.mock("./a2a-continuation-processor.js", () => ({
   processA2AContinuationById: vi.fn(),
-  processDueA2AContinuations: vi.fn(),
+  processDueA2AContinuations: processDueA2AContinuationsMock,
   recoverDueA2AContinuations: recoverDueA2AContinuationsMock,
 }));
 
@@ -322,9 +323,20 @@ function claimedTask(attempts: number) {
   };
 }
 
+function signedTaskHeaders(taskId: string) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) throw new Error("A2A_SECRET must be set before signing a task");
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(`${taskId}:${timestamp}`)
+    .digest("hex");
+  return { authorization: `Bearer ${timestamp}.${signature}` };
+}
+
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalA2ASecret = process.env.A2A_SECRET;
+  const originalNetlify = process.env.NETLIFY;
 
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -332,6 +344,11 @@ describe("integrations plugin routes", () => {
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
     process.env.NODE_ENV = originalNodeEnv;
+    if (originalNetlify === undefined) {
+      delete process.env.NETLIFY;
+    } else {
+      process.env.NETLIFY = originalNetlify;
+    }
     if (originalA2ASecret === undefined) {
       delete process.env.A2A_SECRET;
     } else {
@@ -711,7 +728,7 @@ describe("integrations plugin routes", () => {
         campaignTerminalStatus: "failed",
       }),
     };
-    getPendingTaskMock.mockResolvedValue(task);
+    getPendingTaskMock.mockResolvedValueOnce(task).mockResolvedValueOnce(task);
     claimIntegrationCampaignDeliveryForTaskMock
       .mockResolvedValueOnce({ id: "campaign-1", status: "processing" })
       .mockResolvedValueOnce(null);
@@ -719,14 +736,26 @@ describe("integrations plugin routes", () => {
     await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
 
     const results = await Promise.all([
-      dispatch(nitroApp, "/_agent-native/integrations/process-task", "POST", {
-        taskId: task.id,
-        __integrationCampaignContinuation: true,
-      }),
-      dispatch(nitroApp, "/_agent-native/integrations/process-task", "POST", {
-        taskId: task.id,
-        __integrationCampaignContinuation: true,
-      }),
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        {
+          taskId: task.id,
+          __integrationCampaignContinuation: true,
+        },
+        signedTaskHeaders(task.id),
+      ),
+      dispatch(
+        nitroApp,
+        "/_agent-native/integrations/process-task",
+        "POST",
+        {
+          taskId: task.id,
+          __integrationCampaignContinuation: true,
+        },
+        signedTaskHeaders(task.id),
+      ),
     ]);
 
     expect(results.map((result) => result.status).sort()).toEqual([200, 202]);
@@ -795,6 +824,7 @@ describe("integrations plugin routes", () => {
       "/_agent-native/integrations/process-task",
       "POST",
       { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
     );
 
     expect(result.status).toBe(200);
@@ -907,6 +937,7 @@ describe("integrations plugin routes", () => {
       "/_agent-native/integrations/process-task",
       "POST",
       { taskId: task.id, __integrationCampaignContinuation: true },
+      signedTaskHeaders(task.id),
     );
 
     expect(result.status).toBe(202);
