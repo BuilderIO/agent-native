@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -31,6 +29,7 @@ import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
+  reviewedBuilderChangeSetRevisionId,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
   sourceChangeSetKey,
@@ -151,40 +150,6 @@ function parsePayload(value: string) {
   } catch {
     return {};
   }
-}
-
-function stableReviewValue(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value) ?? "undefined";
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(stableReviewValue).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableReviewValue(record[key])}`)
-    .join(",")}}`;
-}
-
-function reviewedRevisionChangeSetId(
-  changeSet: ContentDatabaseSourceChangeSet,
-) {
-  const revision = createHash("sha256")
-    .update(
-      stableReviewValue({
-        databaseItemId: changeSet.databaseItemId,
-        documentId: changeSet.documentId,
-        kind: changeSet.kind,
-        direction: "outbound",
-        pushMode: changeSet.pushMode ?? "autosave",
-        fieldChanges: changeSet.fieldChanges,
-        bodyChange: changeSet.bodyChange,
-      }),
-    )
-    .digest("hex")
-    .slice(0, 16);
-  return `${changeSet.id}-revision-${revision}`;
 }
 
 function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
@@ -371,6 +336,16 @@ async function approveChangeSetForReview(args: {
     updatedAt: args.now,
   });
 
+  const existingPayloadMatches = (row: {
+    fieldChangesJson: string;
+    bodyChangeJson: string | null;
+  }) =>
+    row.fieldChangesJson === JSON.stringify(args.changeSet.fieldChanges) &&
+    row.bodyChangeJson ===
+      (args.changeSet.bodyChange
+        ? JSON.stringify(args.changeSet.bodyChange)
+        : null);
+
   if (existing) {
     const existingExecutions = await db
       .select({
@@ -391,58 +366,64 @@ async function approveChangeSetForReview(args: {
     // Once dispatch may have happened, the approved payload is evidence. Keep
     // it byte-for-byte and let reconciliation decide what can happen next.
     if (existing.state === "approved" && !mayRefreshApprovedPayload) {
+      if (existingPayloadMatches(existing)) {
+        return {
+          id: existing.id,
+          state: "approved" as const,
+          changeSet: {
+            ...approvedChangeSet(existing.id),
+            summary: existing.summary,
+            fieldChanges: JSON.parse(
+              existing.fieldChangesJson,
+            ) as ContentDatabaseSourceChangeSet["fieldChanges"],
+            bodyChange: existing.bodyChangeJson
+              ? (JSON.parse(
+                  existing.bodyChangeJson,
+                ) as ContentDatabaseSourceChangeSet["bodyChange"])
+              : null,
+            updatedAt: existing.updatedAt,
+          },
+        };
+      }
+      // A failed, dispatched, or otherwise non-refreshable gate owns its exact
+      // approved payload forever. A materially different local edit must fall
+      // through to a new revision identity instead of aliasing that evidence.
+    } else {
+      await db
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          direction: "outbound",
+          state: "approved",
+          pushMode: args.changeSet.pushMode ?? "autosave",
+          localOnly: 1,
+          summary,
+          fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
+          bodyChangeJson: args.changeSet.bodyChange
+            ? JSON.stringify(args.changeSet.bodyChange)
+            : null,
+          updatedAt: args.now,
+        })
+        .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
+      if (existing.state !== "approved") {
+        await db.insert(schema.contentDatabaseSourceChangeReviews).values({
+          id: crypto.randomUUID(),
+          ownerEmail: args.ownerEmail,
+          sourceId: args.sourceId,
+          changeSetId: existing.id,
+          reviewerEmail: args.reviewerEmail,
+          decision: "approved",
+          stateFrom: existing.state,
+          stateTo: "approved",
+          note: "Approved by Builder update review.",
+          createdAt: args.now,
+        });
+      }
       return {
         id: existing.id,
         state: "approved" as const,
-        changeSet: {
-          ...approvedChangeSet(existing.id),
-          summary: existing.summary,
-          fieldChanges: JSON.parse(
-            existing.fieldChangesJson,
-          ) as ContentDatabaseSourceChangeSet["fieldChanges"],
-          bodyChange: existing.bodyChangeJson
-            ? (JSON.parse(
-                existing.bodyChangeJson,
-              ) as ContentDatabaseSourceChangeSet["bodyChange"])
-            : null,
-          updatedAt: existing.updatedAt,
-        },
+        changeSet: approvedChangeSet(existing.id),
       };
     }
-    await db
-      .update(schema.contentDatabaseSourceChangeSets)
-      .set({
-        direction: "outbound",
-        state: "approved",
-        pushMode: args.changeSet.pushMode ?? "autosave",
-        localOnly: 1,
-        summary,
-        fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
-        bodyChangeJson: args.changeSet.bodyChange
-          ? JSON.stringify(args.changeSet.bodyChange)
-          : null,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
-    if (existing.state !== "approved") {
-      await db.insert(schema.contentDatabaseSourceChangeReviews).values({
-        id: crypto.randomUUID(),
-        ownerEmail: args.ownerEmail,
-        sourceId: args.sourceId,
-        changeSetId: existing.id,
-        reviewerEmail: args.reviewerEmail,
-        decision: "approved",
-        stateFrom: existing.state,
-        stateTo: "approved",
-        note: "Approved by Builder update review.",
-        createdAt: args.now,
-      });
-    }
-    return {
-      id: existing.id,
-      state: "approved" as const,
-      changeSet: approvedChangeSet(existing.id),
-    };
   }
 
   // Local Builder diffs are materialized with deterministic IDs (for example,
@@ -453,7 +434,7 @@ async function approveChangeSetForReview(args: {
   // Bind a materially changed follow-up to a deterministic payload revision so
   // its review, execution, and idempotency evidence cannot alias the old row.
   const changeSetId = selectedExisting
-    ? reviewedRevisionChangeSetId(args.changeSet)
+    ? reviewedBuilderChangeSetRevisionId(args.changeSet)
     : args.changeSet.id;
   await db.insert(schema.contentDatabaseSourceChangeSets).values({
     id: changeSetId,

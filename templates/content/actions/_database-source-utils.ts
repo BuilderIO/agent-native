@@ -788,6 +788,26 @@ function stableValueString(value: unknown): string {
   return JSON.stringify(value);
 }
 
+export function reviewedBuilderChangeSetRevisionId(
+  changeSet: ContentDatabaseSourceChangeSet,
+) {
+  const revision = createHash("sha256")
+    .update(
+      stableValueString({
+        databaseItemId: changeSet.databaseItemId,
+        documentId: changeSet.documentId,
+        kind: changeSet.kind,
+        direction: "outbound",
+        pushMode: changeSet.pushMode ?? "autosave",
+        fieldChanges: changeSet.fieldChanges,
+        bodyChange: changeSet.bodyChange,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 16);
+  return `${changeSet.id}-revision-${revision}`;
+}
+
 // Equal when both normalize the same. null/undefined/"" are all "empty"; strings
 // are trimmed; objects compared by stable serialization.
 function sameSourceFieldValue(a: unknown, b: unknown): boolean {
@@ -2774,6 +2794,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           stableValueString(candidate.bodyChange),
     );
 
+  const withUniqueReviewIdentity = (
+    candidate: ContentDatabaseSourceChangeSet,
+  ): ContentDatabaseSourceChangeSet =>
+    args.storedChangeSets.some((stored) => stored.id === candidate.id)
+      ? {
+          ...candidate,
+          id: reviewedBuilderChangeSetRevisionId(candidate),
+        }
+      : candidate;
+
   const reviewableBuilderValue = (
     field: NonNullable<typeof args.writableFields>[number],
     localValue: unknown,
@@ -2992,7 +3022,9 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       createdAt: now,
       updatedAt: now,
     };
-    if (!sameCancelledSnapshot(candidate)) pending.push(candidate);
+    if (!sameCancelledSnapshot(candidate)) {
+      pending.push(withUniqueReviewIdentity(candidate));
+    }
   }
 
   // New-row creates: a local database item NOT linked to a Builder entry (no
@@ -3084,7 +3116,9 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         createdAt: now,
         updatedAt: now,
       };
-      if (!sameCancelledSnapshot(candidate)) pending.push(candidate);
+      if (!sameCancelledSnapshot(candidate)) {
+        pending.push(withUniqueReviewIdentity(candidate));
+      }
     }
   }
 

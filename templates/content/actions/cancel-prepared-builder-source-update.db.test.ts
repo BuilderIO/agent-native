@@ -582,7 +582,9 @@ describe("cancel-prepared-builder-source-update", () => {
       (changeSet) => changeSet.state === "pending_push",
     );
     expect(changed).toMatchObject({
-      id: seeded.changeSetId,
+      id: expect.stringMatching(
+        new RegExp(`^${seeded.changeSetId}-revision-[a-f0-9]{16}$`),
+      ),
       fieldChanges: [{ proposedValue: "Changed local title" }],
     });
 
@@ -590,7 +592,7 @@ describe("cancel-prepared-builder-source-update", () => {
       prepareReview.run({
         documentId: seeded.documentId,
         sourceId: seeded.sourceId,
-        changeSetIds: [seeded.changeSetId],
+        changeSetIds: [changed!.id],
         pushModeConfirmation: "autosave",
       }),
     );
@@ -600,7 +602,7 @@ describe("cancel-prepared-builder-source-update", () => {
     );
     expect(prepared.preparedChangeSetMappings).toEqual([
       {
-        requestedChangeSetId: seeded.changeSetId,
+        requestedChangeSetId: changed!.id,
         preparedChangeSetId: revisionId,
       },
     ]);
@@ -634,5 +636,77 @@ describe("cancel-prepared-builder-source-update", () => {
       );
     expect(execution).toBeTruthy();
     expect(JSON.parse(execution.payloadJson).changeSetId).toBe(revisionId);
+  });
+
+  it("prepares a corrected diff separately from a failed non-refreshable gate", async () => {
+    const seeded = await seed({
+      titleDiff: { remote: "Remote title", local: "Invalid local title" },
+      syntheticChangeSetId: true,
+      executions: [
+        {
+          state: "failed",
+          payload: {
+            dispatch: { startedAt: "2026-07-26T00:01:00.000Z" },
+          },
+          attemptToken: "failed-attempt",
+        },
+      ],
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Corrected local title" })
+      .where(eq(schema.documents.id, seeded.itemDocumentId));
+
+    const snapshot = await getWriteSnapshot(
+      {
+        id: seeded.databaseId,
+        documentId: seeded.documentId,
+      } as any,
+      seeded.sourceId,
+    );
+    const failed = snapshot?.changeSets.find(
+      (changeSet) => changeSet.id === seeded.changeSetId,
+    );
+    const corrected = snapshot?.changeSets.find(
+      (changeSet) => changeSet.state === "pending_push",
+    );
+    expect(failed).toMatchObject({
+      id: seeded.changeSetId,
+      state: "approved",
+      fieldChanges: [{ proposedValue: "Invalid local title" }],
+    });
+    expect(corrected).toMatchObject({
+      id: expect.stringMatching(
+        new RegExp(`^${seeded.changeSetId}-revision-[a-f0-9]{16}$`),
+      ),
+      state: "pending_push",
+      fieldChanges: [{ proposedValue: "Corrected local title" }],
+    });
+
+    const prepared = await asUser(OWNER, () =>
+      prepareReview.run({
+        documentId: seeded.documentId,
+        sourceId: seeded.sourceId,
+        changeSetIds: [corrected!.id],
+        pushModeConfirmation: "autosave",
+      }),
+    );
+    expect(prepared.preparedChangeSetMappings).toEqual([
+      {
+        requestedChangeSetId: corrected!.id,
+        preparedChangeSetId: corrected!.id,
+      },
+    ]);
+    expect(prepared.review.rows).toHaveLength(1);
+    expect(prepared.review.rows[0]).toMatchObject({
+      changeSetId: corrected!.id,
+      fieldChanges: [{ proposedValue: "Corrected local title" }],
+    });
+
+    const persistedFailed = await persistedState(seeded);
+    expect(persistedFailed.changeSet).toMatchObject({ state: "approved" });
+    expect(
+      JSON.parse(persistedFailed.changeSet.fieldChangesJson),
+    ).toMatchObject([{ proposedValue: "Invalid local title" }]);
   });
 });

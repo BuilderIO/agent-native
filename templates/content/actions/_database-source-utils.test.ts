@@ -2312,6 +2312,63 @@ describe("database source helpers", () => {
     });
   });
 
+  it("gives a corrected local diff a distinct identity from its failed approved gate", () => {
+    const stableId = "local-pending-row-source-change";
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Remote title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Corrected local title"]]),
+      storedChangeSets: [
+        {
+          id: stableId,
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          kind: "field_update",
+          direction: "outbound",
+          state: "approved",
+          pushMode: "autosave",
+          localOnly: true,
+          summary: "Previously approved Builder title change.",
+          fieldChanges: [
+            {
+              propertyId: null,
+              propertyName: "Title",
+              localFieldKey: "title",
+              sourceFieldKey: "data.title",
+              currentValue: "Remote title",
+              proposedValue: "Invalid local title",
+            },
+          ],
+          bodyChange: null,
+          riskLevel: "low",
+          riskReasons: [],
+          conflictState: "none",
+          reviewEvents: [],
+          executions: [],
+          createdAt: "2026-07-26T00:00:00.000Z",
+          updatedAt: "2026-07-26T00:01:00.000Z",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({
+      id: expect.stringMatching(
+        /^local-pending-row-source-change-revision-[a-f0-9]{16}$/,
+      ),
+      state: "pending_push",
+      fieldChanges: [{ proposedValue: "Corrected local title" }],
+    });
+    expect(pending[0]?.id).not.toBe(stableId);
+  });
+
   it("resurfaces a pending Builder title edit after a rejected outbound record", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
