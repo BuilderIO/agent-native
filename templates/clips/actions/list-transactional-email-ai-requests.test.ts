@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   claimant: "recipient@example.test",
   listJobs: vi.fn(),
   claimAwaitingAi: vi.fn(),
+  reclaimStaleAiDispatch: vi.fn(),
   resolveAccess: vi.fn(),
   readConfig: vi.fn(),
   gte: vi.fn((...args: unknown[]) => args),
@@ -28,10 +29,13 @@ vi.mock("../server/lib/recordings.js", () => ({
   ownerEmailMatches: (...args: unknown[]) => args,
 }));
 vi.mock("../server/lib/transactional-email-store.js", () => ({
+  AI_DISPATCH_STALE_MS: 30 * 60 * 1000,
   transactionalEmailStore: {
     listJobs: (...args: unknown[]) => mocks.listJobs(...args),
     readConfig: (...args: unknown[]) => mocks.readConfig(...args),
     claimAwaitingAi: (...args: unknown[]) => mocks.claimAwaitingAi(...args),
+    reclaimStaleAiDispatch: (...args: unknown[]) =>
+      mocks.reclaimStaleAiDispatch(...args),
   },
 }));
 vi.mock("../server/db/index.js", () => ({
@@ -146,6 +150,11 @@ beforeEach(() => {
     state: "ai_dispatched",
     aiClaimedBy: mocks.claimant,
   });
+  mocks.reclaimStaleAiDispatch.mockResolvedValue({
+    ...job,
+    state: "ai_dispatched",
+    aiClaimedBy: mocks.claimant,
+  });
   mocks.resolveAccess.mockResolvedValue({ role: "viewer" });
   setupContextRows();
 });
@@ -178,6 +187,29 @@ describe("list-transactional-email-ai-requests", () => {
         transcriptExcerpt: "Second transcript",
       }),
     ]);
+  });
+
+  it("atomically reclaims stale browser dispatches", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-01T01:00:00.000Z"));
+    mocks.listJobs.mockResolvedValue([
+      {
+        ...job,
+        state: "ai_dispatched",
+        aiClaimedBy: mocks.claimant,
+        aiDispatchedAt: "2026-08-01T00:00:00.000Z",
+      },
+    ]);
+
+    const result = await claimTransactionalEmailAiRequests(mocks.claimant);
+
+    expect(mocks.reclaimStaleAiDispatch).toHaveBeenCalledWith(
+      job.logicalKey,
+      mocks.claimant,
+      new Date("2026-08-01T00:30:00.000Z"),
+    );
+    expect(result.requests).toHaveLength(1);
+    vi.useRealTimers();
   });
 
   it("does not let unrelated global jobs starve a later eligible claim", async () => {

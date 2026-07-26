@@ -20,6 +20,7 @@ import {
 import { getDb, schema } from "../db/index.js";
 import { ownerEmailMatches } from "../lib/recordings.js";
 import {
+  AI_DISPATCH_STALE_MS,
   transactionalEmailRecipientSchema,
   transactionalEmailStore,
   type TransactionalEmailJob,
@@ -37,7 +38,6 @@ const REMINDER_DELAY_MS = 48 * 60 * 60 * 1000;
 const SENDING_LEASE_MS = 2 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 60_000;
-const STALE_AI_DISPATCH_MS = 30 * 60 * 1000;
 let skippingLogged = false;
 
 type DirectShare = {
@@ -884,7 +884,7 @@ export async function runTransactionalEmailsOnce(
       const dispatchedAt = job.aiDispatchedAt ?? job.updatedAt;
       if (
         job.state === "ai_dispatched" &&
-        currentTime.getTime() - Date.parse(dispatchedAt) >= STALE_AI_DISPATCH_MS
+        currentTime.getTime() - Date.parse(dispatchedAt) >= AI_DISPATCH_STALE_MS
       ) {
         warn("[transactional-emails] AI dispatch remains unresolved", {
           logicalKey: job.logicalKey,

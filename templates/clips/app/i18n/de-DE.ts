@@ -1380,7 +1380,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     stageUploading: "Rohmaterial wird hochgeladen…",
     stageTranscript: "Sprache und Bildschirminhalte agentenlesbar machen…",
     stageFinalizing: "Wird Agent-Native gemacht…",
-    importingSubtitle: "Aus einer flachen Aufnahme wird ein Agent-Native-Primitive.",
+    importingSubtitle:
+      "Aus einer flachen Aufnahme wird ein Agent-Native-Primitive.",
     doneHeading: "Und fertig! Dein Video ist jetzt:",
     benefitTranscript: "Sprache & Bildschirminhalte, vollständig durchsuchbar",
     benefitQueryable: "Von deinem Agenten verstanden & abfragbar",

@@ -78,6 +78,13 @@ function NewRecordingTile({
     const qs = params.toString();
     return qs ? `/record?${qs}` : "/record";
   }, [spaceId, folderId]);
+  const uploadHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    params.set("autoUpload", "1");
+    return `/record?${params.toString()}`;
+  }, [spaceId, folderId]);
   const importHref = useMemo(() => {
     const params = new URLSearchParams();
     if (spaceId) params.set("spaceId", spaceId);
@@ -96,7 +103,7 @@ function NewRecordingTile({
       </Button>
       <div className="flex items-center gap-3">
         <NavLink
-          to={recordHref}
+          to={uploadHref}
           className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <IconUpload className="h-3.5 w-3.5" />

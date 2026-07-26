@@ -211,6 +211,56 @@ describe("first imported recording transactional email", () => {
     expect(mocks.enqueue).not.toHaveBeenCalled();
   });
 
+  it("preserves WebM format and filename for direct imports", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    const db = {
+      insert: vi.fn(() => ({ values: insertValues })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getOrganizationDefaultVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-webm");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/webm",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-webm.webm",
+      provider: "builder",
+    });
+    mocks.queueBuilderMediaCompression.mockResolvedValue(undefined);
+    mocks.ensureEnabledAt.mockResolvedValue({
+      enabledAt: "2026-07-01T00:00:00.000Z",
+    });
+    mocks.limit.mockResolvedValue([{ id: "recording-webm" }]);
+
+    await importLoomRecording.run({
+      url: "https://media.example.com/source.webm",
+    });
+
+    expect(mocks.uploadFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "recording-webm.webm",
+        mimeType: "video/webm",
+      }),
+    );
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ videoFormat: "webm" }),
+    );
+  });
+
   it("completes a persisted import when transactional email enqueue fails", async () => {
     const insertValues = vi.fn(async () => undefined);
     const db = {

@@ -1372,9 +1372,11 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Fonctionne très bien avec Loom. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
     stageFetching: "Récupération de votre vidéo…",
     stageUploading: "Envoi des rushes…",
-    stageTranscript: "Rendre la parole et les visuels à l'écran lisibles par l'agent…",
+    stageTranscript:
+      "Rendre la parole et les visuels à l'écran lisibles par l'agent…",
     stageFinalizing: "Transformation en Agent-Native…",
-    importingSubtitle: "Transformer un simple enregistrement en primitive Agent-Native.",
+    importingSubtitle:
+      "Transformer un simple enregistrement en primitive Agent-Native.",
     doneHeading: "Et voilà ! Votre vidéo est désormais :",
     benefitTranscript: "Parole et visuels à l'écran, entièrement cherchables",
     benefitQueryable: "Comprise et interrogeable par votre agent",

@@ -217,6 +217,48 @@ describe("transactional email store", () => {
     });
   });
 
+  it("reclaims only stale AI dispatches", async () => {
+    const root = await testRoot();
+    let currentTime = new Date("2026-08-01T12:00:00.000Z");
+    const store = createTransactionalEmailStore({
+      root,
+      now: () => currentTime,
+    });
+    const logicalKey = "two-clips:recipient@example.com";
+    await store.enqueue(
+      logicalKey,
+      {
+        type: "two-clips",
+        recipient: "recipient@example.com",
+        recordingIds: ["recording-1", "recording-2"],
+        requestedBy: "sender@example.com",
+      },
+      "awaiting_ai",
+    );
+    await store.claimAwaitingAi(logicalKey, "first@example.com");
+
+    await expect(
+      store.reclaimStaleAiDispatch(
+        logicalKey,
+        "second@example.com",
+        new Date("2026-08-01T11:59:59.999Z"),
+      ),
+    ).resolves.toBeNull();
+
+    currentTime = new Date("2026-08-01T12:30:00.000Z");
+    await expect(
+      store.reclaimStaleAiDispatch(
+        logicalKey,
+        "second@example.com",
+        new Date("2026-08-01T12:00:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      state: "ai_dispatched",
+      aiClaimedBy: "second@example.com",
+      aiDispatchedAt: "2026-08-01T12:30:00.000Z",
+    });
+  });
+
   it("acquires a sending lease and reclaims only expired leases", async () => {
     const root = await testRoot();
     let currentTime = new Date("2026-08-01T12:00:00.000Z");

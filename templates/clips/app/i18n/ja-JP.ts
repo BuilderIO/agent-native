@@ -1360,9 +1360,11 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
     stageFetching: "動画を取り込んでいます…",
     stageUploading: "元の映像をアップロードしています…",
-    stageTranscript: "音声と画面の映像をエージェントが読み取れるようにしています…",
+    stageTranscript:
+      "音声と画面の映像をエージェントが読み取れるようにしています…",
     stageFinalizing: "Agent-Native にしています…",
-    importingSubtitle: "ただの録画を Agent-Native なプリミティブに変えています。",
+    importingSubtitle:
+      "ただの録画を Agent-Native なプリミティブに変えています。",
     doneHeading: "完了です！あなたの動画は今：",
     benefitTranscript: "音声と画面の映像、すべて検索可能",
     benefitQueryable: "エージェントが理解しクエリ可能",

@@ -1369,7 +1369,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     stageUploading: "Enviando o material bruto…",
     stageTranscript: "Tornando a fala e o visual na tela legíveis pelo agente…",
     stageFinalizing: "Tornando-o Agent-Native…",
-    importingSubtitle: "Transformando uma gravação comum em uma primitiva Agent-Native.",
+    importingSubtitle:
+      "Transformando uma gravação comum em uma primitiva Agent-Native.",
     doneHeading: "E pronto! Seu vídeo agora é:",
     benefitTranscript: "Fala e visual na tela, totalmente pesquisáveis",
     benefitQueryable: "Compreendido e consultável pelo seu agente",

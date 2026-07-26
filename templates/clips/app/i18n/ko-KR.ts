@@ -1345,7 +1345,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
     stageFetching: "동영상을 가져오는 중…",
     stageUploading: "원본 영상을 업로드하는 중…",
-    stageTranscript: "음성과 화면의 시각 정보를 에이전트가 읽을 수 있게 만드는 중…",
+    stageTranscript:
+      "음성과 화면의 시각 정보를 에이전트가 읽을 수 있게 만드는 중…",
     stageFinalizing: "Agent-Native로 만드는 중…",
     importingSubtitle: "밋밋한 녹화를 Agent-Native 프리미티브로 바꾸는 중.",
     doneHeading: "완료됐어요! 이제 동영상은:",

@@ -184,6 +184,7 @@ export type TransactionalEmailStoreOptions = {
 };
 
 const LOCK_STALE_MS = 30_000;
+export const AI_DISPATCH_STALE_MS = 30 * 60 * 1000;
 
 const allowedTransitions: Record<
   TransactionalEmailState,
@@ -630,6 +631,36 @@ export function createTransactionalEmailStore(
     });
   }
 
+  async function reclaimStaleAiDispatch(
+    logicalKey: string,
+    claimantEmail: string,
+    staleBefore: Date,
+  ): Promise<TransactionalEmailJob | null> {
+    const claimant = recipientSchema.parse(claimantEmail.trim().toLowerCase());
+    return withJobLock(logicalKey, async () => {
+      const job = await readJob(logicalKey);
+      const dispatchedAt = job?.aiDispatchedAt ?? job?.updatedAt;
+      if (
+        !job ||
+        job.type !== "two-clips" ||
+        job.state !== "ai_dispatched" ||
+        !dispatchedAt ||
+        Date.parse(dispatchedAt) > staleBefore.getTime()
+      ) {
+        return null;
+      }
+      const timestamp = now().toISOString();
+      const reclaimed = transactionalEmailJobSchema.parse({
+        ...job,
+        aiClaimedBy: claimant,
+        aiDispatchedAt: timestamp,
+        updatedAt: timestamp,
+      });
+      await writeJsonAtomic(jobFile(logicalKey), reclaimed);
+      return reclaimed;
+    });
+  }
+
   async function completeClaimedAi(
     logicalKey: string,
     claimantEmail: string,
@@ -820,6 +851,7 @@ export function createTransactionalEmailStore(
     listJobs,
     transition,
     claimAwaitingAi,
+    reclaimStaleAiDispatch,
     completeClaimedAi,
     claimNextAwaitingAi,
     acquireSendingLease,

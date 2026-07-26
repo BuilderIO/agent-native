@@ -1340,7 +1340,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     stageUploading: "Uploading the raw footage…",
     stageTranscript: "Making speech and on-screen visuals agent-readable…",
     stageFinalizing: "Making it Agent-Native…",
-    importingSubtitle: "Turning a flat recording into an Agent-Native primitive.",
+    importingSubtitle:
+      "Turning a flat recording into an Agent-Native primitive.",
     doneHeading: "And we're done! Your video is now:",
     benefitTranscript: "Speech & on-screen visuals, fully searchable",
     benefitQueryable: "Understood & queryable by your agent",

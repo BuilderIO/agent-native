@@ -53,7 +53,7 @@ const ImportLoomRecordingSchema = z.object({
     .min(1)
     .max(2048)
     .describe(
-      "Loom share/embed URL, or a direct link to a video file (mp4/webm/mov/m4v)",
+      "Loom share/embed URL, or a direct link to an MP4/WebM video file",
     ),
   title: z
     .string()
@@ -245,7 +245,10 @@ export default defineAction({
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");
 
-    const buildRecordingValues = (videoSizeBytes: number) => ({
+    const buildRecordingValues = (
+      videoSizeBytes: number,
+      videoFormat: "mp4" | "webm" = "mp4",
+    ) => ({
       organizationId,
       orgId: organizationId,
       folderId,
@@ -258,7 +261,7 @@ export default defineAction({
       thumbnailUrl:
         oembed?.thumbnail_url ?? existingRecording?.thumbnailUrl ?? null,
       durationMs,
-      videoFormat: "mp4" as const,
+      videoFormat,
       videoSizeBytes,
       width,
       height,
@@ -414,9 +417,10 @@ export default defineAction({
     // reupload well within a single request, and this keeps
     // request-transcript as the deliberate next step for a transcript.
     const media = await downloadDirectVideo(sourceUrl);
+    const videoFormat = media.mimeType === "video/webm" ? "webm" : "mp4";
     const upload = await uploadFile({
       data: media.bytes,
-      filename: `${id}.mp4`,
+      filename: `${id}.${videoFormat}`,
       mimeType: media.mimeType,
       ownerEmail,
       stableUrl: true,
@@ -433,7 +437,7 @@ export default defineAction({
     }
 
     const videoUrl = upload.url;
-    const recordingValues = buildRecordingValues(media.sizeBytes);
+    const recordingValues = buildRecordingValues(media.sizeBytes, videoFormat);
     if (existingRecording) {
       await db
         .update(schema.recordings)
@@ -542,7 +546,7 @@ export default defineAction({
       importMode: "reuploaded" as const,
       storageProvider: upload.provider,
       videoSizeBytes: media.sizeBytes,
-      note: "Imported as a Clips-hosted MP4. Use request-transcript to transcribe the uploaded media.",
+      note: "Imported as a Clips-hosted video. Use request-transcript to transcribe the uploaded media.",
     };
   },
   link: ({ result }) => {

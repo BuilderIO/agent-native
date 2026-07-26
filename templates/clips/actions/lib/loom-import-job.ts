@@ -118,7 +118,12 @@ export async function runLoomImportJob({
       createdAt: schema.recordings.createdAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
 
   const shareUrl = normalizeLoomShareUrl(recording?.sourceWindowTitle ?? "");
   const loomId = shareUrl ? extractLoomVideoId(shareUrl) : null;
@@ -176,6 +181,7 @@ export async function runLoomImportJob({
       .where(
         and(
           eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.loomImportClaimId, claimId),
         ),
       )
@@ -283,6 +289,7 @@ export async function runLoomImportJob({
         .where(
           and(
             eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             eq(schema.recordings.loomImportClaimId, claimId),
           ),
         );

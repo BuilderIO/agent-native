@@ -9,6 +9,7 @@ import {
   ownerEmailMatches,
 } from "../server/lib/recordings.js";
 import {
+  AI_DISPATCH_STALE_MS,
   transactionalEmailStore,
   type TransactionalEmailJob,
 } from "../server/lib/transactional-email-store.js";
@@ -196,10 +197,14 @@ export async function claimTransactionalEmailAiRequests(
   const claimLimit = Math.min(Math.max(limit, 1), MAX_CLAIMS);
   const config = await transactionalEmailStore.readConfig();
   if (!config) return { requests: [] };
+  const staleBefore = new Date(Date.now() - AI_DISPATCH_STALE_MS);
   const candidates = (await transactionalEmailStore.listJobs()).filter(
     (job) =>
       job.type === "two-clips" &&
-      job.state === "awaiting_ai" &&
+      (job.state === "awaiting_ai" ||
+        (job.state === "ai_dispatched" &&
+          Date.parse(job.aiDispatchedAt ?? job.updatedAt) <=
+            staleBefore.getTime())) &&
       job.recordingIds.length === 2,
   );
   const requests: ClaimedTransactionalEmailAiRequest[] = [];
@@ -212,10 +217,17 @@ export async function claimTransactionalEmailAiRequests(
       config.enabledAt,
     );
     if (!contextPackets) continue;
-    const claimed = await transactionalEmailStore.claimAwaitingAi(
-      candidate.logicalKey,
-      claimant,
-    );
+    const claimed =
+      candidate.state === "awaiting_ai"
+        ? await transactionalEmailStore.claimAwaitingAi(
+            candidate.logicalKey,
+            claimant,
+          )
+        : await transactionalEmailStore.reclaimStaleAiDispatch(
+            candidate.logicalKey,
+            claimant,
+            staleBefore,
+          );
     if (!claimed) continue;
     requests.push({
       jobId: claimed.logicalKey,

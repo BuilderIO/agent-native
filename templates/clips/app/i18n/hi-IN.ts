@@ -1336,7 +1336,8 @@ Clips में उपयोगकर्ताओं को दिखने व�
     stageUploading: "मूल फ़ुटेज अपलोड हो रहा है…",
     stageTranscript: "बोली और स्क्रीन के दृश्य को एजेंट-पठनीय बनाया जा रहा है…",
     stageFinalizing: "इसे Agent-Native बनाया जा रहा है…",
-    importingSubtitle: "एक सामान्य रिकॉर्डिंग को Agent-Native प्रिमिटिव में बदला जा रहा है।",
+    importingSubtitle:
+      "एक सामान्य रिकॉर्डिंग को Agent-Native प्रिमिटिव में बदला जा रहा है।",
     doneHeading: "और हो गया! आपका वीडियो अब है:",
     benefitTranscript: "बोली और स्क्रीन के दृश्य, पूरी तरह खोजने योग्य",
     benefitQueryable: "आपके एजेंट द्वारा समझा और क्वेरी किया जा सकने योग्य",

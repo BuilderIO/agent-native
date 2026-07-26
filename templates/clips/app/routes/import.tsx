@@ -57,14 +57,11 @@ async function copyRecordingLink(recordingId: string): Promise<void> {
 }
 
 async function writeNavigateAppState(recordingId: string): Promise<void> {
-  await fetch(
-    agentNativePath("/_agent-native/application-state/navigate"),
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ view: "recording", recordingId }),
-    },
-  ).catch(() => {});
+  await fetch(agentNativePath("/_agent-native/application-state/navigate"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ view: "recording", recordingId }),
+  }).catch(() => {});
 }
 
 function userFacingActionErrorMessage(error: string): string {
@@ -180,11 +177,14 @@ export default function ImportRoute() {
       }, 120);
 
       try {
-        const result = (await callAction("import-loom-recording" as any, {
-          url,
-          spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-          folderId: folderIdFromUrl ?? undefined,
-        } as any)) as {
+        const result = (await callAction(
+          "import-loom-recording" as any,
+          {
+            url,
+            spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
+            folderId: folderIdFromUrl ?? undefined,
+          } as any,
+        )) as {
           recordingId?: string;
           status?: string;
           storageSetupRequired?: boolean;
@@ -334,10 +334,7 @@ export default function ImportRoute() {
                     </ul>
                   </div>
                 ) : (
-                  <form
-                    onSubmit={handleSubmit}
-                    className="flex flex-col gap-3"
-                  >
+                  <form onSubmit={handleSubmit} className="flex flex-col gap-3">
                     <Input
                       autoFocus
                       value={loomUrl}

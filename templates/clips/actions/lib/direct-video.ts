@@ -15,8 +15,6 @@ export type DirectVideoDownload = {
 const VIDEO_EXTENSION_MIME: Record<string, string> = {
   ".mp4": "video/mp4",
   ".webm": "video/webm",
-  ".mov": "video/quicktime",
-  ".m4v": "video/x-m4v",
 };
 
 function guessMimeTypeFromUrl(sourceUrl: string): string | null {
@@ -36,7 +34,8 @@ function normalizeDirectVideoMimeType(
   headerValue: string | null,
   sourceUrl: string,
 ): string | null {
-  const mimeType = (headerValue ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  const mimeType =
+    (headerValue ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
   if (mimeType.startsWith("video/")) return mimeType;
   if (!mimeType || mimeType === "application/octet-stream") {
     return guessMimeTypeFromUrl(sourceUrl);
@@ -82,7 +81,7 @@ export async function downloadDirectVideo(
   );
   if (!mimeType) {
     throw new Error(
-      "That link doesn't point to a video file Clips can import. Paste a Loom link, or a direct link to an MP4/WebM/MOV/M4V file.",
+      "That link doesn't point to a video file Clips can import. Paste a Loom link, or a direct link to an MP4/WebM file.",
     );
   }
 

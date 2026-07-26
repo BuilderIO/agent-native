@@ -1371,9 +1371,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
     stageFetching: "Trayendo tu vídeo…",
     stageUploading: "Subiendo el material original…",
-    stageTranscript: "Haciendo que el habla y lo visual en pantalla sean legibles por el agente…",
+    stageTranscript:
+      "Haciendo que el habla y lo visual en pantalla sean legibles por el agente…",
     stageFinalizing: "Haciéndolo Agent-Native…",
-    importingSubtitle: "Convirtiendo una grabación plana en un primitivo Agent-Native.",
+    importingSubtitle:
+      "Convirtiendo una grabación plana en un primitivo Agent-Native.",
     doneHeading: "¡Y listo! Tu vídeo ahora es:",
     benefitTranscript: "Habla y visuales en pantalla, totalmente buscables",
     benefitQueryable: "Comprendido y consultable por tu agente",
