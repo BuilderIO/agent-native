@@ -77,7 +77,8 @@ import { recoverDueIntegrationCampaigns } from "./integration-campaign-recovery.
 import {
   claimIntegrationCampaignDeliveryForTask,
   completeIntegrationCampaignTaskAfterA2A,
-  completeIntegrationCampaign,
+  completeIntegrationCampaignTask,
+  failIntegrationCampaignTaskDeliveryContainment,
   failDisabledIntegrationCampaignTask,
   failIntegrationCampaign,
   refreshIntegrationCampaignTaskA2AReceiptRetry,
@@ -107,7 +108,6 @@ import {
 } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
-  failTaskDeliveryTransition,
   getNextPendingTaskForThread,
   getPendingTask,
   insertPendingTask,
@@ -291,6 +291,37 @@ async function checkpointIntegrationDeliveryRetry(
     baseUrl: getBaseUrl(event),
   });
   return "requeued";
+}
+
+async function containFailedDeliveryTransition(
+  task: PendingTask,
+  errorMessage: string,
+  event: unknown,
+): Promise<void> {
+  const contained = await failIntegrationCampaignTaskDeliveryContainment(
+    task.id,
+    errorMessage,
+  );
+  if (!contained) {
+    throw new Error("Delivery containment lost pending-task custody");
+  }
+  const nextTask = await getNextPendingTaskForThread(
+    task.platform,
+    task.externalThreadId,
+  );
+  if (!nextTask) return;
+  await dispatchPendingIntegrationTask({
+    taskId: nextTask.id,
+    task: {
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: nextTask.dispatchScope
+        ? { channelId: nextTask.dispatchScope }
+        : undefined,
+    },
+    event,
+    baseUrl: getBaseUrl(event),
+  });
 }
 
 function startA2AContinuationRetryJob(
@@ -2049,9 +2080,10 @@ export function createIntegrationsPlugin(
                             errorMessage,
                           },
                         )
-                      : await completeIntegrationCampaign(
+                      : await completeIntegrationCampaignTask(
                           deliveryLease.campaignId,
                           {
+                            integrationTaskId: task.id,
                             runId: deliveryLease.runId,
                             leaseToken: deliveryLease.leaseToken,
                           },
@@ -2236,9 +2268,10 @@ export function createIntegrationsPlugin(
                 transitionError instanceof Error
                   ? transitionError.message
                   : String(transitionError);
-              await failTaskDeliveryTransition(
-                taskId,
+              await containFailedDeliveryTransition(
+                task,
                 `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
+                event,
               ).catch((failureTransitionError) => {
                 console.error(
                   "[integrations] Failed to contain delivery receipt transition failure:",
@@ -2271,9 +2304,10 @@ export function createIntegrationsPlugin(
                 "[integrations] Failed to requeue confirmed delivery history:",
                 transitionError,
               );
-              await failTaskDeliveryTransition(
-                taskId,
+              await containFailedDeliveryTransition(
+                task,
                 `Could not safely checkpoint confirmed delivery history: ${transitionMessage}`,
+                event,
               ).catch((failureTransitionError) => {
                 console.error(
                   "[integrations] Failed to contain confirmed delivery history transition failure:",
@@ -2285,9 +2319,10 @@ export function createIntegrationsPlugin(
               return { error: "Internal task failed" };
             }
           } else if (deliveryRetryTransitionStarted) {
-            await failTaskDeliveryTransition(
-              taskId,
+            await containFailedDeliveryTransition(
+              task,
               `Could not safely checkpoint the delivery retry: ${errorMessage}`,
+              event,
             ).catch((transitionError) => {
               console.error(
                 "[integrations] Failed to contain delivery retry transition failure:",

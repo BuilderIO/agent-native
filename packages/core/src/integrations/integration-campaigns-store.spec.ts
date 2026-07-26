@@ -440,6 +440,63 @@ describe("integration campaigns store", () => {
     ).toBe(true);
   });
 
+  it("atomically completes a leased campaign with its pending task", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock.mockResolvedValue([
+      { rows: [], rowsAffected: 1 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    const { completeIntegrationCampaignTask } = await loadStore();
+
+    await expect(
+      completeIntegrationCampaignTask("campaign-1", {
+        integrationTaskId: "task-1",
+        runId: "run-1",
+        leaseToken: "lease-1",
+      }),
+    ).resolves.toBe(true);
+
+    const statements = atomicBatchMock.mock.calls[0]![0];
+    expect(sqlOf(statements[0]!)).toContain("status = 'completed'");
+    expect(sqlOf(statements[0]!)).toContain(
+      "current_run_id = ? AND lease_token = ?",
+    );
+    expect(sqlOf(statements[1]!)).toContain("payload = '{}'");
+    expect(sqlOf(statements[1]!)).toContain("AND changes() = 1");
+  });
+
+  it("lets exactly one overlapping campaign completion keep lease custody", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock
+      .mockResolvedValueOnce([
+        { rows: [], rowsAffected: 1 },
+        { rows: [], rowsAffected: 1 },
+      ])
+      .mockResolvedValueOnce([
+        { rows: [], rowsAffected: 0 },
+        { rows: [], rowsAffected: 0 },
+      ]);
+    const { completeIntegrationCampaignTask } = await loadStore();
+    const input = {
+      integrationTaskId: "task-1",
+      runId: "run-1",
+      leaseToken: "lease-1",
+    };
+
+    await expect(
+      Promise.all([
+        completeIntegrationCampaignTask("campaign-1", input),
+        completeIntegrationCampaignTask("campaign-1", input),
+      ]),
+    ).resolves.toEqual([true, false]);
+  });
+
   it("atomically fails a disabled campaign and releases its processing task", async () => {
     const { failDisabledIntegrationCampaignTask } = await loadStore();
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
@@ -458,6 +515,65 @@ describe("integration campaigns store", () => {
     expect(sqlOf(updates[1]!)).toContain("UPDATE integration_pending_tasks");
     expect(sqlOf(updates[1]!)).toContain("status = 'failed'");
     expect(argsOf(updates[1]!).at(-1)).toBe("task-1");
+  });
+
+  it("atomically contains delivery failure and releases campaign custody", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock.mockResolvedValue([
+      { rows: [], rowsAffected: 1 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    const { failIntegrationCampaignTaskDeliveryContainment } =
+      await loadStore();
+
+    await expect(
+      failIntegrationCampaignTaskDeliveryContainment(
+        "task-1",
+        "receipt checkpoint failed",
+      ),
+    ).resolves.toBe(true);
+
+    const statements = atomicBatchMock.mock.calls[0]![0];
+    expect(sqlOf(statements[0]!)).toContain("status = 'failed'");
+    expect(sqlOf(statements[0]!)).toContain(
+      "status IN ('pending', 'processing', 'waiting')",
+    );
+    expect(sqlOf(statements[1]!)).toContain("status = 'failed'");
+    expect(sqlOf(statements[1]!)).toContain("NOT EXISTS");
+  });
+
+  it("lets exactly one overlapping containment caller release task custody", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    atomicBatchMock
+      .mockResolvedValueOnce([
+        { rows: [], rowsAffected: 1 },
+        { rows: [], rowsAffected: 1 },
+      ])
+      .mockResolvedValueOnce([
+        { rows: [], rowsAffected: 0 },
+        { rows: [], rowsAffected: 0 },
+      ]);
+    const { failIntegrationCampaignTaskDeliveryContainment } =
+      await loadStore();
+
+    await expect(
+      Promise.all([
+        failIntegrationCampaignTaskDeliveryContainment(
+          "task-1",
+          "receipt checkpoint failed",
+        ),
+        failIntegrationCampaignTaskDeliveryContainment(
+          "task-1",
+          "receipt checkpoint failed",
+        ),
+      ]),
+    ).resolves.toEqual([true, false]);
   });
 
   it("atomically terminalizes a campaign while staging delivery-only retry", async () => {

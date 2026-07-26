@@ -530,6 +530,13 @@ async function notifyAndFailA2AContinuation(
       `[integrations] Failed to notify ${deliveryContinuation.platform} about failed A2A continuation ${deliveryContinuation.id}:`,
       err,
     );
+    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
+      await failA2AContinuation(deliveryContinuation.id, reason);
+      await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
+      return;
+    }
+    await rescheduleAndRedispatchA2AContinuation(deliveryContinuation.id);
+    return;
   }
 
   await failA2AContinuation(deliveryContinuation.id, reason);

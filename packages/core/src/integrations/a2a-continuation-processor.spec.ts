@@ -1237,6 +1237,81 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
+  it("retries a terminal failure notification until delivery is confirmed", async () => {
+    const sendResponse = vi.fn(async () => {
+      throw new Error("Slack delivery unavailable");
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
+      "cont-1",
+      20_000,
+    );
+    expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskAfterA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("releases parent custody when failure notification delivery exhausts its bound", async () => {
+    const exhausted = continuation({ attempts: 30 });
+    const sendResponse = vi.fn(async () => {
+      throw new Error("Slack delivery unavailable");
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(exhausted);
+    claimA2AContinuationDeliveryMock.mockResolvedValueOnce({
+      ...exhausted,
+      status: "delivering",
+    });
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: exhausted.integrationTaskId,
+      status: "waiting",
+    });
+    getTaskMock.mockResolvedValueOnce({
+      id: exhausted.a2aTaskId,
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(exhausted.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(failA2AContinuationMock).toHaveBeenCalledWith(
+      exhausted.id,
+      "The deck export failed",
+    );
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      exhausted.integrationTaskId,
+    );
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
   it("rechecks durable scope before claiming a terminal failure notification", async () => {
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const claimed = continuation();

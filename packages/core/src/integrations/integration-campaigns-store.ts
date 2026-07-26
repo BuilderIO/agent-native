@@ -503,6 +503,81 @@ export async function completeIntegrationCampaign(
   return finishIntegrationCampaign(id, { ...input, status: "completed" });
 }
 
+export async function completeIntegrationCampaignTask(
+  id: string,
+  input: {
+    integrationTaskId: string;
+    runId: string;
+    leaseToken: string;
+  },
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const previousWriteGuard = isPostgres() ? "" : "AND changes() = 1";
+  const statements: DbExecStatement[] = [
+    {
+      sql: `UPDATE integration_campaigns
+            SET status = 'completed', current_run_id = NULL,
+                lease_token = NULL, lease_expires_at = NULL,
+                progress_ref = NULL, checkpoint = NULL, error_message = NULL,
+                updated_at = ?, completed_at = ?
+            WHERE id = ? AND integration_task_id = ?
+              AND status = 'processing'
+              AND current_run_id = ? AND lease_token = ?`,
+      args: [
+        now,
+        now,
+        id,
+        input.integrationTaskId,
+        input.runId,
+        input.leaseToken,
+      ],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+            SET status = 'completed', payload = '{}', error_message = NULL,
+                updated_at = ?, completed_at = ?
+            WHERE id = ? AND status = 'processing'
+              ${previousWriteGuard}
+              AND EXISTS (
+                SELECT 1 FROM integration_campaigns
+                WHERE id = ? AND integration_task_id = ?
+                  AND status = 'completed' AND updated_at = ?
+                  AND completed_at = ?
+              )`,
+      args: [
+        now,
+        now,
+        input.integrationTaskId,
+        id,
+        input.integrationTaskId,
+        now,
+        now,
+      ],
+    },
+  ];
+  const db = getDbExec();
+  if (db.atomicBatch) {
+    const results = await db.atomicBatch(statements);
+    return (
+      results.length === statements.length &&
+      results.every((result) => affectedRows(result) > 0)
+    );
+  }
+  if (db.transaction) {
+    return await db.transaction(async (tx) => {
+      const campaignResult = await tx.execute(statements[0]!);
+      if (affectedRows(campaignResult) === 0) return false;
+      const taskResult = await tx.execute(statements[1]!);
+      if (affectedRows(taskResult) === 0) {
+        throw new Error("Campaign completion transition lost its task custody");
+      }
+      return true;
+    });
+  }
+  throw new Error("Database does not support atomic campaign completion");
+}
+
 export async function failIntegrationCampaign(
   id: string,
   input: { runId: string; leaseToken: string; errorMessage: string },
@@ -565,6 +640,56 @@ export async function terminalizeIntegrationCampaignForTask(
     args: [input.status, errorMessage, now, now, integrationTaskId],
   });
   return affectedRows(result) > 0;
+}
+
+export async function failIntegrationCampaignTaskDeliveryContainment(
+  integrationTaskId: string,
+  errorMessage: string,
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const boundedError =
+    boundedOpaqueValue(errorMessage, MAX_ERROR_MESSAGE_CHARS, "errorMessage") ??
+    "Delivery transition failed";
+  const statements: DbExecStatement[] = [
+    {
+      sql: `UPDATE integration_campaigns
+            SET status = 'failed', current_run_id = NULL,
+                lease_token = NULL, lease_expires_at = NULL,
+                progress_ref = NULL, checkpoint = NULL, error_message = ?,
+                updated_at = ?, completed_at = ?
+            WHERE integration_task_id = ?
+              AND status IN ('pending', 'processing', 'waiting')`,
+      args: [boundedError, now, now, integrationTaskId],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+            SET status = 'failed', payload = '{}', error_message = ?,
+                updated_at = ?, completed_at = ?
+            WHERE id = ? AND status = 'processing'
+              AND NOT EXISTS (
+                SELECT 1 FROM integration_campaigns
+                WHERE integration_task_id = ?
+                  AND status IN ('pending', 'processing', 'waiting')
+              )`,
+      args: [boundedError, now, now, integrationTaskId, integrationTaskId],
+    },
+  ];
+  const db = getDbExec();
+  if (db.atomicBatch) {
+    const results = await db.atomicBatch(statements);
+    return (
+      results.length === statements.length && affectedRows(results[1]!) > 0
+    );
+  }
+  if (db.transaction) {
+    return await db.transaction(async (tx) => {
+      await tx.execute(statements[0]!);
+      const taskResult = await tx.execute(statements[1]!);
+      return affectedRows(taskResult) > 0;
+    });
+  }
+  throw new Error("Database does not support atomic delivery containment");
 }
 
 function disabledCampaignAndTaskStatements(

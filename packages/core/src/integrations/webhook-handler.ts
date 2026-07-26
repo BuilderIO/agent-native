@@ -67,7 +67,7 @@ import {
 import {
   claimIntegrationCampaignDeliveryForTask,
   claimIntegrationCampaign,
-  completeIntegrationCampaign,
+  completeIntegrationCampaignTask,
   createIntegrationCampaign,
   failIntegrationCampaign,
   heartbeatIntegrationCampaign,
@@ -1054,10 +1054,14 @@ async function processIncomingMessage(
             status: waiting ? "campaign-pending" : "campaign-active",
           };
         }
-        const completed = await completeIntegrationCampaign(campaign.row.id, {
-          runId: campaign.runId,
-          leaseToken: campaign.leaseToken,
-        });
+        const completed = await completeIntegrationCampaignTask(
+          campaign.row.id,
+          {
+            integrationTaskId: opts.taskId!,
+            runId: campaign.runId,
+            leaseToken: campaign.leaseToken,
+          },
+        );
         await releaseApplicableIntegrationBudgets(
           budgetReservations.reservations,
         );
@@ -1641,9 +1645,10 @@ async function processIncomingMessage(
             });
             outcome = { status: "campaign-pending" };
           } else if (campaign) {
-            const completed = await completeIntegrationCampaign(
+            const completed = await completeIntegrationCampaignTask(
               campaign.row.id,
               {
+                integrationTaskId: opts.taskId!,
                 runId: campaign.runId,
                 leaseToken: campaign.leaseToken,
               },

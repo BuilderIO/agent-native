@@ -32,7 +32,9 @@ const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
 const getPendingTaskMock = vi.hoisted(() => vi.fn());
-const failTaskDeliveryTransitionMock = vi.hoisted(() => vi.fn());
+const failIntegrationCampaignTaskDeliveryContainmentMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
 const markTaskRetryableMock = vi.hoisted(() => vi.fn());
@@ -72,7 +74,7 @@ const hasActiveA2AContinuationsForIntegrationTaskMock = vi.hoisted(() =>
   vi.fn(async () => true),
 );
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
-const completeIntegrationCampaignMock = vi.hoisted(() =>
+const completeIntegrationCampaignTaskMock = vi.hoisted(() =>
   vi.fn(async () => true),
 );
 const failIntegrationCampaignMock = vi.hoisted(() => vi.fn(async () => true));
@@ -120,7 +122,9 @@ vi.mock("./integration-campaigns-store.js", () => ({
     claimIntegrationCampaignDeliveryForTaskMock,
   completeIntegrationCampaignTaskAfterA2A:
     completeIntegrationCampaignTaskAfterA2AMock,
-  completeIntegrationCampaign: completeIntegrationCampaignMock,
+  completeIntegrationCampaignTask: completeIntegrationCampaignTaskMock,
+  failIntegrationCampaignTaskDeliveryContainment:
+    failIntegrationCampaignTaskDeliveryContainmentMock,
   failIntegrationCampaign: failIntegrationCampaignMock,
   failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
   refreshIntegrationCampaignTaskA2AReceiptRetry:
@@ -177,7 +181,6 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
-  failTaskDeliveryTransition: failTaskDeliveryTransitionMock,
   getPendingTask: getPendingTaskMock,
   getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
   insertPendingTask: insertPendingTaskMock,
@@ -1285,7 +1288,9 @@ describe("integrations plugin routes", () => {
       continuing: true,
     });
     expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
-    expect(failTaskDeliveryTransitionMock).not.toHaveBeenCalled();
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).not.toHaveBeenCalled();
     expect(markTaskDeliveryRetryableMock).not.toHaveBeenCalled();
   });
 
@@ -1320,7 +1325,9 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(500);
-    expect(failTaskDeliveryTransitionMock).toHaveBeenCalledWith(
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith(
       task.id,
       expect.stringContaining("database transition failed"),
     );
@@ -1549,6 +1556,10 @@ describe("integrations plugin routes", () => {
     markTaskDeliveryRetryableMock.mockRejectedValueOnce(
       new Error("retry transition unavailable"),
     );
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "successor-task",
+      dispatchScope: "C-SUCCESSOR",
+    });
     const nitroApp = createNitroApp();
     await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
 
@@ -1557,11 +1568,21 @@ describe("integrations plugin routes", () => {
         taskId: task.id,
       }),
     ).resolves.toMatchObject({ status: 500 });
-    expect(failTaskDeliveryTransitionMock).toHaveBeenCalledWith(
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith(
       task.id,
       expect.stringContaining("retry transition unavailable"),
     );
     expect(markTaskFailedMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "successor-task",
+        task: expect.objectContaining({
+          platformContext: { channelId: "C-SUCCESSOR" },
+        }),
+      }),
+    );
   });
 
   it("delivers persisted system notices from the fresh task processor", async () => {

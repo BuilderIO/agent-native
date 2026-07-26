@@ -35,7 +35,7 @@ const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
 const scheduleNextIntegrationCampaignMock = vi.hoisted(() => vi.fn());
-const completeIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const heartbeatIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const waitForA2AIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const failIntegrationCampaignMock = vi.hoisted(() => vi.fn());
@@ -80,7 +80,7 @@ vi.mock("./integration-campaigns-store.js", () => ({
   claimIntegrationCampaignDeliveryForTask:
     claimIntegrationCampaignDeliveryForTaskMock,
   scheduleNextIntegrationCampaign: scheduleNextIntegrationCampaignMock,
-  completeIntegrationCampaign: completeIntegrationCampaignMock,
+  completeIntegrationCampaignTask: completeIntegrationCampaignTaskMock,
   heartbeatIntegrationCampaign: heartbeatIntegrationCampaignMock,
   waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
   failIntegrationCampaign: failIntegrationCampaignMock,
@@ -303,7 +303,7 @@ describe("integration webhook handler engine resolution", () => {
       },
     });
     scheduleNextIntegrationCampaignMock.mockResolvedValue(true);
-    completeIntegrationCampaignMock.mockResolvedValue(true);
+    completeIntegrationCampaignTaskMock.mockResolvedValue(true);
     heartbeatIntegrationCampaignMock.mockResolvedValue(true);
     waitForA2AIntegrationCampaignMock.mockResolvedValue(true);
     failIntegrationCampaignMock.mockResolvedValue(true);
@@ -1762,7 +1762,7 @@ describe("integration webhook handler engine resolution", () => {
       "campaign-qa",
       expect.objectContaining({ nextRunAt: expect.any(Number) }),
     );
-    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
   });
 
   it("checkpoints a durable campaign boundary without posting a cutoff reply", async () => {
@@ -1810,7 +1810,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
       expect.objectContaining({ campaignContinuation: true }),
     );
-    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
     const checkpoint = JSON.parse(
       updateThreadDataMock.mock.calls.at(-1)?.[1] as string,
     );
@@ -1852,7 +1852,7 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(result).toEqual({ status: "campaign-active" });
     expect(sendResponse).not.toHaveBeenCalled();
-    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
   });
 
   it("keeps campaign ownership when the downstream A2A wait transition fails", async () => {
@@ -1886,7 +1886,7 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(result).toEqual({ status: "campaign-active" });
     expect(sendResponse).not.toHaveBeenCalled();
-    expect(completeIntegrationCampaignMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
   });
 
   it("resumes the same campaign turn and closes one native progress surface", async () => {
@@ -1943,7 +1943,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(complete).toHaveBeenCalledOnce();
     expect(sendResponse).not.toHaveBeenCalled();
     expect(scheduleNextIntegrationCampaignMock).not.toHaveBeenCalled();
-    expect(completeIntegrationCampaignMock).toHaveBeenCalledWith(
+    expect(completeIntegrationCampaignTaskMock).toHaveBeenCalledWith(
       "campaign-qa",
       expect.any(Object),
     );
@@ -1992,7 +1992,7 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(result).toEqual({ status: "completed" });
     expect(hasActiveA2AContinuationsMock).toHaveBeenCalledWith("task-a2a");
-    expect(completeIntegrationCampaignMock).toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskMock).toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
   });
 
