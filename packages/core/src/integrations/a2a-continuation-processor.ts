@@ -21,14 +21,24 @@ import {
   completeA2AContinuation,
   failA2AContinuation,
   getA2AContinuation,
-  listRecoverableA2AIntegrationTaskIds,
+  listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
   rescheduleA2AContinuation,
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
-import { isIntegrationDurableDispatchEnabledForTask } from "./integration-durable-dispatch.js";
+import {
+  failDisabledIntegrationCampaignTask,
+  getIntegrationCampaignForTask,
+} from "./integration-campaigns-store.js";
+import {
+  dispatchPendingIntegrationTask,
+  isIntegrationDurableDispatchEnabledForTask,
+} from "./integration-durable-dispatch.js";
 import { signInternalToken } from "./internal-token.js";
-import { getPendingTask } from "./pending-tasks-store.js";
+import {
+  getNextPendingTaskForThread,
+  getPendingTask,
+} from "./pending-tasks-store.js";
 import { getThreadMapping } from "./thread-mapping-store.js";
 import type {
   OutgoingMessage,
@@ -166,12 +176,10 @@ export async function recoverDueA2AContinuations(options?: {
   webhookBaseUrl?: string;
 }): Promise<{ dispatched: number; failed: number }> {
   const limit = options?.limit ?? 5;
-  const candidateTaskIds = await listRecoverableA2AIntegrationTaskIds(200);
+  const candidateTasks = await listRecoverableA2AIntegrationTasks(200);
   const eligibleTaskIds: string[] = [];
-  for (const taskId of candidateTaskIds) {
-    const task = await getPendingTask(taskId);
+  for (const task of candidateTasks) {
     if (
-      task?.status === "processing" &&
       isIntegrationDurableDispatchEnabledForTask({
         platform: task.platform,
         externalThreadId: task.externalThreadId,
@@ -180,7 +188,8 @@ export async function recoverDueA2AContinuations(options?: {
           : undefined,
       })
     ) {
-      eligibleTaskIds.push(taskId);
+      eligibleTaskIds.push(task.id);
+      if (eligibleTaskIds.length >= limit) break;
     }
   }
   const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
@@ -209,6 +218,7 @@ async function processClaimedContinuation(
   continuation: A2AContinuation,
   options: { adapters: Map<string, PlatformAdapter> },
 ): Promise<void> {
+  if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const adapter = options.adapters.get(continuation.platform);
   if (!adapter) {
     await failA2AContinuation(
@@ -353,6 +363,60 @@ async function processClaimedContinuation(
     text,
     progress,
   );
+}
+
+async function durableContinuationScopeStillEnabled(
+  continuation: A2AContinuation,
+): Promise<boolean> {
+  const campaign = await getIntegrationCampaignForTask(
+    continuation.integrationTaskId,
+  );
+  if (!campaign) return true;
+  if (campaign.status === "completed" || campaign.status === "failed") {
+    await failA2AContinuation(
+      continuation.id,
+      "Owning integration campaign is already terminal",
+    );
+    return false;
+  }
+  const task = await getPendingTask(continuation.integrationTaskId);
+  const enabled =
+    task?.status === "processing" &&
+    isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    });
+  if (enabled) return true;
+
+  const message = "Durable integration campaign was disabled for this scope";
+  await failA2AContinuation(continuation.id, message);
+  await failDisabledIntegrationCampaignTask(
+    continuation.integrationTaskId,
+    message,
+  );
+  const platform = task?.platform ?? continuation.platform;
+  const externalThreadId =
+    task?.externalThreadId ?? continuation.externalThreadId;
+  const nextTask = await getNextPendingTaskForThread(
+    platform,
+    externalThreadId,
+  );
+  if (nextTask) {
+    await dispatchPendingIntegrationTask({
+      taskId: nextTask.id,
+      task: {
+        platform,
+        externalThreadId,
+        platformContext: nextTask.dispatchScope
+          ? { channelId: nextTask.dispatchScope }
+          : undefined,
+      },
+    });
+  }
+  return false;
 }
 
 async function resumeA2AContinuationProgress(

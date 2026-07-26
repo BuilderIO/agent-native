@@ -33,11 +33,12 @@ const startRunMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const claimIntegrationCampaignDeliveryForTaskMock = vi.hoisted(() => vi.fn());
 const scheduleNextIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const completeIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const heartbeatIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const waitForA2AIntegrationCampaignMock = vi.hoisted(() => vi.fn());
-const failExhaustedIntegrationCampaignMock = vi.hoisted(() => vi.fn());
+const failIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const hasActiveA2AContinuationsMock = vi.hoisted(() => vi.fn());
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
@@ -76,11 +77,13 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 vi.mock("./integration-campaigns-store.js", () => ({
   createIntegrationCampaign: createIntegrationCampaignMock,
   claimIntegrationCampaign: claimIntegrationCampaignMock,
+  claimIntegrationCampaignDeliveryForTask:
+    claimIntegrationCampaignDeliveryForTaskMock,
   scheduleNextIntegrationCampaign: scheduleNextIntegrationCampaignMock,
   completeIntegrationCampaign: completeIntegrationCampaignMock,
   heartbeatIntegrationCampaign: heartbeatIntegrationCampaignMock,
   waitForA2AIntegrationCampaign: waitForA2AIntegrationCampaignMock,
-  failExhaustedIntegrationCampaign: failExhaustedIntegrationCampaignMock,
+  failIntegrationCampaign: failIntegrationCampaignMock,
 }));
 
 vi.mock("./a2a-continuations-store.js", () => ({
@@ -303,7 +306,7 @@ describe("integration webhook handler engine resolution", () => {
     completeIntegrationCampaignMock.mockResolvedValue(true);
     heartbeatIntegrationCampaignMock.mockResolvedValue(true);
     waitForA2AIntegrationCampaignMock.mockResolvedValue(true);
-    failExhaustedIntegrationCampaignMock.mockResolvedValue(true);
+    failIntegrationCampaignMock.mockResolvedValue(true);
     hasActiveA2AContinuationsMock.mockResolvedValue(false);
     dispatchPendingIntegrationTaskMock.mockResolvedValue(
       "background-acknowledged",
@@ -2000,15 +2003,33 @@ describe("integration webhook handler engine resolution", () => {
       status: "processing",
       progressRef: null,
     });
+    const currentProgressRef = {
+      kind: "slack-stream",
+      streamTs: "1719000000.000999",
+    };
     claimIntegrationCampaignMock.mockResolvedValueOnce({
       kind: "chunk-limit",
-      campaign: { id: "campaign-exhausted", chunkCount: 4 },
+      campaign: {
+        id: "campaign-exhausted",
+        chunkCount: 4,
+        progressRef: JSON.stringify(currentProgressRef),
+      },
     });
+    claimIntegrationCampaignDeliveryForTaskMock.mockResolvedValueOnce({
+      id: "campaign-exhausted",
+      chunkCount: 4,
+      progressRef: JSON.stringify(currentProgressRef),
+    });
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
+    const resumeRunProgress = vi.fn(async () => ({
+      onEvent: vi.fn(),
+      complete,
+    }));
 
     const result = await processIntegrationTask(
       pendingTask({ id: "task-exhausted" }),
       {
-        adapter: createAdapter(),
+        adapter: { ...createAdapter(), resumeRunProgress },
         systemPrompt: "system",
         actions: {},
         model: "claude-sonnet-4-6",
@@ -2019,10 +2040,21 @@ describe("integration webhook handler engine resolution", () => {
     );
 
     expect(result).toEqual({ status: "campaign-failed" });
-    expect(failExhaustedIntegrationCampaignMock).toHaveBeenCalledWith(
+    expect(failIntegrationCampaignMock).toHaveBeenCalledWith(
       "campaign-exhausted",
-      expect.objectContaining({ maxChunks: 4 }),
+      expect.objectContaining({
+        runId: expect.stringContaining("integration-delivery-"),
+        leaseToken: expect.any(String),
+      }),
     );
+    expect(resumeRunProgress).toHaveBeenCalledWith(
+      expect.any(Object),
+      currentProgressRef,
+    );
+    expect(complete).toHaveBeenCalledOnce();
+    expect(
+      stageTaskDeliveryPayloadMock.mock.invocationCallOrder[0],
+    ).toBeLessThan(failIntegrationCampaignMock.mock.invocationCallOrder[0]!);
     expect(startRunMock).not.toHaveBeenCalled();
   });
 

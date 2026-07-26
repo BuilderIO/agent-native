@@ -65,10 +65,11 @@ import {
   setIntegrationAwaitingInput,
 } from "./awaiting-input-store.js";
 import {
+  claimIntegrationCampaignDeliveryForTask,
   claimIntegrationCampaign,
   completeIntegrationCampaign,
   createIntegrationCampaign,
-  failExhaustedIntegrationCampaign,
+  failIntegrationCampaign,
   heartbeatIntegrationCampaign,
   scheduleNextIntegrationCampaign,
   waitForA2AIntegrationCampaign,
@@ -157,6 +158,7 @@ export type IntegrationResponseDeliveryTaskPayload = {
   deliveryReceipt?: PlatformDeliveryReceipt;
   deliveredAt?: string;
   artifacts?: A2AArtifactIdentity[];
+  campaignTerminalStatus?: "completed" | "failed";
 };
 
 export type ProcessIntegrationTaskResult =
@@ -906,18 +908,24 @@ async function processIncomingMessage(
       maxChunks: INTEGRATION_CAMPAIGN_MAX_CHUNKS,
     });
     if (claimed.kind === "chunk-limit") {
-      const terminalized = await failExhaustedIntegrationCampaign(created.id, {
-        maxChunks: INTEGRATION_CAMPAIGN_MAX_CHUNKS,
-        errorMessage: "Integration campaign exhausted its chunk limit",
-      });
-      if (!terminalized) {
+      const deliveryRunId = `integration-delivery-${crypto.randomUUID()}`;
+      const deliveryLeaseToken = crypto.randomUUID();
+      const deliveryCampaign = await claimIntegrationCampaignDeliveryForTask(
+        opts.taskId,
+        {
+          runId: deliveryRunId,
+          leaseToken: deliveryLeaseToken,
+          leaseDurationMs: INTEGRATION_CAMPAIGN_LEASE_MS,
+        },
+      );
+      if (!deliveryCampaign) {
         await releaseApplicableIntegrationBudgets(
           budgetReservations.reservations,
         );
         return { status: "campaign-active" };
       }
-      const exhaustedProgressRef = created.progressRef
-        ? parseIntegrationProgressRef(created.progressRef)
+      const exhaustedProgressRef = deliveryCampaign.progressRef
+        ? parseIntegrationProgressRef(deliveryCampaign.progressRef)
         : null;
       const exhaustedProgress = exhaustedProgressRef
         ? await adapter
@@ -933,6 +941,7 @@ async function processIncomingMessage(
         message: exhaustedMessage,
         ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
         internalThreadId: threadId,
+        campaignTerminalStatus: "failed",
         ...buildDeliveryHistoryMessageIds(incoming),
       };
       try {
@@ -969,6 +978,20 @@ async function processIncomingMessage(
           JSON.stringify(deliveryPayload),
         );
         await recordIntegrationResponseDelivery(deliveryPayload, receipt);
+        const terminalized = await failIntegrationCampaign(
+          deliveryCampaign.id,
+          {
+            runId: deliveryRunId,
+            leaseToken: deliveryLeaseToken,
+            errorMessage: "Integration campaign exhausted its chunk limit",
+          },
+        );
+        if (!terminalized) {
+          await releaseApplicableIntegrationBudgets(
+            budgetReservations.reservations,
+          );
+          return { status: "campaign-active" };
+        }
       } catch (error) {
         await releaseApplicableIntegrationBudgets(
           budgetReservations.reservations,
@@ -1398,6 +1421,11 @@ async function processIncomingMessage(
               artifacts: extractA2AArtifactIdentities(toolResults, {
                 persistedArtifactSecrets: artifactSecrets,
               }),
+              ...(campaign &&
+              !queuedA2AContinuation &&
+              !durableCampaignContinuation
+                ? { campaignTerminalStatus: "completed" as const }
+                : {}),
             };
             if (opts.taskId) {
               await stageTaskDeliveryPayload(

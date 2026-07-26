@@ -106,6 +106,41 @@ describe("A2A continuations store", () => {
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
+  it("loads recoverable continuation owners and scope without task N+1 reads", async () => {
+    const { listRecoverableA2AIntegrationTasks } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      if (querySql(query).includes("INNER JOIN integration_pending_tasks")) {
+        return {
+          rows: [
+            {
+              integration_task_id: "task-1",
+              platform: "slack",
+              external_thread_id: "C123:123.456",
+              dispatch_scope: "C123",
+              status: "processing",
+            },
+          ],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(listRecoverableA2AIntegrationTasks(10)).resolves.toEqual([
+      {
+        id: "task-1",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        dispatchScope: "C123",
+        status: "processing",
+      },
+    ]);
+    const joinedReads = executeMock.mock.calls.filter(([query]) =>
+      querySql(query).includes("INNER JOIN integration_pending_tasks"),
+    );
+    expect(joinedReads).toHaveLength(1);
+    expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
+  });
+
   it("does not swallow non-duplicate column migration errors", async () => {
     const { getA2AContinuationForIntegrationTask } = await loadStore();
     const migrationError = new Error("permission denied for table");

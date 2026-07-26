@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const executeMock = vi.hoisted(() => vi.fn());
+const transactionMock = vi.hoisted(() => vi.fn());
+const atomicBatchMock = vi.hoisted(() => vi.fn());
+const getDbExecMock = vi.hoisted(() => vi.fn());
 const isPostgresMock = vi.hoisted(() => vi.fn(() => false));
 const ensureTableExistsMock = vi.hoisted(() => vi.fn());
 const ensureIndexExistsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
-  getDbExec: () => ({ execute: executeMock }),
+  getDbExec: getDbExecMock,
   isPostgres: isPostgresMock,
   intType: () => "INTEGER",
 }));
@@ -56,6 +59,14 @@ describe("integration campaigns store", () => {
     vi.clearAllMocks();
     isPostgresMock.mockReturnValue(false);
     executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    transactionMock.mockImplementation(async (fn) =>
+      fn({ execute: executeMock }),
+    );
+    atomicBatchMock.mockResolvedValue([]);
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      transaction: transactionMock,
+    });
     ensureTableExistsMock.mockResolvedValue(undefined);
     ensureIndexExistsMock.mockResolvedValue(undefined);
   });
@@ -310,6 +321,40 @@ describe("integration campaigns store", () => {
     ).resolves.toEqual({ kind: "not-due" });
   });
 
+  it("leases delivery recovery without consuming another campaign chunk", async () => {
+    const { claimIntegrationCampaignDeliveryForTask } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      const sql = sqlOf(query);
+      if (sql.includes("UPDATE integration_campaigns")) {
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (sql.includes("integration_task_id = ? LIMIT 1")) {
+        return {
+          rows: [
+            campaignRow({
+              status: "processing",
+              current_run_id: "delivery-run",
+              lease_token: "delivery-lease",
+            }),
+          ],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      claimIntegrationCampaignDeliveryForTask("task-1", {
+        runId: "delivery-run",
+        leaseToken: "delivery-lease",
+        leaseDurationMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ currentRunId: "delivery-run" });
+    const update = executeMock.mock.calls.find(([query]) =>
+      sqlOf(query).includes("UPDATE integration_campaigns"),
+    )?.[0];
+    expect(sqlOf(update!)).not.toContain("chunk_count");
+  });
+
   it("reclaims a stale waiting-A2A poll without consuming another model chunk", async () => {
     const { claimIntegrationCampaign } = await loadStore();
     executeMock.mockImplementation(async (query: string | { sql: string }) => {
@@ -386,6 +431,75 @@ describe("integration campaigns store", () => {
         sqlOf(query).includes("lease_token = NULL"),
       ),
     ).toBe(true);
+  });
+
+  it("atomically fails a disabled campaign and releases its processing task", async () => {
+    const { failDisabledIntegrationCampaignTask } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await failDisabledIntegrationCampaignTask("task-1");
+
+    expect(transactionMock).toHaveBeenCalledOnce();
+    const updates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter((query) => sqlOf(query).startsWith("UPDATE"));
+    expect(updates).toHaveLength(2);
+    expect(sqlOf(updates[0]!)).toContain("UPDATE integration_campaigns");
+    expect(sqlOf(updates[0]!)).toContain(
+      "status IN ('pending', 'processing', 'waiting')",
+    );
+    expect(sqlOf(updates[1]!)).toContain("UPDATE integration_pending_tasks");
+    expect(sqlOf(updates[1]!)).toContain("status = 'failed'");
+    expect(argsOf(updates[1]!).at(-1)).toBe("task-1");
+  });
+
+  it("atomically terminalizes a campaign while staging delivery-only retry", async () => {
+    const { transitionIntegrationCampaignTaskToDeliveryRetry } =
+      await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+
+    await transitionIntegrationCampaignTaskToDeliveryRetry("task-1", {
+      payload: '{"kind":"response-delivery"}',
+      errorMessage: "provider unavailable",
+      campaignStatus: "failed",
+    });
+
+    expect(transactionMock).toHaveBeenCalledOnce();
+    const updates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter((query) => sqlOf(query).startsWith("UPDATE"));
+    expect(updates).toHaveLength(2);
+    expect(argsOf(updates[0]!)[0]).toBe("failed");
+    expect(sqlOf(updates[1]!)).toContain("status = 'pending'");
+    expect(argsOf(updates[1]!)).toEqual([
+      '{"kind":"response-delivery"}',
+      "provider unavailable",
+      expect.any(Number),
+      "task-1",
+    ]);
+  });
+
+  it("uses an atomic batch when interactive transactions are unavailable", async () => {
+    getDbExecMock.mockReturnValue({
+      execute: executeMock,
+      atomicBatch: atomicBatchMock,
+    });
+    const { failDisabledIntegrationCampaignTask } = await loadStore();
+
+    await failDisabledIntegrationCampaignTask("task-d1");
+
+    expect(atomicBatchMock).toHaveBeenCalledOnce();
+    expect(atomicBatchMock.mock.calls[0]![0]).toHaveLength(2);
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when no atomic cancellation mechanism exists", async () => {
+    getDbExecMock.mockReturnValue({ execute: executeMock });
+    const { failDisabledIntegrationCampaignTask } = await loadStore();
+
+    await expect(
+      failDisabledIntegrationCampaignTask("task-unsafe"),
+    ).rejects.toThrow("does not support atomic campaign cancellation");
   });
 
   it("terminalizes a stale campaign that already exhausted its chunk ceiling", async () => {

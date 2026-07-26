@@ -612,16 +612,39 @@ export async function recoverDueA2AContinuationIds(
 export async function listRecoverableA2AIntegrationTaskIds(
   limit = 50,
 ): Promise<string[]> {
+  const tasks = await listRecoverableA2AIntegrationTasks(limit);
+  return tasks.map((task) => task.id);
+}
+
+export interface RecoverableA2AIntegrationTask {
+  id: string;
+  platform: string;
+  externalThreadId: string;
+  dispatchScope: string | null;
+  status: string;
+}
+
+/**
+ * Read due continuation owners and their rollout scope in one query. Recovery
+ * can filter the canary in memory without an N+1 pending-task lookup loop.
+ */
+export async function listRecoverableA2AIntegrationTasks(
+  limit = 50,
+): Promise<RecoverableA2AIntegrationTask[]> {
   await ensureTable();
   const now = Date.now();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT DISTINCT integration_task_id
-          FROM integration_a2a_continuations
-          WHERE (status = 'pending' AND next_check_at <= ?)
-             OR (status = 'processing' AND
-                 (updated_at <= ? OR next_check_at <= ?))
-             OR (status = 'delivering' AND updated_at <= ?)
-          ORDER BY integration_task_id ASC
+    sql: `SELECT DISTINCT c.integration_task_id, t.platform,
+                 t.external_thread_id, t.dispatch_scope, t.status
+          FROM integration_a2a_continuations c
+          INNER JOIN integration_pending_tasks t
+             ON t.id = c.integration_task_id
+          WHERE t.status = 'processing'
+            AND ((c.status = 'pending' AND c.next_check_at <= ?)
+             OR (c.status = 'processing' AND
+                 (c.updated_at <= ? OR c.next_check_at <= ?))
+             OR (c.status = 'delivering' AND c.updated_at <= ?))
+          ORDER BY c.integration_task_id ASC
           LIMIT ?`,
     args: [
       now,
@@ -631,7 +654,13 @@ export async function listRecoverableA2AIntegrationTaskIds(
       Math.max(1, Math.min(Math.floor(limit), 200)),
     ],
   });
-  return rows.map((row) => String(row.integration_task_id));
+  return rows.map((row) => ({
+    id: String(row.integration_task_id),
+    platform: String(row.platform),
+    externalThreadId: String(row.external_thread_id),
+    dispatchScope: (row.dispatch_scope as string | null) ?? null,
+    status: String(row.status),
+  }));
 }
 
 export async function claimA2AContinuationDelivery(

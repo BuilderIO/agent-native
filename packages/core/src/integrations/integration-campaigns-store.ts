@@ -1,4 +1,10 @@
-import { getDbExec, intType, isPostgres } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
@@ -306,6 +312,53 @@ export async function claimIntegrationCampaign(
   return { kind: "not-due" };
 }
 
+export async function claimIntegrationCampaignDeliveryForTask(
+  integrationTaskId: string,
+  input: { runId: string; leaseToken: string; leaseDurationMs: number },
+): Promise<IntegrationCampaign | null> {
+  await ensureTable();
+  if (!Number.isFinite(input.leaseDurationMs) || input.leaseDurationMs <= 0) {
+    throw new Error("leaseDurationMs must be positive");
+  }
+  const now = Date.now();
+  const result = await getDbExec().execute({
+    sql: isPostgres()
+      ? `UPDATE integration_campaigns
+           SET status = 'processing', current_run_id = ?, lease_token = ?,
+               lease_expires_at = ?, updated_at = ?
+           WHERE integration_task_id = ?
+             AND (status IN ('pending', 'waiting') OR
+                  (status = 'processing' AND
+                   (lease_expires_at IS NULL OR lease_expires_at <= ?)))
+           RETURNING *`
+      : `UPDATE integration_campaigns
+           SET status = 'processing', current_run_id = ?, lease_token = ?,
+               lease_expires_at = ?, updated_at = ?
+           WHERE integration_task_id = ?
+             AND (status IN ('pending', 'waiting') OR
+                  (status = 'processing' AND
+                   (lease_expires_at IS NULL OR lease_expires_at <= ?)))`,
+    args: [
+      input.runId,
+      input.leaseToken,
+      now + input.leaseDurationMs,
+      now,
+      integrationTaskId,
+      now,
+    ],
+  });
+  if (isPostgres()) {
+    const row = result.rows?.[0];
+    return row ? rowToCampaign(row as Record<string, unknown>) : null;
+  }
+  if (affectedRows(result) === 0) return null;
+  const campaign = await getIntegrationCampaignForTask(integrationTaskId);
+  return campaign?.currentRunId === input.runId &&
+    campaign.leaseToken === input.leaseToken
+    ? campaign
+    : null;
+}
+
 function leaseWhere(): string {
   return "id = ? AND status = 'processing' AND current_run_id = ? AND lease_token = ?";
 }
@@ -487,6 +540,141 @@ export async function failExhaustedIntegrationCampaign(
     ],
   });
   return affectedRows(result) > 0;
+}
+
+export async function terminalizeIntegrationCampaignForTask(
+  integrationTaskId: string,
+  input: { status: "completed" | "failed"; errorMessage?: string },
+): Promise<boolean> {
+  await ensureTable();
+  const now = Date.now();
+  const errorMessage = boundedOpaqueValue(
+    input.errorMessage,
+    MAX_ERROR_MESSAGE_CHARS,
+    "errorMessage",
+  );
+  const result = await getDbExec().execute({
+    sql: `UPDATE integration_campaigns
+          SET status = ?, current_run_id = NULL, lease_token = NULL,
+              lease_expires_at = NULL, progress_ref = NULL, checkpoint = NULL,
+              error_message = ?, updated_at = ?, completed_at = ?
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'waiting')`,
+    args: [input.status, errorMessage, now, now, integrationTaskId],
+  });
+  return affectedRows(result) > 0;
+}
+
+function disabledCampaignAndTaskStatements(
+  integrationTaskId: string,
+  errorMessage: string,
+): DbExecStatement[] {
+  const now = Date.now();
+  return [
+    {
+      sql: `UPDATE integration_campaigns
+          SET status = 'failed', current_run_id = NULL, lease_token = NULL,
+              lease_expires_at = NULL, progress_ref = NULL, checkpoint = NULL,
+              error_message = ?, updated_at = ?, completed_at = ?
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'waiting')`,
+      args: [errorMessage, now, now, integrationTaskId],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+          SET status = 'failed', payload = '{}', external_event_key = NULL,
+              error_message = ?, updated_at = ?, completed_at = ?
+          WHERE id = ? AND status = 'processing'`,
+      args: [errorMessage, now, now, integrationTaskId],
+    },
+  ];
+}
+
+async function executeStatementsWithDb(
+  db: DbExec,
+  statements: readonly DbExecStatement[],
+): Promise<void> {
+  for (const statement of statements) await db.execute(statement);
+}
+
+/**
+ * Fail closed when a durable campaign's rollout scope is removed. Both rows
+ * transition in one transaction so the per-thread processing lock cannot be
+ * stranded while the campaign is no longer recoverable.
+ */
+export async function failDisabledIntegrationCampaignTask(
+  integrationTaskId: string,
+  errorMessage = "Durable integration campaign was disabled for this scope",
+): Promise<void> {
+  await ensureTable();
+  const boundedError =
+    boundedOpaqueValue(errorMessage, MAX_ERROR_MESSAGE_CHARS, "errorMessage") ??
+    "Durable integration campaign was disabled";
+  const db = getDbExec();
+  const statements = disabledCampaignAndTaskStatements(
+    integrationTaskId,
+    boundedError,
+  );
+  if (db.atomicBatch) {
+    await db.atomicBatch(statements);
+    return;
+  }
+  if (db.transaction) {
+    await db.transaction((tx) => executeStatementsWithDb(tx, statements));
+    return;
+  }
+  throw new Error("Database does not support atomic campaign cancellation");
+}
+
+export async function transitionIntegrationCampaignTaskToDeliveryRetry(
+  integrationTaskId: string,
+  input: {
+    payload: string;
+    errorMessage: string;
+    campaignStatus: "completed" | "failed";
+  },
+): Promise<void> {
+  await ensureTable();
+  const now = Date.now();
+  const errorMessage =
+    boundedOpaqueValue(
+      input.errorMessage,
+      MAX_ERROR_MESSAGE_CHARS,
+      "errorMessage",
+    ) ?? "Integration response delivery needs retry";
+  const statements: DbExecStatement[] = [
+    {
+      sql: `UPDATE integration_campaigns
+            SET status = ?, current_run_id = NULL, lease_token = NULL,
+                lease_expires_at = NULL, progress_ref = NULL, checkpoint = NULL,
+                error_message = ?, updated_at = ?, completed_at = ?
+            WHERE integration_task_id = ?
+              AND status IN ('pending', 'processing', 'waiting')`,
+      args: [
+        input.campaignStatus,
+        input.campaignStatus === "failed" ? errorMessage : null,
+        now,
+        now,
+        integrationTaskId,
+      ],
+    },
+    {
+      sql: `UPDATE integration_pending_tasks
+            SET status = 'pending', payload = ?, error_message = ?, updated_at = ?
+            WHERE id = ? AND status = 'processing'`,
+      args: [input.payload, errorMessage, now, integrationTaskId],
+    },
+  ];
+  const db = getDbExec();
+  if (db.atomicBatch) {
+    await db.atomicBatch(statements);
+    return;
+  }
+  if (db.transaction) {
+    await db.transaction((tx) => executeStatementsWithDb(tx, statements));
+    return;
+  }
+  throw new Error("Database does not support atomic campaign delivery retry");
 }
 
 export async function listDueIntegrationCampaignIds(

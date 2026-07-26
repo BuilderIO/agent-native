@@ -5,14 +5,18 @@ const getCampaignMock = vi.hoisted(() => vi.fn());
 const getTaskMock = vi.hoisted(() => vi.fn());
 const dispatchMock = vi.hoisted(() => vi.fn());
 const durableEnabledMock = vi.hoisted(() => vi.fn());
+const failDisabledMock = vi.hoisted(() => vi.fn());
+const getNextTaskMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./integration-campaigns-store.js", () => ({
   listDueIntegrationCampaignIds: listDueMock,
   getIntegrationCampaign: getCampaignMock,
+  failDisabledIntegrationCampaignTask: failDisabledMock,
 }));
 
 vi.mock("./pending-tasks-store.js", () => ({
   getPendingTask: getTaskMock,
+  getNextPendingTaskForThread: getNextTaskMock,
 }));
 
 vi.mock("./integration-durable-dispatch.js", () => ({
@@ -37,6 +41,7 @@ describe("integration campaign recovery", () => {
     });
     dispatchMock.mockResolvedValue("background-acknowledged");
     durableEnabledMock.mockReturnValue(true);
+    getNextTaskMock.mockResolvedValue(null);
   });
 
   it("wakes due campaigns without claiming or executing them", async () => {
@@ -116,5 +121,6 @@ describe("integration campaign recovery", () => {
       failed: 0,
     });
     expect(dispatchMock).not.toHaveBeenCalled();
+    expect(failDisabledMock).toHaveBeenCalledWith("task-1");
   });
 });

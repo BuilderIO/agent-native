@@ -1,12 +1,16 @@
 import {
   getIntegrationCampaign,
+  failDisabledIntegrationCampaignTask,
   listDueIntegrationCampaignIds,
 } from "./integration-campaigns-store.js";
 import {
   dispatchPendingIntegrationTask,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
-import { getPendingTask } from "./pending-tasks-store.js";
+import {
+  getNextPendingTaskForThread,
+  getPendingTask,
+} from "./pending-tasks-store.js";
 
 export interface IntegrationCampaignRecoveryResult {
   selected: number;
@@ -53,6 +57,25 @@ export async function recoverDueIntegrationCampaigns(options: {
             : undefined,
         })
       ) {
+        await failDisabledIntegrationCampaignTask(task.id);
+        const nextTask = await getNextPendingTaskForThread(
+          task.platform,
+          task.externalThreadId,
+        );
+        if (nextTask) {
+          await dispatchPendingIntegrationTask({
+            taskId: nextTask.id,
+            task: {
+              platform: task.platform,
+              externalThreadId: task.externalThreadId,
+              platformContext: nextTask.dispatchScope
+                ? { channelId: nextTask.dispatchScope }
+                : undefined,
+            },
+            event: options.event,
+            baseUrl: options.webhookBaseUrl,
+          });
+        }
         result.skipped += 1;
         continue;
       }
