@@ -1672,9 +1672,20 @@ function baseRedirectGuard(): Plugin {
           /^(document|iframe|frame|empty|image|video|audio|track)$/.test(
             secFetchDest,
           );
+        console.error(
+          "[AN-DEBUG] before strip url=",
+          req.url,
+          "base=",
+          base,
+          "dest=",
+          secFetchDest,
+          "isNitroPreHandled=",
+          isNitroPreHandled,
+        );
         if (isNitroPreHandled) {
           req.url = stripMountedDevApiPath(req.url, base);
         }
+        console.error("[AN-DEBUG] after strip url=", req.url);
         if (
           req.method === "HEAD" &&
           req.url &&
