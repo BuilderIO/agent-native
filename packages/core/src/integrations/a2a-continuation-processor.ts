@@ -543,7 +543,10 @@ async function durableContinuationScopeStillEnabled(
 }
 
 async function failDisabledDurableA2ATask(
-  task: RecoverableA2AIntegrationTask,
+  task: Pick<
+    RecoverableA2AIntegrationTask,
+    "id" | "platform" | "externalThreadId" | "dispatchScope" | "status"
+  >,
 ): Promise<void> {
   const message = "Durable integration campaign was disabled for this scope";
   await failA2AContinuationsForIntegrationTask(task.id, message);
