@@ -154,11 +154,7 @@ import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
-import {
-  listReportablePanelIds,
-  parseReportPanelWindow,
-  windowReportPanels,
-} from "./report-panel-window";
+import { listReportablePanelIds } from "./report-panel-window";
 import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
@@ -570,12 +566,6 @@ function SqlDashboardPageContent({
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
-  const reportPanelWindow = reportScreenshot
-    ? parseReportPanelWindow(
-        searchParams.get("reportPanelOffset"),
-        searchParams.get("reportPanelLimit"),
-      )
-    : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
@@ -1262,9 +1252,8 @@ function SqlDashboardPageContent({
         ? requestedTab
         : tabs[0]
       : null;
-  // Report captures cover the complete dashboard across ordered windows. The
-  // report URL intentionally has no `tab` parameter, so do not apply the
-  // normal first-tab selection while rendering the screenshot surface.
+  // The report URL carries no `tab` parameter and must show every panel, so
+  // the normal first-tab fallback does not apply in report mode.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1300,11 +1289,10 @@ function SqlDashboardPageContent({
   // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
-    const tabPanels = activeTab
+    return activeTab
       ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
       : dashboard.panels;
-    return windowReportPanels(tabPanels, reportPanelWindow);
-  }, [dashboard, activeTab, reportPanelWindow]);
+  }, [dashboard, activeTab]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).

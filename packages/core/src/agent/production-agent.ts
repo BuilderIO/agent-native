@@ -6160,12 +6160,16 @@ export async function claimBackgroundWorkerRunEarly(opts: {
     insertRun?: typeof insertRun;
     claimBackgroundRun?: typeof claimBackgroundRun;
     updateRunHeartbeat?: typeof updateRunHeartbeat;
+    isTurnAborted?: typeof isTurnAborted;
+    markRunAborted?: typeof markRunAborted;
   };
 }): Promise<{ claimed: true } | { claimed: false; skipped: string }> {
   const record = opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic;
   const insert = opts.deps?.insertRun ?? insertRun;
   const claim = opts.deps?.claimBackgroundRun ?? claimBackgroundRun;
   const heartbeat = opts.deps?.updateRunHeartbeat ?? updateRunHeartbeat;
+  const turnAborted = opts.deps?.isTurnAborted ?? isTurnAborted;
+  const abortRun = opts.deps?.markRunAborted ?? markRunAborted;
   const threadId =
     typeof opts.threadId === "string" && opts.threadId.trim()
       ? opts.threadId.trim()
@@ -6189,10 +6193,20 @@ export async function claimBackgroundWorkerRunEarly(opts: {
       .join(" "),
   ).catch(() => {});
 
+  if (await turnAborted(threadId, turnId).catch(() => false)) {
+    await abortRun(opts.runId, "user").catch(() => {});
+    return { claimed: false, skipped: "turn-aborted" };
+  }
+
   if (opts.continuationCount > 0) {
     await insert(opts.runId, threadId, turnId, {
       dispatchMode: "background",
     }).catch(() => {});
+  }
+
+  if (await turnAborted(threadId, turnId).catch(() => false)) {
+    await abortRun(opts.runId, "user").catch(() => {});
+    return { claimed: false, skipped: "turn-aborted" };
   }
 
   const won = await claim(opts.runId);
@@ -6203,6 +6217,10 @@ export async function claimBackgroundWorkerRunEarly(opts: {
 
   await record(opts.runId, RUN_DIAG_STAGE.workerClaimed).catch(() => {});
   await heartbeat(opts.runId).catch(() => {});
+  if (await turnAborted(threadId, turnId).catch(() => false)) {
+    await abortRun(opts.runId, "user").catch(() => {});
+    return { claimed: false, skipped: "turn-aborted" };
+  }
   return { claimed: true };
 }
 
@@ -6299,12 +6317,14 @@ async function describeTurnProgress(
 export interface ChainServerDrivenContinuationDeps {
   countRunsForTurn?: typeof countRunsForTurn;
   readTurnStartedAt?: typeof readTurnStartedAt;
+  isTurnAborted?: typeof isTurnAborted;
   emitRunText?: typeof emitRunText;
   insertRun?: typeof insertRun;
   fireInternalDispatch?: typeof fireInternalDispatch;
   readBackgroundRunClaim?: typeof readBackgroundRunClaim;
   updateRunHeartbeat?: typeof updateRunHeartbeat;
   updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
+  markRunAborted?: typeof markRunAborted;
   setRunTerminalReason?: typeof setRunTerminalReason;
   recordRunDiagnostic?: typeof recordRunDiagnostic;
   markBackgroundContinuationChunkTerminal?: typeof markBackgroundContinuationChunkTerminal;
@@ -6525,6 +6545,7 @@ export async function chainServerDrivenContinuation(opts: {
   const d = {
     countRunsForTurn: opts.deps?.countRunsForTurn ?? countRunsForTurn,
     readTurnStartedAt: opts.deps?.readTurnStartedAt ?? readTurnStartedAt,
+    isTurnAborted: opts.deps?.isTurnAborted ?? isTurnAborted,
     emitRunText: opts.deps?.emitRunText ?? emitRunText,
     insertRun: opts.deps?.insertRun ?? insertRun,
     fireInternalDispatch:
@@ -6534,6 +6555,7 @@ export async function chainServerDrivenContinuation(opts: {
     updateRunHeartbeat: opts.deps?.updateRunHeartbeat ?? updateRunHeartbeat,
     updateRunStatusIfRunning:
       opts.deps?.updateRunStatusIfRunning ?? updateRunStatusIfRunning,
+    markRunAborted: opts.deps?.markRunAborted ?? markRunAborted,
     setRunTerminalReason:
       opts.deps?.setRunTerminalReason ?? setRunTerminalReason,
     recordRunDiagnostic: opts.deps?.recordRunDiagnostic ?? recordRunDiagnostic,
@@ -6651,6 +6673,14 @@ export async function chainServerDrivenContinuation(opts: {
   };
   delete continuationBody[AGENT_CHAT_BACKGROUND_RUN_FIELD];
   try {
+    if (
+      await d
+        .isTurnAborted(effectiveThreadId, effectiveTurnId)
+        .catch(() => false)
+    ) {
+      await d.markRunAborted(runId, "user").catch(() => {});
+      return;
+    }
     await d
       .recordRunDiagnostic(
         runId,
@@ -6695,6 +6725,16 @@ export async function chainServerDrivenContinuation(opts: {
         "[agent-chat] continuation insertRun failed; dispatching with inline body:",
         insertErr instanceof Error ? insertErr.message : insertErr,
       );
+    }
+    if (
+      await d
+        .isTurnAborted(effectiveThreadId, effectiveTurnId)
+        .catch(() => false)
+    ) {
+      if (nextRowInserted)
+        await d.markRunAborted(nextRunId, "user").catch(() => {});
+      await d.markRunAborted(runId, "user").catch(() => {});
+      return;
     }
     const dispatchBody = nextRowInserted
       ? {
@@ -7849,6 +7889,15 @@ export function createProductionAgentHandler(
         : typeof requestTurnId === "string" && requestTurnId.trim()
           ? requestTurnId.trim()
           : runId;
+    if (
+      isBackgroundWorker &&
+      (await isTurnAborted(effectiveThreadId, effectiveTurnId).catch(
+        () => false,
+      ))
+    ) {
+      await markRunAborted(runId, "user").catch(() => {});
+      return { ok: true, stopped: true };
+    }
     const messageToPersist =
       typeof requestDisplayMessage === "string" &&
       requestDisplayMessage.trim().length > 0

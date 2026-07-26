@@ -28,14 +28,8 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   });
 
   const { mutate: save } = useMutation({
-    // Write failures reconcile through the `onSettled` refetch, not `onError`.
-    mutationFn: async (value: T) => {
-      await callAction(
-        "set-user-pref",
-        { key, value },
-        { method: "PUT" },
-      ).catch(() => {});
-    },
+    mutationFn: (value: T) =>
+      callAction("set-user-pref", { key, value }, { method: "PUT" }),
     onMutate: async (value: T) => {
       await queryClient.cancelQueries({ queryKey });
       const previousValue = queryClient.getQueryData<T>(queryKey);
@@ -52,11 +46,8 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
   });
 
   const { mutate: remove } = useMutation({
-    mutationFn: async () => {
-      await callAction("delete-user-pref", { key }, { method: "DELETE" }).catch(
-        () => {},
-      );
-    },
+    mutationFn: () =>
+      callAction("delete-user-pref", { key }, { method: "DELETE" }),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
     },

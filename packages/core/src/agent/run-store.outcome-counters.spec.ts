@@ -25,7 +25,7 @@ const rawClient = {
     }
     const stmt = sqlite.prepare(input.sql);
     const args = (input.args ?? []) as unknown[];
-    if (/^\s*select/i.test(input.sql)) {
+    if (/^\s*select/i.test(input.sql) || /\breturning\b/i.test(input.sql)) {
       return { rows: stmt.all(...args), rowsAffected: 0 };
     }
     const info = stmt.run(...args);

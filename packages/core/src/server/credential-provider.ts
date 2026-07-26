@@ -448,6 +448,18 @@ async function resolveScopedBuilderCredential(
       }
     }
 
+    // Membership lookup failure means the org scopes were never searched.
+    // Do not let a pre-org solo row silently impersonate the current org while
+    // the membership read is retryable.
+    if (orgLookupCause !== undefined) {
+      return {
+        value: null,
+        source: null,
+        lookupFailed: true,
+        cause: orgLookupCause,
+      };
+    }
+
     // 3. Solo-workspace fallback: always checked, even when an org id was
     //    found above. Older no-org connect flows wrote here, so a credential
     //    written before the user joined/created an org must not become
@@ -566,6 +578,10 @@ async function resolveScopedBuilderCredentials(): Promise<ScopedBuilderCredentia
       if (isCompleteBuilderConnection(workspaceCreds)) {
         return { creds: workspaceCreds, lookupFailed: false };
       }
+    }
+
+    if (orgLookupCause !== undefined) {
+      return { creds: null, lookupFailed: true, cause: orgLookupCause };
     }
 
     // Solo-workspace fallback: always checked, even when an org id was found
@@ -1350,6 +1366,10 @@ export async function resolveSecretDetailed(
           }
           return { value: workspaceSecret.value, lookupFailed: false };
         }
+      }
+
+      if (lookupFailed) {
+        return { value: null, lookupFailed: true, cause };
       }
 
       // Solo-workspace fallback: always checked, even when an org id was found

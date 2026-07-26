@@ -7195,6 +7195,8 @@ describe("background follow per-turn budget", () => {
     let postCount = 0;
     let successorCount = 0;
     let requestTurnId = "";
+    const abortRequests: Array<Record<string, unknown>> = [];
+    const abortUrls: string[] = [];
     const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
         postCount += 1;
@@ -7222,6 +7224,11 @@ describe("background follow per-turn budget", () => {
       }
       if (url.includes("/events")) {
         return emptySseResponse("run-chain");
+      }
+      if (url.includes("/runs/turn/") && init?.method === "POST") {
+        abortUrls.push(url);
+        abortRequests.push(JSON.parse(init.body as string));
+        return jsonResponse({ ok: true });
       }
       return jsonResponse({ error: "unexpected" }, 500);
     });
@@ -7253,6 +7260,13 @@ describe("background follow per-turn budget", () => {
     expect(last.metadata.custom.runError).toMatchObject({
       errorCode: "background_follow_run_budget_exhausted",
     });
+    expect(abortRequests.at(-1)).toMatchObject({
+      threadId: "thread-chain",
+      reason: "background_follow_run_budget_exhausted",
+    });
+    expect(abortUrls.at(-1)).toContain(
+      `/runs/turn/${encodeURIComponent(requestTurnId)}/abort`,
+    );
   });
 });
 

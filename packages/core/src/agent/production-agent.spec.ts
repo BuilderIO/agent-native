@@ -9842,6 +9842,10 @@ describe("claimBackgroundWorkerRunEarly", () => {
       updateRunHeartbeat: vi.fn(async (_runId: string) => {
         calls.push("heartbeat");
       }),
+      isTurnAborted: vi.fn(async () => false),
+      markRunAborted: vi.fn(async (_runId: string) => {
+        calls.push("abort");
+      }),
     };
   }
 
@@ -9946,6 +9950,25 @@ describe("claimBackgroundWorkerRunEarly", () => {
       "claim",
       "record:worker_claim_lost",
     ]);
+  });
+
+  it("skips a worker whose logical turn was stopped before claim", async () => {
+    const d = deps();
+    d.isTurnAborted.mockResolvedValue(true);
+
+    await expect(
+      claimBackgroundWorkerRunEarly({
+        runId: "run-stopped",
+        threadId: "thread-stopped",
+        markerTurnId: "turn-stopped",
+        continuationCount: 0,
+        runsInBackgroundFunction: true,
+        deps: d,
+      }),
+    ).resolves.toEqual({ claimed: false, skipped: "turn-aborted" });
+
+    expect(d.claimBackgroundRun).not.toHaveBeenCalled();
+    expect(d.markRunAborted).toHaveBeenCalledWith("run-stopped", "user");
   });
 });
 

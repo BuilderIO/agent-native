@@ -310,7 +310,7 @@ async function ensureRunTables(): Promise<void> {
         )
       `;
       // Daily terminal-outcome counters, rolled up from `agent_runs` right
-      // before those rows are pruned (see `rollUpPrunedRunOutcomes`). Completed
+      // before those rows are pruned (see `pruneAndRollUpPrunedRunOutcomes`). Completed
       // runs are pruned after ~1 day and unsuccessful ones after ~7, so any
       // window wider than the shorter retention read from `agent_runs` alone
       // reports N days of failures against 1 day of successes — the distortion
@@ -2587,59 +2587,102 @@ const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
  * covers exactly the unpruned ones, so a rate over any window is
  * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
  *
- * The predicate must stay identical to the DELETEs below, or a run is either
- * counted twice or lost. Grouping divides the ms epoch by a day in SQL (integer
- * division on both engines) rather than using SQLite `strftime` / Postgres
- * `to_char`, which are not portable. Best-effort: observability must never
- * block pruning.
+ * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
+ * observe a row, but only the caller that deletes it receives it to roll up.
+ * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
+ * Counter upserts are best-effort and never block pruning.
  */
-async function rollUpPrunedRunOutcomes(
+async function pruneAndRollUpPrunedRunOutcomes(
   client: ReturnType<typeof getDbExec>,
   cutoff: number,
   erroredCutoff: number,
 ): Promise<void> {
-  try {
-    const { rows } = await client.execute({
-      sql: `SELECT (completed_at / ${RUN_OUTCOME_DAY_MS}) AS day_index,
-                   status,
-                   COALESCE(terminal_reason, '') AS terminal_reason,
-                   COUNT(*) AS run_count
-            FROM agent_runs
-            WHERE (status = 'completed' AND completed_at < ?)
-               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-            GROUP BY (completed_at / ${RUN_OUTCOME_DAY_MS}), status, COALESCE(terminal_reason, '')`,
+  const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
+    await tx.execute({
+      sql: `DELETE FROM agent_run_events WHERE run_id IN (
+        SELECT id FROM agent_runs
+        WHERE (status = 'completed' AND completed_at < ?)
+           OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+      )`,
       args: [cutoff, erroredCutoff],
     });
-    for (const r of rows) {
-      const row = r as {
-        day_index?: number | string | null;
+
+    const { rows } = await tx.execute({
+      sql: `DELETE FROM agent_runs
+            WHERE (status = 'completed' AND completed_at < ?)
+               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+            RETURNING status, completed_at, terminal_reason`,
+      args: [cutoff, erroredCutoff],
+    });
+
+    const groups = new Map<
+      string,
+      { day: string; status: string; terminalReason: string; count: number }
+    >();
+    for (const row of rows) {
+      const outcome = row as {
+        completed_at?: number | string | null;
         status?: string;
         terminal_reason?: string | null;
-        run_count?: number | string | null;
       };
-      const dayIndex = Number(row.day_index);
-      const count = Number(row.run_count ?? 0);
-      if (!Number.isFinite(dayIndex) || !row.status || count <= 0) continue;
-      const day = new Date(dayIndex * RUN_OUTCOME_DAY_MS)
+      const dayIndex = Number(outcome.completed_at) / RUN_OUTCOME_DAY_MS;
+      if (!Number.isFinite(dayIndex) || !outcome.status) continue;
+      const day = new Date(Math.floor(dayIndex) * RUN_OUTCOME_DAY_MS)
         .toISOString()
         .slice(0, 10);
-      await client.execute({
-        sql: `INSERT INTO agent_run_outcome_daily (day, status, terminal_reason, run_count)
-              VALUES (?, ?, ?, ?)
-              ON CONFLICT (day, status, terminal_reason)
-              DO UPDATE SET run_count = agent_run_outcome_daily.run_count + excluded.run_count`,
-        args: [day, row.status, row.terminal_reason ?? "", count],
-      });
+      const terminalReason = outcome.terminal_reason ?? "";
+      const key = `${day}\u0000${outcome.status}\u0000${terminalReason}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        groups.set(key, {
+          day,
+          status: outcome.status,
+          terminalReason,
+          count: 1,
+        });
+      }
+    }
+
+    for (const group of groups.values()) {
+      try {
+        await tx.execute({
+          sql: `INSERT INTO agent_run_outcome_daily (day, status, terminal_reason, run_count)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT (day, status, terminal_reason)
+                DO UPDATE SET run_count = agent_run_outcome_daily.run_count + excluded.run_count`,
+          args: [group.day, group.status, group.terminalReason, group.count],
+        });
+      } catch {
+        // Counters are diagnostics; a failed upsert must not prevent pruning.
+      }
+    }
+  };
+
+  try {
+    if (client.transaction) {
+      await client.transaction(prune);
+      return;
+    }
+
+    await client.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+    try {
+      await prune(client);
+      await client.execute("COMMIT");
+    } catch (error) {
+      await client.execute("ROLLBACK").catch(() => {});
+      throw error;
     }
   } catch {
-    // Counters are diagnostics; never let them break pruning.
+    // A transactional failure leaves the rows available for the next sweep.
   }
 }
 
 /**
  * Read the daily terminal-outcome counters rolled up from pruned runs. Pair
  * with live `agent_runs` rows for a complete picture — see
- * `rollUpPrunedRunOutcomes`.
+ * `pruneAndRollUpPrunedRunOutcomes`.
  */
 export async function getRunOutcomeCounters(options?: {
   /** Inclusive lower bound as YYYY-MM-DD. */
@@ -2779,25 +2822,10 @@ export async function cleanupOldRuns(
       );
     }
   }
-  // Count what is about to disappear before it disappears — otherwise the
-  // asymmetric retention below silently biases every outcome-rate query.
-  await rollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
-  // Delete events for old terminal runs. Genuinely completed runs prune at
-  // `cutoff`; unsuccessful ones are retained until the (longer) `erroredCutoff`.
-  await client.execute({
-    sql: `DELETE FROM agent_run_events WHERE run_id IN (
-      SELECT id FROM agent_runs
-      WHERE (status = 'completed' AND completed_at < ?)
-         OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-    )`,
-    args: [cutoff, erroredCutoff],
-  });
-  await client.execute({
-    sql: `DELETE FROM agent_runs
-          WHERE (status = 'completed' AND completed_at < ?)
-             OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)`,
-    args: [cutoff, erroredCutoff],
-  });
+  // Claim old terminal runs and roll up only rows this invocation actually
+  // deleted. The transaction prevents concurrent cleanup calls from both
+  // counting the same source rows.
+  await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
 }
 
 /**

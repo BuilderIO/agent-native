@@ -450,9 +450,9 @@ Agent skills that explain patterns when the agent needs to modify code:
 
 `templates/slides/AGENTS.md` is the short router the agent reads on every conversation. It points at the skills under `.agents/skills/` and lays out the core rules, application-state contract, and skill index. The exact slide HTML templates for every layout live in `.agents/skills/create-deck/SKILL.md` — update that skill whenever you add or change a slide layout pattern.
 
-#### API routes
+#### Actions and API routes
 
-For cases where actions aren't the right fit (file uploads, streaming), the template exposes a small set of REST endpoints: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. See `templates/slides/server/routes/api/`.
+Deck and slide CRUD uses shared actions such as `create-deck`, `add-slide`, `update-slide`, and `delete-deck`, callable by both the agent and UI. REST routes under `templates/slides/server/routes/api/` are reserved for uploads, streaming, exports, and other route-only flows.
 
 ## What's next
 

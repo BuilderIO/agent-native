@@ -2,10 +2,13 @@ import { OG_FONT_FAMILY } from "@agent-native/core/server";
 
 export type ReportChartType = "bar" | "line" | "area" | "pie";
 
+export type ReportChartAxis = "left" | "right";
+
 export type ReportChartSeries = {
   label: string;
   data: Array<number | null>;
   color?: string;
+  axis?: ReportChartAxis;
 };
 
 export type ChartSvgTheme = {
@@ -314,7 +317,57 @@ type ResolvedSeries = {
   label: string;
   color: string;
   data: Array<number | null>;
+  axis?: ReportChartAxis;
 };
+
+type AxisScale = {
+  min: number;
+  span: number;
+  yFor: (value: number) => number;
+  zeroY: number;
+};
+
+function buildAxisScale(
+  values: number[],
+  chartBottom: number,
+  plotHeight: number,
+): AxisScale {
+  const min = Math.min(0, ...values);
+  // Only an axis with nothing above zero borrows a headroom of 1; forcing that
+  // floor on real data flattens a rate series that never leaves 0..1.
+  const observedMax = values.length ? Math.max(...values) : 0;
+  const max = observedMax > 0 ? observedMax : min < 0 ? 0 : 1;
+  const span = max - min || 1;
+  const yFor = (value: number) =>
+    chartBottom - ((value - min) / span) * plotHeight;
+  return { min, span, yFor, zeroY: yFor(0) };
+}
+
+/**
+ * Segment edges for a stacked bar group. Positives and negatives stack away
+ * from zero separately, and the y-domain has to cover every segment edge — the
+ * running total alone puts a mixed-sign stack's tallest bar off-canvas.
+ */
+function stackSegments(
+  series: ResolvedSeries[],
+  seriesIndexes: number[],
+  labelCount: number,
+): Map<string, { base: number; top: number }> {
+  const segments = new Map<string, { base: number; top: number }>();
+  for (let labelIndex = 0; labelIndex < labelCount; labelIndex += 1) {
+    let up = 0;
+    let down = 0;
+    for (const seriesIndex of seriesIndexes) {
+      const value = series[seriesIndex].data[labelIndex];
+      if (value === null) continue;
+      const base = value >= 0 ? up : down;
+      if (value >= 0) up += value;
+      else down += value;
+      segments.set(`${labelIndex}:${seriesIndex}`, { base, top: base + value });
+    }
+  }
+  return segments;
+}
 
 function renderCartesianChartSvg({
   title,
@@ -343,8 +396,15 @@ function renderCartesianChartSvg({
 }): string {
   const safeWidth = clampSize(width, 360, 2000);
   const safeHeight = clampSize(height, 240, 1200);
+  const rightAxisIndexes = series
+    .map((entry, index) => (entry.axis === "right" ? index : -1))
+    .filter((index) => index >= 0);
+  const leftAxisIndexes = series
+    .map((entry, index) => (entry.axis === "right" ? -1 : index))
+    .filter((index) => index >= 0);
+  const dualAxis = rightAxisIndexes.length > 0 && leftAxisIndexes.length > 0;
   const chartLeft = 58;
-  const chartRight = safeWidth - 28;
+  const chartRight = safeWidth - (dualAxis ? 62 : 28);
   const chartBottom = safeHeight - 48;
   const plotWidth = Math.max(1, chartRight - chartLeft);
 
@@ -357,8 +417,16 @@ function renderCartesianChartSvg({
     fit,
   });
   const legendTop = subtitle ? header.headerBottom + 4 : 42;
+  // A static image has no tooltip to reveal which scale a series belongs to.
+  const legendSeries = dualAxis
+    ? series.map((entry) =>
+        entry.axis === "right"
+          ? { ...entry, label: `${entry.label} (right)` }
+          : entry,
+      )
+    : series;
   const legendLayout =
-    fit && series.length > 1 ? layoutLegend(series, plotWidth) : null;
+    fit && series.length > 1 ? layoutLegend(legendSeries, plotWidth) : null;
   const chartTop = !fit
     ? subtitle
       ? 88
@@ -369,44 +437,53 @@ function renderCartesianChartSvg({
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
-  // Positives and negatives stack away from zero separately, and the y-domain
-  // has to cover every segment edge — the running total alone puts a mixed-sign
-  // stack's tallest bar off-canvas.
+  // Stacks group per axis, matching how the dashboard renderer stacks them, so
+  // a dual-axis chart never sums two different units into one bar.
   const stackedSegments = stackedBars
-    ? labels.map((_, index) => {
-        let up = 0;
-        let down = 0;
-        return series.map((entry) => {
-          const value = entry.data[index];
-          if (value === null) return null;
-          const base = value >= 0 ? up : down;
-          if (value >= 0) up += value;
-          else down += value;
-          return { base, top: base + value };
-        });
-      })
-    : [];
-  const values = stackedBars
-    ? stackedSegments
-        .flat()
-        .flatMap((segment) => (segment ? [segment.base, segment.top] : []))
-    : series.flatMap((entry) =>
-        entry.data.filter((value): value is number => value !== null),
-      );
-  const maxValue = Math.max(1, ...values);
-  const minValue = Math.min(0, ...values);
-  const span = maxValue - minValue;
-  const yFor = (value: number) =>
-    chartBottom - ((value - minValue) / span) * plotHeight;
-  const zeroY = yFor(0);
-  const zeroText = formatCoord(zeroY);
+    ? new Map([
+        ...stackSegments(series, leftAxisIndexes, labels.length),
+        ...stackSegments(series, rightAxisIndexes, labels.length),
+      ])
+    : new Map<string, { base: number; top: number }>();
+
+  const axisValues = (seriesIndexes: number[]): number[] =>
+    stackedBars
+      ? seriesIndexes.flatMap((seriesIndex) =>
+          labels.flatMap((_, labelIndex) => {
+            const segment = stackedSegments.get(`${labelIndex}:${seriesIndex}`);
+            return segment ? [segment.base, segment.top] : [];
+          }),
+        )
+      : seriesIndexes.flatMap((seriesIndex) =>
+          series[seriesIndex].data.filter(
+            (value): value is number => value !== null,
+          ),
+        );
+
+  const leftScale = buildAxisScale(
+    axisValues(dualAxis ? leftAxisIndexes : leftAxisIndexes.concat(rightAxisIndexes)),
+    chartBottom,
+    plotHeight,
+  );
+  const rightScale = dualAxis
+    ? buildAxisScale(axisValues(rightAxisIndexes), chartBottom, plotHeight)
+    : leftScale;
+  const scaleFor = (seriesIndex: number): AxisScale =>
+    dualAxis && series[seriesIndex].axis === "right" ? rightScale : leftScale;
+
   const slot = plotWidth / Math.max(labels.length, 1);
   const labelStep = Math.max(1, Math.ceil(labels.length / 8));
 
+  // Both scales use the same five fractional positions, so the right-hand tick
+  // labels line up with the gridlines drawn from the left scale.
   const grid = Array.from({ length: 5 }, (_, index) => {
-    const value = minValue + (span / 4) * (4 - index);
-    const y = yFor(value);
-    return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value))}</text>`;
+    const fraction = (4 - index) / 4;
+    const value = leftScale.min + leftScale.span * fraction;
+    const y = leftScale.yFor(value);
+    const rightTick = dualAxis
+      ? `<text x="${chartRight + 10}" y="${(y + 4).toFixed(1)}" text-anchor="start" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(rightScale.min + rightScale.span * fraction))}</text>`
+      : "";
+    return `<line x1="${chartLeft}" x2="${chartRight}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${theme.gridColor}" stroke-width="0.8"/><text x="${chartLeft - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${theme.tickColor}">${escapeXml(formatTick(value))}</text>${rightTick}`;
   }).join("");
 
   const centerFor = (index: number) => chartLeft + slot * index + slot / 2;
@@ -435,12 +512,14 @@ function renderCartesianChartSvg({
       .map((_, labelIndex) => {
         const x = chartLeft + slot * labelIndex + slot * 0.2;
         const barWidth = Math.max(5, slot * 0.6);
-        return stackedSegments[labelIndex]
-          .map((segment, seriesIndex) => {
+        return series
+          .map((entry, seriesIndex) => {
+            const segment = stackedSegments.get(`${labelIndex}:${seriesIndex}`);
             if (!segment) return "";
+            const { yFor } = scaleFor(seriesIndex);
             const from = yFor(segment.base);
             const to = yFor(segment.top);
-            return `<rect x="${x.toFixed(1)}" y="${Math.min(from, to).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, Math.abs(to - from)).toFixed(1)}" rx="4" fill="${series[seriesIndex].color}"/>`;
+            return `<rect x="${x.toFixed(1)}" y="${Math.min(from, to).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, Math.abs(to - from)).toFixed(1)}" rx="4" fill="${entry.color}"/>`;
           })
           .join("");
       })
@@ -459,6 +538,7 @@ function renderCartesianChartSvg({
               slot * labelIndex +
               slot * 0.14 +
               seriesIndex * (barWidth + 2);
+            const { yFor, zeroY } = scaleFor(seriesIndex);
             const y = yFor(value);
             return `<rect x="${x.toFixed(1)}" y="${Math.min(zeroY, y).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(2, Math.abs(zeroY - y)).toFixed(1)}" rx="4" fill="${entry.color}"/>`;
           })
@@ -467,7 +547,9 @@ function renderCartesianChartSvg({
       .join("");
   } else {
     marks = series
-      .map((entry) => {
+      .map((entry, seriesIndex) => {
+        const { yFor, zeroY } = scaleFor(seriesIndex);
+        const zeroText = formatCoord(zeroY);
         const segments: Array<{
           start: number;
           points: Array<[string, string]>;
@@ -509,9 +591,10 @@ function renderCartesianChartSvg({
       .join("");
   }
 
+  const leftZeroText = formatCoord(leftScale.zeroY);
   const axis = `<line x1="${chartLeft}" x2="${chartRight}" y1="${chartBottom}" y2="${chartBottom}" stroke="${theme.gridColor}" stroke-width="1"/>${
-    minValue < 0
-      ? `<line x1="${chartLeft}" x2="${chartRight}" y1="${zeroText}" y2="${zeroText}" stroke="${theme.tickColor}" stroke-width="1"/>`
+    leftScale.min < 0
+      ? `<line x1="${chartLeft}" x2="${chartRight}" y1="${leftZeroText}" y2="${leftZeroText}" stroke="${theme.tickColor}" stroke-width="1"/>`
       : ""
   }`;
 
@@ -530,7 +613,7 @@ function renderCartesianChartSvg({
       (legendLayout.marker
         ? `<text x="${formatCoord(legendLayout.markerX)}" y="${(legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 11}" font-size="12" fill="${theme.tickColor}">${escapeXml(legendLayout.marker)}</text>`
         : "")
-    : series
+    : legendSeries
         .map((entry, index) => {
           const x = index * 148;
           return `<rect x="${x}" y="0" width="12" height="12" rx="3" fill="${entry.color}"/><text x="${x + 18}" y="11" font-size="12" fill="${theme.labelColor}">${escapeXml(entry.label)}</text>`;
@@ -785,6 +868,7 @@ export function renderReportChartSvg({
     series: series.map((entry, index) => ({
       label: entry.label || `Series ${index + 1}`,
       color: safeColor(entry.color, palette[index % palette.length]),
+      axis: entry.axis,
       data: normalizedLabels.map((_, dataIndex) =>
         exactValue(entry.data?.[dataIndex]),
       ),

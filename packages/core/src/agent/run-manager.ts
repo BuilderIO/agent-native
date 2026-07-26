@@ -802,11 +802,27 @@ export function startRun(
   // reaper records a `stale_run` lie for a run that had honestly checkpointed.
   // Written into the reserved seq band so it cannot collide with, or be
   // streamed ahead of, the events the loop is still emitting.
-  const checkpointRunBoundary = (
+  let checkpointAbortInFlight = false;
+  const checkpointRunBoundary = async (
     event: AgentChatEvent,
     terminalReason: string,
-  ) => {
-    persistRunCheckpointEvent(runId, event, terminalReason).catch(() => {});
+  ): Promise<void> => {
+    if (
+      checkpointAbortInFlight ||
+      run.status !== "running" ||
+      abort.signal.aborted
+    )
+      return;
+    checkpointAbortInFlight = true;
+    try {
+      await persistRunCheckpointEvent(runId, event, terminalReason);
+    } catch {
+      // The abort still has to happen if the checkpoint write is rejected; the
+      // caller has already reached a server-owned chunk boundary.
+    } finally {
+      abort.abort(terminalReason);
+      checkpointAbortInFlight = false;
+    }
   };
 
   const checkNoProgressBackstop = () => {
@@ -829,8 +845,7 @@ export function startRun(
       reason: "no_progress",
     };
     send(event);
-    checkpointRunBoundary(event, "no_progress");
-    abort.abort("no_progress");
+    void checkpointRunBoundary(event, "no_progress");
   };
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers).
@@ -929,8 +944,7 @@ export function startRun(
             reason: "run_timeout",
           };
           send(event);
-          checkpointRunBoundary(event, "run_timeout");
-          abort.abort("run_timeout");
+          void checkpointRunBoundary(event, "run_timeout");
         }, softTimeoutMs)
       : null;
   let pendingTerminalEvent: RunEvent | null = null;

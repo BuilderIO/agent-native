@@ -196,7 +196,9 @@ describe("dashboard report sweep", () => {
 
   it("marks the subscription failed when send throws and persists the thrown message", async () => {
     const sub = subscription();
+    const retryAt = "2026-07-13T11:16:00.000Z";
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
     mocks.sendDashboardReportSubscription.mockRejectedValue(
       new Error("Email provider rejected the message"),
     );
@@ -212,6 +214,7 @@ describe("dashboard report sweep", () => {
       sub,
       "error",
       "Email provider rejected the message",
+      { nextRunAt: retryAt },
     );
   });
 

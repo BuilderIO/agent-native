@@ -50,6 +50,83 @@ const capabilitySchema = z.object({
   reason: z.string().optional(),
 });
 
+const VIEWPORT_PRESETS = {
+  // `desktop` deliberately matches add-localhost-screens' 1280x900 fallback so
+  // asking for it never resizes frames placed by an earlier default call.
+  desktop: { label: "Desktop", width: 1280, height: 900 },
+  laptop: { label: "Laptop", width: 1440, height: 900 },
+  tablet: { label: "Tablet", width: 834, height: 1112 },
+  mobile: { label: "Mobile", width: 390, height: 844 },
+} as const;
+
+const viewportSchema = z.union([
+  z.enum(["desktop", "laptop", "tablet", "mobile"]),
+  z.object({
+    label: z.string().optional(),
+    width: z.number().positive(),
+    height: z.number().positive(),
+  }),
+]);
+
+type ViewportInput = z.infer<typeof viewportSchema>;
+interface ResolvedViewport {
+  label: string;
+  width: number;
+  height: number;
+}
+
+function resolveViewports(
+  inputs: ViewportInput[] | undefined,
+): ResolvedViewport[] | undefined {
+  if (!inputs?.length) return undefined;
+  return inputs.map((input) =>
+    typeof input === "string"
+      ? { ...VIEWPORT_PRESETS[input] }
+      : {
+          label: input.label ?? `${Math.round(input.width)}w`,
+          width: input.width,
+          height: input.height,
+        },
+  );
+}
+
+/**
+ * Expand one screen request per (route x viewport) and lay them out as a grid:
+ * one row per route, one column per viewport. Explicit x/y/width/height are
+ * what make add-localhost-screens treat each pair as its own frame instead of
+ * refreshing a single shared one, so they are always set here.
+ */
+function expandRoutesAcrossViewports(args: {
+  routes: Array<z.infer<typeof screenRouteSchema>>;
+  viewports: ResolvedViewport[];
+  startX: number;
+  startY: number;
+  gap: number;
+}): Array<z.infer<typeof screenRouteSchema>> {
+  const labelViewports = args.viewports.length > 1;
+  const expanded: Array<z.infer<typeof screenRouteSchema>> = [];
+  let rowY = args.startY;
+  for (const route of args.routes) {
+    let columnX = args.startX;
+    for (const viewport of args.viewports) {
+      expanded.push({
+        ...route,
+        title: labelViewports
+          ? `${route.title ?? titleFromRoutePath(route.path ?? "/")} — ${viewport.label}`
+          : route.title,
+        width: viewport.width,
+        height: viewport.height,
+        x: columnX,
+        y: rowY,
+      });
+      columnX += viewport.width + args.gap;
+    }
+    rowY +=
+      Math.max(...args.viewports.map((viewport) => viewport.height)) + args.gap;
+  }
+  return expanded;
+}
+
 const routeManifestSchema = z.object({
   version: z.literal(1).optional().default(1),
   sourceType: z.literal("localhost").optional().default("localhost"),
@@ -191,6 +268,11 @@ export default defineAction({
     paths: jsonArray(z.array(z.string()))
       .optional()
       .describe("Shortcut for routes when only paths/URLs are needed."),
+    viewports: jsonArray(z.array(viewportSchema))
+      .optional()
+      .describe(
+        'Place every requested route once per viewport, laid out one row per route and one column per viewport. Use preset names ("desktop", "laptop", "tablet", "mobile") or explicit {label?, width, height}. Example for responsive editing: ["desktop", "mobile"]. Overrides defaultWidth/defaultHeight.',
+      ),
     defaultWidth: z
       .number()
       .positive()

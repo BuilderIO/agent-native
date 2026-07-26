@@ -2501,6 +2501,36 @@ export function createAgentChatAdapter(
           };
           dispatchResumingUiEvent();
 
+          const durablyAbortBackgroundTurn = async (
+            reason: string,
+          ): Promise<boolean> => {
+            if (!threadId) return false;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const response = await fetch(
+                  `${apiUrl}/runs/turn/${encodeURIComponent(turnId)}/abort`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ threadId, reason }),
+                    signal: abortSignal,
+                  },
+                );
+                if (response.ok) return true;
+              } catch {
+                if (abortSignal.aborted) return false;
+              }
+            }
+            return false;
+          };
+
+          const stopBackgroundTurnBeforeReporting = async function* (
+            outcome: Parameters<typeof emitBackgroundTerminalError>[0],
+          ): AsyncGenerator<ChatModelRunResult> {
+            await durablyAbortBackgroundTurn(outcome.errorCode);
+            yield* emitBackgroundTerminalError(outcome);
+          };
+
           // Before surfacing a background terminal ERROR (never called for a
           // genuine "done" success — see call site), give the server's
           // reap-and-recover path a short extra window to insert a claimable
@@ -2596,7 +2626,7 @@ export function createAgentChatAdapter(
               Date.now() - followStartedAt >=
               MAX_BACKGROUND_FOLLOW_WALL_TIME_MS
             ) {
-              yield* emitBackgroundTerminalError({
+              yield* stopBackgroundTurnBeforeReporting({
                 message: `The agent kept restarting this step for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
                 errorCode: "background_follow_time_budget_exhausted",
                 details: `followed_runs: ${followedRunIds.size}`,
@@ -2687,7 +2717,7 @@ export function createAgentChatAdapter(
                     Date.now() - idleSince >=
                     BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                   ) {
-                    yield* emitBackgroundTerminalError({
+                    yield* stopBackgroundTurnBeforeReporting({
                       message:
                         "The agent's background run stopped between chunks and no continuation appeared. You can retry from the preserved chat context.",
                       errorCode: "background_run_lost",
@@ -2719,7 +2749,7 @@ export function createAgentChatAdapter(
               }
               followedRunIds.add(activeRunId);
               if (followedRunIds.size > MAX_FOLLOWED_BACKGROUND_RUNS) {
-                yield* emitBackgroundTerminalError({
+                yield* stopBackgroundTurnBeforeReporting({
                   message: `The agent restarted this step ${followedRunIds.size} times without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
                   errorCode: "background_follow_run_budget_exhausted",
                   details: `followed_runs: ${followedRunIds.size}`,
@@ -2753,7 +2783,7 @@ export function createAgentChatAdapter(
                   lastSeq > seqBeforeAttach,
                 )
               ) {
-                yield* emitBackgroundTerminalError({
+                yield* stopBackgroundTurnBeforeReporting({
                   message:
                     "The agent's background run failed the same way several times in a row without producing any output. It was stopped so you can retry from the preserved chat context.",
                   errorCode: "background_follow_repeated_failure",
@@ -2791,6 +2821,7 @@ export function createAgentChatAdapter(
                   Date.now() - idleSince >=
                   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                 ) {
+                  await durablyAbortBackgroundTurn("background_run_lost");
                   yield* emitBackgroundTerminalOutcome(lastSeenActive);
                   return "completed";
                 }
@@ -2818,6 +2849,7 @@ export function createAgentChatAdapter(
                         : null,
                   },
                 );
+                await durablyAbortBackgroundTurn("background_run_lost");
                 yield* emitBackgroundTerminalOutcome(lastSeenActive);
                 return "completed";
               }

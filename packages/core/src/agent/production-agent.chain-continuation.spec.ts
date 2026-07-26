@@ -101,6 +101,8 @@ interface Harness {
       | "sleep"
       | "readTurnStartedAt"
       | "emitRunText"
+      | "isTurnAborted"
+      | "markRunAborted"
     >
   >;
   /** Ordered log of the calls that matter for handoff-ordering assertions. */
@@ -118,6 +120,7 @@ function makeHarness(overrides?: {
     countRunsForTurn: overrides?.countRunsForTurn ?? vi.fn(async () => 1),
     readTurnStartedAt:
       overrides?.readTurnStartedAt ?? vi.fn(async () => Date.now()),
+    isTurnAborted: vi.fn(async () => false),
     emitRunText: vi.fn(async () => {}),
     insertRun: vi.fn(async () => {
       callOrder.push("insertRun");
@@ -135,6 +138,7 @@ function makeHarness(overrides?: {
       })),
     updateRunHeartbeat: vi.fn(async () => {}),
     updateRunStatusIfRunning: vi.fn(async () => true),
+    markRunAborted: vi.fn(async () => {}),
     setRunTerminalReason: vi.fn(async () => {}),
     recordRunDiagnostic: vi.fn(async () => {}),
     markBackgroundContinuationChunkTerminal: vi.fn(async () => {
@@ -182,6 +186,16 @@ async function runChain(
 }
 
 describe("chainServerDrivenContinuation — transactional handoff (foreground self-chain)", () => {
+  it("does not mint a successor after the logical turn has been durably aborted", async () => {
+    const h = makeHarness();
+    h.deps.isTurnAborted = vi.fn(async () => true);
+
+    await runChain(h);
+
+    expect(h.deps.insertRun).not.toHaveBeenCalled();
+    expect(h.deps.markRunAborted).toHaveBeenCalledWith("run-chunk0", "user");
+  });
+
   it("PRE-INSERTS the successor row before the dispatch fires, then marks the chunk terminal", async () => {
     const h = makeHarness();
     const run = timeoutBoundaryRun();

@@ -1023,6 +1023,27 @@ describe("resolveBuilderCredentialsDetailed", () => {
     expect(result.source).toBe("org");
     expect(result.lookupFailed).toBe(false);
   });
+
+  it("does not use a solo row when the org membership lookup fails", async () => {
+    mockGetRequestUserEmail.mockReturnValue("member@b.com");
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockRejectedValue(new Error("membership timeout"));
+    mockReadAppSecrets.mockImplementation(async ({ scopeId }) =>
+      scopeId === "solo:member@b.com"
+        ? new Map([
+            ["BUILDER_PRIVATE_KEY", { value: "solo-private-key" }],
+            ["BUILDER_PUBLIC_KEY", { value: "solo-public-key" }],
+          ])
+        : new Map(),
+    );
+
+    const result = await resolveBuilderCredentialsDetailed();
+    expect(result).toMatchObject({
+      privateKey: null,
+      publicKey: null,
+      lookupFailed: true,
+    });
+  });
 });
 
 describe("resolveBuilderCredentials (original shape)", () => {
@@ -1340,6 +1361,25 @@ describe("pre-org solo workspace fallback (generic secrets)", () => {
     await expect(resolveSecret("GOOGLE_CLIENT_SECRET")).rejects.toBeInstanceOf(
       CredentialStoreUnavailableError,
     );
+  });
+
+  it("does not answer from the solo row when org membership lookup fails", async () => {
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    mockResolveOrgIdForEmail.mockRejectedValue(
+      Object.assign(new Error("membership query timed out"), { code: "57014" }),
+    );
+    mockReadAppSecret.mockImplementation(async ({ scope, scopeId }) =>
+      scope === "workspace" && scopeId === "solo:owner@b.com"
+        ? { value: "stale-pre-org-secret", last4: "cret", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(
+      resolveSecretDetailed("GOOGLE_CLIENT_SECRET"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    expect(
+      mockReadAppSecret.mock.calls.map((call) => call[0].scopeId),
+    ).not.toContain("solo:owner@b.com");
   });
 });
 

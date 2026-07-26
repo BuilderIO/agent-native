@@ -3,6 +3,7 @@ import {
   runWithRequestContext,
 } from "@agent-native/core/server";
 
+import { resolveDualAxis } from "../../app/pages/adhoc/sql-dashboard/dual-axis";
 import { interpolate } from "../../app/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "../../app/pages/adhoc/sql-dashboard/panel-sql";
 import { pivotRows } from "../../app/pages/adhoc/sql-dashboard/pivot";
@@ -83,15 +84,22 @@ const MAX_TOTAL_ATTACHMENT_BYTES = 14 * 1024 * 1024;
  * resvg resolves no CSS custom properties, so email charts cannot reuse the
  * dashboard's `var(--brand-*)` palette.
  */
+/**
+ * Mirrors `DEFAULT_COLORS` in `app/components/dashboard/SqlChart.tsx`, including
+ * its length — series colors are assigned `index % length`, so a different
+ * length would recolor every series past the first cycle relative to the live
+ * dashboard. The first two entries resolve `var(--brand-blue)` / `--brand-teal`
+ * to hex because resvg cannot read CSS custom properties.
+ */
 const CHART_COLORS = [
-  "#2563eb",
+  "#0284c7",
   "#0d9488",
   "#06b6d4",
   "#10b981",
   "#f59e0b",
   "#ef4444",
   "#ec4899",
-  "#8b5cf6",
+  "#14b8a6",
 ];
 
 const TEXT_COLOR = "#111827";
@@ -508,6 +516,7 @@ function buildChartInput(
   const visible = droppedPoints ? rows.slice(-MAX_CHART_POINTS) : rows;
   const labels = visible.map((row) => String(row[xKey] ?? ""));
   const plotted = chartType === "pie" ? yKeys.slice(0, 1) : yKeys;
+  const dualAxis = resolveDualAxis(plotted, config);
 
   return {
     labels,
@@ -515,6 +524,7 @@ function buildChartInput(
       label: key,
       data: visible.map((row) => toNumber(row[key])),
       color: chartColor(config, index),
+      ...(dualAxis.enabled ? { axis: dualAxis.sideFor(key) } : {}),
     })),
     droppedPoints,
   };

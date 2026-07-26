@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -49,6 +51,29 @@ const originalAgentEngine = process.env.AGENT_ENGINE;
 afterEach(() => {
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+});
+
+describe("agent-engine/status route failure handling", () => {
+  // A 200 saying `configured: false` is an AUTHORITATIVE answer to the client:
+  // it maps to `missing`, which gates the composer and shows "connect an AI
+  // provider". So swallowing a lookup error into that shape tells a user with a
+  // perfectly good key that they have none — the exact report this route caused.
+  // 503 is the only response the client can distinguish, and it maps to the
+  // retryable `unavailable` state that leaves the composer usable.
+  it("answers a failed lookup with 503, never a 200 that claims nothing is configured", () => {
+    const source = readFileSync(
+      new URL("./core-routes-plugin.ts", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(source.indexOf("`${P}/agent-engine/status`"));
+    const body = handler.slice(0, handler.indexOf("${P}/track"));
+
+    expect(body).toContain("setResponseStatus(event, 503)");
+    // The catch must not fabricate an authoritative negative answer.
+    expect(body).not.toMatch(
+      /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,
+    );
+  });
 });
 
 describe("resolveAgentEngineStatus", () => {

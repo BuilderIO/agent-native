@@ -30,6 +30,27 @@ function pathCoordinates(svg: string): Array<[number, number]> {
   ]);
 }
 
+const SIGNUPS_COLOR = "#0284C7";
+const CONVERSION_COLOR = "#0D9488";
+
+/** Vertical travel of one series' stroked path, in user units. */
+function strokePathHeight(svg: string, stroke: string): number {
+  const ys = [...svg.matchAll(/<path d="([^"]*)"[^>]*stroke="([^"]*)"/g)]
+    .filter((match) => match[2] === stroke)
+    .flatMap((match) =>
+      [...match[1].matchAll(/[ML] -?[\d.]+,(-?[\d.]+)/g)].map((point) =>
+        Number(point[1]),
+      ),
+    );
+  return ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
+}
+
+function rightAxisTicks(svg: string): string[] {
+  return [
+    ...svg.matchAll(/<text x="[\d.]+"[^>]*text-anchor="start"[^>]*>([^<]*)</g),
+  ].map((match) => match[1]);
+}
+
 function legendEntries(
   svg: string,
 ): Array<{ label: string; x: number; row: number }> {
@@ -168,6 +189,58 @@ describe("renderReportChartSvg", () => {
       expect(paired.match(/ d="M /g)).toHaveLength(type === "area" ? 2 : 1);
     },
   );
+
+  it("plots a right-axis series against its own domain", () => {
+    const dual = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        { label: "Signups", data: [1000, 2000, 3000, 4000] },
+        { label: "Conversion", data: [0.1, 0.2, 0.3, 0.4], axis: "right" },
+      ],
+    });
+    const single = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        { label: "Signups", data: [1000, 2000, 3000, 4000] },
+        { label: "Conversion", data: [0.1, 0.2, 0.3, 0.4] },
+      ],
+    });
+
+    // Sharing the signups scale squashes the rate onto the baseline; its own
+    // axis has to give it the same vertical travel as the series it tracks.
+    expect(strokePathHeight(single, CONVERSION_COLOR)).toBeLessThan(1);
+    expect(strokePathHeight(dual, CONVERSION_COLOR)).toBeCloseTo(
+      strokePathHeight(dual, SIGNUPS_COLOR),
+      1,
+    );
+    expect(rightAxisTicks(dual)).toEqual(["0.4", "0.3", "0.2", "0.1", "0"]);
+    expect(rightAxisTicks(single)).toEqual([]);
+    expect(legendEntries(dual).map((entry) => entry.label)).toEqual([
+      "Signups",
+      "Conversion (right)",
+    ]);
+  });
+
+  it("stacks bars per axis instead of summing two units into one bar", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: ["Q1"],
+      type: "bar",
+      stacked: true,
+      series: [
+        { label: "Revenue", data: [10] },
+        { label: "Costs", data: [20] },
+        { label: "Margin", data: [0.4], axis: "right" },
+      ],
+    });
+
+    // Left stack tops out at 30; the right-axis bar starts from its own zero
+    // rather than being piled on top of the currency stack.
+    expect(svg).toContain(">30<");
+    expect(rightAxisTicks(svg)).toEqual(["0.4", "0.3", "0.2", "0.1", "0"]);
+  });
 
   it("keeps a mixed-sign stacked bar inside the plot area", () => {
     const svg = renderReportChartSvg({

@@ -310,6 +310,24 @@
       "port": 3207
     },
     {
+      "name": "design-chat-e2e",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/c61e1a3e-ad99-483a-b60c-8e47d9f525e7/scratchpad/design-chat-e2e.sqlite",
+        "PORT=3216",
+        "AUTH_MODE=local",
+        "AUTH_DISABLED=true",
+        "APP_URL=http://localhost:3216",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "3216"
+      ],
+      "port": 3216
+    },
+    {
       "name": "clips-desktop-overlays",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [

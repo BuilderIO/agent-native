@@ -254,6 +254,8 @@ describe("run manager soft timeout", () => {
     vi.mocked(bumpRunProgress).mockClear();
     vi.mocked(setRunError).mockClear();
     vi.mocked(setRunTerminalReason).mockClear();
+    vi.mocked(persistRunCheckpointEvent).mockReset();
+    vi.mocked(persistRunCheckpointEvent).mockResolvedValue(undefined);
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
     vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
     vi.mocked(reapIfStale).mockReset();
@@ -357,17 +359,18 @@ describe("run manager soft timeout", () => {
     // the remaining serverless budget, the process was hard-killed, and the run
     // was reaped as a `stale_run` lie with no auto_continue in the ledger.
     let unwound = false;
+    let releaseCheckpoint!: () => void;
+    vi.mocked(persistRunCheckpointEvent).mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseCheckpoint = resolve)),
+    );
     startRun(
       "run-durable-checkpoint",
       "thread-durable-checkpoint",
       async (_send, signal) => {
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => {
-            // A wind-down that never completes — the process dies here.
-            setTimeout(() => {
-              unwound = true;
-              resolve();
-            }, 60_000);
+            unwound = true;
+            resolve();
           });
         });
       },
@@ -383,6 +386,9 @@ describe("run manager soft timeout", () => {
       { type: "auto_continue", reason: "run_timeout" },
       "run_timeout",
     );
+    releaseCheckpoint();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(unwound).toBe(true);
   });
 
   it("persists the terminal auto_continue with a unique seq when the run emits events after the soft timeout", async () => {

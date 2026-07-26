@@ -86,8 +86,8 @@ export async function runDashboardReportsOnce(): Promise<{
     remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
+      const retryAt = dashboardReportRetryAt(sub);
       try {
-        const retryAt = dashboardReportRetryAt(sub);
         const result = await runWithRequestContext(
           {
             userEmail: sub.ownerEmail,
@@ -138,7 +138,13 @@ export async function runDashboardReportsOnce(): Promise<{
           `[dashboard-report] Subscription ${sub.id} failed:`,
           message,
         );
-        await persistDashboardReportResult(sub, "error", message);
+        if (retryAt) {
+          await persistDashboardReportResult(sub, "error", message, {
+            nextRunAt: retryAt,
+          });
+        } else {
+          await persistDashboardReportResult(sub, "error", message);
+        }
       }
     }
   } finally {

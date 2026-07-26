@@ -13,12 +13,16 @@
  *
  *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts
  *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts --subscription <id> --out /tmp/report
+ *   pnpm --filter analytics exec tsx --env-file=.env scripts/preview-dashboard-report.ts --dashboard <id> --out /tmp/report
+ *
+ * Exits non-zero when any panel degraded, so it works as a check.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index";
 import { collectReportSnapshot } from "../server/lib/dashboard-report";
@@ -26,16 +30,74 @@ import {
   fetchReportPanelData,
   renderReportEmail,
 } from "../server/lib/dashboard-report-render";
-import { getDashboardReportSubscription } from "../server/lib/dashboard-report-subscriptions";
+import {
+  getDashboardReportSubscription,
+  type DashboardReportSubscription,
+} from "../server/lib/dashboard-report-subscriptions";
 
 function arg(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+/**
+ * Renders any dashboard, not just a subscribed one, so panel types and sources
+ * the single real subscription never exercises can still be verified. Scoped to
+ * the dashboard's own owner so `getReportDashboard`'s access check is the same
+ * one the scheduler goes through.
+ */
+async function subscriptionForDashboard(
+  dashboardId: string,
+): Promise<DashboardReportSubscription> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({
+      id: schema.dashboards.id,
+      title: schema.dashboards.title,
+      ownerEmail: schema.dashboards.ownerEmail,
+      orgId: schema.dashboards.orgId,
+    })
+    .from(schema.dashboards)
+    .where(eq(schema.dashboards.id, dashboardId));
+  if (!row) throw new Error(`Dashboard ${dashboardId} not found`);
+
+  const now = new Date().toISOString();
+  return {
+    id: `preview-${dashboardId}`,
+    dashboardId,
+    name: row.title ?? dashboardId,
+    ownerEmail: row.ownerEmail,
+    orgId: row.orgId ?? null,
+    recipients: ["preview@example.invalid"],
+    filters: {},
+    frequency: "daily",
+    timeOfDay: "09:00",
+    timezone: "UTC",
+    enabled: false,
+    nextRunAt: null,
+    lastRunAt: null,
+    lastStatus: null,
+    lastError: null,
+    lastCaptureAt: null,
+    lastCaptureMode: null,
+    lastCaptureError: null,
+    createdAt: now,
+    updatedAt: now,
+  } as DashboardReportSubscription;
+}
+
 async function main() {
   const outDir = arg("out") ?? join(process.cwd(), ".report-preview");
   const wantedId = arg("subscription");
+  const wantedDashboard = arg("dashboard");
+
+  if (wantedDashboard) {
+    await renderPreview(
+      await subscriptionForDashboard(wantedDashboard),
+      outDir,
+    );
+    return;
+  }
 
   const db = getDb() as any;
   const rows = await db
@@ -72,6 +134,13 @@ async function main() {
     );
   }
 
+  await renderPreview(sub, outDir);
+}
+
+async function renderPreview(
+  sub: DashboardReportSubscription,
+  outDir: string,
+): Promise<void> {
   console.log(
     `[preview] subscription=${sub.id} dashboard=${sub.dashboardId} owner=${sub.ownerEmail} org=${sub.orgId ?? "none"}`,
   );
