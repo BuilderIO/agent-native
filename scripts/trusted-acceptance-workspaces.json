@@ -1,9 +1,13 @@
 {
-  "revision": "1",
+  "revision": "2",
   "workspaces": [
     {
       "id": "calendar-content",
       "enabled": false,
+      "runtimeAuthority": {
+        "lifecycle": "ephemeral-per-run",
+        "provisioner": "unconfigured"
+      },
       "assertions": [
         "A1",
         "A2",

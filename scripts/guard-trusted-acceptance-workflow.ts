@@ -161,6 +161,13 @@ export function validateTrustedAcceptanceWorkflow(
       "trusted acceptance must not depend on production Netlify custody",
     );
   }
+  if (
+    !source.includes("CONFIG_FILE: scripts/trusted-acceptance-workspaces.json")
+  ) {
+    issues.push(
+      "workflow must use the guarded runtime-authority configuration",
+    );
+  }
 
   return { ok: issues.length === 0, issues };
 }
@@ -171,6 +178,26 @@ function main(): void {
     "utf8",
   );
   const result = validateTrustedAcceptanceWorkflow(workflow);
+  const config = JSON.parse(
+    readFileSync("scripts/trusted-acceptance-workspaces.json", "utf8"),
+  ) as {
+    workspaces?: Array<{
+      runtimeAuthority?: { lifecycle?: string; provisioner?: string };
+    }>;
+  };
+  if (
+    !config.workspaces?.length ||
+    config.workspaces.some(
+      ({ runtimeAuthority }) =>
+        runtimeAuthority?.lifecycle !== "ephemeral-per-run" ||
+        runtimeAuthority.provisioner !== "unconfigured",
+    )
+  ) {
+    result.ok = false;
+    result.issues.push(
+      "bootstrap must fail closed without a trusted ephemeral runtime authority provisioner",
+    );
+  }
   if (!result.ok) {
     for (const issue of result.issues)
       console.error(`[trusted-acceptance] ${issue}`);

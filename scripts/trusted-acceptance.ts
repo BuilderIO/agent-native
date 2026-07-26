@@ -37,6 +37,10 @@ export type TrustedAcceptanceMember = {
 export type TrustedAcceptanceWorkspace = {
   id: string;
   enabled: boolean;
+  runtimeAuthority: {
+    lifecycle: "ephemeral-per-run";
+    provisioner: "unconfigured";
+  };
   assertions: string[];
   members: TrustedAcceptanceMember[];
 };
@@ -134,6 +138,19 @@ export function validateTrustedAcceptanceConfig(
       });
     }
     workspaceIds.add(workspace.id);
+    if (workspace.runtimeAuthority?.lifecycle !== "ephemeral-per-run") {
+      issues.push({
+        path: `${workspacePath}.runtimeAuthority.lifecycle`,
+        message: "must require disposable per-run runtime authority",
+      });
+    }
+    if (workspace.runtimeAuthority?.provisioner !== "unconfigured") {
+      issues.push({
+        path: `${workspacePath}.runtimeAuthority.provisioner`,
+        message:
+          "must remain unconfigured until a trusted lease provider is implemented",
+      });
+    }
     if (workspace.assertions.length === 0) {
       issues.push({
         path: `${workspacePath}.assertions`,
@@ -256,6 +273,7 @@ export type TrustedAcceptancePlan = {
   revision: string;
   workspace: string;
   enabled: boolean;
+  runtimeAuthority: TrustedAcceptanceWorkspace["runtimeAuthority"];
   assertions: string[];
   members: TrustedAcceptanceMember[];
 };
@@ -292,6 +310,21 @@ export function createTrustedAcceptancePlan(
       ],
     };
   }
+  if (
+    !allowDisabled &&
+    workspace.runtimeAuthority.provisioner === "unconfigured"
+  ) {
+    return {
+      ok: false,
+      issues: [
+        {
+          path: "workspace.runtimeAuthority.provisioner",
+          message:
+            "has no trusted ephemeral runtime authority provisioner; live deployment is unavailable",
+        },
+      ],
+    };
+  }
 
   return {
     ok: true,
@@ -299,6 +332,7 @@ export function createTrustedAcceptancePlan(
       revision: config.revision,
       workspace: workspace.id,
       enabled: workspace.enabled,
+      runtimeAuthority: workspace.runtimeAuthority,
       assertions: workspace.assertions,
       members: workspace.members,
     },

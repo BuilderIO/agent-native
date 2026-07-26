@@ -20,6 +20,10 @@ function config(): TrustedAcceptanceConfig {
       {
         id: "calendar-content-acceptance",
         enabled: false,
+        runtimeAuthority: {
+          lifecycle: "ephemeral-per-run",
+          provisioner: "unconfigured",
+        },
         assertions: ["A1", "A2", "A3"],
         members: [
           {
@@ -73,6 +77,10 @@ describe("trusted acceptance configuration", () => {
     fixture.workspaces.push({
       id: "third-template-acceptance",
       enabled: false,
+      runtimeAuthority: {
+        lifecycle: "ephemeral-per-run",
+        provisioner: "unconfigured",
+      },
       assertions: ["A1"],
       members: [
         {
@@ -180,6 +188,46 @@ describe("trusted acceptance configuration", () => {
       assert.deepEqual(
         dryRun.plan.members.map(({ template }) => template),
         ["calendar", "content"],
+      );
+    }
+  });
+
+  it("fails closed if activation is attempted without an ephemeral authority provisioner", () => {
+    const fixture = config();
+    fixture.workspaces[0]!.enabled = true;
+    const result = createTrustedAcceptancePlan(
+      fixture,
+      ["calendar", "content"],
+      "calendar-content-acceptance",
+      false,
+    );
+    assert.deepEqual(result, {
+      ok: false,
+      issues: [
+        {
+          path: "workspace.runtimeAuthority.provisioner",
+          message:
+            "has no trusted ephemeral runtime authority provisioner; live deployment is unavailable",
+        },
+      ],
+    });
+  });
+
+  it("rejects reusable runtime authority configuration", () => {
+    const fixture = config();
+    (
+      fixture.workspaces[0]!.runtimeAuthority as { lifecycle: string }
+    ).lifecycle = "workspace-static";
+    const result = validateTrustedAcceptanceConfig(fixture, [
+      "calendar",
+      "content",
+    ]);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert(
+        result.issues.some(
+          ({ path }) => path === "workspaces[0].runtimeAuthority.lifecycle",
+        ),
       );
     }
   });

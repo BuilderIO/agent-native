@@ -17,8 +17,9 @@ The `calendar-content` pilot in
 `scripts/trusted-acceptance-workspaces.json` is checked in with `enabled: false`.
 The workflow can validate an open PR, produce the generic app matrix, and build
 the candidate without runtime or deployment credentials. A live deployment
-fails closed until a reviewed change enables the workspace after its isolated
-resources have been provisioned.
+fails closed even if the flag is changed: the bootstrap config deliberately has
+no runtime-authority provisioner. A later reviewed change must implement the
+trusted per-run credential lease and cleanup path before activation.
 
 ## Custody boundaries
 
@@ -56,18 +57,43 @@ Provisioning is an infrastructure-owner operation after the controller is on
 the default branch. Create new non-production resources; do not reuse or copy
 production or ordinary-preview values.
 
-For each app:
+Candidate server code can read every value available to its hosted runtime.
+Therefore a long-lived acceptance database credential, Better Auth secret, or
+A2A secret is not an isolation boundary: a candidate could retain it after the
+run. Static runtime credentials configured directly on the stable acceptance
+sites are forbidden.
+
+Before this workspace can be enabled, a follow-up implementation must add a
+trusted runtime-authority provisioner that:
+
+- creates a fresh, revocable database credential over synthetic data for each
+  run;
+- generates fresh Better Auth and shared-workspace A2A secrets for that run;
+- installs those values on the acceptance sites only after candidate build
+  artifacts are inert and verified;
+- revokes or rotates every leased value in an `always()` cleanup path, including
+  failed and cancelled acceptance runs; and
+- records only lease identifiers, issue/revocation timestamps, and cleanup
+  status in the redacted receipt. A receipt cannot pass until revocation is
+  confirmed.
+
+The candidate may inspect or corrupt its disposable lease while the test is in
+progress. Its authority must become useless when cleanup completes; production,
+ordinary previews, other workspaces, and later acceptance runs remain outside
+the blast radius.
+
+For each app, the infrastructure owner may prepare:
 
 - create a dedicated Netlify site and stable acceptance domain matching the
   configured origin;
-- create a dedicated database containing only synthetic users and fixtures;
-- create a unique Better Auth secret;
+- create an acceptance database service capable of issuing per-run revocable
+  credentials over synthetic users and fixtures;
 - set the exact acceptance origin as `APP_URL` and `BETTER_AUTH_URL`; and
-- configure the app's acceptance-only runtime values directly on that site.
+- leave reusable database, Better Auth, and A2A credentials off the site.
 
-All apps in one workspace share one acceptance-only A2A secret. That secret
-must not be used by production, previews, another workspace, or a provider
-integration.
+All apps in one workspace receive the same per-run A2A secret. It must be
+rotated after the run and must never be used by production, previews, another
+workspace, a provider integration, or a later acceptance run.
 
 Configure the protected GitHub Environment named `trusted-acceptance` with:
 
@@ -81,9 +107,12 @@ The repository contains key names and resource references only. Never put
 secret values, synthetic login credentials, tokens, or raw provider responses
 in the workspace config, workflow, docs, logs, or receipt.
 
-After a redacted inventory proves those resources are isolated, change the
-workspace to `enabled: true` in a reviewed PR. Keep GitHub Environment approval
-rules in place; enabling configuration is not permission to bypass them.
+After a redacted inventory proves those resources are isolated and the trusted
+provision/cleanup implementation has its own security review and tests, replace
+the bootstrap `unconfigured` provisioner and change the workspace to
+`enabled: true` in a reviewed PR. Changing only the flag still fails closed.
+Keep GitHub Environment approval rules in place; enabling configuration is not
+permission to bypass them.
 
 ## Run a dry plan
 
@@ -124,13 +153,15 @@ No workflow branch is required. Add a member or workspace entry containing:
 - a unique template ID that exists under `templates/`;
 - a stable, non-production HTTPS acceptance origin;
 - a unique acceptance-scoped Netlify site-variable name;
-- acceptance-scoped runtime key names;
+- acceptance-scoped runtime key names and an implemented disposable-authority
+  provisioner;
 - the template's build command and relative publish directory;
 - absolute health, protected-resource metadata, and MCP paths; and
 - the assertion IDs that the workspace must prove.
 
-Keep the entry disabled until its dedicated site, database, identity, A2A
-boundary, DNS, and protected-environment custody have been independently
+Keep the entry disabled and its provisioner unconfigured until its dedicated
+site, per-run database credential lease, per-run identity and A2A rotation,
+cleanup path, DNS, and protected-environment custody have been independently
 verified. Run the focused validator and workflow boundary tests before review:
 
 ```sh
