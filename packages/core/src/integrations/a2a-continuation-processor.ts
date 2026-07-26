@@ -2,6 +2,7 @@ import {
   appendA2AArtifactLinks,
   extractA2AArtifactIdentities,
   stripA2APersistedArtifactMarkers,
+  type A2AArtifactIdentity,
 } from "../a2a/artifact-response.js";
 import { A2AClient, signA2AToken } from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
@@ -18,15 +19,20 @@ import {
   claimA2AContinuation,
   claimA2AContinuationDelivery,
   claimDueA2AContinuations,
-  completeA2AContinuation,
   failA2AContinuationsForIntegrationTask,
   failA2AContinuation,
+  finalizeA2ATerminalHistory,
   getA2AContinuation,
-  hasActiveA2AContinuationsForIntegrationTask,
+  getA2AContinuationTaskOutcome,
+  hasPendingConfirmedA2ADeliveryForIntegrationTask,
   listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
+  recordA2ATerminalDeliveryReceipt,
   rescheduleA2AContinuation,
+  saveA2AVerifiedArtifactCheckpoint,
   type A2AContinuation,
+  type A2ATerminalDeliveryKind,
+  type A2ATerminalHistoryPayload,
   type RecoverableA2AIntegrationTask,
 } from "./a2a-continuations-store.js";
 import {
@@ -66,6 +72,23 @@ const POLL_REQUEST_TIMEOUT_MS = 8_000;
 const PLATFORM_SEND_TIMEOUT_MS = 12_000;
 const DISPATCH_SETTLE_WAIT_MS = 2_000;
 const COMPLETE_AFTER_DELIVERY_ATTEMPTS = 3;
+
+function logA2AContinuationTransition(
+  event: string,
+  continuation: Pick<
+    A2AContinuation,
+    "id" | "integrationTaskId" | "a2aTaskId" | "attempts" | "status"
+  >,
+): void {
+  console.info("[integrations] a2a-continuation-transition", {
+    event,
+    continuationId: continuation.id,
+    integrationTaskId: continuation.integrationTaskId,
+    downstreamTaskId: continuation.a2aTaskId,
+    attempt: continuation.attempts,
+    status: continuation.status,
+  });
+}
 
 export async function dispatchA2AContinuation(
   continuationId: string,
@@ -153,17 +176,82 @@ export async function processA2AContinuationById(
   await processClaimedContinuation(continuation, options);
 }
 
+export async function recoverA2AContinuationAfterProcessorFailure(
+  continuationId: string,
+  options: {
+    adapters: Map<string, PlatformAdapter>;
+    reason: string;
+  },
+): Promise<void> {
+  const continuation = await getA2AContinuation(continuationId);
+  if (
+    !continuation ||
+    continuation.status === "completed" ||
+    continuation.status === "failed"
+  ) {
+    return;
+  }
+  if (
+    continuation.terminalDeliveryConfirmedAt != null &&
+    continuation.terminalHistoryPayload
+  ) {
+    await persistAndFinalizeConfirmedA2ADelivery(continuation);
+    return;
+  }
+  const adapter = options.adapters.get(continuation.platform);
+  if (continuation.attempts < MAX_ATTEMPTS || !adapter) {
+    logA2AContinuationTransition("processor_released", continuation);
+    await rescheduleAndRedispatchA2AContinuation(continuation.id);
+    return;
+  }
+
+  const progress = await resumeA2AContinuationProgress(continuation, adapter);
+  if (continuation.verifiedArtifactCheckpoint) {
+    logA2AContinuationTransition(
+      "processor_exhausted_checkpoint_delivery",
+      continuation,
+    );
+    await deliverAndCompleteA2AContinuation(
+      continuation,
+      adapter,
+      formatRecoverableArtifactFallbackText(
+        continuation.verifiedArtifactCheckpoint,
+      ),
+      progress,
+    );
+    return;
+  }
+  logA2AContinuationTransition(
+    "processor_exhausted_failure_notice",
+    continuation,
+  );
+  await notifyAndFailA2AContinuation(
+    continuation,
+    adapter,
+    options.reason,
+    progress,
+  );
+}
+
 export async function processDueA2AContinuations(options: {
   adapters: Map<string, PlatformAdapter>;
   limit?: number;
 }): Promise<void> {
   const continuations = await claimDueA2AContinuations(options.limit ?? 5);
   for (const continuation of continuations) {
-    await processClaimedContinuation(continuation, options).catch((err) =>
-      console.error(
-        `[integrations] A2A continuation ${continuation.id} failed:`,
-        err,
-      ),
+    await processClaimedContinuation(continuation, options).catch(
+      async (err) => {
+        console.error(
+          `[integrations] A2A continuation ${continuation.id} failed; durable recovery requested`,
+        );
+        await recoverA2AContinuationAfterProcessorFailure(continuation.id, {
+          adapters: options.adapters,
+          reason:
+            err instanceof Error
+              ? err.message.slice(0, 500)
+              : "continuation processing failed",
+        });
+      },
     );
   }
 }
@@ -182,6 +270,7 @@ export async function recoverDueA2AContinuations(options?: {
   const limit = options?.limit ?? 5;
   const candidateTasks = await listRecoverableA2AIntegrationTasks(200);
   const eligibleTaskIds: string[] = [];
+  const confirmedHistoryTaskIds: string[] = [];
   for (const task of candidateTasks) {
     const enabled = isIntegrationDurableDispatchEnabledForTask({
       platform: task.platform,
@@ -192,12 +281,24 @@ export async function recoverDueA2AContinuations(options?: {
     });
     if (enabled) {
       eligibleTaskIds.push(task.id);
-      if (eligibleTaskIds.length >= limit) break;
+    } else if (task.hasPendingConfirmedDelivery) {
+      confirmedHistoryTaskIds.push(task.id);
     } else {
       await failDisabledDurableA2ATask(task);
     }
+    if (eligibleTaskIds.length + confirmedHistoryTaskIds.length >= limit) break;
   }
   const ids = await recoverDueA2AContinuationIds(limit, eligibleTaskIds);
+  const remaining = Math.max(0, limit - ids.length);
+  const confirmedHistoryIds =
+    remaining > 0 && confirmedHistoryTaskIds.length > 0
+      ? await recoverDueA2AContinuationIds(
+          remaining,
+          confirmedHistoryTaskIds,
+          true,
+        )
+      : [];
+  ids.push(...confirmedHistoryIds);
   let dispatched = 0;
   let failed = 0;
 
@@ -223,6 +324,13 @@ async function processClaimedContinuation(
   continuation: A2AContinuation,
   options: { adapters: Map<string, PlatformAdapter> },
 ): Promise<void> {
+  if (
+    continuation.terminalDeliveryConfirmedAt != null &&
+    continuation.terminalHistoryPayload
+  ) {
+    await persistAndFinalizeConfirmedA2ADelivery(continuation);
+    return;
+  }
   if (!(await durableContinuationScopeStillEnabled(continuation))) return;
   const adapter = options.adapters.get(continuation.platform);
   if (!adapter) {
@@ -244,7 +352,7 @@ async function processClaimedContinuation(
   const recoverableArtifactSecrets =
     await resolveContinuationArtifactSecrets(continuation);
   let task: Task | null = null;
-  let latestRecoverableArtifactText: string | null = null;
+  let latestRecoverableArtifactText = continuation.verifiedArtifactCheckpoint;
 
   try {
     while (Date.now() < deadline) {
@@ -255,7 +363,13 @@ async function processClaimedContinuation(
         recoverableArtifactSecrets,
       );
       if (recoverableArtifactText) {
-        latestRecoverableArtifactText = recoverableArtifactText;
+        latestRecoverableArtifactText = await saveA2AVerifiedArtifactCheckpoint(
+          continuation.id,
+          recoverableArtifactText,
+        );
+        if (latestRecoverableArtifactText) {
+          logA2AContinuationTransition("checkpoint_persisted", continuation);
+        }
       }
       if (TERMINAL_STATES.has(task.status.state)) break;
       await reportA2AContinuationProgress(continuation, progress, task);
@@ -287,6 +401,15 @@ async function processClaimedContinuation(
       return;
     }
     if (continuation.attempts >= MAX_ATTEMPTS) {
+      if (latestRecoverableArtifactText) {
+        await deliverAndCompleteA2AContinuation(
+          continuation,
+          adapter,
+          formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+          progress,
+        );
+        return;
+      }
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
@@ -396,6 +519,19 @@ async function durableContinuationScopeStillEnabled(
     });
   if (enabled) return true;
 
+  if (
+    await hasPendingConfirmedA2ADeliveryForIntegrationTask(
+      continuation.integrationTaskId,
+    )
+  ) {
+    await failA2AContinuation(
+      continuation.id,
+      "Durable integration campaign was disabled before this continuation delivered",
+    );
+    await reconcileTerminalA2AParentIfDisabled(continuation.integrationTaskId);
+    return false;
+  }
+
   await failDisabledDurableA2ATask({
     id: continuation.integrationTaskId,
     platform: task?.platform ?? continuation.platform,
@@ -428,6 +564,38 @@ async function failDisabledDurableA2ATask(
       },
     });
   }
+}
+
+export async function reconcileTerminalA2AParentIfDisabled(
+  integrationTaskId: string,
+): Promise<boolean> {
+  if (
+    (await getA2AContinuationTaskOutcome(integrationTaskId)) !==
+    "terminal-without-delivery"
+  ) {
+    return false;
+  }
+  const task = await getPendingTask(integrationTaskId);
+  if (
+    !task ||
+    isIntegrationDurableDispatchEnabledForTask({
+      platform: task.platform,
+      externalThreadId: task.externalThreadId,
+      platformContext: task.dispatchScope
+        ? { channelId: task.dispatchScope }
+        : undefined,
+    })
+  ) {
+    return false;
+  }
+  await failDisabledDurableA2ATask({
+    id: task.id,
+    platform: task.platform,
+    externalThreadId: task.externalThreadId,
+    dispatchScope: task.dispatchScope,
+    status: task.status,
+  });
+  return true;
 }
 
 async function resumeA2AContinuationProgress(
@@ -507,14 +675,20 @@ async function notifyAndFailA2AContinuation(
     continuation.id,
   );
   if (!deliveryContinuation) return;
+  logA2AContinuationTransition(
+    "failure_delivery_claimed",
+    deliveryContinuation,
+  );
 
   const message = formatContinuationFailureMessage(
     deliveryContinuation,
     reason,
   );
+  let outgoing: OutgoingMessage;
+  let deliveryReceipt: PlatformDeliveryReceipt;
   try {
-    const outgoing = adapter.formatAgentResponse(message);
-    await withTimeout(
+    outgoing = adapter.formatAgentResponse(message);
+    deliveryReceipt = await withTimeout(
       deliverA2AContinuationResponse(
         adapter,
         deliveryContinuation,
@@ -530,17 +704,20 @@ async function notifyAndFailA2AContinuation(
       `[integrations] Failed to notify ${deliveryContinuation.platform} about failed A2A continuation ${deliveryContinuation.id}:`,
       err,
     );
-    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
-      await failA2AContinuation(deliveryContinuation.id, reason);
-      await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
-      return;
-    }
     await rescheduleAndRedispatchA2AContinuation(deliveryContinuation.id);
     return;
   }
 
-  await failA2AContinuation(deliveryContinuation.id, reason);
-  await completeParentCampaignAfterTerminalA2A(deliveryContinuation);
+  const confirmed = await recordTerminalA2ADelivery(
+    deliveryContinuation,
+    "failure",
+    outgoing,
+    deliveryReceipt,
+    [],
+    reason,
+  );
+  if (!confirmed) return;
+  await persistAndFinalizeConfirmedA2ADelivery(confirmed);
 }
 
 async function deliverAndCompleteA2AContinuation(
@@ -554,12 +731,24 @@ async function deliverAndCompleteA2AContinuation(
     continuation.id,
   );
   if (!deliveryContinuation) return;
+  logA2AContinuationTransition(
+    "response_delivery_claimed",
+    deliveryContinuation,
+  );
 
+  let outgoing: OutgoingMessage;
+  let deliveryReceipt: PlatformDeliveryReceipt;
+  const artifactSecrets =
+    await resolveContinuationArtifactSecrets(deliveryContinuation);
+  const artifacts = extractA2AArtifactIdentities(
+    [{ tool: "call-agent", result: text }],
+    { persistedArtifactSecrets: artifactSecrets },
+  );
   try {
-    const outgoing = adapter.formatAgentResponse(
+    outgoing = adapter.formatAgentResponse(
       stripA2APersistedArtifactMarkers(text),
     );
-    const deliveryReceipt = await withTimeout(
+    deliveryReceipt = await withTimeout(
       deliverA2AContinuationResponse(
         adapter,
         deliveryContinuation,
@@ -570,43 +759,19 @@ async function deliverAndCompleteA2AContinuation(
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
     );
-    let persistenceError: unknown;
-    const artifactSecrets =
-      await resolveContinuationArtifactSecrets(deliveryContinuation);
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        await persistA2AContinuationDelivery(
-          deliveryContinuation,
-          outgoing,
-          deliveryReceipt,
-          text,
-          artifactSecrets,
-        );
-        persistenceError = undefined;
-        break;
-      } catch (err) {
-        persistenceError = err;
-      }
-    }
-    if (persistenceError) {
-      console.error(
-        `[integrations] Delivered A2A continuation ${deliveryContinuation.id} but could not persist its thread history:`,
-        persistenceError,
-      );
-    }
-  } catch (err) {
-    if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
-      await failA2AContinuation(
-        deliveryContinuation.id,
-        err instanceof Error ? err.message : String(err),
-      );
-      return;
-    }
+    const confirmed = await recordTerminalA2ADelivery(
+      deliveryContinuation,
+      "success",
+      outgoing,
+      deliveryReceipt,
+      artifacts,
+    );
+    if (!confirmed) return;
+    await persistAndFinalizeConfirmedA2ADelivery(confirmed);
+  } catch {
     await rescheduleAndRedispatchA2AContinuation(deliveryContinuation.id);
     return;
   }
-
-  await completeAfterSuccessfulDelivery(deliveryContinuation);
 }
 
 async function deliverA2AContinuationResponse(
@@ -639,6 +804,7 @@ async function deliverA2AContinuationResponse(
       } catch {
         // The thread reply below is still the authoritative final answer.
       }
+      logA2AContinuationTransition("native_progress_fallback", continuation);
     }
   }
   const receipt = await adapter.sendResponse(message, continuation.incoming, {
@@ -652,10 +818,7 @@ async function deliverA2AContinuationResponse(
 
 async function persistA2AContinuationDelivery(
   continuation: A2AContinuation,
-  outgoing: OutgoingMessage,
-  receipt: PlatformDeliveryReceipt,
-  artifactText: string,
-  artifactSecrets: readonly string[],
+  history: A2ATerminalHistoryPayload,
 ): Promise<void> {
   const mapping = await getThreadMapping(
     continuation.platform,
@@ -673,33 +836,32 @@ async function persistA2AContinuationDelivery(
   }
   if (!Array.isArray(repo.messages)) repo.messages = [];
 
-  const artifacts = extractA2AArtifactIdentities(
-    [{ tool: "call-agent", result: artifactText }],
-    {
-      persistedArtifactSecrets: artifactSecrets,
-    },
-  );
   const metadata: Record<string, unknown> = {
     integrationDeliveryAttempted: true,
     integrationDelivery: {
       platform: continuation.platform,
       status: "delivered",
-      text: outgoing.text,
-      deliveredAt: new Date().toISOString(),
-      ...(receipt.messageRefs?.length
-        ? { messageRefs: receipt.messageRefs }
+      text: history.text,
+      deliveredAt: history.deliveredAt,
+      ...(history.messageRefs.length
+        ? { messageRefs: history.messageRefs }
         : {}),
     },
   };
-  if (artifacts.length > 0) metadata.integrationArtifacts = artifacts;
+  if (history.artifacts.length > 0) {
+    metadata.integrationArtifacts = history.artifacts;
+  }
 
-  repo.messages.push({
-    id: `msg-${Date.now()}-assistant-continuation`,
-    role: "assistant",
-    content: [{ type: "text", text: outgoing.text }],
-    createdAt: new Date().toISOString(),
-    metadata,
-  });
+  const messageId = `msg-${continuation.id}-assistant-continuation`;
+  if (!repo.messages.some((message: any) => message?.id === messageId)) {
+    repo.messages.push({
+      id: messageId,
+      role: "assistant",
+      content: [{ type: "text", text: history.text }],
+      createdAt: history.deliveredAt,
+      metadata,
+    });
+  }
   const meta = extractThreadMeta(repo);
   await updateThreadData(
     mapping.internalThreadId,
@@ -722,25 +884,75 @@ async function rescheduleAndRedispatchA2AContinuation(
   });
 }
 
-async function completeAfterSuccessfulDelivery(
+async function recordTerminalA2ADelivery(
   continuation: A2AContinuation,
-): Promise<void> {
-  let lastError: unknown;
+  kind: A2ATerminalDeliveryKind,
+  outgoing: OutgoingMessage,
+  receipt: PlatformDeliveryReceipt,
+  artifacts: A2AArtifactIdentity[],
+  errorMessage?: string,
+): Promise<A2AContinuation | null> {
+  const historyPayload: A2ATerminalHistoryPayload = {
+    text: outgoing.text,
+    deliveredAt: new Date().toISOString(),
+    messageRefs: receipt.messageRefs ?? [],
+    artifacts,
+  };
   for (let attempt = 0; attempt < COMPLETE_AFTER_DELIVERY_ATTEMPTS; attempt++) {
     try {
-      await completeA2AContinuation(continuation.id);
-      await completeParentCampaignAfterTerminalA2A(continuation);
+      const confirmed = await recordA2ATerminalDeliveryReceipt(
+        continuation.id,
+        kind,
+        historyPayload,
+        errorMessage,
+      );
+      logA2AContinuationTransition(
+        kind === "success"
+          ? "response_delivery_confirmed"
+          : "failure_delivery_confirmed",
+        continuation,
+      );
+      return confirmed;
+    } catch {}
+  }
+
+  console.error(
+    `[integrations] ${continuation.platform} accepted terminal A2A delivery for ${continuation.id}, ` +
+      `but recording its receipt failed after ${COMPLETE_AFTER_DELIVERY_ATTEMPTS} attempts. Leaving it in delivering for stale recovery.`,
+  );
+  return null;
+}
+
+async function persistAndFinalizeConfirmedA2ADelivery(
+  continuation: A2AContinuation,
+): Promise<void> {
+  const history = continuation.terminalHistoryPayload;
+  if (!history || continuation.terminalDeliveryConfirmedAt == null) {
+    throw new Error("Confirmed A2A delivery is missing durable history");
+  }
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await persistA2AContinuationDelivery(continuation, history);
+      await finalizeA2ATerminalHistory(continuation.id);
+      logA2AContinuationTransition("terminal_history_persisted", continuation);
+      await completeParentCampaignAfterTerminalA2A({
+        ...continuation,
+        status:
+          continuation.terminalDeliveryKind === "success"
+            ? "completed"
+            : "failed",
+      });
       return;
     } catch (err) {
       lastError = err;
     }
   }
-
   console.error(
-    `[integrations] ${continuation.platform} accepted A2A continuation ${continuation.id}, ` +
-      "but marking it completed failed. Leaving it in delivering for stale-delivery recovery.",
-    lastError,
+    `[integrations] A2A continuation ${continuation.id} has a provider receipt but its history remains retryable:`,
+    lastError instanceof Error ? lastError.name : "persistence_error",
   );
+  await rescheduleAndRedispatchA2AContinuation(continuation.id);
 }
 
 async function completeParentCampaignAfterTerminalA2A(
@@ -750,17 +962,31 @@ async function completeParentCampaignAfterTerminalA2A(
     continuation.integrationTaskId,
   );
   if (!campaign) return;
-  if (
-    await hasActiveA2AContinuationsForIntegrationTask(
-      continuation.integrationTaskId,
-    )
-  ) {
+  const outcome = await getA2AContinuationTaskOutcome(
+    continuation.integrationTaskId,
+  );
+  if (outcome !== "terminal-delivered") {
+    if (outcome === "terminal-without-delivery") {
+      if (
+        await reconcileTerminalA2AParentIfDisabled(
+          continuation.integrationTaskId,
+        )
+      ) {
+        return;
+      }
+    }
+    if (outcome !== "active") {
+      console.warn(
+        `[integrations] Refusing to complete A2A parent ${continuation.integrationTaskId} with outcome ${outcome}`,
+      );
+    }
     return;
   }
   const completed = await completeIntegrationCampaignTaskAfterA2A(
     continuation.integrationTaskId,
   );
   if (!completed) return;
+  logA2AContinuationTransition("parent_completed", continuation);
 
   const nextTask = await getNextPendingTaskForThread(
     continuation.platform,

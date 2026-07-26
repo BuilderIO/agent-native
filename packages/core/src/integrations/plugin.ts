@@ -36,12 +36,11 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
+  reconcileTerminalA2AParentIfDisabled,
+  recoverA2AContinuationAfterProcessorFailure,
   recoverDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import {
-  failA2AContinuation,
-  hasActiveA2AContinuationsForIntegrationTask,
-} from "./a2a-continuations-store.js";
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import { mergeIntegrationAdapters } from "./adapter-overrides.js";
 import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
@@ -2113,16 +2112,26 @@ export function createIntegrationsPlugin(
                     );
                     if (!waiting) return "campaign-active" as const;
                   }
-                  if (
-                    !(await hasActiveA2AContinuationsForIntegrationTask(
-                      task.id,
-                    ))
-                  ) {
+                  const a2aOutcome = await getA2AContinuationTaskOutcome(
+                    task.id,
+                  );
+                  if (a2aOutcome === "terminal-delivered") {
                     const completed =
                       await completeIntegrationCampaignTaskAfterA2A(task.id);
                     return completed
                       ? ("completed" as const)
                       : ("campaign-active" as const);
+                  }
+                  if (
+                    a2aOutcome === "terminal-without-delivery" &&
+                    (await reconcileTerminalA2AParentIfDisabled(task.id))
+                  ) {
+                    return "campaign-failed" as const;
+                  }
+                  if (a2aOutcome !== "active") {
+                    console.warn(
+                      `[integrations] Waiting campaign ${task.id} has A2A outcome ${a2aOutcome} without terminal delivery proof`,
+                    );
                   }
                   return "campaign-active" as const;
                 }
@@ -2387,15 +2396,18 @@ export function createIntegrationsPlugin(
             adapters: adapterMap,
           });
         } catch (err: any) {
-          // Mark the continuation failed so it isn't left dangling, and surface
-          // a 500 to the caller instead of leaking an unhandled rejection.
-          await failA2AContinuation(
-            continuationId,
-            err?.message?.slice(0, 500) || "continuation processing failed",
-          ).catch(() => {});
+          const reason =
+            err?.message?.slice(0, 500) || "continuation processing failed";
+          await recoverA2AContinuationAfterProcessorFailure(continuationId, {
+            adapters: adapterMap,
+            reason,
+          }).catch(() => {
+            console.error(
+              `[integrations] A2A continuation ${continuationId} recovery scheduling failed`,
+            );
+          });
           console.error(
-            "[integrations] process-a2a-continuation failure:",
-            err,
+            `[integrations] process-a2a-continuation failure for ${continuationId}; durable recovery requested`,
           );
           setResponseStatus(event, 500);
           return { error: "Failed to process A2A continuation" };

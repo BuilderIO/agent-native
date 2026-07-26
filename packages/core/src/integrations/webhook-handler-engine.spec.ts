@@ -39,7 +39,10 @@ const completeIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
 const heartbeatIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const waitForA2AIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const failIntegrationCampaignMock = vi.hoisted(() => vi.fn());
-const hasActiveA2AContinuationsMock = vi.hoisted(() => vi.fn());
+const getA2AContinuationTaskOutcomeMock = vi.hoisted(() => vi.fn());
+const reconcileTerminalA2AParentIfDisabledMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const appendDurableContinuationContextMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
@@ -87,7 +90,12 @@ vi.mock("./integration-campaigns-store.js", () => ({
 }));
 
 vi.mock("./a2a-continuations-store.js", () => ({
-  hasActiveA2AContinuationsForIntegrationTask: hasActiveA2AContinuationsMock,
+  getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
+}));
+
+vi.mock("./a2a-continuation-processor.js", () => ({
+  reconcileTerminalA2AParentIfDisabled:
+    reconcileTerminalA2AParentIfDisabledMock,
 }));
 
 vi.mock("./integration-durable-dispatch.js", () => ({
@@ -307,7 +315,7 @@ describe("integration webhook handler engine resolution", () => {
     heartbeatIntegrationCampaignMock.mockResolvedValue(true);
     waitForA2AIntegrationCampaignMock.mockResolvedValue(true);
     failIntegrationCampaignMock.mockResolvedValue(true);
-    hasActiveA2AContinuationsMock.mockResolvedValue(false);
+    getA2AContinuationTaskOutcomeMock.mockResolvedValue("terminal-delivered");
     dispatchPendingIntegrationTaskMock.mockResolvedValue(
       "background-acknowledged",
     );
@@ -2018,7 +2026,7 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
-  it("finishes a waiting campaign only after downstream A2A is terminal", async () => {
+  it("does not finish a waiting campaign merely because no active A2A continuation remains", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     createIntegrationCampaignMock.mockResolvedValueOnce({
       id: "campaign-qa",
@@ -2037,7 +2045,9 @@ describe("integration webhook handler engine resolution", () => {
         checkpoint: JSON.stringify({ waitingForA2A: true }),
       },
     });
-    hasActiveA2AContinuationsMock.mockResolvedValueOnce(false);
+    getA2AContinuationTaskOutcomeMock.mockResolvedValueOnce(
+      "terminal-without-delivery",
+    );
 
     const result = await processIntegrationTask(
       pendingTask({ id: "task-a2a" }),
@@ -2052,9 +2062,9 @@ describe("integration webhook handler engine resolution", () => {
       { enabled: true, continuationInvocation: true },
     );
 
-    expect(result).toEqual({ status: "completed" });
-    expect(hasActiveA2AContinuationsMock).toHaveBeenCalledWith("task-a2a");
-    expect(completeIntegrationCampaignTaskMock).toHaveBeenCalled();
+    expect(result).toEqual({ status: "campaign-pending" });
+    expect(getA2AContinuationTaskOutcomeMock).toHaveBeenCalledWith("task-a2a");
+    expect(completeIntegrationCampaignTaskMock).not.toHaveBeenCalled();
     expect(startRunMock).not.toHaveBeenCalled();
   });
 
