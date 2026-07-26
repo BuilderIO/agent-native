@@ -10,17 +10,17 @@ Read the matching skill in `.agents/skills/` before working in that area.
 
 | Skill                      | Read before                                                                                     |
 | -------------------------- | ----------------------------------------------------------------------------------------------- |
-| `workspace-conventions`    | Shared vs app-owned code, file/blob storage, env and secrets, scratch files, Dispatch Resources  |
-| `adding-workspace-apps`    | Creating, scaffolding, mounting, or branding an app under `apps/<app-name>`                      |
-| `agent-native-docs`        | Looking up version-matched framework docs, slugs, or the bundled source corpus                   |
-| `agent-native-toolkit`     | Building workspace or agent UI, app chrome, settings, sharing, or collaboration                  |
-| `customizing-agent-native` | Adapting, overriding, or ejecting shared framework UI                                            |
-| `delegate-to-agent`        | Building agent-driven UI or any "AI" feature                                                     |
-| `actions`                  | Adding or changing an app operation the agent and UI share                                       |
+| `workspace-conventions`    | Shared vs app-owned code, file/blob storage, env and secrets, scratch files, Dispatch Resources |
+| `adding-workspace-apps`    | Creating, scaffolding, mounting, or branding an app under `apps/<app-name>`                     |
+| `agent-native-docs`        | Looking up version-matched framework docs, slugs, or the bundled source corpus                  |
+| `agent-native-toolkit`     | Building workspace or agent UI, app chrome, settings, sharing, or collaboration                 |
+| `customizing-agent-native` | Adapting, overriding, or ejecting shared framework UI                                           |
+| `delegate-to-agent`        | Building agent-driven UI or any "AI" feature                                                    |
+| `actions`                  | Adding or changing an app operation the agent and UI share                                      |
 | `composable-mini-apps`     | Cross-app workflows, headless mini-apps, and A2A handoffs                                       |
 | `shadcn-ui`                | Adding, updating, or debugging a shadcn/ui primitive                                            |
-| `security`, `sharing`      | Access scoping, ownable data, and sharing user-authored resources                                |
-| `automations`              | Event-triggered or scheduled background work (with `recurring-jobs`)                             |
+| `security`, `sharing`      | Access scoping, ownable data, and sharing user-authored resources                               |
+| `automations`              | Event-triggered or scheduled background work (with `recurring-jobs`)                            |
 
 ## Shared Context
 
@@ -75,7 +75,7 @@ workspace-specific conventions.
 
 ## Actions
 
-| Action          | Purpose                                                          |
-| --------------- | ---------------------------------------------------------------- |
-| `docs-search`   | Search version-matched framework docs by query or slug, or list  |
+| Action          | Purpose                                                           |
+| --------------- | ----------------------------------------------------------------- |
+| `docs-search`   | Search version-matched framework docs by query or slug, or list   |
 | `source-search` | Search the bundled core/template source corpus by pattern or path |

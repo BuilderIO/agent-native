@@ -690,6 +690,12 @@ the prototype. **Never link screens with real URLs.** Use one of:
 External links (`https://…`) are allowed — the editor opens them in a new tab.
 Never use `target="_top"` or relative paths expecting a real page load.
 
+## Locked subtrees
+
+Treat `data-agent-native-locked="true"` as authoritative: locked elements and
+their descendants stay byte-for-byte unchanged, and the server enforces this.
+Ask the user to unlock the layer in the Layers panel if they want it changed.
+
 ## Making edits — minimal, scoped "smart" diffs
 
 When refining an existing design, change the **smallest** amount possible. Full

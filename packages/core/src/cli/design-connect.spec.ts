@@ -836,6 +836,129 @@ describe("design connect bridge endpoints", () => {
     }
   });
 
+  it("proxies a query-string-suffixed asset request to the dev server byte-for-byte, without dropping or rewriting the query", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    // Vite's `?url` module convention is recognized only for the EXACT
+    // valueless query `?url`; a proxy bug that turns it into `?url=` (or
+    // drops it) makes Vite fall back to serving a completely different
+    // response for the same asset path.
+    const tinyModule = 'export default "/app/global.css"';
+    const rawFallback = "/* raw unprocessed source, not the ?url module */";
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/app/global.css?url") {
+        res.writeHead(200, { "content-type": "text/javascript" });
+        res.end(tinyModule);
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(rawFallback);
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // previewToken supplied via header: the query string reaching the
+      // bridge never contains "previewToken" at all.
+      const viaHeader = await getText(`${base}/app/global.css?url`, {
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(viaHeader.status).toBe(200);
+      expect(viaHeader.body).toBe(tinyModule);
+      expect(viaHeader.headers["content-type"]).toContain("text/javascript");
+
+      // previewToken supplied via query string alongside the valueless
+      // `url` flag: only the previewToken pair may be removed, and the
+      // remaining query must reach the dev server as the bare `?url`
+      // Vite expects, not `?url=` or `?url=&...`.
+      const viaQuery = await getText(
+        `${base}/app/global.css?url&previewToken=${bridge.previewToken}`,
+      );
+      expect(viaQuery.status).toBe(200);
+      expect(viaQuery.body).toBe(tinyModule);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("routes the proxied app's own manifest.json to the dev server instead of the bridge's control-plane manifest", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const proxiedAppManifest = { name: "Proxied App", start_url: "/" };
+    const devServer = http.createServer((req, res) => {
+      if (req.url === "/manifest.json") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(proxiedAppManifest));
+        return;
+      }
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const base = `http://127.0.0.1:${port}`;
+
+      // Existing control-plane callers (the Design app, and
+      // fetchRunningBridgeManifest used by `design connect --json` / daemon
+      // self-detection) never send Sec-Fetch-Dest, so /manifest.json keeps
+      // returning the bridge's own manifest, still gated by the token.
+      const unauthenticated = await getJson(`${base}/manifest.json`);
+      expect(unauthenticated.status).toBe(401);
+
+      const controlPlane = await getJson(`${base}/manifest.json`, {
+        "x-design-preview-token": bridge.previewToken,
+      });
+      expect(controlPlane.status).toBe(200);
+      expect(controlPlane.body["source"]).toBe("agent-native-design-connect");
+
+      // A real browser's <link rel="manifest"> fetch (re-pointed at the
+      // bridge origin by the injected <base href>) tags its request with
+      // Sec-Fetch-Dest: manifest, a header page JS cannot set. That request
+      // must reach the PROXIED APP's manifest, and — matching the target
+      // dev server, which serves this path unauthenticated — must not be
+      // blocked by a missing preview token.
+      const proxied = await getJson(`${base}/manifest.json`, {
+        "sec-fetch-dest": "manifest",
+      });
+      expect(proxied.status).toBe(200);
+      expect(proxied.body).toEqual(proxiedAppManifest);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
   it("keeps cookie and bearer auth shared across authenticated live-edit routes", async () => {
     const root = tmpDir();
     const devPort = await freePort();

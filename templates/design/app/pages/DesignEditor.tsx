@@ -29454,9 +29454,7 @@ function DesignEditor() {
                               onClick={handleCopyPendingVisualStylePrompt}
                             >
                               <IconClipboard className="mr-2 h-4 w-4" />
-                              {t(
-                                "designEditor.pendingVisualStyles.copyPrompt",
-                              )}
+                              {t("designEditor.pendingVisualStyles.copyPrompt")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive focus:text-destructive"

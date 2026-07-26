@@ -1123,7 +1123,9 @@ function stripPreviewTokenQueryParam(search: string): string {
   const raw = search.startsWith("?") ? search.slice(1) : search;
   const kept = raw
     .split("&")
-    .filter((pair) => pair !== "previewToken" && !pair.startsWith("previewToken="));
+    .filter(
+      (pair) => pair !== "previewToken" && !pair.startsWith("previewToken="),
+    );
   return kept.length > 0 ? `?${kept.join("&")}` : "";
 }
 
@@ -2258,17 +2260,6 @@ export async function startDesignConnectBridge(
       const isProxiedAppManifestRequest =
         pathname === "/manifest.json" &&
         readHeader(req, "sec-fetch-dest") === "manifest";
-      if (pathname === "/manifest.json") {
-        console.error(
-          "[DEBUG manifest]",
-          JSON.stringify({
-            secFetchDest: readHeader(req, "sec-fetch-dest"),
-            accept: readHeader(req, "accept"),
-            allHeaders: req.headers,
-            isProxiedAppManifestRequest,
-          }),
-        );
-      }
       if (
         !isProxiedAppManifestRequest &&
         (pathname === "/" || pathname === "/manifest.json")

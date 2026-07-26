@@ -76,22 +76,22 @@ ladder.
 
 Uncommon actions stay discoverable through `tool-search`.
 
-| Action | Purpose |
-| --- | --- |
-| `navigate` | Move the UI to a picker, library, generation, asset, preset, or settings surface |
-| `view-screen` | Read current navigation, selection, and visible ids |
-| `list-libraries` / `match-library` | Find or disambiguate a brand kit |
-| `duplicate-library` | Make a private copy of a Brand Kit |
-| `list-assets` / `search-assets` | Browse or search assets in accessible kits |
-| `import-asset-from-url` | Ingest external brand or blog imagery as a reference asset |
-| `set-canonical-logo` | Pin the kit's pixel-perfect logo |
-| `list-generation-presets` | List repeatable output formats before generating |
-| `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton |
-| `generate-image` / `generate-image-batch` | Generate image candidates (synchronous) |
-| `generate-video` | Generate video, then poll `refresh-generation-run` |
-| `refine-image` / `edit-image` / `restyle-image` | Iterate on an existing asset |
-| `generate-asset` | Human-in-the-loop generation that returns the inline picker |
-| `open-asset-picker` | Browse, search, or pick existing assets in the embedded picker |
-| `export-asset` | Return a download URL or artifact for another app |
-| `create-generation-session` | Hand generation work off to a designer |
-| `manage-context-membership` | Submit an asset to a governed Creative Context |
+| Action                                                  | Purpose                                                                          |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `navigate`                                              | Move the UI to a picker, library, generation, asset, preset, or settings surface |
+| `view-screen`                                           | Read current navigation, selection, and visible ids                              |
+| `list-libraries` / `match-library`                      | Find or disambiguate a brand kit                                                 |
+| `duplicate-library`                                     | Make a private copy of a Brand Kit                                               |
+| `list-assets` / `search-assets`                         | Browse or search assets in accessible kits                                       |
+| `import-asset-from-url`                                 | Ingest external brand or blog imagery as a reference asset                       |
+| `set-canonical-logo`                                    | Pin the kit's pixel-perfect logo                                                 |
+| `list-generation-presets`                               | List repeatable output formats before generating                                 |
+| `create-generation-preset` / `update-generation-preset` | Author preset format, references, `includeLogo`, skeleton                        |
+| `generate-image` / `generate-image-batch`               | Generate image candidates (synchronous)                                          |
+| `generate-video`                                        | Generate video, then poll `refresh-generation-run`                               |
+| `refine-image` / `edit-image` / `restyle-image`         | Iterate on an existing asset                                                     |
+| `generate-asset`                                        | Human-in-the-loop generation that returns the inline picker                      |
+| `open-asset-picker`                                     | Browse, search, or pick existing assets in the embedded picker                   |
+| `export-asset`                                          | Return a download URL or artifact for another app                                |
+| `create-generation-session`                             | Hand generation work off to a designer                                           |
+| `manage-context-membership`                             | Submit an asset to a governed Creative Context                                   |

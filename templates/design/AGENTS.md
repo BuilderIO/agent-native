@@ -12,7 +12,7 @@ work in that area.
 
 - `design-generation` — 5-phase generation flow, aesthetic quality bar, code
   layers/code workspace, editor extensions, breakpoints/screen
-  states/components, motion, imagery, generation application state.
+  states/components, motion, imagery, locked subtrees, generation state.
 - `design-templates` — resolving, saving, copying, adapting templates or prior
   Design work without fresh generation.
 - `responsive-breakpoints` — Framer-style breakpoint editing.
@@ -48,22 +48,19 @@ ladder.
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
-- A message beginning with `[Reprompt selection]` is preview-only: call
-  `propose-node-rewrite` with its exact `repromptId`, target, and base hash;
-  never call a content writer (`edit-design`, `generate-design`,
-  `apply-visual-edit`, ...) — only the frontend-only `resolve-node-rewrite`
-  persists an accepted proposal (see `visual-edit`'s "Select And Reprompt").
-  `[Selection question]` is read-only: answer about the captured element and
-  subtree without calling content-writing actions.
+- A message beginning with `[Reprompt selection]` is preview-only: the only
+  mutation path is `propose-node-rewrite`; never call a content writer. See
+  `visual-edit`'s "Select And Reprompt". `[Selection question]` is read-only:
+  answer about the captured element and subtree without calling
+  content-writing actions.
 - Call `view-screen` before editing a specific design if the current design or
   selected file is not already clear from context.
 - Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
   that renders in the iframe without a build step. See `design-generation` for
-  the full generation workflow — phases, the aesthetic quality bar, and the
-  audit/screenshot pass required before calling a design "ready".
-- Treat `data-agent-native-locked="true"` as authoritative: locked elements
-  and descendants stay byte-for-byte unchanged (server-enforced). Ask the user
-  to unlock the layer in the Layers panel if they want it changed.
+  the phases, quality bar, and the audit/screenshot pass required before
+  calling a design "ready".
+- Treat `data-agent-native-locked="true"` as authoritative — see
+  `design-generation` for locked-subtree rules.
 - Figma import/read/paste and design-system/token workflows are fully covered in
   `design-systems` — read it before guessing the calling convention, and never
   promise lossless Figma import/export.
@@ -76,21 +73,17 @@ ladder.
 - Follow linked design-system tokens and `customInstructions` whenever
   present; explicit user instructions in the current turn still win. Before
   generation, follow the `creative-context` reuse ladder and respect
-  `contextMode: "off"` without silently restoring a pack.
-- When the user references a template or prior design, call
-  `list-design-templates`/`list-designs`; use `create-design-from-template` and
-  `get-design-snapshot` before `edit-design`.
+  `contextMode: "off"`.
+- When the user references a template or prior design, resolve it first — see
+  `design-templates` for the lookup and reuse order.
 - Design source modes are `inline`, `localhost`, and `fusion` — see
   `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
   read-only without a session — never run anonymous write actions
   (save/share/generate/localhost connect); send signed-out visitors through
   `/_agent-native/sign-in?return=...` first.
-- For multi-variant exploration, use `present-design-variants` (2-5 variants,
-  three by default) — see `design-generation` Phase 2 for the full
-  pick → delete-unchosen → refine flow; never call `generate-design` after a
-  variant pick.
-- When the user asks to download/export, use the export actions or point to
-  the editor download menu — see `export-handoff`.
+- For multi-variant exploration, use `present-design-variants` (2-5, three by
+  default) — see `design-generation` Phase 2 for the pick → refine flow.
+- When the user asks to download/export, see `export-handoff`.
 
 ## Application State
 

@@ -70,19 +70,19 @@ ladder.
 
 ## Actions
 
-| Action | Purpose |
-| --- | --- |
-| `view-screen` | Re-read the current screen when `<current-screen>` is stale |
-| `navigate` | Move the UI to a document, comments, media, or settings |
-| `refresh-list` | Repaint the sidebar after an out-of-band mutation |
-| `list-documents` | Document metadata tree, without bodies |
-| `search-documents` | Title and content search with snippets |
-| `get-document` | One document with full content |
-| `pull-document` | Flush live collab state, then read (external edits) |
-| `create-document` | Create a page, optionally under a parent |
-| `edit-document` | Find/replace edit — preferred for small changes |
-| `update-document` | Full rewrite of title, content, or description |
-| `delete-document` | Move a page and its children to Trash |
+| Action             | Purpose                                                     |
+| ------------------ | ----------------------------------------------------------- |
+| `view-screen`      | Re-read the current screen when `<current-screen>` is stale |
+| `navigate`         | Move the UI to a document, comments, media, or settings     |
+| `refresh-list`     | Repaint the sidebar after an out-of-band mutation           |
+| `list-documents`   | Document metadata tree, without bodies                      |
+| `search-documents` | Title and content search with snippets                      |
+| `get-document`     | One document with full content                              |
+| `pull-document`    | Flush live collab state, then read (external edits)         |
+| `create-document`  | Create a page, optionally under a parent                    |
+| `edit-document`    | Find/replace edit — preferred for small changes             |
+| `update-document`  | Full rewrite of title, content, or description              |
+| `delete-document`  | Move a page and its children to Trash                       |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
