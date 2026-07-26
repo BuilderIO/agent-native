@@ -631,9 +631,13 @@ export function useCollabReconcile({
       // before a person can type. Keep the event boundary correct too: if a
       // genuine local edit wins that tiny race, it is itself proof that the
       // synced empty document is ready. Remote Yjs transactions stay ignored.
-      const firstSyncedEmptyLocalEdit =
-        collabSynced && !value.trim() && !isChangeOrigin(transaction);
-      if (!firstSyncedEmptyLocalEdit) return true;
+      const firstSyncedEmptyUserEdit =
+        collabSynced &&
+        !value.trim() &&
+        transaction.docChanged &&
+        Boolean(transaction.getMeta("uiEvent")) &&
+        !isChangeOrigin(transaction);
+      if (!firstSyncedEmptyUserEdit) return true;
       seededRef.current = true;
     }
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {

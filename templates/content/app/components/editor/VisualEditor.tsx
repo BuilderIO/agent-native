@@ -950,6 +950,29 @@ export function shouldPersistCollaborativeEditorUpdate({
   return !collab || editorFocused || userInitiated;
 }
 
+export function isUserInitiatedCollaborativeEditorUpdate({
+  editorFocused,
+  explicitUserEdit,
+  recentUserEditIntent,
+  transactionUiEvent,
+}: {
+  editorFocused: boolean;
+  explicitUserEdit: boolean;
+  recentUserEditIntent: boolean;
+  transactionUiEvent: unknown;
+}) {
+  // A recent input event is useful for grouping the follow-up transactions
+  // produced while the editor still owns focus. Once focus has left, however,
+  // only provenance on this exact transaction may authorize persistence;
+  // otherwise mount/Yjs normalization could borrow a stale two-second intent
+  // window and overwrite canonical SQL.
+  return (
+    explicitUserEdit ||
+    Boolean(transactionUiEvent) ||
+    (editorFocused && recentUserEditIntent)
+  );
+}
+
 function isEffectivelyEmptyEditorContent(value: string): boolean {
   const normalized = value.trim();
   return normalized === "" || normalized === "<empty-block/>";
@@ -2113,10 +2136,14 @@ export function VisualEditor({
       ) {
         return;
       }
-      const userInitiated =
-        transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
-        Date.now() - lastUserEditIntentAtRef.current < 2000 ||
-        Boolean(transaction.getMeta("uiEvent"));
+      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: editor.isFocused,
+        explicitUserEdit:
+          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
+        recentUserEditIntent:
+          Date.now() - lastUserEditIntentAtRef.current < 2000,
+        transactionUiEvent: transaction.getMeta("uiEvent"),
+      });
       if (
         !shouldPersistCollaborativeEditorUpdate({
           collab: !!ydoc,

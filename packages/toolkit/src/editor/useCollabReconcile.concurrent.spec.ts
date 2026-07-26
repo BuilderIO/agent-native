@@ -194,6 +194,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       const guardsRef = React.useRef<ReturnType<
         typeof useCollabReconcile
       > | null>(null);
+      const insertedRef = React.useRef(false);
       const ydoc = React.useMemo(() => new Y.Doc(), []);
       const editor = useEditor({
         extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
@@ -215,15 +216,19 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
         editable: true,
         getMarkdown: getEditorMarkdown,
       });
+      React.useLayoutEffect(() => {
+        if (!editor || insertedRef.current) return;
+        insertedRef.current = true;
+        editor.view.dispatch(
+          editor.state.tr
+            .insertText("First persisted edit")
+            .setMeta("uiEvent", "input"),
+        );
+      }, [editor]);
       return React.createElement("div", null);
     }
 
     act(() => root.render(React.createElement(EmptyDocumentHarness)));
-    await flush();
-
-    act(() => {
-      captured.editor?.commands.insertContent("First persisted edit");
-    });
     await flush();
 
     expect(captured.emitted).toContain("First persisted edit");

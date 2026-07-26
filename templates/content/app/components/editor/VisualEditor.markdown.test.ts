@@ -34,6 +34,7 @@ import {
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
+  isUserInitiatedCollaborativeEditorUpdate,
   shouldApplyExternalContentSync,
   shouldPersistEffectivelyEmptyEditorUpdate,
   shouldPersistCollaborativeEditorUpdate,
@@ -94,6 +95,44 @@ describe("placeholder ancestry", () => {
 });
 
 describe("collaborative update persistence", () => {
+  it("does not let an unfocused normalization borrow recent user intent", () => {
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: false,
+        recentUserEditIntent: true,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps exact transaction provenance and focused intent persistable", () => {
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: true,
+        recentUserEditIntent: false,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: false,
+        explicitUserEdit: false,
+        recentUserEditIntent: false,
+        transactionUiEvent: "input",
+      }),
+    ).toBe(true);
+    expect(
+      isUserInitiatedCollaborativeEditorUpdate({
+        editorFocused: true,
+        explicitUserEdit: false,
+        recentUserEditIntent: true,
+        transactionUiEvent: undefined,
+      }),
+    ).toBe(true);
+  });
+
   it("rejects unfocused normalization without user intent", () => {
     expect(
       shouldPersistCollaborativeEditorUpdate({
