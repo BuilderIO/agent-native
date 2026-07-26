@@ -224,7 +224,7 @@ const LEGEND_ENTRY_GAP = 20;
 const LEGEND_ROW_HEIGHT = 18;
 const LEGEND_MAX_ROWS = 3;
 
-type LegendEntry = { label: string; color: string; x: number; width: number };
+type LegendEntry = { label: string; color: string; x: number };
 
 function layoutLegend(
   entries: Array<{ label: string; color: string }>,
@@ -247,7 +247,7 @@ function layoutLegend(
       rows.push([]);
       cursor = 0;
     }
-    rows[rows.length - 1].push({ label, color: entry.color, x: cursor, width });
+    rows[rows.length - 1].push({ label, color: entry.color, x: cursor });
     cursor += width + LEGEND_ENTRY_GAP;
     placed += 1;
   }
@@ -359,16 +359,13 @@ function renderCartesianChartSvg({
   const legendTop = subtitle ? header.headerBottom + 4 : 42;
   const legendLayout =
     fit && series.length > 1 ? layoutLegend(series, plotWidth) : null;
-  const legendHeight = legendLayout
-    ? (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 12
-    : 12;
-  const chartTop = fit
-    ? series.length > 1
-      ? legendTop + legendHeight + 18
-      : header.headerBottom + 34
-    : subtitle
+  const chartTop = !fit
+    ? subtitle
       ? 88
-      : 66;
+      : 66
+    : legendLayout
+      ? legendTop + (legendLayout.rows.length - 1) * LEGEND_ROW_HEIGHT + 30
+      : header.headerBottom + 34;
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
