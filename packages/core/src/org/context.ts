@@ -350,13 +350,24 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   };
 }
 
+/**
+ * Ordering for every membership lookup that falls back to "first membership".
+ * Without it the fallback is whatever order the plan happens to return, so a
+ * multi-org user's active org can change between two identical requests — and
+ * `getSession` then freezes that arbitrary answer into `session.orgId`.
+ * `org_id` breaks ties so two memberships joined in the same millisecond still
+ * resolve identically.
+ */
+const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
+
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
   const rows = await queryOrgMembers({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
                  o.allowed_domain AS "allowedDomain"
           FROM org_members m
           INNER JOIN organizations o ON m.org_id = o.id
-          WHERE LOWER(m.email) = ?`,
+          WHERE LOWER(m.email) = ?
+          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
     args: [email.toLowerCase()],
   });
   return (
@@ -376,14 +387,15 @@ async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
  * Resolve the active org ID for a given email — for non-HTTP contexts like
  * the integration webhook handler where we have an email but no event/session.
  * Picks the user's active-org-id setting if set, including explicit Personal,
- * otherwise the first membership.
+ * otherwise the oldest membership.
  * Returns null if the user has no memberships.
  */
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
   const rows = await queryOrgMembers({
-    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?`,
+    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
+          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
     args: [email.toLowerCase()],
   });
   if (!rows?.length) return null;

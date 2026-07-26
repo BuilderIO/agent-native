@@ -753,6 +753,8 @@ const messages = {
     createOrgCardTitle: "Create an Organization",
     createOrgCardDescription:
       "Set up a team to collaborate with your colleagues.",
+    createOrgVaultNotice:
+      "Vault keys aren't shared between organizations. A new organization starts with an empty vault, so you'll need to add its own API keys and credentials before connected apps work.",
     joinDomainOne:
       "An organization matching your email domain already exists. Join it to collaborate with your teammates.",
     joinDomainMany:

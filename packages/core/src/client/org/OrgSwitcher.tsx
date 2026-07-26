@@ -13,6 +13,7 @@ import {
   IconClipboardList,
   IconCode,
   IconFileText,
+  IconKey,
   IconLayoutBoard,
   IconListCheck,
   IconLoader2,
@@ -682,6 +683,10 @@ export function OrgSwitcher({
               <div className="px-0.5 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
                 New organization
               </div>
+              <p className="flex items-start gap-1.5 px-0.5 pb-1.5 text-[11px] leading-snug text-muted-foreground">
+                <IconKey className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>{t("org.createOrgVaultNotice")}</span>
+              </p>
               <input
                 autoFocus
                 value={newName}

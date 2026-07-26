@@ -240,6 +240,55 @@ export default defineEventHandler(async (event: H3Event) => {
       throw createError({ statusCode: 404, message: "Recording not found" });
     }
 
+    const failedUploadResponse = (reason: string, bytes?: number) => {
+      setResponseStatus(
+        event,
+        reason === RECORDING_TOO_LARGE_REASON ? 413 : 409,
+      );
+      return {
+        ok: false,
+        error: reason,
+        bytesReceived: bytes,
+        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
+      };
+    };
+
+    // One lease renewal guards every write below, on both upload paths. It is
+    // a compare-and-set against the recording's status, so an abort or a
+    // finalize that lands mid-request updates zero rows here — no downstream
+    // re-check can be raced, because there is nothing left to re-check.
+    const lease = await renewUploadLease(recordingId, {
+      uploadProgress:
+        total > 0
+          ? Math.min(100, Math.round(((index + 1) / total) * 100))
+          : undefined,
+    });
+    if (!lease.held) {
+      if (lease.status === "ready") {
+        const readyState = await readAppState(
+          `recording-upload-${recordingId}`,
+        ).catch(() => null);
+        return {
+          ok: true,
+          finalized: true,
+          status: "ready" as const,
+          videoUrl: lease.videoUrl,
+          videoSizeBytes: lease.videoSizeBytes,
+          durationMs: lease.durationMs,
+          sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+        };
+      }
+      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+        console.warn("[chunk] failed upload chunk cleanup failed:", {
+          recordingId,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      });
+      return failedUploadResponse(
+        lease.failureReason ?? "Recording upload has already failed.",
+      );
+    }
+
     if (isFinal && existing.status === "processing") {
       const pendingState = pendingMediaVerificationState(
         await readAppState(`recording-upload-${recordingId}`).catch(() => null),
@@ -267,42 +316,6 @@ export default defineEventHandler(async (event: H3Event) => {
         query,
         ownerEmail,
       );
-    }
-
-    const failedUploadResponse = (reason: string, bytes?: number) => {
-      setResponseStatus(
-        event,
-        reason === RECORDING_TOO_LARGE_REASON ? 413 : 409,
-      );
-      return {
-        ok: false,
-        error: reason,
-        bytesReceived: bytes,
-        maxBytes: MAX_RECORDING_UPLOAD_BYTES,
-      };
-    };
-
-    if (existing.status === "failed") {
-      return failedUploadResponse(
-        existing.failureReason ?? "Recording upload has already failed.",
-      );
-    }
-
-    // Already finalized — retried final chunk after session was deleted. Skip
-    // buffered path writes so recording-upload-* state stays correct.
-    if (existing.status === "ready") {
-      const readyState = await readAppState(
-        `recording-upload-${recordingId}`,
-      ).catch(() => null);
-      return {
-        ok: true,
-        finalized: true,
-        status: "ready" as const,
-        videoUrl: existing.videoUrl,
-        videoSizeBytes: existing.videoSizeBytes,
-        durationMs: existing.durationMs,
-        sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
-      };
     }
 
     // Store chunks in application_state, assemble on finalize.
@@ -372,59 +385,7 @@ export default defineEventHandler(async (event: H3Event) => {
       uploadStateRaw && typeof uploadStateRaw === "object"
         ? uploadStateRaw
         : null;
-    const failedReason =
-      typeof uploadState?.failureReason === "string"
-        ? uploadState.failureReason
-        : RECORDING_TOO_LARGE_REASON;
-    if (uploadState?.status === "failed") {
-      return failedUploadResponse(failedReason);
-    }
     let bytesReceived = stateNumber(uploadState, "bytesReceived") ?? 0;
-
-    const stopIfUploadFailed = async () => {
-      const latestState = await readAppState(`recording-upload-${recordingId}`);
-      const latestReason =
-        latestState && typeof latestState.failureReason === "string"
-          ? latestState.failureReason
-          : "Recording upload has already failed.";
-      if (latestState?.status === "failed") {
-        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
-          console.warn("[chunk] failed upload chunk cleanup failed:", {
-            recordingId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-        return failedUploadResponse(latestReason);
-      }
-
-      const [current] = await db
-        .select({
-          status: schema.recordings.status,
-          failureReason: schema.recordings.failureReason,
-        })
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, recordingId));
-      if (current?.status === "failed") {
-        const reason =
-          current.failureReason ?? "Recording upload has already failed.";
-        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
-          console.warn("[chunk] failed recording chunk cleanup failed:", {
-            recordingId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-        await writeAppState(`recording-upload-${recordingId}`, {
-          recordingId,
-          status: "failed",
-          failureReason: reason,
-          bytesReceived: await sumRecordingChunkBytes(ownerEmail, recordingId),
-          maxBytes: MAX_RECORDING_UPLOAD_BYTES,
-          updatedAt: new Date().toISOString(),
-        });
-        return failedUploadResponse(reason);
-      }
-      return null;
-    };
 
     const failRecordingTooLarge = async (nextBytes: number) => {
       const now = new Date().toISOString();
@@ -461,11 +422,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
     // Only persist non-empty chunks. The final sentinel can legitimately be
     // empty — writing a zero-byte chunk would just clutter application_state.
-    // Check for abort/failure before writing so parallel in-flight requests
-    // don't recreate scratch chunk rows after /abort already cleared them.
     if (bytes.byteLength > 0) {
-      const failedBeforeWrite = await stopIfUploadFailed();
-      if (failedBeforeWrite) return failedBeforeWrite;
       // Pad index to 6 digits so string-sort order matches numeric order if the
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
@@ -503,8 +460,6 @@ export default defineEventHandler(async (event: H3Event) => {
     // max of the current persisted value and the incoming index to keep
     // progress monotonically non-decreasing.
     if (total > 0) {
-      const failedResponse = await stopIfUploadFailed();
-      if (failedResponse) return failedResponse;
       const chunksReceived = Math.max(
         stateNumber(uploadState, "chunksReceived") ?? 0,
         index + 1,
@@ -531,21 +486,7 @@ export default defineEventHandler(async (event: H3Event) => {
         mimeType,
         updatedAt: new Date().toISOString(),
       });
-      const failedAfterStateWrite = await stopIfUploadFailed();
-      if (failedAfterStateWrite) return failedAfterStateWrite;
-
-      await db
-        .update(schema.recordings)
-        .set({ uploadProgress: progress, updatedAt: new Date().toISOString() })
-        .where(
-          and(
-            eq(schema.recordings.id, recordingId),
-            eq(schema.recordings.status, existing.status),
-          ),
-        );
     } else if (bytes.byteLength > 0 || isFinal) {
-      const failedResponse = await stopIfUploadFailed();
-      if (failedResponse) return failedResponse;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: isFinal ? "processing" : "uploading",
@@ -565,8 +506,6 @@ export default defineEventHandler(async (event: H3Event) => {
         mimeType,
         updatedAt: new Date().toISOString(),
       });
-      const failedAfterStateWrite = await stopIfUploadFailed();
-      if (failedAfterStateWrite) return failedAfterStateWrite;
     }
 
     // Final chunk — kick off finalize. We await so the client gets a single
@@ -576,8 +515,6 @@ export default defineEventHandler(async (event: H3Event) => {
       if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
         return failRecordingTooLarge(bytesReceived);
       }
-      const failedResponse = await stopIfUploadFailed();
-      if (failedResponse) return failedResponse;
       debugLog("[chunk] isFinal — invoking finalize", { recordingId });
       try {
         const result = await finalizeRecording.run(

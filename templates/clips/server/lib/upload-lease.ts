@@ -161,8 +161,7 @@ export async function reapExpiredUploads(
       sql: `UPDATE recordings
             SET status = 'failed',
                 failure_reason = ${p(1)},
-                updated_at = ${p(2)},
-                upload_lease_expires_at = NULL
+                updated_at = ${p(2)}
             WHERE id IN (${ids.map((_, i) => p(i + 4)).join(", ")})
               AND status IN ('uploading', 'processing')
               AND upload_lease_expires_at < ${p(3)}`,
