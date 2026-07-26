@@ -394,7 +394,6 @@ async function durableContinuationScopeStillEnabled(
     });
   if (enabled) return true;
 
-  const message = "Durable integration campaign was disabled for this scope";
   await failDisabledDurableA2ATask({
     id: continuation.integrationTaskId,
     platform: task?.platform ?? continuation.platform,
