@@ -38,6 +38,7 @@ import {
 import {
   completeIntegrationCampaignTaskAfterA2A,
   failDisabledIntegrationCampaignTask,
+  failIntegrationCampaignTaskDeliveryContainment,
   getIntegrationCampaignForTask,
 } from "./integration-campaigns-store.js";
 import {
@@ -199,9 +200,25 @@ export async function recoverA2AContinuationAfterProcessorFailure(
     return;
   }
   const adapter = options.adapters.get(continuation.platform);
-  if (continuation.attempts < MAX_ATTEMPTS || !adapter) {
+  if (continuation.attempts < MAX_ATTEMPTS) {
     logA2AContinuationTransition("processor_released", continuation);
     await rescheduleAndRedispatchA2AContinuation(continuation.id);
+    return;
+  }
+  if (!adapter) {
+    const reason = `Unknown platform: ${continuation.platform}`;
+    logA2AContinuationTransition(
+      "processor_exhausted_without_adapter",
+      continuation,
+    );
+    await failA2AContinuationsForIntegrationTask(
+      continuation.integrationTaskId,
+      reason,
+    );
+    await failIntegrationCampaignTaskDeliveryContainment(
+      continuation.integrationTaskId,
+      reason,
+    );
     return;
   }
 
@@ -827,9 +844,13 @@ async function persistA2AContinuationDelivery(
     continuation.platform,
     continuation.externalThreadId,
   );
-  if (!mapping) return;
+  if (!mapping) {
+    throw new Error("Integration thread mapping is not available");
+  }
   const thread = await getThread(mapping.internalThreadId);
-  if (!thread) return;
+  if (!thread) {
+    throw new Error("Integration chat thread is not available");
+  }
 
   let repo: any;
   try {

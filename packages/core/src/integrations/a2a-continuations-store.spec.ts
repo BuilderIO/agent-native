@@ -358,10 +358,12 @@ describe("A2A continuations store", () => {
 
   it("terminalizes and scrubs only after durable history persistence", async () => {
     let finalized = false;
+    let finalizationSql = "";
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = querySql(query);
         if (sql.includes("terminal_history_payload = NULL")) {
+          finalizationSql = sql;
           finalized = true;
           return { rows: [], rowsAffected: 1 };
         }
@@ -396,6 +398,9 @@ describe("A2A continuations store", () => {
 
     await expect(finalizeA2ATerminalHistory("cont-1")).resolves.toBeUndefined();
     expect(finalized).toBe(true);
+    expect(finalizationSql).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
   });
 
   it("finalizes receipt-backed history after stale delivery recovery and a fresh processing claim", async () => {

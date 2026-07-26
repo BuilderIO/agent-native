@@ -16,6 +16,9 @@ const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getNextPendingTaskForThreadMock = vi.hoisted(() => vi.fn());
 const getIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
 const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const failIntegrationCampaignTaskDeliveryContainmentMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
   vi.fn(async () => true),
 );
@@ -80,6 +83,8 @@ vi.mock("./integration-campaigns-store.js", () => ({
     completeIntegrationCampaignTaskAfterA2AMock,
   getIntegrationCampaignForTask: getIntegrationCampaignForTaskMock,
   failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
+  failIntegrationCampaignTaskDeliveryContainment:
+    failIntegrationCampaignTaskDeliveryContainmentMock,
 }));
 
 vi.mock("../server/core-routes-plugin.js", () => ({
@@ -206,8 +211,15 @@ describe("A2A continuation processor", () => {
     saveA2AVerifiedArtifactCheckpointMock.mockImplementation(
       async (_id: string, checkpoint: string) => checkpoint,
     );
-    getThreadMappingMock.mockResolvedValue(null);
-    getThreadMock.mockResolvedValue(null);
+    getThreadMappingMock.mockResolvedValue({
+      internalThreadId: "thread-123",
+    });
+    getThreadMock.mockResolvedValue({
+      id: "thread-123",
+      title: "Slack thread",
+      preview: "Integration request",
+      threadData: JSON.stringify({ messages: [] }),
+    });
     updateThreadDataMock.mockResolvedValue(undefined);
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
@@ -381,6 +393,29 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("bounds exhausted recovery when its platform adapter is unavailable", async () => {
+    getA2AContinuationMock.mockResolvedValueOnce(
+      continuation({ status: "processing", attempts: 30 }),
+    );
+    const { recoverA2AContinuationAfterProcessorFailure } =
+      await import("./a2a-continuation-processor.js");
+
+    await recoverA2AContinuationAfterProcessorFailure("cont-1", {
+      adapters: new Map(),
+      reason: "processor failed after its adapter was removed",
+    });
+
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledWith(
+      "task-1",
+      "Unknown platform: slack",
+    );
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith("task-1", "Unknown platform: slack");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("allows one durable wake-up dispatch failure without stranding the rest", async () => {
@@ -878,6 +913,50 @@ describe("A2A continuation processor", () => {
       "Error",
     );
   });
+
+  it.each(["mapping", "thread"] as const)(
+    "retains receipt custody while the integration %s is unavailable",
+    async (missing) => {
+      if (missing === "mapping") {
+        getThreadMappingMock.mockResolvedValue(null);
+      } else {
+        getThreadMock.mockResolvedValue(null);
+      }
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+      claimA2AContinuationMock.mockResolvedValueOnce(
+        continuation({
+          status: "processing",
+          terminalDeliveryKind: "success",
+          terminalDeliveryConfirmedAt: Date.now(),
+          terminalHistoryPayload: {
+            text: "Created /page/content-1",
+            deliveredAt: new Date().toISOString(),
+            messageRefs: ["slack-message-1"],
+            artifacts: [],
+          },
+        }),
+      );
+      const { processA2AContinuationById } =
+        await import("./a2a-continuation-processor.js");
+
+      await processA2AContinuationById("cont-1", { adapters: new Map() });
+
+      expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+      expect(
+        completeIntegrationCampaignTaskAfterA2AMock,
+      ).not.toHaveBeenCalled();
+      expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
+        "cont-1",
+        20_000,
+      );
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("history remains retryable"),
+        "Error",
+      );
+    },
+  );
 
   it("recovers provider-confirmed history in a fresh invocation without polling or sending again", async () => {
     const history = {

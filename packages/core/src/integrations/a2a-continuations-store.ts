@@ -1000,7 +1000,7 @@ export async function finalizeA2ATerminalHistory(id: string): Promise<void> {
           SET status = ?, updated_at = ?, completed_at = ?, incoming_payload = ?,
               a2a_auth_token = NULL, progress_ref = NULL,
               verified_artifact_checkpoint = NULL, terminal_history_payload = NULL
-          WHERE id = ? AND status IN ('processing', 'delivering')
+          WHERE id = ? AND status IN ('pending', 'processing', 'delivering')
             AND terminal_delivery_confirmed_at IS NOT NULL`,
     args: [status, now, now, "{}", id],
   });
