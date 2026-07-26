@@ -185,6 +185,39 @@ describe("Builder CMS write client", () => {
     });
   });
 
+  it("treats provider server errors as ambiguous without exposing their body", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          message: "Validation failed for customer alice@example.com",
+        }),
+        { status: 500 },
+      );
+    });
+
+    const result = await executeBuilderCmsWrite({
+      request: {
+        method: "PATCH",
+        path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+        body: { data: { title: "New title" } },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 500,
+      responseBody: null,
+      ambiguity: "provider",
+      error:
+        "Builder returned HTTP 500 after the write was dispatched; remote outcome is unknown.",
+    });
+    expect(result.error).not.toContain("alice@example.com");
+    expect(JSON.stringify(result)).not.toContain("alice@example.com");
+    expect(result.entryId).toBeUndefined();
+  });
+
   it("does not dispatch a second PATCH after an ambiguous fetch failure", async () => {
     resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
     const fetchImpl = vi.fn(async () => {
@@ -206,6 +239,8 @@ describe("Builder CMS write client", () => {
       ok: false,
       status: 0,
       ambiguity: "transport",
+      error:
+        "Builder write transport failed after dispatch; remote outcome is unknown.",
     });
     expect(requestImpl).not.toHaveBeenCalled();
   });
@@ -217,22 +252,22 @@ describe("Builder CMS write client", () => {
     });
     const requestImpl = vi.fn();
 
-    await expect(
-      executeBuilderCmsWrite({
-        request: {
-          method: "POST",
-          path: "/api/v1/write/agent-native-blog-article-test",
-          body: { data: { title: "Created title" } },
-        },
-        fetchImpl: fetchImpl as unknown as typeof fetch,
-        nodeRequestImpl: requestImpl,
-      }),
-    ).resolves.toMatchObject({
+    const result = await executeBuilderCmsWrite({
+      request: {
+        method: "POST",
+        path: "/api/v1/write/agent-native-blog-article-test",
+        body: { data: { title: "Created title" } },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      nodeRequestImpl: requestImpl,
+    });
+    expect(result).toMatchObject({
       ok: false,
       status: 0,
       ambiguity: "transport",
       error: expect.stringContaining("remote outcome is unknown"),
     });
+    expect(JSON.stringify(result)).not.toContain("socket closed");
     expect(requestImpl).not.toHaveBeenCalled();
   });
 

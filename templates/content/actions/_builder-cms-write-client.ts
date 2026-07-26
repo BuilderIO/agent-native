@@ -13,7 +13,7 @@ export interface BuilderCmsWriteResult {
   entryId?: string;
   responseBody: unknown;
   error?: string;
-  ambiguity?: "timeout" | "transport";
+  ambiguity?: "timeout" | "transport" | "provider";
 }
 
 type FetchLike = typeof fetch;
@@ -115,16 +115,20 @@ function buildWriteResult(args: {
     !args.ok && (args.status === 400 || args.status === 422)
       ? builderValidationMessage(responseBody)
       : undefined;
+  const providerOutcomeUnknown = !args.ok && args.status >= 500;
   return {
     ok: args.ok,
     status: args.status,
-    entryId,
-    responseBody,
+    entryId: providerOutcomeUnknown ? undefined : entryId,
+    responseBody: providerOutcomeUnknown ? null : responseBody,
+    ambiguity: providerOutcomeUnknown ? "provider" : undefined,
     error: args.ok
       ? undefined
       : validationMessage
         ? `Builder validation failed: ${validationMessage}`
-        : `Builder write request failed with HTTP ${args.status}.`,
+        : providerOutcomeUnknown
+          ? `Builder returned HTTP ${args.status} after the write was dispatched; remote outcome is unknown.`
+          : `Builder write request failed with HTTP ${args.status}.`,
   };
 }
 
@@ -172,7 +176,7 @@ export async function executeBuilderCmsWrite(args: {
       status: response.status,
       responseText: await response.text(),
     });
-  } catch (error) {
+  } catch {
     const timedOut = controller.signal.aborted;
     return {
       ok: false,
@@ -181,9 +185,7 @@ export async function executeBuilderCmsWrite(args: {
       ambiguity: timedOut ? "timeout" : "transport",
       error: timedOut
         ? `Builder write timed out after ${timeoutMs}ms; remote outcome is unknown.`
-        : error instanceof Error
-          ? `Builder write transport failed after dispatch; remote outcome is unknown: ${error.message}`
-          : "Builder write transport failed after dispatch; remote outcome is unknown.",
+        : "Builder write transport failed after dispatch; remote outcome is unknown.",
     };
   } finally {
     clearTimeout(timeout);
