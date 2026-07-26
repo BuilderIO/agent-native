@@ -42,6 +42,39 @@ function parseResponseBody(text: string): unknown {
   }
 }
 
+function builderValidationMessage(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const candidates = [record.message, record.error, record.detail];
+  if (Array.isArray(record.errors)) {
+    for (const error of record.errors) {
+      if (typeof error === "string") candidates.push(error);
+      else if (error && typeof error === "object" && !Array.isArray(error)) {
+        candidates.push((error as Record<string, unknown>).message);
+      }
+    }
+  }
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const message = candidate.replace(/\s+/g, " ").trim();
+    if (
+      message.length > 0 &&
+      message.length <= 240 &&
+      /\b(required|must|invalid|validation|at least|at most|minimum|maximum|too short|too long)\b/i.test(
+        message,
+      ) &&
+      !/(?:https?:\/\/|bearer\s+|api[_ -]?key|token|secret|password)/i.test(
+        message,
+      )
+    ) {
+      return message;
+    }
+  }
+  return undefined;
+}
+
 function stringRecordValue(
   record: Record<string, unknown>,
   keys: string[],
@@ -78,6 +111,10 @@ function buildWriteResult(args: {
 }): BuilderCmsWriteResult {
   const responseBody = parseResponseBody(args.responseText);
   const entryId = extractBuilderCmsWriteEntryId(responseBody);
+  const validationMessage =
+    !args.ok && (args.status === 400 || args.status === 422)
+      ? builderValidationMessage(responseBody)
+      : undefined;
   return {
     ok: args.ok,
     status: args.status,
@@ -85,7 +122,9 @@ function buildWriteResult(args: {
     responseBody,
     error: args.ok
       ? undefined
-      : `Builder write request failed with HTTP ${args.status}.`,
+      : validationMessage
+        ? `Builder validation failed: ${validationMessage}`
+        : `Builder write request failed with HTTP ${args.status}.`,
   };
 }
 

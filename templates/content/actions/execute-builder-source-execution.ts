@@ -1224,9 +1224,14 @@ export async function executeBuilderSourceExecutionWithDeps(
         now: deps.now(),
         attemptToken,
       });
-      throw writeResult.ambiguity
-        ? builderExecutionConflict(lastError)
-        : new Error(lastError);
+      if (writeResult.ambiguity) {
+        throw builderExecutionConflict(lastError);
+      }
+      const error = new Error(lastError) as Error & { statusCode?: number };
+      if (writeResult.status >= 400 && writeResult.status < 500) {
+        error.statusCode = writeResult.status;
+      }
+      throw error;
     }
 
     const reconciliationStartedAt = timing.start();

@@ -939,6 +939,50 @@ describe("execute Builder source execution", () => {
     expect(deps.reconcileWrite).not.toHaveBeenCalled();
   });
 
+  it("marks safe Builder validation failures as user-facing client errors", async () => {
+    const approvedChangeSet = changeSet();
+    const builderSource = source({ changeSets: [approvedChangeSet] });
+    const execution = executionFor({
+      source: builderSource,
+      changeSet: approvedChangeSet,
+    });
+    const deps = depsFor({
+      source: builderSource,
+      execution,
+      writeResult: {
+        ok: false,
+        status: 400,
+        responseBody: {
+          message: "Blurb must be at least 110 characters",
+        },
+        error:
+          "Builder validation failed: Blurb must be at least 110 characters",
+      },
+    });
+
+    const result = executeBuilderSourceExecutionWithDeps(
+      {
+        databaseId: "database-1",
+        changeSetId: approvedChangeSet.id,
+        pushModeConfirmation: "autosave",
+      },
+      deps,
+    );
+
+    await expect(result).rejects.toMatchObject({
+      message:
+        "Builder validation failed: Blurb must be at least 110 characters",
+      statusCode: 400,
+    });
+    expect(deps.markExecutionFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        state: "failed",
+        lastError:
+          "Builder validation failed: Blurb must be at least 110 characters",
+      }),
+    );
+  });
+
   it("surfaces an HTTP conflict without writing when another caller wins the claim", async () => {
     const approvedChangeSet = changeSet();
     const builderSource = source({ changeSets: [approvedChangeSet] });

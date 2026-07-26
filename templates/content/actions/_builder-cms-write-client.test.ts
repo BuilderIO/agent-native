@@ -135,12 +135,13 @@ describe("Builder CMS write client", () => {
     });
   });
 
-  it("returns structured non-2xx failures without leaking the key", async () => {
+  it("returns safe validation detail without leaking the key", async () => {
     resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
     const fetchImpl = vi.fn(async () => {
-      return new Response(JSON.stringify({ message: "Invalid payload" }), {
-        status: 400,
-      });
+      return new Response(
+        JSON.stringify({ message: "Blurb must be at least 110 characters" }),
+        { status: 400 },
+      );
     });
 
     const result = await executeBuilderCmsWrite({
@@ -155,10 +156,33 @@ describe("Builder CMS write client", () => {
     expect(result).toMatchObject({
       ok: false,
       status: 400,
-      responseBody: { message: "Invalid payload" },
-      error: "Builder write request failed with HTTP 400.",
+      responseBody: { message: "Blurb must be at least 110 characters" },
+      error: "Builder validation failed: Blurb must be at least 110 characters",
     });
     expect(JSON.stringify(result)).not.toContain("example-private-key");
+  });
+
+  it("does not expose arbitrary upstream error text", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({ message: "Database failed for user@example.com" }),
+        { status: 400 },
+      );
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+          body: { data: { title: "New title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      error: "Builder write request failed with HTTP 400.",
+    });
   });
 
   it("does not dispatch a second PATCH after an ambiguous fetch failure", async () => {
