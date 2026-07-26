@@ -61,8 +61,9 @@ describe("renderReportChartSvg", () => {
   it("breaks the line path at a null instead of plotting a zero", () => {
     const svg = renderReportChartSvg({
       ...base,
+      labels: [...base.labels, "W5"],
       type: "line",
-      series: [{ label: "Signups", data: [10, null, 10, 10] }],
+      series: [{ label: "Signups", data: [10, 10, null, 10, 10] }],
     });
 
     expect(svg.match(/ d="M /g)).toHaveLength(2);
@@ -81,6 +82,68 @@ describe("renderReportChartSvg", () => {
     });
     const baselineY = Math.max(...pathCoordinates(zeroed).map(([, y]) => y));
     expect(pathCoordinates(svg).some(([, y]) => y === baselineY)).toBe(false);
+  });
+
+  it.each(["line", "area"] as const)(
+    "draws an isolated %s point as a visible dot",
+    (type) => {
+      const gapped = renderReportChartSvg({
+        ...base,
+        type,
+        series: [{ label: "Signups", data: [null, 42, null, null] }],
+      });
+
+      expect(gapped).toContain("<circle");
+      expect(gapped).not.toMatch(/<path d="M [\d.]+,[\d.]+"/);
+
+      const single = renderReportChartSvg({
+        ...base,
+        labels: ["W1"],
+        type,
+        series: [{ label: "Signups", data: [42] }],
+      });
+      expect(single).toContain("<circle");
+
+      const paired = renderReportChartSvg({
+        ...base,
+        type,
+        series: [{ label: "Signups", data: [null, 42, 7, null] }],
+      });
+      expect(paired).not.toContain("<circle");
+      expect(paired.match(/ d="M /g)).toHaveLength(type === "area" ? 2 : 1);
+    },
+  );
+
+  it("keeps a mixed-sign stacked bar inside the plot area", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      labels: ["Q1"],
+      type: "bar",
+      stacked: true,
+      series: [
+        { label: "Revenue", data: [10] },
+        { label: "Refunds", data: [-20] },
+      ],
+    });
+
+    const bars = [...svg.matchAll(/<rect [^>]*y="(-?[\d.]+)"[^>]*rx="4"/g)];
+    expect(bars).toHaveLength(2);
+    for (const bar of bars) {
+      expect(Number(bar[1])).toBeGreaterThanOrEqual(0);
+    }
+    expect(svg).toContain(">10<");
+
+    const positiveOnly = renderReportChartSvg({
+      ...base,
+      labels: ["Q1"],
+      type: "bar",
+      stacked: true,
+      series: [
+        { label: "Revenue", data: [10] },
+        { label: "Fees", data: [20] },
+      ],
+    });
+    expect(positiveOnly).toContain(">30<");
   });
 
   it("omits the bar for a null value", () => {

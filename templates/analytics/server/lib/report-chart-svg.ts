@@ -156,11 +156,27 @@ function renderCartesianChartSvg({
   const plotHeight = Math.max(1, chartBottom - chartTop);
 
   const stackedBars = stacked && type === "bar";
-  const stackedTotals = labels.map((_, index) =>
-    series.reduce((sum, entry) => sum + (entry.data[index] ?? 0), 0),
-  );
+  // Positives and negatives stack away from zero separately, and the y-domain
+  // has to cover every segment edge — the running total alone puts a mixed-sign
+  // stack's tallest bar off-canvas.
+  const stackedSegments = stackedBars
+    ? labels.map((_, index) => {
+        let up = 0;
+        let down = 0;
+        return series.map((entry) => {
+          const value = entry.data[index];
+          if (value === null) return null;
+          const base = value >= 0 ? up : down;
+          if (value >= 0) up += value;
+          else down += value;
+          return { base, top: base + value };
+        });
+      })
+    : [];
   const values = stackedBars
-    ? stackedTotals
+    ? stackedSegments
+        .flat()
+        .flatMap((segment) => (segment ? [segment.base, segment.top] : []))
     : series.flatMap((entry) =>
         entry.data.filter((value): value is number => value !== null),
       );
@@ -189,20 +205,17 @@ function renderCartesianChartSvg({
     .join("");
 
   let marks = "";
-  if (type === "bar" && stacked) {
+  if (stackedBars) {
     marks = labels
       .map((_, labelIndex) => {
         const x = chartLeft + slot * labelIndex + slot * 0.2;
         const barWidth = Math.max(5, slot * 0.6);
-        let total = 0;
-        return series
-          .map((entry) => {
-            const value = entry.data[labelIndex];
-            if (value === null) return "";
-            const from = yFor(total);
-            total += value;
-            const to = yFor(total);
-            return `<rect x="${x.toFixed(1)}" y="${Math.min(from, to).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, Math.abs(to - from)).toFixed(1)}" rx="4" fill="${entry.color}"/>`;
+        return stackedSegments[labelIndex]
+          .map((segment, seriesIndex) => {
+            if (!segment) return "";
+            const from = yFor(segment.base);
+            const to = yFor(segment.top);
+            return `<rect x="${x.toFixed(1)}" y="${Math.min(from, to).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${Math.max(0, Math.abs(to - from)).toFixed(1)}" rx="4" fill="${series[seriesIndex].color}"/>`;
           })
           .join("");
       })
@@ -230,12 +243,18 @@ function renderCartesianChartSvg({
   } else {
     marks = series
       .map((entry) => {
-        const segments: Array<{ start: number; points: string[] }> = [];
+        const segments: Array<{
+          start: number;
+          points: Array<[string, string]>;
+        }> = [];
         labels.forEach((_, index) => {
           const value = entry.data[index];
           if (value === null) return;
           const x = chartLeft + slot * index + slot / 2;
-          const point = `${x.toFixed(1)},${yFor(value).toFixed(1)}`;
+          const point: [string, string] = [
+            x.toFixed(1),
+            yFor(value).toFixed(1),
+          ];
           const open = segments[segments.length - 1];
           if (open && open.start + open.points.length === index) {
             open.points.push(point);
@@ -245,8 +264,14 @@ function renderCartesianChartSvg({
         });
         return segments
           .map(({ start, points }) => {
+            // A subpath with a single moveto strokes nothing, so a point with
+            // gaps on both sides has to be drawn as its own dot or it vanishes.
+            if (points.length === 1) {
+              const [x, y] = points[0];
+              return `<circle cx="${x}" cy="${y}" r="3.5" fill="${entry.color}"/>`;
+            }
             const path = points
-              .map((point, index) => `${index === 0 ? "M" : "L"} ${point}`)
+              .map(([x, y], index) => `${index === 0 ? "M" : "L"} ${x},${y}`)
               .join(" ");
             const area =
               type === "area"
