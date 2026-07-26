@@ -145,31 +145,17 @@ async function startApp(basePath: string): Promise<RunningApp> {
   const dbPath = path.join(tmpRoot, `chat${basePath.replace(/\//g, "-")}.db`);
   const logs: string[] = [];
   cleanGeneratedFiles();
-  // `pnpm exec` rather than the template's `dev` script: that script passes
-  // `--open`, which launches a real browser window on the developer's machine.
+  // Vite directly, not `pnpm dev`: `agent-native dev` is a passthrough to this
+  // same binary, the template's `dev` script adds `--open` (which would launch
+  // a real browser on the developer's machine), and a pnpm wrapper would leave
+  // an orphan holding the port between the two deploys.
   const child = spawn(
-    "pnpm",
-    [
-      "--dir",
-      templateDir,
-      "exec",
-      "agent-native",
-      "dev",
-      "--host",
-      "127.0.0.1",
-      "--port",
-      String(appPort),
-      "--strictPort",
-    ],
+    path.join(templateDir, "node_modules/.bin/vite"),
+    ["--host", "127.0.0.1", "--port", String(appPort), "--strictPort"],
     {
-      cwd: repoRoot,
+      cwd: templateDir,
       env: appEnv(appUrl, basePath, dbPath),
       stdio: ["ignore", "pipe", "pipe"],
-      // Own process group: `pnpm exec` spawns Vite, which spawns Nitro. Killing
-      // only the pnpm wrapper leaves Vite holding the port, and the next deploy
-      // then "starts" successfully against the PREVIOUS deploy's base path —
-      // green output for a run that tested the same surface twice.
-      detached: true,
     },
   );
   child.stdout.on("data", (chunk) => logs.push(chunk.toString()));
@@ -190,15 +176,6 @@ async function startApp(basePath: string): Promise<RunningApp> {
   return { origin, basePath, appUrl, child, logs };
 }
 
-function signalGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (!pid) return;
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    // Already gone.
-  }
-}
-
 async function portIsFree(): Promise<boolean> {
   try {
     await fetch(`http://127.0.0.1:${appPort}/_agent-native/ping`, {
@@ -212,12 +189,12 @@ async function portIsFree(): Promise<boolean> {
 }
 
 async function stopApp(running: RunningApp): Promise<void> {
-  signalGroup(running.child.pid, "SIGTERM");
+  running.child.kill("SIGTERM");
   await Promise.race([
     new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
     new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
   ]);
-  signalGroup(running.child.pid, "SIGKILL");
+  running.child.kill("SIGKILL");
   // The next deploy reuses this port with a different base path, so it must be
   // genuinely free before we start — not merely "the wrapper exited".
   const deadline = Date.now() + 30_000;

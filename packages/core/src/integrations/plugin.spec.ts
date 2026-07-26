@@ -100,6 +100,7 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../server/request-context.js", () => ({
+  markRequestBoundaryInstalled: vi.fn(),
   runWithRequestContext: runWithRequestContextMock,
 }));
 

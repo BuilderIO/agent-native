@@ -19,9 +19,6 @@ const runAgentLoopMock = vi.hoisted(() => vi.fn());
 // The integration run goes through the resume wrapper. Delegate to the loop
 // mock so every assertion below still reads the options the loop was called
 // with.
-vi.mock("../agent/run-loop-with-resume.js", () => ({
-  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
-}));
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
 const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
@@ -78,6 +75,7 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
+  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
 }));
 
 vi.mock("./integration-campaigns-store.js", () => ({
