@@ -500,7 +500,7 @@ describe("isDocumentUpdateConflict", () => {
 });
 
 describe("seedDatabaseItemDocumentCaches", () => {
-  it("warms get-document and list-document-properties from a database row", () => {
+  it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
     const item: ContentDatabaseItem = {
       id: "item-a",
@@ -540,14 +540,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
 
     seedDatabaseItemDocumentCaches(queryClient, item);
 
-    expect(
-      queryClient.getQueryData(documentQueryKey("row-page")),
-    ).toMatchObject({
-      id: "row-page",
-      title: "Builder blog launch",
-      icon: "B",
-      properties: item.properties,
-    });
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
     expect(
       queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
     ).toEqual({

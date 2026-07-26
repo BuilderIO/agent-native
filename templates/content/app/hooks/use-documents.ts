@@ -18,9 +18,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hydration";
-import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
-
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import {
   removeOptimisticItemFromContentDatabase,
@@ -243,28 +240,12 @@ export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
 ) {
-  const sourceBackedEmptyBody =
-    (!!item.bodyHydration || !!item.document.databaseMembership?.sourceId) &&
-    isEffectivelyEmptyDocumentContent(item.document.content);
-  // Seed only cold caches. Overwriting an existing entry would bump its
-  // freshness with possibly older table-snapshot data (a background database
-  // refetch can lag a just-saved document edit) and suppress the correcting
-  // refetch for the whole staleTime window. Source-backed rows are never seeded:
-  // list snapshots are not authoritative enough to unlock the body editor, even
-  // when they happen to contain non-empty content. The dedicated get-document
-  // response owns that decision and prevents an edit from racing hydration.
-  if (
-    !databaseItemBodyHydrationIsPending(item) &&
-    !sourceBackedEmptyBody &&
-    !item.bodyHydration &&
-    !item.document.databaseMembership?.sourceId &&
-    queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
-  ) {
-    queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {
-      ...item.document,
-      properties: item.properties,
-    });
-  }
+  // Database table responses are list snapshots, not authoritative editable
+  // bodies. Even a cold cache can race a just-saved collaborative edit: seeding
+  // it marks the row snapshot fresh and can mount ProseMirror before the
+  // dedicated get-document request returns. Keep document bodies exclusively
+  // owned by get-document; the table may still warm the separately scoped
+  // property cache below.
   if (
     queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
     undefined
