@@ -1253,7 +1253,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         // `nextDecks` because the response predates it.
         const preserved = prev.filter(
           (d) =>
-            false && !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
+            !nextIds.has(d.id) && isNewerThanSnapshot(d.id, createSeqAtRequest),
         );
         return preserved.length === 0
           ? nextDecks

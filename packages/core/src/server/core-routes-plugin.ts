@@ -21,6 +21,7 @@ import {
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_META,
 } from "../agent/engine/provider-env-vars.js";
+import type { AgentEngineEntry } from "../agent/engine/registry.js";
 import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
@@ -219,19 +220,18 @@ export interface AgentEngineStatusResult {
   openAiBaseUrlConfigured?: boolean;
 }
 
-export interface AgentEngineStatusDeps {
+export interface AgentEngineStatusDeps<
+  E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
+> {
   readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
   readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
   isStoredEngineUsable: (
     stored: unknown,
-    entry: AgentEngineStatusEntry,
+    entry: E,
   ) => boolean | Promise<boolean>;
-  detectFromUserSecrets: () => Promise<AgentEngineStatusEntry | null>;
-  detectFromEnv: () =>
-    | AgentEngineStatusEntry
-    | null
-    | Promise<AgentEngineStatusEntry | null>;
-  lookupEntry?: (engine: string) => AgentEngineStatusEntry | undefined;
+  detectFromUserSecrets: () => Promise<E | null>;
+  detectFromEnv: () => E | null | Promise<E | null>;
+  lookupEntry?: (engine: string) => E | undefined;
 }
 
 /**
@@ -242,12 +242,12 @@ export interface AgentEngineStatusDeps {
  * start together and the expensive `app_secrets` sweep only runs when the
  * cheaper sources have not already answered.
  */
-export async function resolveAgentEngineStatus(
-  deps: AgentEngineStatusDeps,
-): Promise<AgentEngineStatusResult> {
+export async function resolveAgentEngineStatus<
+  E extends AgentEngineStatusEntry,
+>(deps: AgentEngineStatusDeps<E>): Promise<AgentEngineStatusResult> {
   const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
     engine: string,
-  ) => AgentEngineStatusEntry | undefined;
+  ) => E | undefined;
   const [stored, openAiBaseUrlConfigured] = await Promise.all([
     deps.readStoredEngine(),
     deps.readOpenAiBaseUrlConfigured(),
@@ -358,7 +358,50 @@ export function agentEngineStatusIdentityKey(
   userEmail: string | undefined,
   orgId: string | undefined,
 ): string {
-  return `${userEmail ?? ""} ${orgId ?? ""}`;
+  return `${userEmail ?? ""}\u0000${orgId ?? ""}`;
+}
+
+function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
+  return {
+    readStoredEngine: async () =>
+      (await getSetting("agent-engine")) as {
+        engine?: string;
+        model?: string;
+      } | null,
+    readOpenAiBaseUrlConfigured: async () => {
+      try {
+        if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+      } catch {
+        /* fall through to deployment env when allowed */
+      }
+      return (
+        canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR) &&
+        !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+      );
+    },
+    isStoredEngineUsable: isStoredEngineUsableForRequest,
+    detectFromUserSecrets: detectEngineFromUserSecrets,
+    detectFromEnv: detectEngineFromEnv,
+  };
+}
+
+/**
+ * Resolve the identity the status answer depends on. Both lookups memoize per
+ * request inside their own helpers, so repeating them here stays cheap.
+ */
+async function resolveAgentEngineStatusIdentity(
+  event: H3Event,
+): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
+  const session = await getSession(event).catch(() => null);
+  const userEmail = session?.email;
+  if (!userEmail) return { userEmail: undefined, orgId: undefined };
+  try {
+    const orgCtx = await getOrgContext(event);
+    return { userEmail, orgId: orgCtx.orgId ?? undefined };
+  } catch {
+    /* org module not present in this template */
+    return { userEmail, orgId: undefined };
+  }
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -807,54 +850,17 @@ async function detectUsageEngineName(
   userEmail: string | undefined,
 ): Promise<string | null> {
   try {
-    const stored = (await getSetting("agent-engine")) as {
-      engine?: string;
-    } | null;
-    if (isAgentEngineSettingConfigured(stored)) {
-      return (stored as { engine: string }).engine;
-    }
-    let orgId: string | undefined;
-    if (userEmail) {
-      try {
-        const orgCtx = await getOrgContext(event);
-        orgId = orgCtx.orgId ?? undefined;
-      } catch {
-        /* org module not present in this template */
-      }
-    }
-    const envEntry = process.env.AGENT_ENGINE
-      ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+    const orgId = userEmail
+      ? (await resolveAgentEngineStatusIdentity(event)).orgId
       : undefined;
-    if (envEntry) {
-      return (await runWithRequestContext({ userEmail, orgId }, () =>
-        isStoredEngineUsableForRequest({ engine: envEntry.name }, envEntry),
-      ))
-        ? envEntry.name
-        : null;
-    }
-
-    const detectedFromUser = await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromUserSecrets(),
+    const status = await runWithRequestContext({ userEmail, orgId }, () =>
+      resolveAgentEngineStatus({
+        ...requestAgentEngineStatusDeps(),
+        // Tracking only needs the engine name; skip the base-URL secret read.
+        readOpenAiBaseUrlConfigured: () => false,
+      }),
     );
-    if (stored && typeof stored.engine === "string") {
-      const entry = getAgentEngineEntry(stored.engine);
-      if (
-        entry &&
-        (await runWithRequestContext({ userEmail, orgId }, () =>
-          isStoredEngineUsableForRequest(stored, entry),
-        ))
-      ) {
-        return stored.engine;
-      }
-    }
-    if (detectedFromUser?.name === "builder") return detectedFromUser.name;
-    if (detectedFromUser) return detectedFromUser.name;
-
-    return await runWithRequestContext(
-      { userEmail, orgId },
-      () => detectEngineFromEnv()?.name ?? null,
-    );
+    return status.engine ?? null;
   } catch {
     return null;
   }
@@ -3306,139 +3312,17 @@ export function createCoreRoutesPlugin(
         `${P}/agent-engine/status`,
         defineEventHandler(async (event) => {
           try {
-            const session = await getSession(event).catch(() => null);
-            const userEmail = session?.email;
-            let orgId: string | undefined;
-            if (userEmail) {
-              try {
-                const orgCtx = await getOrgContext(event);
-                orgId = orgCtx.orgId ?? undefined;
-              } catch {
-                /* org module not present in this template */
-              }
-            }
-            const openAiBaseUrlConfigured = await runWithRequestContext(
-              { userEmail, orgId },
-              async () => {
-                try {
-                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
-                } catch {
-                  /* fall through to deployment env when allowed */
-                }
-                return (
-                  canUseDeployCredentialFallbackForRequest(
-                    OPENAI_BASE_URL_ENV_VAR,
-                  ) && !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
-                );
-              },
-            );
-            const stored = (await getSetting("agent-engine")) as {
-              engine?: string;
-              model?: string;
-            } | null;
-            if (isAgentEngineSettingConfigured(stored)) {
-              const engine = (stored as { engine: string }).engine;
-              const entry = getAgentEngineEntry(engine);
-              const model = normalizeAgentEngineStatusModel(
-                entry,
-                stored?.model,
-              );
-              return {
-                configured: true,
-                engine,
-                model,
-                source: "settings" as const,
-                openAiBaseUrlConfigured,
-              };
-            }
-            const envEntry = process.env.AGENT_ENGINE
-              ? getAgentEngineEntry(process.env.AGENT_ENGINE)
-              : undefined;
-            if (envEntry) {
-              const envUsable = await runWithRequestContext(
-                { userEmail, orgId },
-                () =>
-                  isStoredEngineUsableForRequest(
-                    { engine: envEntry.name },
-                    envEntry,
+            const { userEmail, orgId } =
+              await resolveAgentEngineStatusIdentity(event);
+            return await shareAgentEngineStatusLookup(
+              agentEngineStatusIdentityKey(userEmail, orgId),
+              () =>
+                Promise.resolve(
+                  runWithRequestContext({ userEmail, orgId }, () =>
+                    resolveAgentEngineStatus(requestAgentEngineStatusDeps()),
                   ),
-              );
-              if (!envUsable) {
-                return { configured: false, openAiBaseUrlConfigured };
-              }
-              return {
-                configured: true,
-                engine: envEntry.name,
-                model: envEntry.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: "AGENT_ENGINE",
-                openAiBaseUrlConfigured,
-              };
-            }
-            // Per-user app_secrets — a user who connected Builder (or pasted
-            // their own provider key) may not have any deploy-level env vars
-            // set. Stored provider selections are checked first so saving a
-            // BYOK engine can override an existing Builder connection.
-            const detectedFromUser = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromUserSecrets(),
+                ),
             );
-            if (stored && typeof stored.engine === "string") {
-              const entry = getAgentEngineEntry(stored.engine);
-              if (
-                entry &&
-                (await runWithRequestContext({ userEmail, orgId }, () =>
-                  isStoredEngineUsableForRequest(stored, entry),
-                ))
-              ) {
-                const model = normalizeAgentEngineStatusModel(
-                  entry,
-                  stored.model,
-                );
-                return {
-                  configured: true,
-                  engine: stored.engine,
-                  model,
-                  source: "env" as const,
-                  envVar: entry.requiredEnvVars[0],
-                  openAiBaseUrlConfigured,
-                };
-              }
-            }
-            if (detectedFromUser?.name === "builder") {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            if (detectedFromUser) {
-              return {
-                configured: true,
-                engine: detectedFromUser.name,
-                model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
-                source: "app_secrets" as const,
-                envVar: detectedFromUser.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
-            const detected = await runWithRequestContext(
-              { userEmail, orgId },
-              () => detectEngineFromEnv(),
-            );
-            if (detected) {
-              return {
-                configured: true,
-                engine: detected.name,
-                model: detected.defaultModel ?? DEFAULT_MODEL,
-                source: "env" as const,
-                envVar: detected.requiredEnvVars[0],
-                openAiBaseUrlConfigured,
-              };
-            }
           } catch {}
           return { configured: false };
         }),
