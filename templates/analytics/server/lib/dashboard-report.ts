@@ -121,7 +121,7 @@ function buildDashboardUrl(
   ).toString();
 }
 
-async function collectReportSnapshot(
+export async function collectReportSnapshot(
   sub: DashboardReportSubscription,
 ): Promise<ReportSnapshot> {
   const accessCtx: AccessCtx = {

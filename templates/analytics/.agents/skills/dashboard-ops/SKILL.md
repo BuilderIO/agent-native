@@ -2,10 +2,11 @@
 name: dashboard-ops
 description: >-
   Deployment and runtime internals for dashboard email reports and analytics
-  alert rules: Playwright/Chromium capture, serverless timing budgets, cron
-  wiring, and notification delivery env vars. Use when configuring, deploying,
-  or debugging report/alert delivery infrastructure — not when just creating a
-  report subscription or alert rule via the action surface.
+  alert rules: server-side SVG/PNG report rendering, serverless timing
+  budgets, cron wiring, and notification delivery env vars. Use when
+  configuring, deploying, or debugging report/alert delivery infrastructure —
+  not when just creating a report subscription or alert rule via the action
+  surface.
 scope: dev
 ---
 
@@ -17,27 +18,54 @@ surfaces. This skill covers the deployment/runtime machinery behind them —
 the agent chatting with an end user does not need this; it only needs the
 action names and the user-facing constraints already in `AGENTS.md`.
 
-## Dashboard Email Report Capture
+## Dashboard Email Report Rendering
 
-- Report PNGs are Playwright captures of the real dashboard route in
-  `reportScreenshot=1` mode, authenticated by a short-lived embed-session
-  token, and embedded inline in the email as ordered CID images.
-- Complete dashboards are captured sequentially in four-panel windows matching
-  the browser's four-query concurrency limit. Every window must match the
-  panel ids snapshotted at the start; a failed or mismatched window
-  invalidates the entire image set so the scheduler retries instead of
-  sending a partial report.
-- Capture is capped at 10 windows and 14 MiB of raw PNG data. Subscriptions
-  are capped at five distinct recipients — recommend a mailing-list address
-  for larger audiences.
-- The serverless capture deadline reserves 90 seconds of the 300-second
-  worker budget for cleanup and delivery.
+- Reports render entirely server-side. There is no headless browser, no
+  Chromium pack download, and no `reportScreenshot=1` embed-session
+  screenshot URL — the previous browser-capture pipeline is gone.
+- Each panel's query runs through the same source dispatcher the UI uses
+  (`runDashboardPanelQuery`), inside the subscription owner's request
+  context, so per-source access scoping (BigQuery/Gong/HubSpot credentials,
+  org scoping) is preserved exactly as if the owner loaded the dashboard.
+- Chart panels are drawn as SVG and rasterized to PNG with `@resvg/resvg-js`,
+  then embedded in the email as `cid:` attachments. Fonts come from
+  `resolveOgFontFiles()` — **resvg has no system fonts in a Lambda runtime,
+  so chart text silently renders blank (not an error) unless those bundled
+  font files are passed to it.** Never drop that font wiring when touching
+  chart rendering.
+- Non-chart panels (`section`, `metric`, `callout`, `table`, `heatmap`) render
+  as real email HTML, not images. `extension` panels cannot be rendered for
+  email at all and instead link out to the live dashboard.
+- A panel that fails to query renders a visible error card in its place and
+  marks the whole run `degraded`; a degraded report is never sent or recorded
+  as if it were complete. If every panel fails, nothing is sent and the
+  subscription errors out instead of emailing an empty report.
+- Subscriptions are capped at five distinct recipients
+  (`MAX_DASHBOARD_REPORT_RECIPIENTS`) — recommend a mailing-list address for
+  larger audiences.
 - The ten-minute retry delay is an eligibility floor, not a guarantee; the
   `*/15` sweep runs the retry on its first tick after that floor.
-- PNG rendering uses local Chrome in development and `playwright-core` plus
-  `@sparticuz/chromium-min` in serverless runtimes. Set
-  `DASHBOARD_REPORT_CHROMIUM_PACK_URL` only when overriding the default
-  Chromium pack location.
+- The serverless delivery deadline (`SERVERLESS_REPORT_DELIVERY_BUDGET_MS` in
+  `server/jobs/dashboard-report.ts`) reserves 220 seconds of the
+  `dashboard-report-sweep-background` function's 300-second `netlify.toml`
+  timeout for rendering and delivery, leaving the remainder for cleanup.
+- Netlify sweeps process up to 5 subscriptions per tick
+  (`SERVERLESS_MAX_REPORTS_PER_SWEEP`) — no longer forced to 1, since capture
+  no longer drives a per-subscription browser. Long-lived (non-Netlify)
+  runtimes default to the same limit of 5, overridable with
+  `DASHBOARD_REPORT_SWEEP_LIMIT`.
+
+### Env Vars
+
+- `DASHBOARD_REPORT_BASE_URL` — overrides the dashboard link URL in emails; if
+  unset, falls back to `getAppProductionUrl()` (the `APP_URL` /
+  `WORKSPACE_OAUTH_ORIGIN` / `BETTER_AUTH_URL` chain).
+- `RESEND_API_KEY` or `SENDGRID_API_KEY` plus `EMAIL_FROM` — required to send
+  the report email at all.
+- `DASHBOARD_REPORTS_CRON_SECRET` — bearer token external cron callers must
+  send to `POST /api/dashboard-reports/run`.
+- `DASHBOARD_REPORT_SWEEP_LIMIT` — overrides the per-tick sweep size on
+  non-Netlify runtimes (see above).
 
 ## Cron Wiring
 

@@ -95,50 +95,41 @@ export async function runDashboardReportsOnce(): Promise<{
           },
           () =>
             sendDashboardReportSubscription(sub, {
-              skipEmailWithoutScreenshot: retryAt !== null,
+              skipEmailWhenDegraded: retryAt !== null,
               onCaptureOutcome: (outcome) =>
                 persistDashboardReportCaptureOutcome(sub, outcome),
               ...(deliveryDeadlineAt ? { deadlineAt: deliveryDeadlineAt } : {}),
             }),
         );
-        if (result.screenshotMode === "partial" && result.emailsSent) {
-          failed++;
-          const message = result.screenshotError
-            ? `Dashboard screenshot partially available: ${result.screenshotError}`
-            : "Dashboard screenshot partially available";
+        const degradedReason =
+          result.reportError ??
+          `panels unavailable: ${result.degradedPanelIds.join(", ") || "unknown"}`;
+
+        if (!result.emailsSent) {
           console.error(
-            `[dashboard-report] Subscription ${sub.id} sent with a partial screenshot:`,
-            message,
+            `[dashboard-report] Subscription ${sub.id} held back a degraded report, will retry:`,
+            degradedReason,
           );
-          await persistDashboardReportResult(sub, "error", message);
+          const message = `${degradedReason} (retry scheduled)`;
+          const persisted = retryAt
+            ? await persistDashboardReportResult(sub, "error", message, {
+                nextRunAt: retryAt,
+              })
+            : await persistDashboardReportResult(sub, "error", message);
+          if (!persisted) failed++;
           continue;
         }
-        if (!result.screenshotAttached) {
-          const message = result.screenshotError
-            ? `Dashboard screenshot unavailable: ${result.screenshotError}`
-            : "Dashboard screenshot unavailable";
-          if (retryAt && !result.emailsSent) {
-            console.error(
-              `[dashboard-report] Subscription ${sub.id} skipped sending without a screenshot, will retry:`,
-              message,
-            );
-            const persisted = await persistDashboardReportResult(
-              sub,
-              "error",
-              `${message} (retry scheduled)`,
-              { nextRunAt: retryAt },
-            );
-            if (!persisted) failed++;
-            continue;
-          }
+
+        if (result.reportMode === "degraded") {
           failed++;
           console.error(
-            `[dashboard-report] Subscription ${sub.id} sent without a screenshot:`,
-            message,
+            `[dashboard-report] Subscription ${sub.id} sent a degraded report:`,
+            degradedReason,
           );
-          await persistDashboardReportResult(sub, "error", message);
+          await persistDashboardReportResult(sub, "error", degradedReason);
           continue;
         }
+
         if (!(await persistDashboardReportResult(sub, "success"))) failed++;
       } catch (err: any) {
         failed++;
