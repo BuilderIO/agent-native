@@ -8,6 +8,7 @@ import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
+const claimDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => []));
 const recoverDueA2AContinuationIdsMock = vi.hoisted(() => vi.fn());
 const listRecoverableA2ATasksMock = vi.hoisted(() => vi.fn());
 const getPendingTaskMock = vi.hoisted(() => vi.fn());
@@ -31,6 +32,9 @@ const getA2AContinuationTaskOutcomeMock = vi.hoisted(() =>
 const hasPendingConfirmedA2ADeliveryForIntegrationTaskMock = vi.hoisted(() =>
   vi.fn(async () => false),
 );
+const hasOnlyLegacyFailedA2AContinuationsForIntegrationTaskMock = vi.hoisted(
+  () => vi.fn(async () => false),
+);
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
 const failA2AContinuationsForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
@@ -52,7 +56,7 @@ const A2AClientMock = vi.hoisted(() =>
 vi.mock("./a2a-continuations-store.js", () => ({
   claimA2AContinuation: claimA2AContinuationMock,
   claimA2AContinuationDelivery: claimA2AContinuationDeliveryMock,
-  claimDueA2AContinuations: vi.fn(async () => []),
+  claimDueA2AContinuations: claimDueA2AContinuationsMock,
   finalizeA2ATerminalHistory: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
   failA2AContinuationsForIntegrationTask:
@@ -61,6 +65,8 @@ vi.mock("./a2a-continuations-store.js", () => ({
   getA2AContinuationTaskOutcome: getA2AContinuationTaskOutcomeMock,
   hasPendingConfirmedA2ADeliveryForIntegrationTask:
     hasPendingConfirmedA2ADeliveryForIntegrationTaskMock,
+  hasOnlyLegacyFailedA2AContinuationsForIntegrationTask:
+    hasOnlyLegacyFailedA2AContinuationsForIntegrationTaskMock,
   listRecoverableA2AIntegrationTasks: listRecoverableA2ATasksMock,
   recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
   recordA2ATerminalDeliveryReceipt: recordA2ATerminalDeliveryReceiptMock,
@@ -190,6 +196,9 @@ describe("A2A continuation processor", () => {
     hasPendingConfirmedA2ADeliveryForIntegrationTaskMock.mockResolvedValue(
       false,
     );
+    hasOnlyLegacyFailedA2AContinuationsForIntegrationTaskMock.mockResolvedValue(
+      false,
+    );
     failA2AContinuationMock.mockResolvedValue(undefined);
     recordA2ATerminalDeliveryReceiptMock.mockImplementation(
       async (
@@ -224,6 +233,7 @@ describe("A2A continuation processor", () => {
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
     );
+    claimDueA2AContinuationsMock.mockResolvedValue([]);
     recoverDueA2AContinuationIdsMock.mockResolvedValue([]);
     listRecoverableA2ATasksMock.mockResolvedValue([
       {
@@ -362,6 +372,36 @@ describe("A2A continuation processor", () => {
     );
     expect(fetch).toHaveBeenCalled();
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("continues a due batch when one processor and its recovery both fail", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    claimDueA2AContinuationsMock.mockResolvedValueOnce([
+      continuation({ id: "cont-failing" }),
+      continuation({ id: "cont-healthy", a2aTaskId: "a2a-task-healthy" }),
+    ]);
+    getIntegrationCampaignForTaskMock
+      .mockRejectedValueOnce(new Error("campaign database unavailable"))
+      .mockResolvedValue(null);
+    getA2AContinuationMock.mockRejectedValueOnce(
+      new Error("recovery database unavailable"),
+    );
+    const { processDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(
+      processDueA2AContinuations({
+        adapters: new Map([["slack", adapter()]]),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(getTaskMock).toHaveBeenCalledWith("a2a-task-healthy");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("recovery failed"),
+      "Error",
+    );
   });
 
   it("delivers the durable checkpoint when an escaped processor failure exhausts attempts", async () => {
@@ -635,6 +675,30 @@ describe("A2A continuation processor", () => {
       "task-1",
       expect.stringContaining("disabled"),
     );
+  });
+
+  it("conservatively fails a waiting parent for ambiguous legacy failed rows", async () => {
+    getA2AContinuationTaskOutcomeMock.mockResolvedValue(
+      "terminal-without-delivery",
+    );
+    hasOnlyLegacyFailedA2AContinuationsForIntegrationTaskMock.mockResolvedValue(
+      true,
+    );
+    durableDispatchEnabledMock.mockReturnValue(true);
+    const { reconcileTerminalA2AParentIfDisabled } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(reconcileTerminalA2AParentIfDisabled("task-1")).resolves.toBe(
+      true,
+    );
+
+    expect(
+      failIntegrationCampaignTaskDeliveryContainmentMock,
+    ).toHaveBeenCalledWith(
+      "task-1",
+      expect.stringContaining("Legacy A2A continuation"),
+    );
+    expect(failDisabledIntegrationCampaignTaskMock).not.toHaveBeenCalled();
   });
 
   it.each(["failed", "completed"] as const)(

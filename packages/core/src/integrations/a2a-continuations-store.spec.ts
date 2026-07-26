@@ -232,6 +232,51 @@ describe("A2A continuations store", () => {
     );
   });
 
+  it.each([
+    [
+      [
+        {
+          status: "failed",
+          terminal_delivery_kind: null,
+          terminal_delivery_confirmed_at: null,
+          terminal_history_payload: null,
+        },
+      ],
+      true,
+    ],
+    [
+      [
+        {
+          status: "failed",
+          terminal_delivery_kind: "failure",
+          terminal_delivery_confirmed_at: 10,
+          terminal_history_payload: null,
+        },
+      ],
+      false,
+    ],
+  ])(
+    "detects ambiguous legacy failed custody as %s",
+    async (rows, expected) => {
+      executeMock.mockImplementation(
+        async (query: string | { sql: string }) => {
+          if (
+            querySql(query).includes("SELECT status, terminal_delivery_kind")
+          ) {
+            return { rows, rowsAffected: 0 };
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      );
+      const { hasOnlyLegacyFailedA2AContinuationsForIntegrationTask } =
+        await loadStore();
+
+      await expect(
+        hasOnlyLegacyFailedA2AContinuationsForIntegrationTask("task-1"),
+      ).resolves.toBe(expected);
+    },
+  );
+
   it("records provider-confirmed terminal delivery without terminalizing or scrubbing history custody", async () => {
     const persisted = new Map<string, Record<string, unknown>>();
     executeMock.mockImplementation(

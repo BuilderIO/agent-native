@@ -589,6 +589,29 @@ export async function hasPendingConfirmedA2ADeliveryForIntegrationTask(
   return rows.length > 0;
 }
 
+export async function hasOnlyLegacyFailedA2AContinuationsForIntegrationTask(
+  integrationTaskId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT status, terminal_delivery_kind,
+                 terminal_delivery_confirmed_at, terminal_history_payload
+          FROM integration_a2a_continuations
+          WHERE integration_task_id = ?`,
+    args: [integrationTaskId],
+  });
+  return (
+    rows.length > 0 &&
+    rows.every(
+      (row) =>
+        String(row.status) === "failed" &&
+        row.terminal_delivery_kind == null &&
+        row.terminal_delivery_confirmed_at == null &&
+        row.terminal_history_payload == null,
+    )
+  );
+}
+
 export async function failA2AContinuationsForIntegrationTask(
   integrationTaskId: string,
   errorMessage: string,

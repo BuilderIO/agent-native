@@ -24,6 +24,7 @@ import {
   finalizeA2ATerminalHistory,
   getA2AContinuation,
   getA2AContinuationTaskOutcome,
+  hasOnlyLegacyFailedA2AContinuationsForIntegrationTask,
   hasPendingConfirmedA2ADeliveryForIntegrationTask,
   listRecoverableA2AIntegrationTasks,
   recoverDueA2AContinuationIds,
@@ -261,13 +262,22 @@ export async function processDueA2AContinuations(options: {
         console.error(
           `[integrations] A2A continuation ${continuation.id} failed; durable recovery requested`,
         );
-        await recoverA2AContinuationAfterProcessorFailure(continuation.id, {
-          adapters: options.adapters,
-          reason:
-            err instanceof Error
-              ? err.message.slice(0, 500)
-              : "continuation processing failed",
-        });
+        try {
+          await recoverA2AContinuationAfterProcessorFailure(continuation.id, {
+            adapters: options.adapters,
+            reason:
+              err instanceof Error
+                ? err.message.slice(0, 500)
+                : "continuation processing failed",
+          });
+        } catch (recoveryError) {
+          console.error(
+            `[integrations] A2A continuation ${continuation.id} recovery failed; later continuations will continue`,
+            recoveryError instanceof Error
+              ? recoveryError.name
+              : "recovery_error",
+          );
+        }
       },
     );
   }
@@ -594,6 +604,17 @@ export async function reconcileTerminalA2AParentIfDisabled(
     "terminal-without-delivery"
   ) {
     return false;
+  }
+  if (
+    await hasOnlyLegacyFailedA2AContinuationsForIntegrationTask(
+      integrationTaskId,
+    )
+  ) {
+    await failIntegrationCampaignTaskDeliveryContainment(
+      integrationTaskId,
+      "Legacy A2A continuation ended without durable delivery proof",
+    );
+    return true;
   }
   const task = await getPendingTask(integrationTaskId);
   if (
