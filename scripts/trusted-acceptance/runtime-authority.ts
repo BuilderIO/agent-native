@@ -561,24 +561,29 @@ export class NetlifyRuntime {
     siteId: string,
     keys: readonly string[],
   ): Promise<boolean> {
-    for (const key of keys) {
-      const response = await this.fetch(this.envUrl(accountId, siteId, key), {
-        method: "DELETE",
-        headers: { authorization: `Bearer ${this.token}` },
-      });
-      if (!response.ok && response.status !== 404)
-        throw new Error(
-          `Netlify runtime variable removal failed: ${response.status}`,
-        );
-    }
-    for (const key of keys) {
-      const verification = await this.fetch(
-        this.envUrl(accountId, siteId, key),
-        { headers: { authorization: `Bearer ${this.token}` } },
+    const removals = await Promise.all(
+      keys.map((key) =>
+        this.fetch(this.envUrl(accountId, siteId, key), {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${this.token}` },
+        }),
+      ),
+    );
+    const failedRemoval = removals.find(
+      (response) => !response.ok && response.status !== 404,
+    );
+    if (failedRemoval)
+      throw new Error(
+        `Netlify runtime variable removal failed: ${failedRemoval.status}`,
       );
-      if (verification.status !== 404) return false;
-    }
-    return true;
+    const verification = await Promise.all(
+      keys.map((key) =>
+        this.fetch(this.envUrl(accountId, siteId, key), {
+          headers: { authorization: `Bearer ${this.token}` },
+        }),
+      ),
+    );
+    return verification.every((response) => response.status === 404);
   }
 
   async readLeaseMarker(

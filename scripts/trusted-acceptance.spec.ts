@@ -468,7 +468,10 @@ describe("trusted acceptance receipts", () => {
         inferenceAuthority: "verified-absent",
         databaseBranches: "verified-absent",
         runtimeConfiguration: "verified-absent",
-        tombstoneDeployIds: ["tombstone-calendar-123"],
+        tombstoneDeployIds: [
+          "tombstone-calendar-123",
+          "tombstone-directory-123",
+        ],
         verifiedAt: "2026-07-25T12:01:00.000Z",
       },
       scenarios: {
@@ -527,6 +530,13 @@ describe("trusted acceptance receipts", () => {
       ok: true,
       issues: [],
     });
+    receipt.cleanup!.tombstoneDeployIds.pop();
+    const missingDirectoryTombstone = validateTrustedAcceptanceReceipt(receipt);
+    assert.equal(missingDirectoryTombstone.ok, false);
+    if (!missingDirectoryTombstone.ok)
+      assert(
+        missingDirectoryTombstone.issues.some(({ path }) => path === "cleanup"),
+      );
   });
 
   it("rejects sensitive fields and values in receipts", () => {

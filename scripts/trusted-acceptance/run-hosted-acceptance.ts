@@ -139,6 +139,7 @@ function sha256(value: string | Uint8Array): string {
 const leaseMarkerTemplate = "{{TRUSTED_ACCEPTANCE_LEASE_MARKER}}";
 const statusPollIntervalMs = 5_000;
 export const defaultHarnessTimeoutMs = 12 * 60_000;
+export const defaultLeaseTtlMs = 30 * 60_000;
 
 function leaseMarker(leaseId: string): string {
   return `TRUSTED_ACCEPTANCE_FIXTURE_${sha256(leaseId).slice(0, 16)}`;
@@ -601,7 +602,7 @@ export async function runHostedAcceptance(
     providers: deps.providers,
     journalFile: files.journalFile,
     receiptFile: files.receiptFile,
-    ttlMs: 15 * 60_000,
+    ttlMs: defaultLeaseTtlMs,
     harnessTimeoutMs,
     expectedAssertionIds: expected,
     now: deps.now,

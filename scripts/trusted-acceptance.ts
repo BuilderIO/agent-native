@@ -1025,6 +1025,9 @@ export function validateTrustedAcceptanceReceipt(
     }
   }
   if (receipt.result === "pass") {
+    const expectedTombstoneCount =
+      receipt.members.length +
+      (receipt.scenarios?.kind === "a2a-directory-withdrawal" ? 1 : 0);
     if (
       receipt.lease?.state !== "revoked" ||
       !receipt.lease.revokedAt ||
@@ -1032,12 +1035,12 @@ export function validateTrustedAcceptanceReceipt(
       receipt.cleanup.databaseBranches !== "verified-absent" ||
       receipt.cleanup.runtimeConfiguration !== "verified-absent" ||
       !receipt.cleanup.verifiedAt ||
-      receipt.cleanup.tombstoneDeployIds.length !== receipt.members.length
+      receipt.cleanup.tombstoneDeployIds.length !== expectedTombstoneCount
     ) {
       issues.push({
         path: "cleanup",
         message:
-          "passing receipts require verified lease revocation, database and runtime cleanup, and one trusted tombstone deploy per member",
+          "passing receipts require verified lease revocation, database and runtime cleanup, and one trusted tombstone deploy per member and directory fixture",
       });
     }
     const scenarios = receipt.scenarios;

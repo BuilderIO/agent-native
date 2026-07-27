@@ -7,6 +7,7 @@ import { describe, it } from "node:test";
 
 import {
   defaultHarnessTimeoutMs,
+  defaultLeaseTtlMs,
   parseHostedAcceptanceCliArgs,
   runHostedAcceptance,
 } from "./run-hosted-acceptance.ts";
@@ -66,6 +67,11 @@ describe("trusted in-process hosted acceptance runner", () => {
     assert(
       defaultHarnessTimeoutMs > 60 * 5_000 + 300_000,
       "default deadline must leave setup and network margin",
+    );
+    assert.equal(defaultLeaseTtlMs, 30 * 60_000);
+    assert(
+      defaultLeaseTtlMs - defaultHarnessTimeoutMs >= 15 * 60_000,
+      "lease must retain a bounded cleanup reserve after harness timeout",
     );
   });
 
