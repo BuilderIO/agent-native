@@ -1,0 +1,358 @@
+// Some tool schemas expose chart parameters named `type`/`title`/`labels`/
+// `data` (e.g. a chart-generation action). Models occasionally regress to
+// typing those parameter names as a bare chat line instead of calling the
+// tool or emitting a real ```embed fence, e.g.:
+//   /chart type=bar title="..." labels=["Mon","Tue"] data=[5,8]
+// That has no real markdown syntax and would otherwise render as inert text.
+// This module detects that generic shape (any "/word ... labels=[...]
+// data=[...]" line) and renders a best-effort inline chart so the user still
+// sees something useful, without hardcoding any single template's tool name.
+
+import React from "react";
+
+export const LEGACY_CHART_SHORTHAND_LANG = "chart-shorthand";
+
+const LEGACY_CHART_PALETTE = [
+  "#6366f1",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#0ea5e9",
+  "#a855f7",
+];
+
+const SAFE_HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+const MAX_LINE_LENGTH = 20_000;
+const MAX_LABELS = 60;
+const MAX_SERIES = 6;
+
+export interface LegacyChartShorthand {
+  type: "bar" | "line" | "area";
+  title: string;
+  labels: string[];
+  series: { label: string; data: number[]; color?: string }[];
+}
+
+/** Cheap pre-check so callers can skip the full parse on ordinary text. */
+export function looksLikeLegacyChartShorthand(line: string): boolean {
+  const trimmed = line.trim();
+  if (trimmed.length === 0 || trimmed.length > MAX_LINE_LENGTH) return false;
+  if (!/^\/[a-zA-Z][\w-]*\b/.test(trimmed)) return false;
+  return /\blabels=/.test(trimmed) && /\bdata=/.test(trimmed);
+}
+
+// Extracts a balanced JSON array/object starting exactly at `startIndex`
+// (which must point at "["), tracking string/escape state so brackets or
+// braces inside JSON string values don't confuse the boundary.
+function extractBalancedArrayAt(
+  text: string,
+  startIndex: number,
+): string | null {
+  if (text[startIndex] !== "[") return null;
+  let depth = 0;
+  let inString = false;
+  for (let idx = startIndex; idx < text.length; idx++) {
+    const ch = text[idx];
+    if (inString) {
+      if (ch === "\\")
+        idx++; // skip escaped character, including \"
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "[" || ch === "{") depth++;
+    else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(startIndex, idx + 1);
+    }
+  }
+  return null;
+}
+
+// Finds the array value immediately following a `key=` token (only
+// whitespace allowed in between) so `labels=oops data=[1,2]` correctly
+// fails to find a labels array instead of accidentally matching `data`'s.
+function extractArrayForKey(text: string, keyRegex: RegExp): string | null {
+  const match = keyRegex.exec(text);
+  if (!match) return null;
+  let idx = match.index + match[0].length;
+  while (idx < text.length && /\s/.test(text[idx])) idx++;
+  return extractBalancedArrayAt(text, idx);
+}
+
+export function parseLegacyChartShorthand(
+  rawLine: string,
+): LegacyChartShorthand | null {
+  const trimmed = rawLine.trim();
+  if (!looksLikeLegacyChartShorthand(trimmed)) return null;
+
+  const typeMatch = trimmed.match(/\btype=(bar|line|area)\b/i);
+  const chartType =
+    (typeMatch?.[1].toLowerCase() as LegacyChartShorthand["type"]) || "bar";
+
+  const titleMatch = trimmed.match(/\btitle=(?:"([^"]*)"|'([^']*)')/);
+  const chartTitle = titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? "") : "";
+
+  const labelsRaw = extractArrayForKey(trimmed, /\blabels=/);
+  const dataRaw = extractArrayForKey(trimmed, /\bdata=/);
+  if (!labelsRaw || !dataRaw) return null;
+
+  let parsedLabels: unknown;
+  let parsedData: unknown;
+  try {
+    parsedLabels = JSON.parse(labelsRaw);
+    parsedData = JSON.parse(dataRaw);
+  } catch {
+    return null;
+  }
+  if (
+    !Array.isArray(parsedLabels) ||
+    parsedLabels.length === 0 ||
+    parsedLabels.length > MAX_LABELS ||
+    // Reject nested arrays/objects as labels — String(nestedArray) recurses
+    // through Array.prototype.join and can throw on deeply nested input.
+    !parsedLabels.every((l) =>
+      ["string", "number", "boolean"].includes(typeof l),
+    )
+  ) {
+    return null;
+  }
+  const safeLabels = parsedLabels.map((l) => String(l));
+
+  const isValidSeriesData = (values: unknown): values is number[] =>
+    Array.isArray(values) &&
+    values.length === safeLabels.length &&
+    values.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0);
+
+  const colorMatch = trimmed.match(/(?:^|\s)color=(#[0-9a-fA-F]{3,8})\b/);
+  const topLevelColor =
+    colorMatch && SAFE_HEX_COLOR.test(colorMatch[1])
+      ? colorMatch[1]
+      : undefined;
+
+  let chartSeries: LegacyChartShorthand["series"];
+  if (isValidSeriesData(parsedData)) {
+    chartSeries = [
+      { label: chartTitle || "Value", data: parsedData, color: topLevelColor },
+    ];
+  } else if (
+    Array.isArray(parsedData) &&
+    parsedData.length > 0 &&
+    parsedData.every(
+      (d) =>
+        d &&
+        typeof d === "object" &&
+        isValidSeriesData((d as { data?: unknown }).data),
+    )
+  ) {
+    chartSeries = (
+      parsedData as { label?: unknown; data: number[]; color?: unknown }[]
+    )
+      .slice(0, MAX_SERIES)
+      .map((d, idx) => ({
+        label: typeof d.label === "string" ? d.label : `Series ${idx + 1}`,
+        data: d.data,
+        color:
+          typeof d.color === "string" && SAFE_HEX_COLOR.test(d.color)
+            ? d.color
+            : undefined,
+      }));
+  } else {
+    return null;
+  }
+  if (chartSeries.length === 0) return null;
+  return {
+    type: chartType,
+    title: chartTitle,
+    labels: safeLabels,
+    series: chartSeries,
+  };
+}
+
+// Wraps any line matching the legacy shorthand shape in a fenced code block
+// tagged `chart-shorthand`, so it routes through markdownComponents.pre()
+// like any other language fence instead of rendering as inert prose. Skips
+// lines already inside a real ``` fence.
+export function wrapLegacyChartShorthandLines(markdown: string): string {
+  if (!markdown.includes("labels=") || !markdown.includes("data=")) {
+    return markdown;
+  }
+  let inFence = false;
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (!inFence && looksLikeLegacyChartShorthand(line)) {
+      out.push("```" + LEGACY_CHART_SHORTHAND_LANG, line.trim(), "```");
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+export function LegacyChartShorthandFallback({ text }: { text: string }) {
+  return <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>;
+}
+
+export function LegacyChartShorthandChart({
+  parsed,
+}: {
+  parsed: LegacyChartShorthand;
+}) {
+  const { title, labels, series, type } = parsed;
+  const width = 640;
+  const height = 280;
+  const padding = { top: 16, right: 16, bottom: 44, left: 48 };
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+  const maxVal = Math.max(
+    1,
+    series.reduce(
+      (acc, s) => s.data.reduce((seriesAcc, v) => Math.max(seriesAcc, v), acc),
+      0,
+    ),
+  );
+  const groupW = innerW / labels.length;
+  const gridLineCount = 4;
+  const gridLines = Array.from({ length: gridLineCount + 1 }, (_, g) => {
+    const y = padding.top + (innerH * g) / gridLineCount;
+    const val = Math.round(maxVal - (maxVal * g) / gridLineCount);
+    return { y, val };
+  });
+
+  const colorFor = (s: LegacyChartShorthand["series"][number], si: number) =>
+    s.color || LEGACY_CHART_PALETTE[si % LEGACY_CHART_PALETTE.length];
+
+  return (
+    <div className="my-4 rounded-lg border border-border bg-muted/20 p-3">
+      {title && (
+        <div className="mb-1 text-sm font-medium text-foreground">{title}</div>
+      )}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full text-muted-foreground"
+        role="img"
+        aria-label={title || "Chart"}
+      >
+        {gridLines.map(({ y, val }, i) => (
+          <React.Fragment key={i}>
+            <line
+              x1={padding.left}
+              y1={y}
+              x2={width - padding.right}
+              y2={y}
+              stroke="currentColor"
+              strokeOpacity={0.1}
+            />
+            <text
+              x={padding.left - 8}
+              y={y + 4}
+              textAnchor="end"
+              fontSize={10}
+              fill="currentColor"
+              fillOpacity={0.6}
+            >
+              {val}
+            </text>
+          </React.Fragment>
+        ))}
+
+        {type === "bar" &&
+          labels.map((_, li) => {
+            const groupPad = groupW * 0.15;
+            const barsW = groupW - groupPad * 2;
+            const barW = barsW / series.length;
+            return series.map((s, si) => {
+              const value = s.data[li] ?? 0;
+              const barH = (Math.max(0, value) / maxVal) * innerH;
+              const x = padding.left + li * groupW + groupPad + si * barW;
+              const y = padding.top + (innerH - barH);
+              return (
+                <rect
+                  key={`${li}-${si}`}
+                  x={x}
+                  y={y}
+                  width={Math.max(1, barW - 2)}
+                  height={Math.max(0, barH)}
+                  fill={colorFor(s, si)}
+                  rx={2}
+                />
+              );
+            });
+          })}
+
+        {type !== "bar" &&
+          series.map((s, si) => {
+            const points = labels
+              .map((_, li) => {
+                const value = s.data[li] ?? 0;
+                const x = padding.left + groupW * li + groupW / 2;
+                const y =
+                  padding.top + innerH - (Math.max(0, value) / maxVal) * innerH;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+              })
+              .join(" ");
+            const baseY = padding.top + innerH;
+            const firstX = padding.left + groupW / 2;
+            const lastX =
+              padding.left + groupW * (labels.length - 1) + groupW / 2;
+            return (
+              <React.Fragment key={si}>
+                {type === "area" && (
+                  <polygon
+                    points={`${firstX.toFixed(1)},${baseY.toFixed(1)} ${points} ${lastX.toFixed(1)},${baseY.toFixed(1)}`}
+                    fill={colorFor(s, si)}
+                    fillOpacity={0.15}
+                  />
+                )}
+                <polyline
+                  points={points}
+                  fill="none"
+                  stroke={colorFor(s, si)}
+                  strokeWidth={2}
+                />
+              </React.Fragment>
+            );
+          })}
+
+        {labels.map((label, li) => {
+          const x = padding.left + groupW * li + groupW / 2;
+          const y = height - padding.bottom + 16;
+          const truncated =
+            label.length > 12 ? `${label.slice(0, 11)}...` : label;
+          return (
+            <text
+              key={li}
+              x={x}
+              y={y}
+              textAnchor="middle"
+              fontSize={10}
+              fill="currentColor"
+              fillOpacity={0.7}
+            >
+              {truncated}
+            </text>
+          );
+        })}
+      </svg>
+      {series.length > 1 && (
+        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+          {series.map((s, si) => (
+            <span key={si} className="inline-flex items-center gap-1">
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ background: colorFor(s, si) }}
+              />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
