@@ -31,4 +31,6 @@ interface CfEnv {
 }
 
 declare var __cf_env: CfEnv | undefined;
+/** Nitro's native Cloudflare preset exposes the request environment here. */
+declare var __env__: CfEnv | undefined;
 declare var __cf_ctx: { waitUntil(p: Promise<unknown>): void } | undefined;
