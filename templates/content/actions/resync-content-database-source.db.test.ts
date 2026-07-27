@@ -576,6 +576,7 @@ let claimSourceRefresh: typeof import("./_database-source-utils.js").claimBuilde
 let releaseSourceRefreshClaim: typeof import("./_database-source-utils.js").releaseBuilderCmsSourceRefreshClaim;
 let renewSourceRefreshClaim: typeof import("./_database-source-utils.js").renewBuilderCmsSourceRefreshClaim;
 let updateSourceReadMetadata: typeof import("./_database-source-utils.js").updateBuilderCmsSourceReadMetadata;
+let mutateSourceMetadata: typeof import("./_database-source-utils.js").mutateContentDatabaseSourceMetadata;
 let hydrateQueuedBodies: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 let withBuilderBodyValues: typeof import("./_database-source-utils.js").withBuilderBodySourceValues;
 let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
@@ -640,6 +641,8 @@ beforeAll(async () => {
     .renewBuilderCmsSourceRefreshClaim;
   updateSourceReadMetadata = (await import("./_database-source-utils.js"))
     .updateBuilderCmsSourceReadMetadata;
+  mutateSourceMetadata = (await import("./_database-source-utils.js"))
+    .mutateContentDatabaseSourceMetadata;
   hydrateQueuedBodies = (await import("./_database-source-utils.js"))
     .processBuilderBodyHydrationQueue;
   withBuilderBodyValues = (await import("./_database-source-utils.js"))
@@ -797,6 +800,78 @@ it("atomically grants one Builder continuation claim per persisted offset", asyn
   await releaseSourceRefreshClaim({
     sourceId: source.id,
     claimId: fenced!.claimId,
+  });
+});
+
+it("retries stale metadata writers without erasing a concurrent Builder refresh claim", async () => {
+  const db = getDb();
+  const now = "2026-07-26T21:00:00.000Z";
+  await db.insert(schema.documents).values({
+    id: "doc-metadata-cas",
+    ownerEmail: OWNER,
+    title: "Metadata CAS",
+    content: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-metadata-cas",
+    ownerEmail: OWNER,
+    documentId: "doc-metadata-cas",
+    title: "Metadata CAS",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-metadata-cas",
+    ownerEmail: OWNER,
+    databaseId: "db-metadata-cas",
+    sourceType: "builder-cms",
+    sourceName: "Metadata CAS",
+    sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    metadataJson: JSON.stringify({ writeMode: "stage_only" }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let insertedConcurrentClaim = false;
+  await mutateSourceMetadata({
+    sourceId: "source-metadata-cas",
+    now,
+    buildPatch: async (current) => {
+      const metadata = JSON.parse(current.metadataJson ?? "{}");
+      if (!insertedConcurrentClaim) {
+        insertedConcurrentClaim = true;
+        await db
+          .update(schema.contentDatabaseSources)
+          .set({
+            metadataJson: JSON.stringify({
+              ...metadata,
+              builderContinuationClaimId: "concurrent-claim",
+              builderContinuationClaimOffset: 400,
+              builderContinuationClaimedAt: now,
+            }),
+          })
+          .where(eq(schema.contentDatabaseSources.id, "source-metadata-cas"));
+      }
+      return {
+        metadataJson: JSON.stringify({
+          ...metadata,
+          federation: { role: "primary" },
+        }),
+      };
+    },
+  });
+
+  const [persisted] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-metadata-cas"));
+  expect(JSON.parse(persisted.metadataJson)).toMatchObject({
+    writeMode: "stage_only",
+    builderContinuationClaimId: "concurrent-claim",
+    builderContinuationClaimOffset: 400,
+    federation: { role: "primary" },
   });
 });
 

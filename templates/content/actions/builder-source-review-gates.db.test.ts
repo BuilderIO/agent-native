@@ -78,7 +78,6 @@ let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
 let realExecutionDeps: typeof import("./execute-builder-source-execution.js").realExecutionDeps;
-let builderReviewBodyCandidateDocumentIds: typeof import("./_database-source-utils.js").builderReviewBodyCandidateDocumentIds;
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
 
 beforeAll(async () => {
@@ -96,10 +95,8 @@ beforeAll(async () => {
     .default;
   realExecutionDeps = (await import("./execute-builder-source-execution.js"))
     .realExecutionDeps;
-  ({
-    builderReviewBodyCandidateDocumentIds,
-    builderReviewSourceValueTextProjection,
-  } = await import("./_database-source-utils.js"));
+  ({ builderReviewSourceValueTextProjection } =
+    await import("./_database-source-utils.js"));
 }, 60000);
 
 afterAll(() => {
@@ -255,7 +252,7 @@ async function seedBuilderSource(args: {
 }
 
 describe("Builder source review execution gates", () => {
-  it("reads dotted Builder body keys on SQLite and keeps local deletions reviewable", async () => {
+  it("reads dotted Builder body keys on SQLite", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
     });
@@ -289,15 +286,84 @@ describe("Builder source review execution gates", () => {
       currentHash: "stored-hash",
       currentContent: "Stored readable body",
     });
-    expect(
-      builderReviewBodyCandidateDocumentIds([
-        {
-          ...projected,
-          bodyHydrationStatus: "hydrated",
-          localContent: "",
-        },
-      ]),
-    ).toEqual([seeded.rowDocumentId]);
+  });
+
+  it("discovers body-only review candidates without returning unchanged article bodies", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    const db = getDb();
+    const now = "2026-07-25T12:00:00.000Z";
+    const unchangedDocumentId = `unchanged_${counter}`;
+    const unchangedItemId = `unchanged_item_${counter}`;
+
+    await db
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
+      );
+    await db
+      .update(schema.documents)
+      .set({ content: "Locally changed body", updatedAt: now })
+      .where(eq(schema.documents.id, seeded.rowDocumentId));
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.title": "Old title",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Remote baseline body",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+    await db.insert(schema.documents).values({
+      id: unchangedDocumentId,
+      ownerEmail: OWNER,
+      title: "Unchanged article",
+      content: "Same body",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: unchangedItemId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      documentId: unchangedDocumentId,
+      position: 1,
+      bodyHydrationStatus: "hydrated",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: `unchanged_row_${counter}`,
+      ownerEmail: OWNER,
+      sourceId: seeded.sourceId,
+      databaseItemId: unchangedItemId,
+      documentId: unchangedDocumentId,
+      sourceRowId: `unchanged_entry_${counter}`,
+      sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/unchanged_entry_${counter}`,
+      sourceDisplayKey: "Unchanged article",
+      provenance: "Builder CMS read adapter",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Unchanged article",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "unchanged-baseline-hash",
+        [BUILDER_CMS_BODY_CONTENT_KEY]: "Same body",
+      }),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+      }),
+    );
+
+    expect(response.review?.rows.map((row) => row.documentId)).toEqual([
+      seeded.rowDocumentId,
+    ]);
   });
 
   it("restores authoritative Builder targets in selected read-only previews", async () => {

@@ -186,6 +186,90 @@ function parseObject<T extends object>(
   }
 }
 
+type ContentDatabaseSourceMetadataMutationRow = Pick<
+  ContentDatabaseSourceRowDb,
+  | "capabilitiesJson"
+  | "metadataJson"
+  | "sourceTable"
+  | "sourceType"
+  | "lastSourceUpdatedAt"
+>;
+
+type ContentDatabaseSourceMetadataMutationPatch = Pick<
+  ContentDatabaseSourceRowDb,
+  "metadataJson"
+> &
+  Partial<
+    Pick<
+      ContentDatabaseSourceRowDb,
+      | "capabilitiesJson"
+      | "syncState"
+      | "freshness"
+      | "lastRefreshedAt"
+      | "lastSourceUpdatedAt"
+      | "lastError"
+    >
+  >;
+
+/**
+ * Merge source metadata against the latest persisted row and compare-and-swap
+ * both JSON envelopes. Refresh ownership lives in metadataJson, so every
+ * unrelated writer must retry from the winning value instead of restoring a
+ * stale claim snapshot.
+ */
+export async function mutateContentDatabaseSourceMetadata(args: {
+  sourceId: string;
+  now: string;
+  buildPatch: (
+    current: ContentDatabaseSourceMetadataMutationRow,
+  ) =>
+    | ContentDatabaseSourceMetadataMutationPatch
+    | Promise<ContentDatabaseSourceMetadataMutationPatch>;
+  failureMessage?: string;
+}) {
+  const db = getDb();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current] = await db
+      .select({
+        capabilitiesJson: schema.contentDatabaseSources.capabilitiesJson,
+        metadataJson: schema.contentDatabaseSources.metadataJson,
+        sourceTable: schema.contentDatabaseSources.sourceTable,
+        sourceType: schema.contentDatabaseSources.sourceType,
+        lastSourceUpdatedAt: schema.contentDatabaseSources.lastSourceUpdatedAt,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    if (!current) throw new Error("Content database source not found.");
+
+    const patch = await args.buildPatch(current);
+    const updated = await db
+      .update(schema.contentDatabaseSources)
+      .set({ ...patch, updatedAt: args.now })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          eq(
+            schema.contentDatabaseSources.capabilitiesJson,
+            current.capabilitiesJson,
+          ),
+          current.metadataJson === null
+            ? isNull(schema.contentDatabaseSources.metadataJson)
+            : eq(
+                schema.contentDatabaseSources.metadataJson,
+                current.metadataJson,
+              ),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (updated.length > 0) return;
+  }
+  throw new Error(
+    args.failureMessage ??
+      "Content database source metadata changed repeatedly; retry the action.",
+  );
+}
+
 export function builderCmsSourceContinuationIsCurrent(
   metadataJson: string | null | undefined,
   expectedOffset: number,
@@ -3248,46 +3332,6 @@ export async function getContentDatabaseSourceSnapshotForWrite(
     : null;
 }
 
-export type BuilderReviewBodyCandidateRow = {
-  documentId: string;
-  sourceRowId: string;
-  sourceQualifiedId: string;
-  provenance: string | null;
-  bodyHydrationStatus: string;
-  currentHash: string | null;
-  currentContent: string | null;
-  localContent: string | null;
-};
-
-export function builderReviewBodyCandidateDocumentIds(
-  rows: BuilderReviewBodyCandidateRow[],
-) {
-  return rows.flatMap((row) => {
-    const identity = builderCmsSourceRowIdentityState({ row });
-    const localContent = row.localContent ?? "";
-    if (identity.isSyntheticFixture) {
-      return localContent.trim() ? [row.documentId] : [];
-    }
-    if (row.bodyHydrationStatus !== "hydrated") return [];
-    if (!row.currentHash && !row.currentContent && !localContent.trim()) {
-      return [];
-    }
-    if (builderBodyUsesCurrentMediaConverter(localContent)) {
-      return [row.documentId];
-    }
-    const normalizedLocalContent =
-      normalizeBuilderBodyBaselineContent(localContent);
-    if (
-      normalizedLocalContent &&
-      normalizedLocalContent ===
-        normalizeBuilderBodyBaselineContent(row.currentContent)
-    ) {
-      return [];
-    }
-    return [row.documentId];
-  });
-}
-
 export function knownBuilderReviewDocumentIds(
   changeSets: Array<{ documentId: string | null }>,
   limit: number,
@@ -3321,20 +3365,27 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
   const sourceRows = schema.contentDatabaseSourceRows;
   const items = schema.contentDatabaseItems;
   const documents = schema.documents;
+  const currentContent = builderReviewSourceValueTextProjection(
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  );
+  const localContentIsNonEmpty = sql<boolean>`TRIM(${documents.content}) <> ''`;
+  const localContentDiffers = sql<boolean>`TRIM(${documents.content}) <> TRIM(${currentContent})`;
+  const usesCurrentMediaConverter = sql<boolean>`(
+    LOWER(${documents.content}) LIKE '%![%](http://%'
+    OR LOWER(${documents.content}) LIKE '%![%](https://%'
+    OR LOWER(${documents.content}) LIKE '%<img%'
+    OR LOWER(${documents.content}) LIKE '%<video%'
+  )`;
+  const isSyntheticFixture = and(
+    sql<boolean>`${sourceRows.sourceRowId} = 'builder-' || ${sourceRows.documentId}`,
+    or(
+      isNull(sourceRows.provenance),
+      eq(sourceRows.provenance, BUILDER_CMS_FIXTURE_ROW_PROVENANCE),
+    ),
+  );
   const rows = await getDb()
     .select({
       documentId: sourceRows.documentId,
-      sourceRowId: sourceRows.sourceRowId,
-      sourceQualifiedId: sourceRows.sourceQualifiedId,
-      provenance: sourceRows.provenance,
-      bodyHydrationStatus: items.bodyHydrationStatus,
-      currentHash: builderReviewSourceValueTextProjection(
-        BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-      ),
-      currentContent: builderReviewSourceValueTextProjection(
-        BUILDER_CMS_BODY_CONTENT_KEY,
-      ),
-      localContent: documents.content,
     })
     .from(sourceRows)
     .innerJoin(
@@ -3352,8 +3403,19 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
         eq(documents.ownerEmail, args.source.ownerEmail),
       ),
     )
-    .where(eq(sourceRows.sourceId, args.source.id));
-  return builderReviewBodyCandidateDocumentIds(rows);
+    .where(
+      and(
+        eq(sourceRows.sourceId, args.source.id),
+        or(
+          and(isSyntheticFixture, localContentIsNonEmpty),
+          and(
+            eq(items.bodyHydrationStatus, "hydrated"),
+            or(localContentDiffers, usesCurrentMediaConverter),
+          ),
+        ),
+      ),
+    );
+  return rows.map((row) => row.documentId);
 }
 
 /**
@@ -3408,9 +3470,10 @@ export async function getContentDatabaseSourceSnapshotForReview(
   );
   // The interactive review surface is capped at 100 rows. When a complete
   // pending batch is already known, load heavy body/sidecar data only for those
-  // documents instead of first transferring every hydrated Builder article to
-  // rediscover body-only candidates. That broad discovery remains the fallback
-  // when no pending batch exists (and after the current batch is resolved).
+  // documents instead of first discovering body-only candidates. When no
+  // pending batch exists, the fallback compares bodies inside SQL and returns
+  // only candidate document IDs; article bodies never cross into application
+  // memory merely to prove that they are unchanged.
   const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
     reviewableChanges,
     100,
@@ -6509,18 +6572,18 @@ export async function writeSourceFederation(args: {
   federation: ContentDatabaseSourceFederation;
   now: string;
 }) {
-  const db = getDb();
-  const [current] = await db
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
-  const metadata =
-    parseObject<SourceMetadataRecord>(current?.metadataJson) ?? {};
-  metadata.federation = args.federation;
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({ metadataJson: JSON.stringify(metadata), updatedAt: args.now })
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+  await mutateContentDatabaseSourceMetadata({
+    sourceId: args.sourceId,
+    now: args.now,
+    buildPatch: (current) => ({
+      metadataJson: JSON.stringify({
+        ...(parseObject<SourceMetadataRecord>(current.metadataJson) ?? {}),
+        federation: args.federation,
+      }),
+    }),
+    failureMessage:
+      "Source metadata changed repeatedly while saving federation settings.",
+  });
 }
 
 export async function updateBuilderCmsSourceReadMetadata(args: {
@@ -6631,27 +6694,24 @@ export async function updateReadOnlySourceMetadata(args: {
   metadata?: Record<string, unknown>;
   syncState?: ContentDatabaseSourceSyncState;
 }) {
-  const db = getDb();
-  const [current] = await db
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId))
-    .limit(1);
-  const existing =
-    parseObject<Record<string, unknown>>(current?.metadataJson) ?? {};
-  await db
-    .update(schema.contentDatabaseSources)
-    .set({
+  await mutateContentDatabaseSourceMetadata({
+    sourceId: args.sourceId,
+    now: args.now,
+    buildPatch: (current) => ({
       syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
       freshness: args.message ? "stale" : "fresh",
       capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-      metadataJson: JSON.stringify({ ...existing, ...(args.metadata ?? {}) }),
+      metadataJson: JSON.stringify({
+        ...(parseObject<Record<string, unknown>>(current.metadataJson) ?? {}),
+        ...(args.metadata ?? {}),
+      }),
       lastRefreshedAt: args.now,
       lastSourceUpdatedAt: args.fetchedAt,
       lastError: null,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSources.id, args.sourceId));
+    }),
+    failureMessage:
+      "Source metadata changed repeatedly while saving read state.",
+  });
 }
 
 export async function getExistingSource(databaseId: string) {
