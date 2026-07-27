@@ -16,6 +16,9 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "web": "expo start --web",
+    "apk": "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a",
+    "apk:all": "cd android && ./gradlew assembleRelease",
+    "aab": "cd android && ./gradlew bundleRelease",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -47,6 +50,7 @@
     "expo-router": "~57.0.6",
     "expo-secure-store": "~57.0.1",
     "expo-sharing": "~57.0.5",
+    "expo-splash-screen": "~57.0.5",
     "expo-status-bar": "~57.0.1",
     "expo-video": "~57.0.1",
     "expo-web-browser": "~57.0.1",
