@@ -366,6 +366,42 @@ describe("trusted acceptance controller", () => {
     assert.equal(receipt.lease?.state, "revoked");
   });
 
+  it("writes a failed receipt when the post-cleanup probe exceeds its deadline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "trusted-post-cleanup-timeout-"));
+    const receiptFile = join(dir, "receipt.json");
+    await assert.rejects(
+      executeTrustedAcceptance(profile(), {
+        providers: providers(),
+        journalFile: join(dir, "lease.json"),
+        receiptFile,
+        ttlMs: 60_000,
+        postCleanupTimeoutMs: 5,
+        expectedAssertionIds: ["stable", "withdrawn", "post-cleanup"],
+        async deployArtifact() {},
+        async runStableHarness() {
+          return [{ assertionId: "stable", status: "passed" }];
+        },
+        async runWithdrawalHarness() {
+          return [{ assertionId: "withdrawn", status: "passed" }];
+        },
+        async runPostCleanupHarness(_lease, signal) {
+          return new Promise((_, reject) =>
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            }),
+          );
+        },
+      }),
+      /timed out/,
+    );
+    const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as {
+      result: string;
+      lease?: { state?: string };
+    };
+    assert.equal(receipt.result, "failed");
+    assert.equal(receipt.lease?.state, "revoked");
+  });
+
   it("settles an accepted late deploy before placing the cleanup tombstone", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trusted-acceptance-barrier-"));
     const events: string[] = [];

@@ -84,11 +84,13 @@ export type ControllerExecution = {
    */
   runPostCleanupHarness?: (
     lease: RuntimeLease,
+    signal: AbortSignal,
   ) => Promise<RedactedAcceptanceReceipt["evidence"]>;
   journalFile: string;
   receiptFile: string;
   ttlMs: number;
   harnessTimeoutMs?: number;
+  postCleanupTimeoutMs?: number;
   expectedAssertionIds: readonly string[];
   now?: () => Date;
 };
@@ -541,11 +543,19 @@ export async function executeTrustedAcceptance(
   } finally {
     if (lease) {
       await authority.revoke(lease);
-      if (execution.runPostCleanupHarness)
-        evidence = [
-          ...evidence,
-          ...(await execution.runPostCleanupHarness(lease)),
-        ];
+      if (execution.runPostCleanupHarness) {
+        try {
+          evidence = [
+            ...evidence,
+            ...(await withDeadline(
+              (signal) => execution.runPostCleanupHarness!(lease!, signal),
+              execution.postCleanupTimeoutMs ?? 60_000,
+            )),
+          ];
+        } catch (error) {
+          failure ??= error;
+        }
+      }
     }
     const clean =
       lease?.state === "revoked" &&

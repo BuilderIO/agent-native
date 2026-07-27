@@ -929,12 +929,13 @@ export async function runHostedAcceptance(
       }
       return results;
     },
-    async runPostCleanupHarness() {
+    async runPostCleanupHarness(_lease, signal) {
       const results: HostedHarnessEvidence[] = [];
+      const fetchFn = abortableFetch(deps.fetchFn, signal);
       try {
         for (const current of active) {
           const rejected = await expectRejected4xx(
-            deps.fetchFn,
+            fetchFn,
             current.member.mcpUrl,
             {
               headers: { Authorization: `Bearer ${current.token}` },
