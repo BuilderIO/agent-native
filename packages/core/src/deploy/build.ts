@@ -84,6 +84,51 @@ export function isCloudflareModulePreset(targetPreset: string): boolean {
     targetPreset,
   );
 }
+
+export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
+
+export function generateCloudflareModuleWorkerEntry(): string {
+  return `let handler;
+
+export default {
+  async fetch(request, env, ctx) {
+    if (ctx) globalThis.__cf_ctx = ctx;
+    if (env) {
+      globalThis.__cf_env = env;
+      globalThis.__env__ = env;
+      globalThis.process = globalThis.process || { env: {} };
+      globalThis.process.env = globalThis.process.env || {};
+      for (const [key, value] of Object.entries(env)) {
+        if (typeof value === "string") globalThis.process.env[key] = value;
+      }
+    }
+
+    handler ??= (await import("./index.mjs")).default;
+    return handler.fetch(request, env, ctx);
+  },
+};
+`;
+}
+
+export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
+  const configPath = path.join(serverDir, "wrangler.json");
+  if (!fs.existsSync(configPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${configPath} for cloudflare_module`,
+    );
+  }
+
+  const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+    main?: string;
+    [key: string]: unknown;
+  };
+  config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(serverDir, CLOUDFLARE_MODULE_WORKER_ENTRY),
+    generateCloudflareModuleWorkerEntry(),
+  );
+}
 export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.spec.ts",
   "**/*.spec.tsx",
@@ -3895,6 +3940,10 @@ export default bundle;
     appBasePath,
     cwd,
   });
+
+  if (isCloudflareModulePreset(preset)) {
+    configureCloudflareModuleWorkerOutput(nitro.options.output.serverDir);
+  }
 
   if (preset === "netlify" || preset === "vercel" || preset === "aws-lambda") {
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);

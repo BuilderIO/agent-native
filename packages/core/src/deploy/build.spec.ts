@@ -24,6 +24,7 @@ import {
   CLOUDFLARE_WORKER_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   cloudflareWorkerStubAliasArgs,
+  configureCloudflareModuleWorkerOutput,
   copyDir,
   createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
@@ -32,6 +33,7 @@ import {
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   generateCloudflarePagesStaticShellFromManifest,
+  generateCloudflareModuleWorkerEntry,
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
@@ -74,6 +76,38 @@ describe("isCloudflareModulePreset", () => {
     expect(isCloudflareModulePreset("cloudflare_module")).toBe(true);
     expect(isCloudflareModulePreset("cloudflare-module")).toBe(true);
     expect(isCloudflareModulePreset("cloudflare_pages")).toBe(false);
+  });
+});
+
+describe("Cloudflare module Worker entry", () => {
+  it("defers Nitro initialization until bindings are available", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).toContain('await import("./index.mjs")');
+    expect(entry).toContain("return handler.fetch(request, env, ctx);");
+  });
+
+  it("points Wrangler at the lazy entry while retaining the Nitro server", () => {
+    const serverDir = makeTempDir();
+    fs.writeFileSync(
+      path.join(serverDir, "wrangler.json"),
+      JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+    );
+
+    configureCloudflareModuleWorkerOutput(serverDir);
+
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(serverDir, "wrangler.json"), "utf8"),
+      ),
+    ).toMatchObject({
+      main: "worker.mjs",
+      assets: { binding: "ASSETS" },
+    });
+    expect(
+      fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
+    ).toContain('await import("./index.mjs")');
   });
 });
 
