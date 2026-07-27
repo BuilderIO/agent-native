@@ -20,13 +20,14 @@ vi.mock("@agent-native/core/sharing", () => ({
 import action from "./reconcile-workflow-generation";
 
 const requestedAt = "2026-07-14T12:00:00.000Z";
+const tabId = "clips-workflow:rec_123:request:chat-123";
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("reconcile-workflow-generation", () => {
-  it("fails the matching generation when its agent run ends", async () => {
+  it("persists the matching agent tab before generation starts", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
       status: "generating",
@@ -35,7 +36,35 @@ describe("reconcile-workflow-generation", () => {
     });
 
     await expect(
-      action.run({ recordingId: "rec_123", requestedAt }),
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, tracked: true });
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({ tabId, requestedAt }),
+    );
+  });
+
+  it("fails the matching generation when its agent run ends", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId,
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
     ).resolves.toEqual({ reconciled: true });
 
     expect(mocks.assertAccess).toHaveBeenCalledWith(
@@ -49,6 +78,7 @@ describe("reconcile-workflow-generation", () => {
         kind: "email",
         status: "failed",
         requestedAt,
+        tabId,
       }),
     );
   });
@@ -60,10 +90,16 @@ describe("reconcile-workflow-generation", () => {
       content: "Subject: Recap",
       recordingId: "rec_123",
       requestedAt,
+      tabId,
     });
 
     await expect(
-      action.run({ recordingId: "rec_123", requestedAt }),
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
     ).resolves.toEqual({ reconciled: false, reason: "terminal" });
     expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
@@ -74,11 +110,37 @@ describe("reconcile-workflow-generation", () => {
       status: "generating",
       recordingId: "rec_123",
       requestedAt: "2026-07-14T12:01:00.000Z",
+      tabId,
     });
 
     await expect(
-      action.run({ recordingId: "rec_123", requestedAt }),
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
     ).resolves.toEqual({ reconciled: false, reason: "newer-request" });
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not fail a different agent run", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: "clips-workflow:rec_123:request:chat-newer",
+    });
+
+    await expect(
+      action.run({
+        operation: "stop",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, reason: "different-run" });
     expect(mocks.writeAppState).not.toHaveBeenCalled();
   });
 });

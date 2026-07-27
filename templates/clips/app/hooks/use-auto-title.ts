@@ -1,4 +1,5 @@
 import {
+  generateTabId,
   sendToAgentChat,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
@@ -11,10 +12,6 @@ import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
-const workflowRuns = new Map<
-  string,
-  { recordingId: string; requestedAt: string }
->();
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -109,18 +106,24 @@ export function useAutoTitleBridge(): void {
       if (detail?.isRunning !== false || typeof detail.tabId !== "string")
         return;
 
-      const workflowRun = workflowRuns.get(detail.tabId);
-      if (!workflowRun) return;
-      workflowRuns.delete(detail.tabId);
+      const recordingId = recordingIdFromTab(detail.tabId);
+      const requestedAt = requestedAtFromTab(detail.tabId);
+      if (!recordingId || !requestedAt) return;
 
+      const stopRequest = {
+        operation: "stop",
+        recordingId,
+        requestedAt,
+        tabId: detail.tabId,
+      };
       void callAction(
         "reconcile-workflow-generation" as any,
-        workflowRun as any,
+        stopRequest as any,
       )
         .catch(() =>
           callAction(
             "reconcile-workflow-generation" as any,
-            workflowRun as any,
+            stopRequest as any,
           ),
         )
         .catch((error) => {
@@ -181,7 +184,6 @@ export function useAutoTitleBridge(): void {
               request.requestedAt ?? "0"
             }`;
             if (dispatched.current.has(dispatchKey)) continue;
-            dispatched.current.add(dispatchKey);
             if (
               request.kind === "generate-metadata" ||
               request.kind === "regenerate-title"
@@ -192,16 +194,30 @@ export function useAutoTitleBridge(): void {
               dispatched.current.add(`${rec.id}:fallback`);
             }
 
-            const tabId = dispatchAiRequest(rec, request);
             if (
               request.kind === "generate-workflow" &&
               typeof request.requestedAt === "string"
             ) {
-              workflowRuns.set(tabId, {
-                recordingId: rec.id,
-                requestedAt: request.requestedAt,
-              });
+              const tabId = workflowTabId(rec.id, request.requestedAt);
+              try {
+                await callAction(
+                  "reconcile-workflow-generation" as any,
+                  {
+                    operation: "track",
+                    recordingId: rec.id,
+                    requestedAt: request.requestedAt,
+                    tabId,
+                  } as any,
+                );
+              } catch {
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+                continue;
+              }
+              dispatchAiRequest(rec, request, tabId);
+            } else {
+              dispatchAiRequest(rec, request);
             }
+            dispatched.current.add(dispatchKey);
 
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -340,8 +356,29 @@ export function buildAiRequestChatOptions(
   };
 }
 
-function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
-  return sendToAgentChat(buildAiRequestChatOptions(rec, request));
+function workflowTabId(recordingId: string, requestedAt: string) {
+  return `clips-workflow:${recordingId}:${encodeURIComponent(requestedAt)}:${generateTabId()}`;
+}
+
+function recordingIdFromTab(tabId: string) {
+  const match = /^clips-workflow:([^:]+):/.exec(tabId);
+  return match?.[1];
+}
+
+function requestedAtFromTab(tabId: string) {
+  const match = /^clips-workflow:[^:]+:([^:]+):/.exec(tabId);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function dispatchAiRequest(
+  rec: RecordingSummary,
+  request: AiRequest,
+  tabId?: string,
+) {
+  return sendToAgentChat({
+    ...buildAiRequestChatOptions(rec, request),
+    ...(tabId ? { tabId } : {}),
+  });
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

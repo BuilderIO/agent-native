@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
-  sendToAgentChat: vi.fn(() => "workflow-tab"),
+  sendToAgentChat: vi.fn((options: { tabId?: string }) => options.tabId),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
+  generateTabId: () => "chat-123",
   sendToAgentChat: mocks.sendToAgentChat,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
@@ -40,6 +41,8 @@ vi.mock("./use-library", () => ({
 import { useAutoTitleBridge } from "./use-auto-title";
 
 const requestedAt = "2026-07-14T12:00:00.000Z";
+const workflowTabId =
+  "clips-workflow:rec_123:2026-07-14T12%3A00%3A00.000Z:chat-123";
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
@@ -76,6 +79,15 @@ beforeEach(async () => {
     root.render(<TestBridge />);
   });
   await vi.waitFor(() => expect(mocks.sendToAgentChat).toHaveBeenCalledOnce());
+  expect(mocks.callAction).toHaveBeenCalledWith(
+    "reconcile-workflow-generation",
+    {
+      operation: "track",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: workflowTabId,
+    },
+  );
 });
 
 afterEach(async () => {
@@ -84,7 +96,14 @@ afterEach(async () => {
 });
 
 describe("workflow generation cancellation", () => {
-  it("reconciles only when the exact workflow agent tab stops", async () => {
+  it("reconciles the exact workflow agent tab after a page reload", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockImplementation(async (name: string) =>
+      name === "list-ai-requests" ? { requests: [] } : { reconciled: true },
+    );
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
         detail: { isRunning: false, tabId: "another-tab" },
@@ -92,19 +111,24 @@ describe("workflow generation cancellation", () => {
     );
     expect(mocks.callAction).not.toHaveBeenCalledWith(
       "reconcile-workflow-generation",
-      expect.anything(),
+      expect.objectContaining({ operation: "stop" }),
     );
 
     window.dispatchEvent(
       new CustomEvent("agentNative.chatRunning", {
-        detail: { isRunning: false, tabId: "workflow-tab" },
+        detail: { isRunning: false, tabId: workflowTabId },
       }),
     );
 
     await vi.waitFor(() =>
       expect(mocks.callAction).toHaveBeenCalledWith(
         "reconcile-workflow-generation",
-        { recordingId: "rec_123", requestedAt },
+        {
+          operation: "stop",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId: workflowTabId,
+        },
       ),
     );
   });

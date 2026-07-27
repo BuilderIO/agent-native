@@ -13,18 +13,21 @@ const WorkflowStateSchema = z
     content: z.string().optional(),
     recordingId: z.string().optional(),
     requestedAt: z.string().optional(),
+    tabId: z.string().optional(),
   })
   .passthrough();
 
 export default defineAction({
   description:
-    "Reconcile a generated workflow after its agent run ends without saving output.",
+    "Track and reconcile the agent run responsible for a generated workflow.",
   agentTool: false,
   schema: z.object({
+    operation: z.enum(["track", "stop"]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
+    tabId: z.string().min(1),
   }),
-  run: async ({ recordingId, requestedAt }) => {
+  run: async ({ operation, recordingId, requestedAt, tabId }) => {
     await assertAccess("recording", recordingId, "viewer");
 
     const stateKey = `clips-workflow-${recordingId}`;
@@ -44,6 +47,14 @@ export default defineAction({
     }
     if (state.requestedAt !== requestedAt) {
       return { reconciled: false, reason: "newer-request" as const };
+    }
+
+    if (operation === "track") {
+      await writeAppState(stateKey, { ...state, tabId });
+      return { reconciled: false, tracked: true };
+    }
+    if (state.tabId !== tabId) {
+      return { reconciled: false, reason: "different-run" as const };
     }
 
     await writeAppState(stateKey, {
