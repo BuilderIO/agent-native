@@ -59,6 +59,16 @@ describe("trusted acceptance workflow boundary", () => {
     assert(result.issues.some((issue) => issue.includes("hidden Netlify")));
   });
 
+  it("requires candidate artifacts to reject symlinks before credentials", () => {
+    const unsafe = workflow.replace(
+      "                if (stat.isSymbolicLink()) throw new Error(`Candidate artifact contains a symlink: ${file}`);\n",
+      "",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("symlinks")));
+  });
+
   it("rejects rollback planning that always bypasses activation gates", () => {
     const unsafe = workflow.replace(
       '            if [[ "$DEPLOY_REQUESTED" != "true" ]]; then\n              rollback_plan_args+=(--allow-disabled)\n            fi',
@@ -112,6 +122,45 @@ describe("trusted acceptance workflow boundary", () => {
     const result = validateTrustedAcceptanceWorkflow(unsafe);
     assert.equal(result.ok, false);
     assert(result.issues.some((issue) => issue.includes("controller SHA")));
+  });
+
+  it("requires the generic hosted runner and trusted directory digest", () => {
+    const unsafe = workflow
+      .replace("run-hosted-acceptance.ts", "controller.ts")
+      .replace("artifactSha256", "uncheckedDigest");
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some(
+        (issue) =>
+          issue.includes("hosted runner") ||
+          issue.includes("directory artifact"),
+      ),
+    );
+  });
+
+  it("requires isolation targets to resolve independently of A2A harnesses", () => {
+    const unsafe = workflow.replace(
+      "declaredPlan.isolation.otherAcceptanceMemberId",
+      "declaredPlan.harness.targetMemberId",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("independently of harness kind"),
+      ),
+    );
+  });
+
+  it("requires Playwright installation before protected credentials enter", () => {
+    const unsafe = workflow.replace(
+      "          pnpm exec playwright install --with-deps chromium\n",
+      "",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(result.issues.some((issue) => issue.includes("Playwright")));
   });
 });
 
