@@ -4,7 +4,7 @@
 
 Brand transactional auth emails per app. Signup verification and password
 reset emails now send from `<app-slug>@agent-native.com` with reply-to
-hello@agent-native.com and per-app subjects/headings ("Verify your email for
+agent-native@builder.io and per-app subjects/headings ("Verify your email for
 Agent-Native <App>" / "Reset your Agent-Native <App> password"). The
 verification email body also includes the app's one-line description (competitor
 names reframed as "replacement"); the reset email omits the pitch since it's a

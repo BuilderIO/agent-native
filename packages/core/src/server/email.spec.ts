@@ -22,7 +22,7 @@ describe("sendEmail", () => {
       appSender: {
         name: "Agent-Native Clips",
         slug: "clips",
-        replyTo: "hello@agent-native.com",
+        replyTo: "agent-native@builder.io",
       },
     });
 
@@ -31,7 +31,7 @@ describe("sendEmail", () => {
       name: "Agent-Native Clips",
       email: "clips@agent-native.com",
     });
-    expect(body.reply_to).toEqual({ email: "hello@agent-native.com" });
+    expect(body.reply_to).toEqual({ email: "agent-native@builder.io" });
   });
 
   it("keeps a self-hosted verified sender and reply-to untouched", async () => {
@@ -47,7 +47,7 @@ describe("sendEmail", () => {
       appSender: {
         name: "Agent-Native Clips",
         slug: "clips",
-        replyTo: "hello@agent-native.com",
+        replyTo: "agent-native@builder.io",
       },
     });
 

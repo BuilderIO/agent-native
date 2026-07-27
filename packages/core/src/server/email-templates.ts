@@ -15,7 +15,7 @@ import { getAppName, getAppSlug, getAppDescription } from "./app-name.js";
 import { renderEmail, emailStrong } from "./email-template.js";
 
 /** Shared reply-to for the framework's transactional emails. */
-export const AGENT_NATIVE_REPLY_TO = "hello@agent-native.com";
+export const AGENT_NATIVE_REPLY_TO = "agent-native@builder.io";
 
 export interface RenderedEmailMessage {
   subject: string;
