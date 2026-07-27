@@ -1872,19 +1872,75 @@ function freshTextHtmlBlock(text: string, stableSource: string): unknown {
   };
 }
 
-function assertSafeFreshCalloutNode(node: MdxNode) {
-  for (const child of node.children ?? []) {
-    if (
-      child.type === "mdxFlowExpression" ||
-      child.type === "mdxTextExpression" ||
-      child.type === "mdxjsEsm" ||
-      child.type === "mdxJsxFlowElement" ||
-      child.type === "mdxJsxTextElement"
-    ) {
-      throw new Error("Unsupported dynamic syntax inside Builder callout.");
+function assertSafeFreshCalloutNode(node: MdxNode, raw: string) {
+  const rootStart = node.position?.start?.offset;
+  const visit = (candidate: MdxNode) => {
+    for (const child of candidate.children ?? []) {
+      const childStart = child.position?.start?.offset;
+      const childEnd = child.position?.end?.offset;
+      const childRaw =
+        typeof rootStart === "number" &&
+        typeof childStart === "number" &&
+        typeof childEnd === "number"
+          ? raw.slice(childStart - rootStart, childEnd - rootStart).trim()
+          : "";
+      const emptyBlockNode =
+        (child.type === "mdxJsxFlowElement" ||
+          child.type === "mdxJsxTextElement") &&
+        child.name === "empty-block";
+      if (emptyBlockNode) {
+        if (isEmptyEditorBlockSentinel(child, childRaw)) continue;
+        throw new Error(
+          "Unsupported Builder callout empty-block syntax. Only an attribute-free, self-closing Content editor sentinel can be omitted.",
+        );
+      }
+      if (
+        child.type === "mdxFlowExpression" ||
+        child.type === "mdxTextExpression" ||
+        child.type === "mdxjsEsm" ||
+        child.type === "mdxJsxFlowElement" ||
+        child.type === "mdxJsxTextElement"
+      ) {
+        throw new Error("Unsupported dynamic syntax inside Builder callout.");
+      }
+      visit(child);
     }
-    assertSafeFreshCalloutNode(child);
-  }
+  };
+  visit(node);
+}
+
+function removeSafeCalloutEmptyBlockSentinels(node: MdxNode, raw: string) {
+  const rootStart = node.position?.start?.offset;
+  if (typeof rootStart !== "number") return raw;
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  const visit = (candidate: MdxNode) => {
+    for (const child of candidate.children ?? []) {
+      const start = child.position?.start?.offset;
+      const end = child.position?.end?.offset;
+      if (typeof start !== "number" || typeof end !== "number") {
+        visit(child);
+        continue;
+      }
+      const relativeStart = start - rootStart;
+      const relativeEnd = end - rootStart;
+      const childRaw = raw.slice(relativeStart, relativeEnd).trim();
+      if (isEmptyEditorBlockSentinel(child, childRaw)) {
+        ranges.push({ start: relativeStart, end: relativeEnd });
+        continue;
+      }
+      visit(child);
+    }
+  };
+  visit(node);
+
+  return ranges
+    .sort((left, right) => right.start - left.start)
+    .reduce(
+      (current, range) =>
+        `${current.slice(0, range.start)}${current.slice(range.end)}`,
+      raw,
+    );
 }
 
 function findMdxOpeningTagEnd(raw: string) {
@@ -1936,14 +1992,15 @@ function freshCalloutBlock(
       `Unsupported Builder callout attribute: ${attribute.name}.`,
     );
   }
-  assertSafeFreshCalloutNode(node);
+  assertSafeFreshCalloutNode(node, raw);
 
-  const openingEnd = findMdxOpeningTagEnd(raw);
-  const closingStart = raw.lastIndexOf("</callout>");
+  const contentRaw = removeSafeCalloutEmptyBlockSentinels(node, raw);
+  const openingEnd = findMdxOpeningTagEnd(contentRaw);
+  const closingStart = contentRaw.lastIndexOf("</callout>");
   if (openingEnd < 0 || closingStart < openingEnd) {
     throw new Error("Builder callout must have an explicit closing tag.");
   }
-  const markdown = raw
+  const markdown = contentRaw
     .slice(openingEnd + 1, closingStart)
     .split(/\r?\n/)
     .map((line) => line.replace(/^(?:\t| {2})/, ""))

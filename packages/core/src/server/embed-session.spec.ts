@@ -78,6 +78,12 @@ describe("normalizeEmbedTargetPath", () => {
     ).toBe("/inbox?threadId=t1");
   });
 
+  it("rejects auth entry paths even when they include the configured base path", () => {
+    process.env.APP_BASE_PATH = "/mail";
+    expect(normalizeEmbedTargetPath("/mail/login")).toBeNull();
+    expect(normalizeEmbedTargetPath("/mail/signup")).toBeNull();
+  });
+
   it("rejects same-origin absolute URLs outside the current APP_BASE_PATH", () => {
     process.env.APP_BASE_PATH = "/dispatch";
     expect(

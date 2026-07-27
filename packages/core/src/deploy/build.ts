@@ -22,12 +22,14 @@ import { fileURLToPath } from "url";
 
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_FUNCTION_URL_PATH,
   AGENT_BACKGROUND_PROCESSOR_A2A,
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  isDurableBackgroundFlagEnabled,
 } from "../agent/durable-background.js";
 import {
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -2356,8 +2358,9 @@ export function findInstalledResvgPackages(
  * Reads the same env flag the runtime gate uses
  * (`AGENT_CHAT_DURABLE_BACKGROUND`).
  *
- * DEFAULT-OFF (opt-in), matching the runtime gate (`isFlagEnabled` in
- * durable-background.ts): unset/empty/unknown means DISABLED; an app opts IN
+ * DEFAULT-OFF (opt-in). It IS the runtime gate's flag parse
+ * (`isDurableBackgroundFlagEnabled`), so the two can no longer drift:
+ * unset/empty/unknown means DISABLED; an app opts IN
  * only with an explicit truthy value (`true`/`1`/`yes`/`on`). A premature
  * fleet-wide default-on caused real-user incidents (2026-06-24) before the
  * async worker path was proven, so durable is opt-in until verified live. This
@@ -2368,13 +2371,24 @@ export function findInstalledResvgPackages(
  * the worker into the ~13-min timeout regime, the worker would overshoot the
  * ~60s synchronous wall and re-dispatch in a loop. (The runtime now also guards
  * the ~13-min budget on the real function name via `isInBackgroundFunctionRuntime`,
- * so a missing emit degrades to clean 40s-chunked runs rather than the loop.)
+ * so a missing emit does not loop.) A missing emit is NOT benign, though: the
+ * app then runs every turn on the ~60s synchronous wall for the life of the
+ * deploy, so an opted-in build that cannot emit the function FAILS rather than
+ * warning.
  */
 export function isDurableBackgroundDeployEnabled(): boolean {
-  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return false;
-  const v = raw.trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
+  return isDurableBackgroundFlagEnabled();
+}
+
+/**
+ * True when this build MUST ship the `-background` function: either the chat
+ * opt-in or the integration durable dispatch depends on it at runtime.
+ */
+function isDurableBackgroundEmitRequired(): boolean {
+  return (
+    isDurableBackgroundDeployEnabled() ||
+    isIntegrationDurableDispatchDeployEnabled()
+  );
 }
 
 export const NETLIFY_INTEGRATION_RECOVERY_FUNCTION_NAME =
@@ -2409,7 +2423,16 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
   fs.rmSync(dest, { recursive: true, force: true });
   fs.mkdirSync(dest, { recursive: true });
 
+  // The background Lambda is a SEPARATE container from `server`: warming the
+  // health route never touches it, so it cold-started on essentially every
+  // dispatch (18.4s observed to reach the agent loop). A POST with no runId is
+  // rejected by the `_process-run` route before any DB work, so this only keeps
+  // the container alive.
+  const backgroundWarmPath = isDurableBackgroundEmitRequired()
+    ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
+    : "null";
   const entry = `const HEALTH_PATH = "/_agent-native/health";
+const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
 
 function siteOrigin(request) {
@@ -2418,8 +2441,31 @@ function siteOrigin(request) {
   return new URL(request.url).origin;
 }
 
+async function warmBackgroundFunction(origin) {
+  if (!BACKGROUND_WARM_PATH) return;
+  const url = new URL(BACKGROUND_WARM_PATH, origin);
+  try {
+    // Best-effort: an unwarmed background function is a latency problem, not a
+    // reason to fail the scheduled run that also warms the server + database.
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": "agent-native-netlify-keep-warm",
+      },
+      body: "{}",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    console.log("[agent-native-keep-warm] Warmed", url.toString(), response.status);
+  } catch (error) {
+    console.warn("[agent-native-keep-warm] Background warm failed:", url.toString(), error);
+  }
+}
+
 export default async function handler(request) {
-  const url = new URL(HEALTH_PATH, siteOrigin(request));
+  const origin = siteOrigin(request);
+  const backgroundWarm = warmBackgroundFunction(origin);
+  const url = new URL(HEALTH_PATH, origin);
   let response;
   try {
     response = await fetch(url, {
@@ -2441,6 +2487,7 @@ export default async function handler(request) {
     );
   }
 
+  await backgroundWarm;
   console.log("[agent-native-keep-warm] Warmed", url.toString());
   return new Response(null, { status: 204 });
 }
@@ -2530,12 +2577,15 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
   const serverDir = path.join(internalDir, "server");
   if (!fs.existsSync(path.join(serverDir, "main.mjs"))) {
-    // Nitro output layout differs from what we expected — skip rather than
-    // guess. The single-function deploy is unaffected.
-    console.warn(
-      "[build] Durable-background emit skipped: expected Nitro Netlify function " +
-        "at .netlify/functions-internal/server/main.mjs was not found.",
-    );
+    // Nitro output layout differs from what we expected — cannot guess.
+    const message =
+      "Durable-background emit skipped: expected Nitro Netlify function " +
+      "at .netlify/functions-internal/server/main.mjs was not found.";
+    // Shipping without the function when the runtime depends on it is worse
+    // than a red build: the deploy silently loses the 15-min budget forever.
+    if (isDurableBackgroundEmitRequired())
+      throw new Error(`[build] ${message}`);
+    console.warn(`[build] ${message}`);
     return;
   }
   const backgroundName = AGENT_BACKGROUND_FUNCTION_NAME;
@@ -2677,6 +2727,7 @@ export const config = {
 };
 `;
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), entry);
+  assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
   console.log(
     `[build] Emitted durable-background function "${backgroundName}" into the ` +
       `scanned dir .netlify/functions-internal with config { background:true } ` +
@@ -2685,6 +2736,28 @@ export const config = {
       `catch-all already excludes /.netlify/*). REQUIRES real-deploy ` +
       `verification of Netlify async (202) invocation — see ` +
       `docs/design/durable-agent-runs.md.`,
+  );
+}
+
+/**
+ * Prove the artifact Netlify will scan actually landed. A partial copy (the
+ * entry without its handler bundle) deploys as a function that 500s on every
+ * invocation, which looks exactly like "no background function" at runtime.
+ * Exported so the workspace deploy asserts the same shape.
+ */
+export function assertEmittedBackgroundFunctionOnDisk(
+  destDir: string,
+  functionName: string,
+): void {
+  const missing = [`${functionName}.mjs`, "main.mjs"].filter(
+    (file) => !fs.existsSync(path.join(destDir, file)),
+  );
+  if (missing.length === 0) return;
+  throw new Error(
+    `[build] Durable-background function "${functionName}" was not fully emitted — ` +
+      `missing ${missing.join(", ")} in ${destDir}. Netlify would deploy without ` +
+      "the 15-min background function and every agent turn would silently run on " +
+      "the synchronous function wall.",
   );
 }
 
@@ -3052,10 +3125,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
-  if (
-    isDurableBackgroundDeployEnabled() ||
-    isIntegrationDurableDispatchDeployEnabled()
-  ) {
+  if (isDurableBackgroundEmitRequired()) {
     const backgroundDir = path.join(
       internalDir,
       AGENT_BACKGROUND_FUNCTION_NAME,
@@ -3708,6 +3778,14 @@ export default bundle;
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
     replace: {
+      // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
+      // function so preview OAuth relays can target this immutable deployment
+      // even though the value is unavailable in the function runtime.
+      "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
+        process.env.DEPLOY_ID?.trim() ||
+          process.env.AGENT_NATIVE_BUILD_ID?.trim() ||
+          "",
+      ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -3772,18 +3850,11 @@ export default bundle;
     // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
     // function. When not opted in this is a no-op and the single-function
     // deploy is byte-for-byte unchanged.
-    if (
-      isDurableBackgroundDeployEnabled() ||
-      isIntegrationDurableDispatchDeployEnabled()
-    ) {
-      try {
-        emitSingleTemplateNetlifyBackgroundFunction(cwd);
-      } catch (err) {
-        console.warn(
-          "[build] Failed to emit durable-background Netlify function (non-fatal):",
-          err instanceof Error ? err.message : err,
-        );
-      }
+    // NOT wrapped in try/catch: this block only runs when the runtime depends
+    // on the function, and a swallowed failure ships an app that loses the
+    // background budget for the life of the deploy with nothing in the log.
+    if (isDurableBackgroundEmitRequired()) {
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
     }
 
     if (isIntegrationDurableDispatchDeployEnabled()) {

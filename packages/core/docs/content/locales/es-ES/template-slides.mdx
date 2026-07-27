@@ -450,6 +450,6 @@ Agente skills que explica patrones cuando el agente necesita modificar código:
 
 `templates/slides/AGENTS.md` es el enrutador corto que el agente lee en cada conversación. Apunta al skills bajo `.agents/skills/` y establece las reglas básicas, el contrato de estado de la aplicación y el índice de habilidades. Las plantillas de diapositivas HTML exactas para cada diseño se encuentran en `.agents/skills/create-deck/SKILL.md`: actualice esa habilidad cada vez que agregue o cambie un patrón de diseño de diapositiva.
 
-#### Rutas API
+#### Actions y rutas API
 
-Para los casos en los que actions no es la opción adecuada (carga de archivos, transmisión), la plantilla expone un pequeño conjunto de puntos finales REST: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Ver `templates/slides/server/routes/api/`.
+La creación, edición y eliminación de presentaciones y diapositivas usa actions compartidas como `create-deck`, `add-slide`, `update-slide` y `delete-deck`, que pueden invocar tanto el agente como la interfaz. Las rutas REST de `templates/slides/server/routes/api/` se reservan para cargas, streaming, exportaciones y otros flujos exclusivos de rutas.

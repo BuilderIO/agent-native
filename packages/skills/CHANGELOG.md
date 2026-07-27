@@ -1,5 +1,114 @@
 # @agent-native/skills
 
+## 0.2.420
+
+### Patch Changes
+
+- Updated dependencies [c385fed]
+  - @agent-native/core@0.124.3
+
+## 0.2.419
+
+### Patch Changes
+
+- Updated dependencies [7568c67]
+  - @agent-native/core@0.124.2
+
+## 0.2.418
+
+### Patch Changes
+
+- Updated dependencies [661ee71]
+  - @agent-native/core@0.124.1
+
+## 0.2.417
+
+### Patch Changes
+
+- Updated dependencies [e9dd025]
+  - @agent-native/core@0.124.0
+
+## 0.2.416
+
+### Patch Changes
+
+- Updated dependencies [14818b6]
+  - @agent-native/core@0.123.2
+
+## 0.2.415
+
+### Patch Changes
+
+- Updated dependencies [e68b154]
+  - @agent-native/core@0.123.1
+
+## 0.2.414
+
+### Patch Changes
+
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+- Updated dependencies [52cce19]
+  - @agent-native/core@0.123.0
+
+## 0.2.413
+
+### Patch Changes
+
+- 648c2d7: Install Rewind through Agent Native's complete local Screen Memory setup instead of treating it as a plain public skill, route every supported Rewind name through the same fail-before-writes checks, reject missing or disconnected local stores, keep explicit-store retrieval bound to Clips' feature configuration, and guide first-time users through consent-gated Clips Desktop setup.
+- Updated dependencies [648c2d7]
+  - @agent-native/core@0.122.4
+
+## 0.2.412
+
+### Patch Changes
+
+- Updated dependencies [6dd7ee0]
+  - @agent-native/core@0.122.3
+
 ## 0.2.411
 
 ### Patch Changes

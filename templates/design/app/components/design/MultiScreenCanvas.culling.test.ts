@@ -80,8 +80,11 @@ describe("MultiScreenCanvas viewport culling", () => {
     expect(source.match(/getScreenContentCullState\(cullTier\)/g)).toHaveLength(
       2,
     );
+    // iframeCount must count only the breakpoint frames actually mounted —
+    // visibleBreakpointWidths filters duplicates of the device width — so the
+    // bounded live-iframe budget isn't over-consumed and evicting visible frames.
     expect(source).toContain(
-      "iframeCount: 1 + (screen.breakpointWidths?.length ?? 0)",
+      "visibleBreakpointWidths(screen.breakpointWidths, metadata.width)",
     );
     expect(
       source.match(/loading=\{cullTier === "visible" \? "eager" : "lazy"\}/g),

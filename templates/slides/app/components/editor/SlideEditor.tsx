@@ -1101,6 +1101,12 @@ export default function SlideEditor({
   const marqueePrevSelectionRef = useRef<Set<string>>(new Set());
   /** Currently-edited smart block (leaf or group). State, not ref, so menu re-renders. */
   const [editingEl, setEditingEl] = useState<HTMLElement | null>(null);
+  /**
+   * Mirror of `editingEl` readable outside render. Exit paths must not read it
+   * through a `setEditingEl` updater: updaters run during the render phase, so
+   * the parent's `onUpdateSlide` would update DeckProvider mid-render.
+   */
+  const editingElRef = useRef<HTMLElement | null>(null);
   /** Latest onUpdateSlide in a ref so blur handlers always see the current version */
   const onUpdateSlideRef = useRef(onUpdateSlide);
   useEffect(() => {
@@ -1203,19 +1209,19 @@ export default function SlideEditor({
 
   /** Exit edit mode, saving changes to slide.content */
   const exitInlineEdit = useCallback(() => {
-    setEditingEl((el) => {
-      if (!el) return null;
-      el.contentEditable = "false";
-      el.removeAttribute("data-editing-block");
+    const el = editingElRef.current;
+    if (!el) return;
+    editingElRef.current = null;
+    el.contentEditable = "false";
+    el.removeAttribute("data-editing-block");
 
-      const html = readCurrentSlideContentHtml();
-      if (html !== null) {
-        onUpdateSlideRef.current({ content: html });
-      }
-      inlineEditDraftRef.current = null;
-      syncSelectionToAppState(null);
-      return null;
-    });
+    const html = readCurrentSlideContentHtml();
+    if (html !== null) {
+      onUpdateSlideRef.current({ content: html });
+    }
+    inlineEditDraftRef.current = null;
+    syncSelectionToAppState(null);
+    setEditingEl(null);
   }, [readCurrentSlideContentHtml]);
 
   /** Enter edit mode on a smart block (text leaf or smart group) */
@@ -1239,6 +1245,7 @@ export default function SlideEditor({
       // element that already contains the selection preserves it in modern
       // browsers, so it's safe to keep for keyboard delivery.
       el.focus({ preventScroll: true });
+      editingElRef.current = el;
       setEditingEl(el);
       if (selector) {
         syncSelectionToAppState(
@@ -1263,13 +1270,13 @@ export default function SlideEditor({
     if (previousSlideId === slide.id) return;
 
     const draft = inlineEditDraftRef.current;
-    setEditingEl((el) => {
-      if (el) {
-        el.contentEditable = "false";
-        el.removeAttribute("data-editing-block");
-      }
-      return null;
-    });
+    const editing = editingElRef.current;
+    if (editing) {
+      editing.contentEditable = "false";
+      editing.removeAttribute("data-editing-block");
+    }
+    editingElRef.current = null;
+    setEditingEl(null);
 
     if (draft?.slideId === previousSlideId) {
       onUpdateSlideRef.current({ content: draft.content }, previousSlideId);

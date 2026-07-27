@@ -12,7 +12,10 @@ import {
   ensurePersonalDefaults,
   resourceEffectiveContext,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceEffectiveScript(
@@ -35,7 +38,7 @@ Options:
     fail("--path is required. Example: --path instructions/guardrails.md");
   }
 
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner = getRequestUserEmail() ?? getAmbientUserEmail();
   if (!owner) {
     fail(
       "resource-effective requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

@@ -1,0 +1,103 @@
+---
+title: "Brain: Talking to the Agent & Cross-App Use"
+description: "Useful prompts for Brain, how it answers questions that span company memory and live app data, and how sibling apps ask Brain for cited answers over A2A."
+---
+
+# Brain: Talking to the Agent & Cross-App Use
+
+This page is for getting more out of Brain through chat, and for understanding what happens when a question needs both cited company memory and something only another app knows (a live metric, a mailbox, a workspace grant).
+
+## Useful prompts by task
+
+**Asking:**
+
+- "What did we decide about annual pricing, and where was that discussed?"
+- "Find the most recent onboarding-process change and cite the source."
+- "Summarize what this GitHub discussion means for the launch plan."
+
+**Reviewing:**
+
+- "Review the pending memory proposals and flag anything too vague to publish."
+- "Approve the Decision Digest proposal if the evidence holds up."
+
+**Source health:**
+
+- "Which sources are stale or failing sync?"
+- "Run a safe pilot on the #product-launches Slack channel and tell me what it would import."
+
+## Answering across company memory and live app data
+
+Brain owns cited company memory — reviewed knowledge, accessible raw captures, and source records. It does not reach into Analytics, Mail, Dispatch, or any other app's database directly. When a question needs both, the agent searches Brain first, then reads `federatedCoverage` on the result: a set of deterministic routing hints (not retrieved evidence) naming which specialist app to ask next and why. If the hints point at Analytics, Mail, or Dispatch, the agent calls that app's own agent for the live part of the answer and keeps the two sources labeled separately in its response — company-memory context from Brain, live data from the specialist app.
+
+<Diagram id="doc-block-brain4" title="A sibling app asks Brain for a cited answer" summary="Dispatch, Analytics, Mail, or any other workspace app can ask Brain a company-memory question over A2A and get back a cited answer plus routing hints for anything Brain doesn't own.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Dispatch / Analytics / Mail</span
+    ><small class="diagram-muted">asks a company-memory question</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    A2A<br /><small class="diagram-muted">agent-to-agent call</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Brain retrieval<br /><small class="diagram-muted"
+      >audience-filtered search</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Cited answer</span
+    ><small class="diagram-muted">+ routing hints for anything else</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+Brain's public A2A surface is read-only and citation-backed by design — a sibling app can ask a company-memory question and get evidence back, but it can't write knowledge, approve a proposal, or change a source from outside Brain's own action surface. That authenticated write surface stays internal to Brain even though the read side is publicly discoverable.
+
+## Extensions: adding a custom widget to Brain
+
+Brain includes the standard Agent Native Extensions system: a sandboxed, agent-buildable mini-app that can render inside another surface. Ask the agent for a small dashboard, calculator, or widget and it's built as an extension rather than a source-code change. Extensions are managed from Brain's Settings page rather than a dedicated Brain route — see [Extensions](/docs/extensions) for what they can call and how they're sandboxed.
+
+## What's next
+
+- [**Brain overview**](/docs/template-brain) — what Brain is and when to pick it
+- [**Connecting & Reviewing Sources**](/docs/template-brain-sources) — provider setup and the Slack rollout
+- [**Asking, Citations & Knowledge**](/docs/template-brain-knowledge) — the Ask/Search/Knowledge/Review surfaces
+- [**Developer Guide**](/docs/template-brain-developers) — the full action reference, including the public A2A actions
+- [**A2A Protocol**](/docs/a2a-protocol) — cross-app delegation mechanics
+- [**Extensions**](/docs/extensions) — the sandboxed widget system

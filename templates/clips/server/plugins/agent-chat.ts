@@ -41,6 +41,10 @@ export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  // Declared in source rather than left to AGENT_CHAT_DURABLE_BACKGROUND alone:
+  // a site-level env var silently overrides netlify.toml, which is how plan and
+  // brain each spent their whole lifetime pinned to the ~58s synchronous wall.
+  durableBackgroundRuns: true,
   extraContext: async () =>
     `<clips-transcript-guidance>
 The transcript in view-screen and get-recording-player-data are bounded previews when called by the agent. When previewTruncated is true, the text is expected to end mid-sentence and is never evidence that transcription stopped early. Use the bounded payload for a concise summary and do not request or reconstruct the omitted transcript by searching other recordings. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.

@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { hasActiveIntegrationCampaign } from "./integration-campaigns-store.js";
 import {
   configuredIntegrationDurableDispatchScopes,
   dispatchPendingIntegrationTask,
@@ -231,6 +232,13 @@ export async function retryStuckPendingTasks(
 
   for (const row of stuckRows) {
     try {
+      if (
+        row.status === "processing" &&
+        (await hasActiveIntegrationCampaign(row.id))
+      ) {
+        result.skipped += 1;
+        continue;
+      }
       // Cap retries — mark failed and move on so the row stops bouncing
       // between pending and processing forever.
       if (row.attempts >= MAX_PENDING_TASK_ATTEMPTS) {

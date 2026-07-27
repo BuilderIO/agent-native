@@ -2,8 +2,11 @@
 // This keeps the ~650-700 KB gzip chat stack off the static import closure
 // of the client entry point so it can't block the first page parse.
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { installRouteChunkRecovery } from "@agent-native/core/client/route-chunk-recovery";
 import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
+
+installRouteChunkRecovery();
 
 const basePath = appBasePath();
 const pathname = window.location.pathname;

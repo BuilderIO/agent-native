@@ -11,6 +11,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -220,10 +221,6 @@ function parseTimeParam(raw: string | null): number {
   const minutes = parseInt(match[2] ?? "0", 10);
   const seconds = parseInt(match[3] ?? "0", 10);
   return (hours * 3600 + minutes * 60 + seconds) * 1000;
-}
-
-function buildSignInHref(returnTo: string): string {
-  return `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnTo)}`;
 }
 
 export default function RecordingPage() {
@@ -877,7 +874,9 @@ export default function RecordingPage() {
         <div className="flex flex-wrap items-center justify-center gap-2">
           {needsSignIn ? (
             <Button asChild>
-              <a href={buildSignInHref(returnTo)}>{t("sharePage.signIn")}</a>
+              <a href={buildSignInReturnHref({ returnTo })}>
+                {t("sharePage.signIn")}
+              </a>
             </Button>
           ) : null}
           <Button asChild variant="outline">

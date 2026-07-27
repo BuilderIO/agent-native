@@ -9,12 +9,112 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
+  enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
+  refreshUnchangedContentSaveWatermark,
+  shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
 import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("waits for the first authoritative document fetch, then stays mounted", () => {
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: true,
+        isFetchedAfterMount: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: false,
+        isFetchedAfterMount: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAwaitAuthoritativeDocument({
+        isFetching: true,
+        isFetchedAfterMount: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    const events: string[] = [];
+
+    const first = enqueueDocumentSave(queueRef, async () => {
+      events.push("first:start");
+      await firstGate;
+      events.push("first:end");
+      return "partial";
+    });
+    const second = enqueueDocumentSave(queueRef, async () => {
+      events.push("second:start");
+      events.push("second:end");
+      return "full";
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["first:start"]);
+    releaseFirst();
+
+    await expect(first).resolves.toBe("partial");
+    await expect(second).resolves.toBe("full");
+    expect(events).toEqual([
+      "first:start",
+      "first:end",
+      "second:start",
+      "second:end",
+    ]);
+  });
+
+  it("continues the save queue after an earlier request fails", async () => {
+    const queueRef = { current: Promise.resolve() };
+    const first = enqueueDocumentSave(queueRef, async () => {
+      throw new Error("network interrupted");
+    });
+    const second = enqueueDocumentSave(queueRef, async () => "latest");
+
+    await expect(first).rejects.toThrow("network interrupted");
+    await expect(second).resolves.toBe("latest");
+  });
+
+  it("advances the content CAS base across metadata-only row updates", () => {
+    expect(
+      refreshUnchangedContentSaveWatermark({
+        serverContent: "saved prefix",
+        serverUpdatedAt: "2026-07-24T17:00:02.000Z",
+        lastSaved: {
+          content: "saved prefix",
+          updatedAt: "2026-07-24T17:00:01.000Z",
+        },
+      }),
+    ).toEqual({
+      content: "saved prefix",
+      updatedAt: "2026-07-24T17:00:02.000Z",
+    });
+  });
+
+  it("does not advance the content CAS base across a real body change", () => {
+    const lastSaved = {
+      content: "saved prefix",
+      updatedAt: "2026-07-24T17:00:01.000Z",
+    };
+
+    expect(
+      refreshUnchangedContentSaveWatermark({
+        serverContent: "external body",
+        serverUpdatedAt: "2026-07-24T17:00:02.000Z",
+        lastSaved,
+      }),
+    ).toBe(lastSaved);
+  });
+
   it("flushes a pending title with an icon update", () => {
     expect(
       metadataUpdatesWithPendingTitle(
@@ -132,8 +232,11 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const { data: queriedDocument, isError }");
+    expect(source).toContain("const documentQuery = useDocument(documentId)");
+    expect(source).toContain("isFetchedAfterMount");
+    expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");
+    expect(source).toContain("shouldAwaitAuthoritativeDocument");
     expect(source).toContain("return <DocumentEditorSkeleton />");
   });
 
@@ -290,7 +393,13 @@ describe("document editor layout", () => {
     );
 
     expect(documentEditorSource).toContain(
-      "canEdit &&\n                    collabLoading",
+      "canEdit &&\n                    !collabSynced",
+    );
+    expect(documentEditorSource).toContain(
+      "(isLocalFileDocument || collabSynced)",
+    );
+    expect(documentEditorSource).not.toContain(
+      "(isLocalFileDocument || !collabLoading)",
     );
   });
 

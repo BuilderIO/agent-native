@@ -6,14 +6,17 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useSession } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
-import { FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  buildSignInReturnHref,
+  FeedbackButton,
+} from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
@@ -288,15 +291,13 @@ function PlanChatsSection({
 }
 
 function signInForPlanCreate() {
-  window.location.href = `${agentNativePath(
-    "/_agent-native/sign-in",
-  )}?return=${encodeURIComponent("/plans?create=1")}`;
+  window.location.href = buildSignInReturnHref({
+    returnTo: "/plans?create=1",
+  });
 }
 
 function signInWithReturnPath(returnPath: string) {
-  window.location.href = `${agentNativePath(
-    "/_agent-native/sign-in",
-  )}?return=${encodeURIComponent(returnPath || "/")}`;
+  window.location.href = buildSignInReturnHref({ returnTo: returnPath });
 }
 
 function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {

@@ -438,6 +438,14 @@ const messages = {
     remove: "제거",
     save: "저장",
     loading: "로드 중...",
+    dangerZone: "위험 구역",
+    deleteOrg: "조직 삭제",
+    deleteOrgDescription:
+      "이 조직과 구성원, 대기 중인 초대를 영구적으로 삭제합니다. 조직이 소유한 데이터에 더 이상 액세스할 수 없습니다. 이 작업은 되돌릴 수 없습니다.",
+    deleteOrgConfirmPrompt: "확인하려면 {{name}}을(를) 입력하세요.",
+    deleteOrgConfirmPlaceholder: "조직 이름",
+    deleteOrgConfirmCta: "조직 삭제",
+    deleteOrgPending: "삭제 중...",
   },
   integrations: {
     webhookUrl: "웹훅 URL",

@@ -8,6 +8,10 @@ import {
   getRequestContext,
   hasRequestContext,
   hasAuthContextAccess,
+  getAmbientUserEmail,
+  getAmbientOrgId,
+  hasRequestBoundary,
+  markRequestBoundaryInstalled,
 } from "./request-context.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -182,6 +186,45 @@ describe("server/request-context", () => {
           expect(duplicate.getRequestTimezone()).toBe("America/New_York");
         },
       );
+    });
+  });
+
+  // Ordered last, and internally ordered no-boundary-then-boundary, because
+  // `markRequestBoundaryInstalled()` sets a process-wide flag with no reset.
+  describe("ambient process identity", () => {
+    it("answers the process identity even inside a request context", () => {
+      vi.stubEnv("AGENT_USER_EMAIL", "deploy@example.com");
+      vi.stubEnv("AGENT_ORG_ID", "deploy-org");
+      runWithRequestContext({ userEmail: "alice@example.com" }, () => {
+        expect(getRequestUserEmail()).toBe("alice@example.com");
+        expect(getAmbientUserEmail()).toBe("deploy@example.com");
+        expect(getAmbientOrgId()).toBe("deploy-org");
+      });
+    });
+
+    it("stays quiet when the process has no request boundary (CLI)", () => {
+      vi.stubEnv("AGENT_USER_EMAIL", "cli-quiet@example.com");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(hasRequestBoundary()).toBe(false);
+      expect(getRequestUserEmail()).toBe("cli-quiet@example.com");
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
+    it("warns and names the identity when an HTTP process falls back", () => {
+      vi.stubEnv("AGENT_USER_EMAIL", "ambient-warned@example.com");
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      markRequestBoundaryInstalled();
+      expect(hasRequestBoundary()).toBe(true);
+
+      expect(getRequestUserEmail()).toBe("ambient-warned@example.com");
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain("ambient-warned@example.com");
+
+      // Deduped per identity so one misrouted handler can't flood the log.
+      getRequestUserEmail();
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
     });
   });
 });

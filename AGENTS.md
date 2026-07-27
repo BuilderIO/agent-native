@@ -7,6 +7,9 @@ read the relevant skill before changing that area.
 
 ## Always-On Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation. Save deep exploration for ambiguous or cross-cutting work.
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
   stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.
@@ -21,11 +24,20 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
-- Write few code comments. Only comment a constraint the code cannot show, such
-  as a non-obvious trap a future change would otherwise reintroduce. Never
-  comment what the next line does, why a change is correct, or where it came
-  from. Keep a comment that earns its place to a line or two; prefer clearer
-  names and smaller functions over prose.
+- A `catch`, default, or coercion that returns a value callers cannot
+  distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
+  be different values; a truncated run is not a completed one; a dropped payload
+  is not an empty one. Six weeks of repeat user reports traced back to this one
+  habit — each layer coerced a failure into a clean value, so every layer above
+  it reported something confidently wrong and nobody, including us, could see
+  it. Prefer a loud, typed failure over a plausible-looking normal state.
+- Before adding a condition to a function that already stacks several special
+  cases, stop: that shape is how the same bug ships twice. Fix the boundary that
+  made the special case necessary, and delete the ones it subsumes.
+- Write code that reads like the surrounding code: match its comment density,
+  naming, and idiom. When you do comment, comment a constraint the code cannot
+  show — a non-obvious trap a future change would otherwise reintroduce — not
+  what the next line does, why your change is correct, or where it came from.
 - When changing docs under `packages/core/docs/content`, update the matching
   localized docs under `packages/core/docs/content/locales/*` when the source
   meaning changes. If translations cannot be updated in the same change, call
@@ -70,7 +82,12 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions.
+  actions. If you are about to write a handler under `server/routes/api/`, or
+  middleware to guard one, stop and write an action instead. The only
+  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
+  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
+  is a grandfathered baseline being migrated, not a pattern to copy;
+  `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
@@ -142,6 +159,12 @@ instructions, and application state.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
+- Never create an organization, repoint a user's `active-org-id`, or migrate a
+  roster/identity list into a new org on your own initiative. Vault credentials
+  are per-organization, so a second org orphans every key synced under the first
+  and surfaces as a missing-key error elsewhere. One org per workspace is the
+  intended pattern: add members to the existing org, and stop and get an explicit
+  yes before doing otherwise. See the `authentication` skill.
 - Use the `security`, `storing-data`, `sharing`, `portability`, and
   `integration-webhooks` skills for implementation details.
 
@@ -198,66 +221,15 @@ call `appAction` for app actions/data, `dbQuery`, `dbExec`, `appFetch` for
 allowed framework endpoints, and `extensionFetch` for external APIs from the
 iframe bridge. Use the `extensions` skill for the full rules.
 
-## Project Map
+## Skills
 
-```txt
-app/                 React frontend
-actions/             App operations exposed to agent and frontend
-server/              Nitro API, plugins, DB, framework routes
-packages/core/       Framework runtime
-packages/dispatch/   Dispatch package
-packages/scheduling/ Scheduling package
-templates/*/         Template apps
-.agents/skills/      Detailed implementation guidance
-```
+`.agents/skills/` holds the deep guidance, one directory per skill, each with a
+`description` naming when to read it. Read the matching skill before changing
+that area — most encode a decision the surrounding code cannot show. Prefer
+searching the skill directory over guessing from nearby code.
 
-## Skill Index
+Two are entry points rather than area guides:
 
-Read the relevant skill before making changes in that area:
-
-- `adding-a-feature` for the four-area checklist.
-- `feature-flags` for default-off production rollouts, shared evaluation,
-  operator targeting, and removing stale flags after rollout.
-- `context-xray` for inspecting and managing the live agent context window.
-- `actions` for action definitions and invocation.
-- `data-programs` for stored, cached data-source scripts bound to app panels.
-- `storing-data`, `portability`, `security`, `sharing` for data work.
-- `audit-log` for the automatic action-level audit trail (who changed what,
-  when, agent vs human) and the scoped `list-audit-events` read surface.
-- `performance` for keeping lists, reads, and page loads fast — column
-  projection, indexing hot-path queries, and avoiding round-trip waterfalls.
-- `reliable-mutations` for writing data so it persists under the hosted run
-  budget — one atomic call, never loop many small writes, verify and report
-  proof-of-done, fail loud on cutoff.
-- `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
-- `native-navigation` for link-first internal navigation that preserves
-  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
-- `client-methods` for browser/client APIs that must use named helpers instead
-  of raw REST calls.
-- `delegate-to-agent` for LLM/agent delegation.
-- `agent-native-toolkit` for deciding whether settings, app chrome,
-  collaboration, sharing, navigation, organization, comments, or history belong
-  in reusable framework/toolkit primitives.
-- `customizing-agent-native` before configuring, composing, or ejecting an
-  installed Toolkit/Core feature into app-owned source.
-- `composable-mini-apps` for many one-job headless apps that discover siblings
-  and compose through `invoke` / `call-agent`.
-- `visual-answer` for code/product questions answered as visual Plan artifacts.
-- `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
-  Cursor, or Mastra.
-- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
-  collaboration workflow, subscription metering, checkpoints, and recovery.
-- `self-modifying-code` for source edits by the agent.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
-- `upgrade-agent-native` for bringing an older app/workspace to current
-  `@agent-native/*` packages without patching core/dispatch.
-- `server-plugins` for `/_agent-native/*` routes and plugins.
-- `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
-- `automations`, `recurring-jobs`, `integration-webhooks` for background work.
-- `frontend-design`, `shadcn-ui` for interface work.
-- `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
-- `extensions` for sandboxed mini-apps.
-- `generative-ui` for transient or persisted sandboxed inline chat UI.
-- `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
-  `external-agents`, and template-specific skills as needed.
+- `adding-a-feature` — the four-area checklist every feature must satisfy.
+- `writing-agent-instructions` — read before editing any `AGENTS.md`,
+  `SKILL.md`, or tool/action description, including this file.

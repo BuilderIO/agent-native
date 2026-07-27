@@ -138,8 +138,12 @@ export function buildAssistantMessage(
     }
   };
 
-  for (const { event } of events) {
+  for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
+      // A live stream always follows `clear` with the chunk that re-emits the
+      // wiped content. A rebuild has no successor, so applying a TRAILING
+      // clear can only destroy the transcript permanently.
+      if (index === events.length - 1) continue;
       clearAssistantDraftContent(content);
       continue;
     }
