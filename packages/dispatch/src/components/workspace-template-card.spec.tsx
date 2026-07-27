@@ -95,7 +95,7 @@ describe("WorkspaceTemplateCard", () => {
     ).toBe(null);
   });
 
-  it("remixes with the default app id and allows an override", async () => {
+  it("creates an app with the default app id and allows an override", async () => {
     await act(async () => {
       root.render(
         <WorkspaceTemplateCard template={template} defaultAppId="pipeline" />,

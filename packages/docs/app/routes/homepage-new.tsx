@@ -525,7 +525,7 @@ export default function HomepageNew() {
           <SectionHeading
             eyebrow="Own the source"
             title="Keep the solid parts. Replace anything."
-            body="The framework should be inspectable by local agents: module docs, source, skills, and example apps live in node_modules so your app can fork, eject, patch, or replace a module without losing the map."
+            body="The framework should be inspectable by local agents: module docs, source, skills, and example apps live in node_modules so your app can own, eject, patch, or replace a module without losing the map."
           />
           <div className="grid gap-4 md:grid-cols-3">
             {sourceFlow.map((step, index) => (

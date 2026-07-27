@@ -302,7 +302,7 @@ const arSA = {
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
-      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
+      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Cloneable SaaS. لك.",
       primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",

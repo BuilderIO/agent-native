@@ -198,7 +198,7 @@ const enUS = {
         },
         sourceOwnership: {
           title: "Source ownership",
-          body: "Docs and source live where agents can inspect, fork, eject, patch, or replace them.",
+          body: "Docs and source live where agents can inspect, own, eject, patch, or replace them.",
         },
         auditLogs: {
           title: "Audit logs",
