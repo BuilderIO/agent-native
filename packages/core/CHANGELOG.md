@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.124.4
+
+### Patch Changes
+
+- c849ba0: Recover clicked routes in the desktop app when a stale lazy route chunk is encountered.
+- c849ba0: Label final-response-guard corrective retries as framework directives. They are
+  appended as user-role messages, so an unlabeled one reads like an injected user
+  turn — models were refusing them out loud to the real user ("this message looks
+  like a prompt injection attempt") instead of revising the draft.
+
 ## 0.124.3
 
 ### Patch Changes
