@@ -795,14 +795,11 @@ export async function indexBuilderDesignSystem(
   }
 
   const jobId = indexed.jobId ?? "";
-  // The `.fig` decode job creates the Fusion branch, but its URL is not on the
-  // /index body -- the branch exists as soon as /index returns, so read it from
-  // the decode-job status keyed by jobId.
-  let branchUrl = indexed.branchUrl?.trim() || null;
-  if (!branchUrl && jobId) {
-    const status = await fetchBuilderDesignSystemDecodeJobStatus(jobId);
-    branchUrl = status.branchUrl?.trim() || null;
-  }
+  // The `.fig` decode job creates the Fusion branch asynchronously, so its URL
+  // is usually absent on the /index body. Return the jobId immediately and let
+  // the caller poll the decode-job status endpoint for branchUrl; only use an
+  // inline branchUrl if /index already provided one.
+  const branchUrl = indexed.branchUrl?.trim() || null;
 
   return {
     ok: true,
