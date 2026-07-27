@@ -368,25 +368,44 @@ describe("realDataFinalGuard", () => {
     });
   });
 
-  it("does not claim a named source is disconnected when data-source-status never ran", () => {
+  it("does not demand a connect-sources link when data-source-status never ran", () => {
+    // A draft that ends in a question counts as a safe no-data response, and
+    // this turn only saved a panel. Nothing here shows a source is missing, so
+    // the guard must not instruct the model to say one is unavailable — the
+    // model recognizes that instruction as a prompt injection and refuses it
+    // out loud to the user.
     const result = realDataFinalGuard(
       guardContext({
         userText: "yes add conversion rate",
         draftText:
-          "Added the conversion rate panel. It divides converted visitors by total AN visitors from dbt_staging_bigquery.all_pageviews.",
+          "Which denominator do you want for that rate — all visitors, or only the AN-tagged ones?",
+      }),
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("still reports a real query failure without inventing a missing source", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what was our signup conversion last week",
+        draftText: "Signup conversion was 4.2% last week.",
         toolResults: [
           {
-            name: "mutate-dashboard",
-            isError: false,
-            content: JSON.stringify({ saved: true }),
+            name: "bigquery",
+            isError: true,
+            content: "Syntax error at [3:9]",
           },
         ],
       }),
     );
 
-    expect(
-      (result as { retryMessage?: string })?.retryMessage ?? "",
-    ).not.toContain("is not connected");
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Syntax error",
+    );
+    expect((result as { retryMessage: string }).retryMessage).not.toContain(
+      "which external source is missing",
+    );
   });
 
   it("accepts the action's string setup link without overwriting it with the settings path", () => {

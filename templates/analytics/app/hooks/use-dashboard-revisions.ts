@@ -31,7 +31,12 @@ export function useDashboardRevisions(dashboardId: string | null) {
 export function useRestoreDashboardRevision(dashboardId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { id: string; name: string; updatedAt: string },
+    {
+      id: string;
+      name: string;
+      updatedAt: string;
+      snapshotRevisionId: string;
+    },
     {
       dashboardId: string;
       revisionId: string;

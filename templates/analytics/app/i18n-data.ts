@@ -50,6 +50,10 @@ const enUS = {
     undoSuccess: "Dashboard change undone",
     undoFailed: "Couldn't undo dashboard change",
     undoFailedWithMessage: "Couldn't undo dashboard change: {{message}}",
+    redo: "Redo",
+    redoSuccess: "Dashboard change redone",
+    redoFailed: "Couldn't redo dashboard change",
+    redoFailedWithMessage: "Couldn't redo dashboard change: {{message}}",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -11780,6 +11784,10 @@ const translatedHistoryTranslations = {
       undoSuccess: "已復原儀表板變更",
       undoFailed: "無法復原儀表板變更",
       undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做儀表板變更",
+      redoFailed: "無法重做儀表板變更",
+      redoFailedWithMessage: "無法重做儀表板變更：{{message}}",
     },
     analyses: {
       historyTitle: "分析歷史記錄",
@@ -11813,6 +11821,10 @@ const translatedHistoryTranslations = {
       undoSuccess: "已撤销仪表板更改",
       undoFailed: "无法撤销仪表板更改",
       undoFailedWithMessage: "无法撤销仪表板更改：{{message}}",
+      redo: "重做",
+      redoSuccess: "已重做仪表板更改",
+      redoFailed: "无法重做仪表板更改",
+      redoFailedWithMessage: "无法重做仪表板更改：{{message}}",
     },
     analyses: {
       historyTitle: "分析历史记录",
@@ -11849,6 +11861,11 @@ const translatedHistoryTranslations = {
       undoFailed: "No se pudo deshacer el cambio del panel",
       undoFailedWithMessage:
         "No se pudo deshacer el cambio del panel: {{message}}",
+      redo: "Rehacer",
+      redoSuccess: "Cambio del panel rehecho",
+      redoFailed: "No se pudo rehacer el cambio del panel",
+      redoFailedWithMessage:
+        "No se pudo rehacer el cambio del panel: {{message}}",
     },
     analyses: {
       historyTitle: "Historial del análisis",
@@ -11887,6 +11904,11 @@ const translatedHistoryTranslations = {
       undoFailed: "Impossible d'annuler la modification du tableau de bord",
       undoFailedWithMessage:
         "Impossible d'annuler la modification du tableau de bord : {{message}}",
+      redo: "Rétablir",
+      redoSuccess: "Modification du tableau de bord rétablie",
+      redoFailed: "Impossible de rétablir la modification du tableau de bord",
+      redoFailedWithMessage:
+        "Impossible de rétablir la modification du tableau de bord : {{message}}",
     },
     analyses: {
       historyTitle: "Historique de l'analyse",
@@ -11925,6 +11947,11 @@ const translatedHistoryTranslations = {
       undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",
       undoFailedWithMessage:
         "Dashboard-Änderung konnte nicht rückgängig gemacht werden: {{message}}",
+      redo: "Wiederholen",
+      redoSuccess: "Dashboard-Änderung wiederholt",
+      redoFailed: "Dashboard-Änderung konnte nicht wiederholt werden",
+      redoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht wiederholt werden: {{message}}",
     },
     analyses: {
       historyTitle: "Analyseverlauf",
@@ -11963,6 +11990,11 @@ const translatedHistoryTranslations = {
       undoFailed: "ダッシュボードの変更を元に戻せませんでした",
       undoFailedWithMessage:
         "ダッシュボードの変更を元に戻せませんでした：{{message}}",
+      redo: "やり直す",
+      redoSuccess: "ダッシュボードの変更をやり直しました",
+      redoFailed: "ダッシュボードの変更をやり直せませんでした",
+      redoFailedWithMessage:
+        "ダッシュボードの変更をやり直せませんでした：{{message}}",
     },
     analyses: {
       historyTitle: "分析履歴",
@@ -12001,6 +12033,11 @@ const translatedHistoryTranslations = {
       undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",
       undoFailedWithMessage:
         "대시보드 변경을 실행 취소할 수 없습니다: {{message}}",
+      redo: "다시 실행",
+      redoSuccess: "대시보드 변경을 다시 실행했습니다",
+      redoFailed: "대시보드 변경을 다시 실행할 수 없습니다",
+      redoFailedWithMessage:
+        "대시보드 변경을 다시 실행할 수 없습니다: {{message}}",
     },
     analyses: {
       historyTitle: "분석 기록",
@@ -12039,6 +12076,11 @@ const translatedHistoryTranslations = {
       undoFailed: "Não foi possível desfazer a alteração do painel",
       undoFailedWithMessage:
         "Não foi possível desfazer a alteração do painel: {{message}}",
+      redo: "Refazer",
+      redoSuccess: "Alteração do painel refeita",
+      redoFailed: "Não foi possível refazer a alteração do painel",
+      redoFailedWithMessage:
+        "Não foi possível refazer a alteração do painel: {{message}}",
     },
     analyses: {
       historyTitle: "Histórico da análise",
@@ -12076,6 +12118,10 @@ const translatedHistoryTranslations = {
       undoSuccess: "डैशबोर्ड बदलाव पूर्ववत किया गया",
       undoFailed: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका",
       undoFailedWithMessage: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका: {{message}}",
+      redo: "फिर से करें",
+      redoSuccess: "डैशबोर्ड बदलाव फिर से किया गया",
+      redoFailed: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका",
+      redoFailedWithMessage: "डैशबोर्ड बदलाव फिर से नहीं किया जा सका: {{message}}",
     },
     analyses: {
       historyTitle: "विश्लेषण इतिहास",
@@ -12114,6 +12160,11 @@ const translatedHistoryTranslations = {
       undoFailed: "تعذر التراجع عن تغيير لوحة المعلومات",
       undoFailedWithMessage:
         "تعذر التراجع عن تغيير لوحة المعلومات: {{message}}",
+      redo: "إعادة",
+      redoSuccess: "تمت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailed: "تعذرت إعادة تطبيق تغيير لوحة المعلومات",
+      redoFailedWithMessage:
+        "تعذرت إعادة تطبيق تغيير لوحة المعلومات: {{message}}",
     },
     analyses: {
       historyTitle: "سجل التحليل",

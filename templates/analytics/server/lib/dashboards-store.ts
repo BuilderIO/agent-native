@@ -635,9 +635,10 @@ async function snapshotDashboardRevision(
   db: any,
   dashboard: DashboardRecord,
   ctx: AccessCtx,
-): Promise<void> {
+): Promise<string> {
+  const id = `dashrev-${Date.now()}-${nanoidFallback()}`;
   await db.insert(schema.dashboardRevisions).values({
-    id: `dashrev-${Date.now()}-${nanoidFallback()}`,
+    id,
     dashboardId: dashboard.id,
     kind: dashboard.kind,
     title: dashboard.title,
@@ -648,6 +649,7 @@ async function snapshotDashboardRevision(
     orgId: dashboard.orgId,
   });
   await pruneDashboardRevisions(db, dashboard.id);
+  return id;
 }
 
 /**
@@ -845,7 +847,10 @@ export async function restoreDashboardRevision(
   revisionId: string,
   ctx: AccessCtx,
   expectedUpdatedAt?: string,
-): Promise<DashboardRecord | null> {
+): Promise<{
+  dashboard: DashboardRecord;
+  snapshotRevisionId: string;
+} | null> {
   const existing = await getDashboard(dashboardId, ctx);
   if (!existing) return null;
   await assertAccess("dashboard", dashboardId, "editor", {
@@ -872,7 +877,7 @@ export async function restoreDashboardRevision(
   if (!revisionRow) return null;
   const revision = rowToDashboardRevision(revisionRow);
   const updatedAt = nowIso();
-  const dashboard = await db.transaction(async (tx: any) => {
+  const restored = await db.transaction(async (tx: any) => {
     const updateResult = await tx
       .update(schema.dashboards)
       .set({
@@ -900,13 +905,22 @@ export async function restoreDashboardRevision(
       if (affected === 0) throw new DashboardConflictError(dashboardId);
     }
 
-    await snapshotDashboardRevision(tx, existing, ctx);
+    const snapshotRevisionId = await snapshotDashboardRevision(
+      tx,
+      existing,
+      ctx,
+    );
     const [row] = await tx
       .select()
       .from(schema.dashboards)
       .where(eq(schema.dashboards.id, dashboardId));
-    return rowToDashboard(row);
+    return {
+      dashboard: rowToDashboard(row),
+      snapshotRevisionId,
+    };
   });
+  if (!restored) return null;
+  const { dashboard } = restored;
   recordScopedChange(
     "dashboards",
     "change",
@@ -915,7 +929,7 @@ export async function restoreDashboardRevision(
     dashboard.orgId,
     dashboard.visibility,
   );
-  return dashboard;
+  return restored;
 }
 
 /**

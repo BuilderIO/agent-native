@@ -50,23 +50,25 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (args) => {
-    const dashboard = await restoreDashboardRevision(
+    const restored = await restoreDashboardRevision(
       args.dashboardId,
       args.revisionId,
       resolveScope(),
       args.expectedUpdatedAt,
     );
-    if (!dashboard) {
+    if (!restored) {
       throw new Error(
         `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
       );
     }
+    const { dashboard, snapshotRevisionId } = restored;
     await syncToCollab(dashboard.id, dashboard.config);
     return {
       id: dashboard.id,
       kind: dashboard.kind,
       name: dashboard.title,
       updatedAt: dashboard.updatedAt,
+      snapshotRevisionId,
       message: `Restored dashboard "${dashboard.title}" from history.`,
     };
   },
