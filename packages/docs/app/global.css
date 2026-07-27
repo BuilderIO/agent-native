@@ -1200,7 +1200,7 @@ html.dark .shiki span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border-radius: 9999px;
+  border-radius: 12px;
   padding: 12px 24px;
   font-size: 14px;
   font-weight: 500;
