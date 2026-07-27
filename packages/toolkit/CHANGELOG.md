@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.10.8
+
+### Patch Changes
+
+- 14818b6: Allow the first local edit in a newly synced empty collaborative document to reach the host application's canonical save path.
+
 ## 0.10.7
 
 ### Patch Changes
