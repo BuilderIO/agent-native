@@ -22,6 +22,7 @@ import {
   parsePendingEntry,
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
+import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
@@ -44,7 +45,6 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
-import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 

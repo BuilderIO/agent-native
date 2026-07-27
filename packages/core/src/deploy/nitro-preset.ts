@@ -10,9 +10,7 @@ function markerPath(cwd: string): string {
   return path.join(cwd, AGENT_NATIVE_NITRO_PRESET_MARKER);
 }
 
-export function clearAgentNativeNitroPresetMarker(
-  cwd = process.cwd(),
-): void {
+export function clearAgentNativeNitroPresetMarker(cwd = process.cwd()): void {
   fs.rmSync(markerPath(cwd), { force: true });
 }
 
@@ -42,9 +40,7 @@ export function resolveAgentNativeNitroPreset({
   try {
     const marker = fs.readFileSync(filePath, "utf8").trim();
     if (!marker) {
-      throw new Error(
-        `Agent-Native Nitro preset marker is empty: ${filePath}`,
-      );
+      throw new Error(`Agent-Native Nitro preset marker is empty: ${filePath}`);
     }
     return marker;
   } catch (error) {
