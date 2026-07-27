@@ -32,7 +32,7 @@ import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-u
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -98,6 +98,7 @@ export default defineEventHandler(async (event: H3Event) => {
     compression?: CompressionMeta | null;
     requestStreaming?: boolean;
     mimeType?: string;
+    attemptId?: string;
   } | null;
 
   // Sanitize compression metadata. The recorder is the only client we trust
@@ -121,6 +122,7 @@ export default defineEventHandler(async (event: H3Event) => {
         id: schema.recordings.id,
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
+        uploadAttemptId: schema.recordings.uploadAttemptId,
       })
       .from(schema.recordings)
       .where(
@@ -140,6 +142,20 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording is already ready" };
     }
 
+    const attemptId =
+      typeof body?.attemptId === "string" &&
+      body.attemptId.length > 0 &&
+      body.attemptId.length <= 128
+        ? body.attemptId
+        : null;
+    if ((existing.uploadAttemptId ?? null) !== attemptId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+
     if (
       await isMediaVerificationPending({
         ownerEmail,
@@ -149,6 +165,37 @@ export default defineEventHandler(async (event: H3Event) => {
     ) {
       setResponseStatus(event, 409);
       return { error: "Recording is still being verified" };
+    }
+
+    // Fence this reset before deleting any provider or buffered state. A
+    // retry that lost the token race must not tear down the winner's session.
+    const now = new Date().toISOString();
+    const reset = await db
+      .update(schema.recordings)
+      .set({
+        status: "uploading",
+        failureReason: null,
+        uploadProgress: 0,
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          attemptId === null
+            ? isNull(schema.recordings.uploadAttemptId)
+            : eq(schema.recordings.uploadAttemptId, attemptId),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+
+    if (reset.length !== 1) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
     }
 
     const cleared = await deleteAppStateByPrefix(
@@ -222,7 +269,6 @@ export default defineEventHandler(async (event: H3Event) => {
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then
     // re-running" on the post-compression chunked upload pass.
-    const now = new Date().toISOString();
     await writeAppState(`recording-upload-${recordingId}`, {
       recordingId,
       status: "uploading",
@@ -244,19 +290,6 @@ export default defineEventHandler(async (event: H3Event) => {
         recordedAt: now,
       });
     }
-
-    await db
-      .update(schema.recordings)
-      .set({
-        status: "uploading",
-        failureReason: null,
-        uploadProgress: 0,
-        // A retry re-takes the lease. Without this the row would go back to
-        // 'uploading' still carrying the expired lease that killed it.
-        uploadLeaseExpiresAt: uploadLeaseExpiry(),
-        updatedAt: now,
-      })
-      .where(eq(schema.recordings.id, recordingId));
 
     return {
       ok: true,

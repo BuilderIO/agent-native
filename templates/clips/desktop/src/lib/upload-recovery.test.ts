@@ -1,0 +1,124 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  buildStreamingReplayPlan,
+  planStreamingRecovery,
+} from "./upload-recovery";
+
+const CHUNK_BYTES = 3_932_160;
+
+describe("planStreamingRecovery", () => {
+  it("resumes from an aligned authoritative offset", () => {
+    expect(
+      planStreamingRecovery({
+        response: {
+          resumable: true,
+          status: "uploading",
+          uploadMode: "streaming",
+          attemptId: "attempt-1",
+          bytesReceived: CHUNK_BYTES * 2,
+          nextChunkIndex: 2,
+        },
+        localBytes: CHUNK_BYTES * 5,
+        chunkBytes: CHUNK_BYTES,
+      }),
+    ).toEqual({
+      action: "resume",
+      bytesReceived: CHUNK_BYTES * 2,
+      nextChunkIndex: 2,
+      progress: 0.4,
+    });
+  });
+
+  it.each([
+    [CHUNK_BYTES + 1, 1, "server chunk offset is inconsistent"],
+    [CHUNK_BYTES * 2, 1, "server chunk offset is inconsistent"],
+    [CHUNK_BYTES * 6, 6, "server byte offset is invalid"],
+  ])(
+    "restarts when offset %s and index %s contradict the local backup",
+    (bytesReceived, nextChunkIndex, reason) => {
+      expect(
+        planStreamingRecovery({
+          response: {
+            resumable: true,
+            status: "uploading",
+            uploadMode: "streaming",
+            attemptId: "attempt-1",
+            bytesReceived,
+            nextChunkIndex,
+          },
+          localBytes: CHUNK_BYTES * 5,
+          chunkBytes: CHUNK_BYTES,
+        }),
+      ).toEqual({ action: "restart", reason });
+    },
+  );
+
+  it("restarts explicitly when the session is unavailable", () => {
+    expect(
+      planStreamingRecovery({
+        response: {
+          resumable: false,
+          status: "failed",
+          reason: "missing_session",
+        },
+        localBytes: CHUNK_BYTES,
+        chunkBytes: CHUNK_BYTES,
+      }),
+    ).toEqual({ action: "restart", reason: "missing_session" });
+  });
+
+  it("reconciles a response lost after the server accepted finalization", () => {
+    expect(
+      planStreamingRecovery({
+        response: { resumable: false, status: "processing" },
+        localBytes: CHUNK_BYTES,
+        chunkBytes: CHUNK_BYTES,
+      }),
+    ).toEqual({ action: "reconcile", status: "processing" });
+  });
+});
+
+describe("buildStreamingReplayPlan", () => {
+  it("sends only the suffix after the acknowledged prefix", () => {
+    expect(
+      buildStreamingReplayPlan({
+        localBytes: CHUNK_BYTES * 3 + 500,
+        chunkBytes: CHUNK_BYTES,
+        bytesReceived: CHUNK_BYTES * 2,
+        nextChunkIndex: 2,
+      }),
+    ).toEqual([
+      {
+        index: 2,
+        start: CHUNK_BYTES * 2,
+        end: CHUNK_BYTES * 3,
+        final: false,
+      },
+      {
+        index: 3,
+        start: CHUNK_BYTES * 3,
+        end: CHUNK_BYTES * 3 + 500,
+        final: true,
+      },
+    ]);
+  });
+
+  it("sends only the close sentinel when all aligned bytes are acknowledged", () => {
+    expect(
+      buildStreamingReplayPlan({
+        localBytes: CHUNK_BYTES * 2,
+        chunkBytes: CHUNK_BYTES,
+        bytesReceived: CHUNK_BYTES * 2,
+        nextChunkIndex: 2,
+      }),
+    ).toEqual([
+      {
+        index: 2,
+        start: CHUNK_BYTES * 2,
+        end: CHUNK_BYTES * 2,
+        final: true,
+      },
+    ]);
+  });
+});

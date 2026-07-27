@@ -168,6 +168,9 @@ export const recordings = table("recordings", {
   // Authoritative liveness for an in-flight upload: renewed by every chunk
   // POST, and the only thing the upload reaper is allowed to consult.
   uploadLeaseExpiresAt: text("upload_lease_expires_at"),
+  // Fences resumed writers: every recovery claim rotates this token so stale
+  // chunks and delayed interruption callbacks cannot mutate the new attempt.
+  uploadAttemptId: text("upload_attempt_id"),
   failureReason: text("failure_reason"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),

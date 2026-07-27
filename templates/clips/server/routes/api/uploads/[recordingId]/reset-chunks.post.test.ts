@@ -20,6 +20,7 @@ const mockExistingRecording = vi.hoisted(() => ({
     id: "rec-1",
     status: "uploading",
     videoUrl: null as string | null,
+    uploadAttemptId: null as string | null,
   },
 }));
 const mockDb = vi.hoisted(() => ({
@@ -30,12 +31,17 @@ const mockDb = vi.hoisted(() => ({
     };
     return builder;
   }),
-  update: vi.fn(() => ({
-    set: vi.fn((values: Record<string, unknown>) => {
-      mockUpdateSets.push(values);
-      return { where: vi.fn(async () => undefined) };
-    }),
-  })),
+  update: vi.fn(() => {
+    const builder = {
+      set: vi.fn((values: Record<string, unknown>) => {
+        mockUpdateSets.push(values);
+        return builder;
+      }),
+      where: vi.fn(() => builder),
+      returning: vi.fn(async () => [{ id: "rec-1" }]),
+    };
+    return builder;
+  }),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -56,6 +62,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
   eq: vi.fn(() => "eq"),
+  isNull: vi.fn(() => "is-null"),
 }));
 
 vi.mock("h3", () => ({
@@ -73,6 +80,7 @@ vi.mock("../../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       status: "recordings.status",
       videoUrl: "recordings.videoUrl",
+      uploadAttemptId: "recordings.uploadAttemptId",
       failureReason: "recordings.failureReason",
       uploadProgress: "recordings.uploadProgress",
       updatedAt: "recordings.updatedAt",
@@ -130,6 +138,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       id: "rec-1",
       status: "uploading",
       videoUrl: null,
+      uploadAttemptId: null,
     };
     mockStartSession.mockResolvedValue({
       sessionId: "session-1",
@@ -189,6 +198,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       id: "rec-1",
       status: "ready",
       videoUrl: "https://cdn.example/video.webm",
+      uploadAttemptId: null,
     };
 
     await expect(handler({} as any)).resolves.toEqual({
@@ -207,6 +217,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       id: "rec-1",
       status: "processing",
       videoUrl: "https://cdn.example/video.webm",
+      uploadAttemptId: null,
     };
     mockIsMediaVerificationPending.mockResolvedValue(true);
 

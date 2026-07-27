@@ -12,7 +12,7 @@
  */
 
 import { getDbExec, isPostgres } from "@agent-native/core/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -37,6 +37,7 @@ export type UploadLeaseResult =
   | { held: true }
   | {
       held: false;
+      staleAttempt: boolean;
       status: string | null;
       failureReason: string | null;
       videoUrl: string | null;
@@ -53,7 +54,11 @@ export type UploadLeaseResult =
  */
 export async function renewUploadLease(
   recordingId: string,
-  options: { now?: number; uploadProgress?: number } = {},
+  options: {
+    now?: number;
+    uploadProgress?: number;
+    attemptId?: string | null;
+  } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
   const held = await getDb()
@@ -72,6 +77,13 @@ export async function renewUploadLease(
       and(
         eq(schema.recordings.id, recordingId),
         inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.attemptId === undefined
+          ? []
+          : [
+              options.attemptId === null
+                ? isNull(schema.recordings.uploadAttemptId)
+                : eq(schema.recordings.uploadAttemptId, options.attemptId),
+            ]),
       ),
     )
     .returning({ id: schema.recordings.id });
@@ -87,12 +99,19 @@ export async function renewUploadLease(
       videoUrl: schema.recordings.videoUrl,
       videoSizeBytes: schema.recordings.videoSizeBytes,
       durationMs: schema.recordings.durationMs,
+      uploadAttemptId: schema.recordings.uploadAttemptId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId));
 
   return {
     held: false,
+    staleAttempt:
+      options.attemptId !== undefined &&
+      IN_PROGRESS_STATUSES.includes(
+        row?.status as (typeof IN_PROGRESS_STATUSES)[number],
+      ) &&
+      row?.uploadAttemptId !== options.attemptId,
     status: row?.status ?? null,
     failureReason: row?.failureReason ?? null,
     videoUrl: row?.videoUrl ?? null,

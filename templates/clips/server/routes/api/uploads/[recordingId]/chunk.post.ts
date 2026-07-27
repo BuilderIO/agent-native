@@ -45,6 +45,7 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
+  deleteResumableSession,
   getResumableSession,
   setResumableSession,
   type StoredResumableSession,
@@ -166,6 +167,16 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const query = getQuery(event);
+  const attemptIdValue = Array.isArray(query.attemptId)
+    ? query.attemptId[0]
+    : query.attemptId;
+  const attemptId =
+    typeof attemptIdValue === "string" &&
+    attemptIdValue.length > 0 &&
+    attemptIdValue.length <= 128 &&
+    !/[\r\n]/.test(attemptIdValue)
+      ? attemptIdValue
+      : null;
   const index = Number(query.index ?? 0);
   const total = Number(query.total ?? 0);
   const isFinal = query.isFinal === "1" || query.isFinal === "true";
@@ -253,12 +264,21 @@ export default defineEventHandler(async (event: H3Event) => {
     // every durable write/finalization boundary close the body-read/provider
     // gap where /abort can otherwise commit while this request is in flight.
     const lease = await renewUploadLease(recordingId, {
+      attemptId,
       uploadProgress:
         total > 0
           ? Math.min(100, Math.round(((index + 1) / total) * 100))
           : undefined,
     });
     if (!lease.held) {
+      if (lease.staleAttempt) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
       if (lease.status === "ready") {
         const readyState = await readAppState(
           `recording-upload-${recordingId}`,
@@ -285,7 +305,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const rejectIfLeaseLost = async () => {
-      const current = await renewUploadLease(recordingId);
+      const current = await renewUploadLease(recordingId, { attemptId });
       if (current.held) return null;
       await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
         console.warn("[chunk] failed upload chunk cleanup failed:", {
@@ -324,6 +344,7 @@ export default defineEventHandler(async (event: H3Event) => {
         mimeType,
         query,
         ownerEmail,
+        attemptId,
       );
     }
 
@@ -743,6 +764,7 @@ async function handleResumableChunk(
   mimeType: string,
   query: Record<string, unknown>,
   ownerEmail: string,
+  attemptId: string | null,
 ) {
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
@@ -771,7 +793,7 @@ async function handleResumableChunk(
         error: "Cannot finalize an empty resumable upload",
       };
     }
-    const lease = await renewUploadLease(recordingId);
+    const lease = await renewUploadLease(recordingId, { attemptId });
     if (!lease.held) {
       setResponseStatus(event, 409);
       return {
@@ -798,7 +820,9 @@ async function handleResumableChunk(
       };
     }
     if (closeRes.updatedMeta) {
-      const postCloseLease = await renewUploadLease(recordingId);
+      const postCloseLease = await renewUploadLease(recordingId, {
+        attemptId,
+      });
       if (!postCloseLease.held) {
         setResponseStatus(event, 409);
         return {
@@ -835,7 +859,7 @@ async function handleResumableChunk(
         };
       }
     } else {
-      const lease = await renewUploadLease(recordingId);
+      const lease = await renewUploadLease(recordingId, { attemptId });
       if (!lease.held) {
         setResponseStatus(event, 409);
         return {
@@ -866,14 +890,22 @@ async function handleResumableChunk(
         ? putResult.ok && putResult.status !== 308
         : putResult.ok;
       if (!resultOk) {
-        setResponseStatus(event, 502);
+        const restartRequired =
+          putResult.status === 404 || putResult.status === 410;
+        if (restartRequired) {
+          await deleteResumableSession(recordingId).catch(() => {});
+        }
+        setResponseStatus(event, restartRequired ? 409 : 502);
         return {
           ok: false,
           error: `Chunk upload failed (${putResult.status})`,
+          ...(restartRequired ? { restartRequired: true } : {}),
         };
       }
 
-      const postUploadLease = await renewUploadLease(recordingId);
+      const postUploadLease = await renewUploadLease(recordingId, {
+        attemptId,
+      });
       if (!postUploadLease.held) {
         setResponseStatus(event, 409);
         return {
@@ -901,7 +933,7 @@ async function handleResumableChunk(
 
   // isFinal — delegate to finalize-recording, which reads the resumable
   // session and calls provider.resumable.completeSession.
-  const finalLease = await renewUploadLease(recordingId);
+  const finalLease = await renewUploadLease(recordingId, { attemptId });
   if (!finalLease.held) {
     setResponseStatus(event, 409);
     return {

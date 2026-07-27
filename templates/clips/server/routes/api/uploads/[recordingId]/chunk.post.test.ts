@@ -18,6 +18,7 @@ const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
+const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
 const mockRelayChunk = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
@@ -113,6 +114,8 @@ vi.mock("../../../../lib/recordings.js", () => ({
 }));
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
+  deleteResumableSession: (...args: unknown[]) =>
+    mockDeleteResumableSession(...args),
   getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
   setResumableSession: (...args: unknown[]) => mockSetResumableSession(...args),
 }));
@@ -179,6 +182,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockGetResumableSession.mockResolvedValue(null);
+    mockDeleteResumableSession.mockResolvedValue(undefined);
     mockSetResumableSession.mockResolvedValue(undefined);
     mockIsStreamingUploadDisabled.mockReturnValue(false);
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValue(false);
@@ -244,6 +248,37 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
   });
 
+  it("rejects a stale retry token before reading or storing its chunk", async () => {
+    mockRenewUploadLease.mockResolvedValueOnce({
+      held: false,
+      staleAttempt: true,
+      status: "uploading",
+      failureReason: null,
+      videoUrl: null,
+      videoSizeBytes: null,
+      durationMs: null,
+    });
+    setRequest({
+      query: {
+        index: "0",
+        total: "2",
+        isFinal: "0",
+        mimeType: "video/webm",
+        attemptId: "stale-attempt",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "A newer upload retry is already active.",
+      staleAttempt: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockReadRawBody).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
   it("stores in-order chunks and advances upload progress state", async () => {
     setRequest({
       query: { index: "0", total: "4", mimeType: "video/webm" },
@@ -307,8 +342,8 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         ([, options]) => options?.uploadProgress !== undefined,
       ),
     ).toEqual([
-      ["rec-1", { uploadProgress: 25 }],
-      ["rec-1", { uploadProgress: 50 }],
+      ["rec-1", { attemptId: null, uploadProgress: 25 }],
+      ["rec-1", { attemptId: null, uploadProgress: 50 }],
     ]);
     expect(mockUpdateSets).toEqual([]);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
@@ -857,6 +892,30 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).not.toHaveBeenCalled();
     expect(mockSetResumableSession).not.toHaveBeenCalled();
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("retires an expired provider session so the desktop can restart safely", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "expired-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 100,
+      lastCommittedIndex: 2,
+    });
+    mockRelayChunk.mockResolvedValue({ ok: false, status: 410 });
+    setRequest({
+      query: { index: "3", total: "0", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "Chunk upload failed (410)",
+      restartRequired: true,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
+    expect(mockSetResumableSession).not.toHaveBeenCalled();
   });
 
   it("returns exact resumable source-byte proof when finalize committed before its response was lost", async () => {
