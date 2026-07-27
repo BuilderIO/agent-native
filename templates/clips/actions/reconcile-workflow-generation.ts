@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import {
+  compareAndSetAppState,
+  compareAndSetManyAppState,
   readAppState,
-  writeAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -15,6 +16,10 @@ const WorkflowStateSchema = z
     requestedAt: z.string().optional(),
     tabId: z.string().optional(),
   })
+  .passthrough();
+
+const WorkflowRequestSchema = z
+  .object({ requestedAt: z.string() })
   .passthrough();
 
 export default defineAction({
@@ -50,19 +55,46 @@ export default defineAction({
     }
 
     if (operation === "track") {
-      await writeAppState(stateKey, { ...state, tabId });
-      return { reconciled: false, tracked: true };
+      const requestKey = `clips-ai-request-${recordingId}`;
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return { reconciled: false, reason: "request-missing" as const };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (parsedRequest.data.requestedAt !== requestedAt) {
+        return { reconciled: false, reason: "newer-request" as const };
+      }
+
+      const tracked = await compareAndSetManyAppState([
+        {
+          key: stateKey,
+          expectedValue: rawState,
+          nextValue: { ...rawState, tabId },
+        },
+        {
+          key: requestKey,
+          expectedValue: rawRequest,
+          nextValue: null,
+        },
+      ]);
+      return tracked
+        ? { reconciled: false, tracked: true }
+        : { reconciled: false, reason: "stale" as const };
     }
     if (state.tabId !== tabId) {
       return { reconciled: false, reason: "different-run" as const };
     }
 
-    await writeAppState(stateKey, {
-      ...state,
+    const reconciled = await compareAndSetAppState(stateKey, rawState, {
+      ...rawState,
       status: "failed",
       failedAt: new Date().toISOString(),
     });
-
-    return { reconciled: true };
+    return reconciled
+      ? { reconciled: true }
+      : { reconciled: false, reason: "stale" as const };
   },
 });

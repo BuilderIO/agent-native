@@ -200,7 +200,7 @@ export function useAutoTitleBridge(): void {
             ) {
               const tabId = workflowTabId(rec.id, request.requestedAt);
               try {
-                await callAction(
+                const result = (await callAction(
                   "reconcile-workflow-generation" as any,
                   {
                     operation: "track",
@@ -208,7 +208,11 @@ export function useAutoTitleBridge(): void {
                     requestedAt: request.requestedAt,
                     tabId,
                   } as any,
-                );
+                )) as { tracked?: boolean };
+                if (result.tracked !== true) {
+                  fallbackTimer = setTimeout(() => void tick(), 1000);
+                  continue;
+                }
               } catch {
                 fallbackTimer = setTimeout(() => void tick(), 1000);
                 continue;
@@ -216,10 +220,9 @@ export function useAutoTitleBridge(): void {
               dispatchAiRequest(rec, request, tabId);
             } else {
               dispatchAiRequest(rec, request);
+              void clearRequest(rec.id);
             }
             dispatched.current.add(dispatchKey);
-
-            void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
             // No server-queued delegation. Only dispatch the fallback for
             // recordings that are old enough (>2 min) that the server has had

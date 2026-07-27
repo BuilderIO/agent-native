@@ -53,21 +53,25 @@ function TestBridge() {
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  mocks.callAction.mockImplementation(async (name: string) => {
-    if (name === "list-ai-requests") {
-      return {
-        requests: [
-          {
-            kind: "generate-workflow",
-            recordingId: "rec_123",
-            requestedAt,
-            message: "Generate an email summary",
-          },
-        ],
-      };
-    }
-    return { reconciled: true };
-  });
+  mocks.callAction.mockImplementation(
+    async (name: string, payload?: { operation?: string }) => {
+      if (name === "list-ai-requests") {
+        return {
+          requests: [
+            {
+              kind: "generate-workflow",
+              recordingId: "rec_123",
+              requestedAt,
+              message: "Generate an email summary",
+            },
+          ],
+        };
+      }
+      return payload?.operation === "track"
+        ? { reconciled: false, tracked: true }
+        : { reconciled: true };
+    },
+  );
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(null, { status: 204 })),
@@ -96,6 +100,40 @@ afterEach(async () => {
 });
 
 describe("workflow generation cancellation", () => {
+  it("does not dispatch when persisted tracking rejects the request", async () => {
+    await act(async () => root.unmount());
+    mocks.sendToAgentChat.mockClear();
+    mocks.callAction.mockImplementation(
+      async (name: string, payload?: { operation?: string }) => {
+        if (name === "list-ai-requests") {
+          return {
+            requests: [
+              {
+                kind: "generate-workflow",
+                recordingId: "rec_123",
+                requestedAt,
+                message: "Generate an email summary",
+              },
+            ],
+          };
+        }
+        return payload?.operation === "track"
+          ? { reconciled: false, reason: "stale" }
+          : { reconciled: true };
+      },
+    );
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "reconcile-workflow-generation",
+        expect.objectContaining({ operation: "track" }),
+      ),
+    );
+    expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
+  });
+
   it("reconciles the exact workflow agent tab after a page reload", async () => {
     await act(async () => root.unmount());
     mocks.callAction.mockImplementation(async (name: string) =>
