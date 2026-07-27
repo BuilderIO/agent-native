@@ -35,6 +35,7 @@ import {
   generateProvidedPluginsNitroPluginSource,
   generateWorkerEntry,
   getNodeBuiltinNames,
+  isCloudflareModulePreset,
   isDurableBackgroundDeployEnabled,
   isIntegrationDurableDispatchDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
@@ -65,6 +66,14 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("isCloudflareModulePreset", () => {
+  it("recognizes Nitro's module preset and its CLI spelling", () => {
+    expect(isCloudflareModulePreset("cloudflare_module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare-module")).toBe(true);
+    expect(isCloudflareModulePreset("cloudflare_pages")).toBe(false);
   });
 });
 
