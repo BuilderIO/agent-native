@@ -44,6 +44,7 @@ import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
+import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
@@ -1387,7 +1388,7 @@ function getCoreSourceAliases(
 }
 
 export interface NitroOptions {
-  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages"). Default: "node" */
+  /** Nitro deployment preset (e.g. "node", "vercel", "netlify", "cloudflare_pages", "cloudflare_module"). Default: "node" */
   preset?: string;
   /** Source directory for server files. Default: "./server" */
   srcDir?: string;
@@ -2964,6 +2965,22 @@ function forceServeOnly(pluginOrPreset: any): any {
   return { ...pluginOrPreset, apply: "serve" };
 }
 
+function nitroPresetMarkerPlugin(
+  options: ClientConfigOptions | AgentNativeVitePluginOptions,
+): Plugin | null {
+  const preset = options.nitro?.preset;
+  if (typeof preset !== "string" || !preset.trim()) return null;
+
+  return {
+    name: "agent-native-nitro-preset-marker",
+    configResolved(config) {
+      if (config.command === "build") {
+        writeAgentNativeNitroPresetMarker(preset);
+      }
+    },
+  };
+}
+
 function createAgentNativePlugins(
   options: ClientConfigOptions | AgentNativeVitePluginOptions,
   {
@@ -2981,8 +2998,10 @@ function createAgentNativePlugins(
   const { appBasePath } = getConfiguredAppBasePath();
   const nitroPlugin = createNitroDevPlugin(options, appBasePath);
   const includeNitro = !isBuildCommand(command);
+  const presetMarkerPlugin = nitroPresetMarkerPlugin(options);
 
   return [
+    presetMarkerPlugin,
     // Stub packages from `options.ssrStubs` in the SSR bundle so they
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
