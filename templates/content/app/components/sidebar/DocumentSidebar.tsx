@@ -1680,13 +1680,23 @@ export function DocumentSidebar({
               )}
             </span>
           </button>
-          <button
-            type="button"
+          <Link
+            to={`/page/${space.filesDocumentId}`}
             className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
-            onClick={() => void handleSelectContentSpace(space)}
+            onClick={(event) => {
+              if (
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                void handleSelectContentSpace(space);
+              }
+            }}
           >
             {space.name}
-          </button>
+          </Link>
           {reorder ? (
             <>
               <SidebarDragHandle

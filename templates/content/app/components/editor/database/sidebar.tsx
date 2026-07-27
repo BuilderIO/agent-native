@@ -94,6 +94,18 @@ export interface ContentFilesSidebarRenderReorder {
   labels: SidebarReorderLabels;
 }
 
+export function databaseSidebarReorderItems(
+  items: ContentDatabaseItem[],
+  untitledLabel: string,
+  hierarchical: boolean,
+) {
+  return items.map((item) => ({
+    id: item.id,
+    label: item.document.title || untitledLabel,
+    parentId: hierarchical ? item.document.parentId : null,
+  }));
+}
+
 export function contentSidebarOrderedItems(
   items: ContentDatabaseItem[],
   order: ContentSidebarViewOrder,
@@ -279,7 +291,7 @@ export function ContentFilesSidebarView({
   const manualReorderEnabled =
     Boolean(manualReorder) &&
     (sidebarOrder?.mode ?? "custom") === "custom" &&
-    (sidebarOrder ? true : activeView.sorts.length === 0) &&
+    activeView.sorts.length === 0 &&
     activeView.filters.length === 0 &&
     !databaseViewGroupingProperty(activeView, usableData?.properties ?? []);
   return (
@@ -617,11 +629,11 @@ export function DatabaseSidebarView({
             )}
     </nav>
   );
-  const reorderItems = (hierarchyItems ?? items).map((item) => ({
-    id: item.id,
-    label: item.document.title || untitledLabel,
-    parentId: item.document.parentId,
-  }));
+  const reorderItems = databaseSidebarReorderItems(
+    hierarchyItems ?? items,
+    untitledLabel,
+    Boolean(hierarchyItems),
+  );
   const reorderableNavigation = manualReorder ? (
     <SidebarReorderProvider
       items={reorderItems}

@@ -242,9 +242,10 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "text-[10px] font-semibold uppercase tracking-wider",
     );
-    expect(sidebar).toContain(
-      'className="h-7 min-w-0 flex-1 truncate pe-2 text-start',
-    );
+    expect(sidebar).toContain("to={`/page/${space.filesDocumentId}`}");
+    expect(sidebar).toContain("!event.metaKey");
+    expect(sidebar).toContain("event.preventDefault()");
+    expect(sidebar).toContain("void handleSelectContentSpace(space)");
     expect(sidebar).toContain(
       'className="mb-2 min-w-0 overflow-x-hidden px-2"',
     );

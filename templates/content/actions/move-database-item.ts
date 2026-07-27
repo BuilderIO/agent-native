@@ -108,23 +108,28 @@ export default defineAction({
               ),
             );
 
-          await tx
-            .update(schema.documents)
-            .set({
-              position: positionCaseSql(
-                schema.documents.id,
-                schema.documents.position,
-                documentIds,
-              ),
-              updatedAt: now,
-            })
-            .where(
-              and(
-                eq(schema.documents.ownerEmail, row.database.ownerEmail),
-                eq(schema.documents.parentId, row.database.documentId),
-                inArray(schema.documents.id, documentIds),
-              ),
-            );
+          if (
+            row.database.systemRole !== "favorites" &&
+            row.database.systemRole !== "workspaces"
+          ) {
+            await tx
+              .update(schema.documents)
+              .set({
+                position: positionCaseSql(
+                  schema.documents.id,
+                  schema.documents.position,
+                  documentIds,
+                ),
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.documents.ownerEmail, row.database.ownerEmail),
+                  eq(schema.documents.parentId, row.database.documentId),
+                  inArray(schema.documents.id, documentIds),
+                ),
+              );
+          }
         }),
     );
 

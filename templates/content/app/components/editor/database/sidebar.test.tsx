@@ -14,6 +14,7 @@ import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
   contentSidebarOrderedItems,
+  databaseSidebarReorderItems,
   databaseSidebarItemTree,
   databaseSidebarRootItems,
   databaseSidebarRowIndent,
@@ -98,6 +99,85 @@ describe("DatabaseSidebarView", () => {
         itemIds: customItemIds,
       }).map((candidate) => candidate.id),
     ).toEqual(customItemIds);
+  });
+
+  it("treats flat reference rows as reorder siblings while preserving Files hierarchy", () => {
+    const rows = [
+      item("first", "First", "canonical-parent-a"),
+      item("second", "Second", "canonical-parent-b"),
+    ];
+
+    expect(
+      databaseSidebarReorderItems(rows, "Untitled", false).map(
+        (candidate) => candidate.parentId,
+      ),
+    ).toEqual([null, null]);
+    expect(
+      databaseSidebarReorderItems(rows, "Untitled", true).map(
+        (candidate) => candidate.parentId,
+      ),
+    ).toEqual(["canonical-parent-a", "canonical-parent-b"]);
+  });
+
+  it("disables manual reorder while the active saved view has sorts", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={
+              {
+                database: {
+                  viewConfig: {
+                    version: 1,
+                    activeViewId: "default",
+                    views: [
+                      {
+                        id: "default",
+                        name: "Table",
+                        type: "table",
+                        filters: [],
+                        sorts: [
+                          {
+                            key: "name",
+                            label: "Name",
+                            direction: "asc",
+                          },
+                        ],
+                        filterMode: "and",
+                      },
+                    ],
+                  },
+                },
+                items: [item("first", "First")],
+                properties: [],
+              } as unknown as ContentDatabaseResponse
+            }
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{ mode: "custom", itemIds: ["item-first"] }}
+            manualReorder={{
+              onReorder: () => {},
+              labels: {
+                drag: (label) => `Drag ${label}`,
+                moveUp: "Move up",
+                moveDown: "Move down",
+                moveTo: "Move to",
+                moveToPosition: (position) => `Position ${position}`,
+              },
+            }}
+            labels={{
+              loadingLabel: "Loading",
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Drag First");
   });
 
   it("renders an order control only when its parent can persist a personal order", () => {

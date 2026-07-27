@@ -43,7 +43,11 @@ function nextId(prefix: string) {
   return `${prefix}_${counter}`;
 }
 
-async function createDatabaseWithItems(label: string, itemCount = 3) {
+async function createDatabaseWithItems(
+  label: string,
+  itemCount = 3,
+  systemRole?: string,
+) {
   const db = getDb();
   const now = new Date().toISOString();
   const databaseId = nextId(`${label}_database`);
@@ -64,6 +68,7 @@ async function createDatabaseWithItems(label: string, itemCount = 3) {
     ownerEmail: OWNER,
     documentId: databaseDocumentId,
     title: `${label} database`,
+    systemRole,
     createdAt: now,
     updatedAt: now,
   });
@@ -176,6 +181,39 @@ describe("move-database-item", () => {
         }),
       ),
     ).rejects.toThrow("Database row not found");
+  });
+
+  it("keeps reference document positions unchanged for personal system catalogs", async () => {
+    const workspaces = await createDatabaseWithItems(
+      "workspace-catalog",
+      3,
+      "workspaces",
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      moveDatabaseItemAction.run({
+        databaseId: workspaces.databaseId,
+        itemId: workspaces.items[2]!.itemId,
+        position: 0,
+      }),
+    );
+
+    expect(await itemPositions(workspaces.databaseId)).toEqual([
+      { id: workspaces.items[2]!.itemId, position: 0 },
+      { id: workspaces.items[0]!.itemId, position: 1 },
+      { id: workspaces.items[1]!.itemId, position: 2 },
+    ]);
+    const documents = await getDb()
+      .select({ id: schema.documents.id, position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, workspaces.databaseDocumentId))
+      .orderBy(asc(schema.documents.position));
+    expect(documents).toEqual(
+      workspaces.items.map((entry, position) => ({
+        id: entry.documentId,
+        position,
+      })),
+    );
   });
 
   it("requires edit access to the ordering surface", async () => {
