@@ -1035,11 +1035,18 @@ const generateDesignAction = defineAction({
           let x = current.x ?? nextX;
           let y = current.y ?? 0;
           // Bump a new screen clear of everything if its requested/default spot
-          // overlaps (e.g. a second screen defaulting to the same origin).
+          // overlaps (e.g. a second screen defaulting to the same origin). The
+          // candidate carries its own rotation so a rotated placement is tested
+          // by its real footprint, not its unrotated rectangle.
+          const candidateRect = rectOf({
+            x,
+            y,
+            width,
+            height,
+            rotation: current.rotation,
+          });
           if (
-            occupiedRects.some((rect) =>
-              framesOverlap({ x, y, width, height }, rect),
-            )
+            occupiedRects.some((rect) => framesOverlap(candidateRect, rect))
           ) {
             x = nextX;
             y = 0;
@@ -1065,10 +1072,23 @@ const generateDesignAction = defineAction({
         }
         mergedData.canvasFrames = merged.canvasFrames;
         placedFrames = generationFrames;
-        // Single-device requests derive an empty breakpoint set (one frame, no
-        // sub-frames); only seed a set when there are narrower breakpoint
-        // frames to add and the design does not already have one.
-        if (
+        // An explicit `devices` request is authoritative: replace the design's
+        // breakpoint set with the derived one (or drop it for a single device),
+        // so regenerating e.g. as [mobile,tablet,desktop] can't silently retain
+        // a stale narrower set. Without explicit devices, only seed a default
+        // set when none exists — a plain content regen never clobbers the
+        // user's own breakpoints.
+        if (devices && devices.length > 0) {
+          if (generatedBreakpointSet.length > 0) {
+            mergedData.breakpointSet = {
+              id: "generated-responsive",
+              breakpoints: generatedBreakpointSet,
+            };
+          } else {
+            delete mergedData.breakpointSet;
+          }
+          mergedData.breakpointSetUpdatedAt = updatedAt;
+        } else if (
           generatedBreakpointSet.length > 0 &&
           !hasBreakpointSet(mergedData.breakpointSet)
         ) {
@@ -1076,16 +1096,6 @@ const generateDesignAction = defineAction({
             id: "generated-responsive",
             breakpoints: generatedBreakpointSet,
           };
-          mergedData.breakpointSetUpdatedAt = updatedAt;
-        } else if (
-          devices &&
-          devices.length > 0 &&
-          generatedBreakpointSet.length === 0 &&
-          hasBreakpointSet(mergedData.breakpointSet)
-        ) {
-          // An explicit single-device request drops breakpoint frames a prior
-          // responsive generation left behind.
-          delete mergedData.breakpointSet;
           mergedData.breakpointSetUpdatedAt = updatedAt;
         }
         return mergedData;
@@ -1119,9 +1129,31 @@ const generateDesignAction = defineAction({
             );
           }),
         );
+        // For an explicit `devices` request, verify the persisted breakpoint
+        // widths actually match the requested set (not merely that some set
+        // exists), so a partial/stale write is retried rather than accepted.
+        const currentBreakpointWidths = (
+          Array.isArray(
+            (current.breakpointSet as { breakpoints?: unknown })?.breakpoints,
+          )
+            ? (
+                current.breakpointSet as {
+                  breakpoints: Array<{ widthPx?: number }>;
+                }
+              ).breakpoints
+            : []
+        )
+          .map((bp) => bp.widthPx)
+          .filter((w): w is number => typeof w === "number")
+          .sort((a, b) => a - b);
+        const expectedBreakpointWidths = generatedBreakpointSet
+          .map((bp) => bp.widthPx)
+          .sort((a, b) => a - b);
         const breakpointSetApplied =
-          generatedBreakpointSet.length === 0 ||
-          hasBreakpointSet(current.breakpointSet);
+          devices && devices.length > 0
+            ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
+            : generatedBreakpointSet.length === 0 ||
+              hasBreakpointSet(current.breakpointSet);
         return framesApplied && breakpointSetApplied;
       },
     });

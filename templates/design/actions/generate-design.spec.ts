@@ -1068,3 +1068,85 @@ describe("generate-design: placement clears rotated existing frames", () => {
     expect(placed.x).toBeGreaterThanOrEqual(770);
   });
 });
+
+describe("generate-design: explicit device requests reconcile breakpoints & rotated placement", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("replaces a stale set when an explicit multi-device request adds a device", async () => {
+    // Existing design has only Mobile; regenerating as mobile+tablet+desktop
+    // must add the Tablet breakpoint, not silently keep only Mobile.
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "old",
+        breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it responsive across devices",
+      devices: ["mobile", "tablet", "desktop"],
+      files: oneFile,
+    });
+    const set = mocks.getDesignData().breakpointSet as {
+      breakpoints: Array<{ widthPx: number }>;
+    };
+    expect(set.breakpoints.map((b) => b.widthPx).sort((a, b) => a - b)).toEqual(
+      [390, 768],
+    );
+  });
+
+  it("relocates a new ROTATED screen whose rotated footprint overlaps", async () => {
+    // Existing frame occupies x∈[0,1440]. A new 200x200 screen requested at
+    // x:1450 (unrotated: clears it) rotated 45° has an AABB reaching back to
+    // ~1409, overlapping the existing frame — so it must be relocated.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a rotated screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "b.html",
+          x: 1450,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 45,
+        },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    expect(placed.x).not.toBe(1450);
+  });
+});
