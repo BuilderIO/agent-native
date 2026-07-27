@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
@@ -17,12 +18,47 @@ const reaper = readFileSync(
   "utf8",
 );
 
+function extractStepRunScript(source: string, stepName: string): string {
+  const stepMarker = `      - name: ${stepName}\n`;
+  const stepStart = source.indexOf(stepMarker);
+  assert.notEqual(stepStart, -1, `Missing workflow step: ${stepName}`);
+
+  const runMarker = "        run: |\n";
+  const runStart = source.indexOf(runMarker, stepStart);
+  assert.notEqual(
+    runStart,
+    -1,
+    `Missing run block for workflow step: ${stepName}`,
+  );
+
+  const scriptStart = runStart + runMarker.length;
+  const nextStep = source.indexOf("\n      - name:", scriptStart);
+  const scriptEnd = nextStep === -1 ? source.length : nextStep;
+  return source
+    .slice(scriptStart, scriptEnd)
+    .split("\n")
+    .map((line) => (line.startsWith("          ") ? line.slice(10) : line))
+    .join("\n");
+}
+
 describe("trusted acceptance workflow boundary", () => {
   it("keeps candidate builds separate from protected deployment custody", () => {
     assert.deepEqual(validateTrustedAcceptanceWorkflow(workflow), {
       ok: true,
       issues: [],
     });
+  });
+
+  it("keeps the rendered candidate and rollback provenance shell parseable", () => {
+    const script = extractStepRunScript(
+      workflow,
+      "Verify candidate or known-good rollback provenance",
+    );
+    const result = spawnSync("bash", ["-n"], {
+      input: script,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
   });
 
   it("rejects a secret exposed to candidate build steps", () => {
