@@ -1,5 +1,4 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
@@ -36,9 +35,9 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 
+import { uploadAndIndexFigmaFiles } from "./builder-design-system-upload";
 import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
-  readBuilderIndexResponse,
   formatFileSize,
   type BuilderIndexResult,
 } from "./builder-index-response";
@@ -271,16 +270,14 @@ export function DesignSystemSetup({
       setBuilderIndexResult(null);
       setBuilderIndexing(true);
       try {
-        const body = new FormData();
-        body.append("file", file);
-        const res = await fetch(
-          appApiPath("/api/index-design-system-with-builder"),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        const parsed = await readBuilderIndexResponse(res);
+        const suggestedTitle =
+          file.name
+            .replace(/\.fig$/i, "")
+            .replace(/[-_]+/g, " ")
+            .trim() || "Imported brand";
+        const parsed = await uploadAndIndexFigmaFiles([file], {
+          projectName: suggestedTitle,
+        });
         setBuilderIndexResult(parsed);
       } catch (err) {
         setBuilderIndexError(

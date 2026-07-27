@@ -1,4 +1,3 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSidebar } from "@agent-native/core/client/navigation";
@@ -30,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
+import { uploadAndIndexFigmaFiles } from "@/lib/builder-design-system-upload";
 
 interface GitHubLink {
   id: string;
@@ -56,20 +56,6 @@ interface BuilderIndexResult {
   localDesignSystemId?: string;
   uploadedFileCount?: number;
   instructions?: string;
-}
-
-async function readJsonResponse(res: Response): Promise<any> {
-  const text = await res.text();
-  if (!text.trim()) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {
-      error: res.ok
-        ? "The server returned an invalid response."
-        : text.slice(0, 240),
-    };
-  }
 }
 
 export default function DesignSystemSetup() {
@@ -131,20 +117,15 @@ export default function DesignSystemSetup() {
       setBuilderIndexResult(null);
       setBuilderIndexing(true);
       try {
-        const body = new FormData();
-        body.append("file", file);
-        const res = await fetch(
-          appApiPath("/api/index-design-system-with-builder"),
-          {
-            method: "POST",
-            body,
-          },
-        );
-        const json = await readJsonResponse(res);
-        if (!res.ok || json?.error) {
-          throw new Error(json?.error || `Upload failed (${res.status})`);
-        }
-        setBuilderIndexResult(json as BuilderIndexResult);
+        const suggestedTitle =
+          file.name
+            .replace(/\.fig$/i, "")
+            .replace(/[-_]+/g, " ")
+            .trim() || "Imported brand";
+        const json = await uploadAndIndexFigmaFiles([file], {
+          projectName: suggestedTitle,
+        });
+        setBuilderIndexResult(json as unknown as BuilderIndexResult);
       } catch (err) {
         setBuilderIndexError(
           err instanceof Error
