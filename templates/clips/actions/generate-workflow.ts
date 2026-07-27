@@ -115,13 +115,14 @@ export default defineAction({
         }
       }
 
+      const requestedAt = new Date().toISOString();
       // Seed the output state with a "generating" placeholder so the UI can show
       // a loading state immediately.
       await writeAppState(stateKey, {
         kind: args.kind,
         status: "generating",
         recordingId: args.recordingId,
-        requestedAt: new Date().toISOString(),
+        requestedAt,
       } as any);
 
       const baseMessage =
@@ -136,7 +137,7 @@ export default defineAction({
         kind: "generate-workflow" as const,
         workflowKind: args.kind,
         recordingId: args.recordingId,
-        requestedAt: new Date().toISOString(),
+        requestedAt,
         recordingTitle: rec.title,
         recordingDescription: rec.description,
         transcriptStatus: transcript?.status ?? "pending",

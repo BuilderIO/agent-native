@@ -112,5 +112,12 @@ describe("generate-workflow action", () => {
       "clips-ai-request-rec_1",
       expect.any(Object),
     );
+    const workflowState = mocks.writeAppState.mock.calls.find(
+      ([key]) => key === "clips-workflow-rec_1",
+    )?.[1];
+    const queuedRequest = mocks.writeAppState.mock.calls.find(
+      ([key]) => key === "clips-ai-request-rec_1",
+    )?.[1];
+    expect(queuedRequest.requestedAt).toBe(workflowState.requestedAt);
   });
 });
