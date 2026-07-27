@@ -1020,7 +1020,6 @@ const generateDesignAction = defineAction({
           );
           if (!source || !isRenderableDesignFile(source)) continue;
           const current = merged.canvasFrames[file.id] ?? {};
-          // Regenerating an existing screen keeps its exact position.
           if (
             preExistingFrameIds.has(file.id) &&
             current.x !== undefined &&
@@ -1028,6 +1027,16 @@ const generateDesignAction = defineAction({
             current.width !== undefined &&
             current.height !== undefined
           ) {
+            // An explicit device request resizes the primary frame to the
+            // requested viewport (preserving position/rotation); otherwise a
+            // regenerated screen keeps its exact stored geometry.
+            if (devices && devices.length > 0) {
+              merged.canvasFrames[file.id] = {
+                ...current,
+                width: viewport.width,
+                height: viewport.height,
+              };
+            }
             continue;
           }
           const width = current.width ?? viewport.width;

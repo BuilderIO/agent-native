@@ -1150,3 +1150,45 @@ describe("generate-design: explicit device requests reconcile breakpoints & rota
     expect(placed.x).not.toBe(1450);
   });
 });
+
+describe("generate-design: explicit device request resizes an existing frame", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("resizes a persisted desktop frame to mobile (keeping position) on devices:[mobile]", async () => {
+    // Existing index.html (file-1) with a persisted desktop-sized frame.
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make this a mobile screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>x</body></html>",
+        },
+      ],
+    });
+    const frame = (
+      mocks.getDesignData().canvasFrames as Record<
+        string,
+        { x: number; y: number; width: number; height: number }
+      >
+    )["file-1"];
+    expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
+  });
+});

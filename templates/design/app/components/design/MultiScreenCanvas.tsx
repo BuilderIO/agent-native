@@ -82,7 +82,10 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "./canvas-primitive-style";
-import { CONTENT_SIZE_REPORT_MESSAGE_TYPE } from "./design-canvas/content-size-report";
+import {
+  CONTENT_SIZE_REPORT_MESSAGE_TYPE,
+  appendContentSizeReporter,
+} from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
@@ -9281,8 +9284,12 @@ const Screen = memo(function Screen({
   // rebuild the string every render (that would reload the iframe).
   // Keyed only on screen.content; the hit-test script itself is constant.
   const srcdocWithHitTest = useMemo(() => {
+    // Also carries the content-size reporter so breakpoint/primary frames
+    // rendered via this fallback iframe (read-only/thumbnail overview, when no
+    // editable DesignCanvas is supplied) still report their own height and
+    // content-fit. The editable DesignCanvas path injects its own reporter.
     return injectSessionReplayIframeBootstrap(
-      appendHitTestResponder(screen.content),
+      appendContentSizeReporter(appendHitTestResponder(screen.content)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
