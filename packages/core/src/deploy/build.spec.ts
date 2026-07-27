@@ -98,8 +98,16 @@ describe("Cloudflare module Worker entry", () => {
 
     expect(entry).toContain("globalThis.__env__ = env;");
     expect(entry).not.toContain("globalThis.__cf_ctx");
+    expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain('await import("./index.mjs")');
-    expect(entry).toContain("return handler.fetch(request, env, ctx);");
+    expect(entry).toContain(
+      "return (await loadHandler()).fetch(request, env, ctx);",
+    );
+    expect(entry).toContain("async scheduled(controller, env, ctx)");
+    expect(entry).toContain("async queue(batch, env, ctx)");
+    expect(entry).toContain("async email(message, env, ctx)");
+    expect(entry).toContain("async tail(traces, env, ctx)");
+    expect(entry).toContain("async trace(traces, env, ctx)");
   });
 
   it("points Wrangler at the lazy entry while retaining the Nitro server", () => {

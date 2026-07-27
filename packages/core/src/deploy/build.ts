@@ -90,8 +90,16 @@ export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
+async function loadHandler() {
+  handler ??= (await import("./index.mjs")).default;
+  return handler;
+}
+
 export default {
   async fetch(request, env, ctx) {
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
     if (env) {
       globalThis.__cf_env = env;
       globalThis.__env__ = env;
@@ -102,8 +110,22 @@ export default {
       }
     }
 
-    handler ??= (await import("./index.mjs")).default;
-    return handler.fetch(request, env, ctx);
+    return (await loadHandler()).fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    return (await loadHandler()).scheduled?.(controller, env, ctx);
+  },
+  async email(message, env, ctx) {
+    return (await loadHandler()).email?.(message, env, ctx);
+  },
+  async queue(batch, env, ctx) {
+    return (await loadHandler()).queue?.(batch, env, ctx);
+  },
+  async tail(traces, env, ctx) {
+    return (await loadHandler()).tail?.(traces, env, ctx);
+  },
+  async trace(traces, env, ctx) {
+    return (await loadHandler()).trace?.(traces, env, ctx);
   },
 };
 `;
