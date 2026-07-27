@@ -190,13 +190,53 @@ function imageOrPlaceholder(
 }
 
 /**
- * Photo-led layout: image first, heading/caption below — this matches how
- * PPTX/Keynote decks with a hero image per slide are actually laid out.
- * Putting the heading above the image (the old order) pushed the image
- * further down the slide and made overflow far more likely for slides with
- * any real amount of body text.
+ * A PPTX slide's picture and heading always go through one of two real
+ * designs, decided by how big the photo was placed on the original slide —
+ * not by a single fixed template:
+ *  - a near-full-slide photo (a cover/section photo) had its title overlaid
+ *    on top of it in the original, so it's rendered full-bleed with the
+ *    text overlaid over a legibility scrim;
+ *  - a smaller inset photo (a card-style illustration) had its caption
+ *    stacked below it, so it's rendered that way, sized to the image's own
+ *    aspect ratio instead of a fixed box that would crop or stretch it.
  */
 function buildImageSlide(
+  paragraphs: ParsedTextRun[][],
+  slide: ParsedSlide,
+  imageUrl: string | undefined,
+  fontFamily: string,
+): string {
+  if (imageUrl && slide.images[0]?.fullBleed) {
+    return buildOverlayImageSlide(paragraphs, imageUrl, fontFamily);
+  }
+  return buildStackedImageSlide(paragraphs, slide, imageUrl, fontFamily);
+}
+
+/** Full-bleed photo with the heading/caption overlaid at the bottom behind a gradient scrim. */
+function buildOverlayImageSlide(
+  paragraphs: ParsedTextRun[][],
+  imageUrl: string,
+  fontFamily: string,
+): string {
+  const headingPara = paragraphs[0] ?? [];
+  const headingHtml = headingPara.map(formatRun).join(" ") || "Slide";
+
+  const captionParas = paragraphs.slice(1);
+  const captionHtml = captionParas
+    .map((para) => para.map(formatRun).join(" "))
+    .join(" ");
+
+  return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
+    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0) 80%);"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 56px 70px; font-family: ${fontFamily};">
+      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 ${captionHtml ? "12px" : "0"} 0;">${headingHtml}</h2>${captionHtml ? `\n      <p style="font-size: 18px; color: rgba(255,255,255,0.75); line-height: 1.5; margin: 0;">${captionHtml}</p>` : ""}
+    </div>
+</div>`;
+}
+
+/** Photo card on top (sized to its own aspect ratio), heading/caption below. */
+function buildStackedImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
   imageUrl: string | undefined,
@@ -211,10 +251,15 @@ function buildImageSlide(
     .join(" ");
 
   const imageName = slide.images[0]?.name ?? "image";
+  // Size the box to the image's own placed aspect ratio instead of a fixed
+  // height, so portrait and landscape source photos both render undistorted
+  // — a fixed height forced `object-fit: cover` to crop whichever
+  // orientation didn't match the assumed box.
+  const aspectRatio = slide.images[0]?.aspectRatio ?? 16 / 9;
   const imageHtml = imageOrPlaceholder(
     imageUrl,
     imageName,
-    "width: 100%; height: 260px; border-radius: 12px; margin-bottom: 24px;",
+    `width: 100%; aspect-ratio: ${aspectRatio}; max-height: 320px; border-radius: 12px; margin-bottom: 24px;`,
   );
 
   return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">

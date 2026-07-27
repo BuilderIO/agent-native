@@ -10,6 +10,10 @@ export interface ParsedPptxImage {
   data: Uint8Array;
   mimeType: string;
   name: string;
+  /** Width / height of the picture shape on the slide, from its own placed size (not the source file's pixel dimensions). */
+  aspectRatio?: number;
+  /** True when the picture shape covers at least ~85% of the slide's width and height — a full-bleed background photo rather than an inset card image. */
+  fullBleed?: boolean;
 }
 
 export interface ParsedPptxSlide {
@@ -46,11 +50,13 @@ export async function parsePptxPresentation(
   if (!presentationXml)
     throw new Error("Invalid PPTX: missing ppt/presentation.xml");
   const presentation = parseXml(presentationXml);
+  const presentationRoot = record(record(presentation)?.["p:presentation"]);
   const slideIds = asArray(
-    record(record(record(presentation)?.["p:presentation"])?.["p:sldIdLst"])?.[
-      "p:sldId"
-    ],
+    record(presentationRoot?.["p:sldIdLst"])?.["p:sldId"],
   ).map((entry) => stringValue(record(entry)?.["@_r:id"]) ?? "");
+  const sldSz = record(presentationRoot?.["p:sldSz"]);
+  const slideWidthEmu = Number(sldSz?.["@_cx"]) || undefined;
+  const slideHeightEmu = Number(sldSz?.["@_cy"]) || undefined;
   const relationshipsXml = await zip
     .file("ppt/_rels/presentation.xml.rels")
     ?.async("string");
@@ -95,9 +101,20 @@ export async function parsePptxPresentation(
       .file(relationshipPath)
       ?.async("string");
     if (slideRelationshipsXml) {
-      for (const relationship of parseRelationships(
+      const slideRelationships = parseRelationships(
         parseXml(slideRelationshipsXml),
-      ).values()) {
+      );
+      // Walk the slide's own picture shapes (in document order) rather than
+      // every image relationship, so each image carries the placed size the
+      // author gave it on the slide — that size is what tells a full-bleed
+      // cover photo apart from a small inset card photo, which a flat
+      // relationship scan has no way to know.
+      const pictureShapes: PictureShape[] = [];
+      collectPictureShapes(slide, pictureShapes);
+      for (const shape of pictureShapes) {
+        if (!shape.embedId) continue;
+        const relationship = slideRelationships.get(shape.embedId);
+        if (!relationship) continue;
         if (
           !relationship.type.includes("/image") &&
           !/\.(png|jpe?g|gif|svg|webp|bmp|tiff?|emf|wmf)$/i.test(
@@ -114,10 +131,24 @@ export async function parsePptxPresentation(
         const image = zip.file(imagePath);
         if (!image) continue;
         const name = imagePath.split("/").at(-1) ?? "image";
+        const aspectRatio =
+          shape.widthEmu && shape.heightEmu
+            ? shape.widthEmu / shape.heightEmu
+            : undefined;
+        const fullBleed = Boolean(
+          shape.widthEmu &&
+          shape.heightEmu &&
+          slideWidthEmu &&
+          slideHeightEmu &&
+          shape.widthEmu / slideWidthEmu >= 0.85 &&
+          shape.heightEmu / slideHeightEmu >= 0.85,
+        );
         images.push({
           data: new Uint8Array(await image.async("nodebuffer")),
           mimeType: imageMimeType(name),
           name,
+          aspectRatio,
+          fullBleed,
         });
       }
     }
@@ -202,6 +233,41 @@ function collectTextRuns(
     if (key.startsWith("@_") || key === "a:r" || key === "a:t") continue;
     for (const item of asArray(child)) collectTextRuns(item, runs, inherited);
   }
+}
+
+interface PictureShape {
+  embedId?: string;
+  widthEmu?: number;
+  heightEmu?: number;
+}
+
+/** Recursively find every `p:pic` node in a slide, in document order, and read its embed relationship id plus its placed size on the slide canvas. */
+function collectPictureShapes(value: unknown, out: PictureShape[]): void {
+  const node = record(value);
+  if (!node) return;
+  for (const [key, child] of Object.entries(node)) {
+    if (key.startsWith("@_")) continue;
+    if (key === "p:pic") {
+      for (const picNode of asArray(child))
+        out.push(extractPictureShape(picNode));
+      continue;
+    }
+    for (const item of asArray(child)) collectPictureShapes(item, out);
+  }
+}
+
+function extractPictureShape(value: unknown): PictureShape {
+  const pic = record(value);
+  const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
+  const embedId = stringValue(blip?.["@_r:embed"]);
+  const ext = record(record(record(pic?.["p:spPr"])?.["a:xfrm"])?.["a:ext"]);
+  const cx = Number(ext?.["@_cx"]);
+  const cy = Number(ext?.["@_cy"]);
+  return {
+    embedId,
+    widthEmu: Number.isFinite(cx) && cx > 0 ? cx : undefined,
+    heightEmu: Number.isFinite(cy) && cy > 0 ? cy : undefined,
+  };
 }
 
 function runProperties(
