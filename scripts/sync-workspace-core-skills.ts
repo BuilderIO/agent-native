@@ -244,6 +244,7 @@ const requiredRegistryConventionSkills = [
 // Repo-maintenance workflows are useful in this repository, but generated
 // workspaces should not inherit branch/PR shipping behavior from our monorepo.
 const workspaceSkillExcludes = [
+  "auto-fix-pr",
   "babysit-pr",
   "multi-frontier-desktop",
   "new-branch",

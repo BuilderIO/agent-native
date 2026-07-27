@@ -1,13 +1,13 @@
 ---
 name: auto-fix-pr
-description: Monitor a PR, fix feedback and CI failures until fully green for 30 min. Use when running /auto-fix-pr <number>.
+description: Monitor a PR, fix feedback and CI failures until fully green for 20 min. Use when running /auto-fix-pr <number>.
 user-invocable: true
 scope: dev
 metadata:
   internal: true
 ---
 
-Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
+Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 20 minutes.
 
 ## Non-Negotiable Branch Ownership Rule
 
@@ -23,11 +23,11 @@ local work unless it is `learnings.md` or an ignored/personal file.
 
 1. Run a self-re-arming tick loop. Do ONE tick (see "Each tick"), then immediately schedule the next one with `ScheduleWakeup` before yielding — pass this same `/auto-fix-pr <number> …` invocation back as the wake-up prompt so the next firing repeats the tick. The loop ends only at a stop condition (below); until then there is **always** a scheduled next tick.
 2. Track when the last actionable item (new human/bot feedback, CI fix, merge-conflict resolution, or a local-change commit/push) occurred.
-3. After 30 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
+3. After 20 minutes of no new actionable items with GitHub Actions CI green, cancel the loop (stop scheduling wake-ups) and report "All clear".
 
 ### Loop discipline — read this, it is the part people get wrong
 
-- **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
+- **Cadence: tick every 2 minutes while the PR is active.** Keep the cadence fixed through the quiet window so new commits, comments, and CI results are observed promptly.
 - **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
 - **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push whatever is there — never assume "I already pushed, the tree is clean".
@@ -87,14 +87,14 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
    - Run `pnpm run prep` to verify locally
    - Commit and push
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
-   - Reset the 30-min timer
+   - Reset the 20-min timer
 
 4. **If GitHub Actions CI is failing** (lint, test, typecheck, build):
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
    - Commit and push
-   - Reset the 30-min timer
+   - Reset the 20-min timer
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
    ```md
@@ -109,9 +109,9 @@ This ensures every tick starts with a clean, fully-pushed working tree. Never sk
 
 5. **If only external CI fails** (Cloudflare Workers, Netlify, etc.) and GitHub Actions passes:
    - Note the failure but don't block on it — these may need dashboard config changes
-   - Do NOT reset the 30-min timer for external-only failures
+   - Do NOT reset the 20-min timer for external-only failures
 
-6. **If everything green + no new feedback for 30 min**: cancel the loop, report done
+6. **If everything green + no new feedback for 20 min**: cancel the loop, report done
 
 ## Responding to feedback
 
@@ -157,7 +157,7 @@ Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> 
 
 ## Stop conditions
 
-- No new actionable feedback AND GitHub Actions green for 30 consecutive minutes
+- No new actionable feedback AND GitHub Actions green for 20 consecutive minutes
 - PR is merged or closed
 
 Before stopping OR merging, the unaddressed-comments command above must print **nothing** — re-run it as the final gate. "I replied earlier" is not sufficient; bots may have posted new rounds since.

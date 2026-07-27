@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Commit and push all local current-branch work, open a ready PR, babysit it, merge when clean, then create a fresh branch
+description: Commit and push all local current-branch work, open a ready PR, auto-fix it, merge when clean, then create a fresh branch
 user-invocable: true
 scope: dev
 metadata:
