@@ -52,6 +52,15 @@ height: 320
 
 Fence keys: `src` (required, same-origin path), `title`, and either `height` (px) or `aspect` (`16/9`, `4/3`, `1/1`, `21/9`, `3/2`, `2/1`; default `16/9`). A cross-origin `src` renders an "Embed blocked" notice instead of a chart.
 
+**This exact fence is the only thing that renders.** There is no shorthand. Never
+write a bare line like `` `/chart type=bar title="..." labels=[...] data=[...] color=#...` ``
+in chat text — that's not a real syntax, the renderer has no code path for it,
+and it prints as literal text with no chart. That pattern comes from confusing
+`generate-chart`'s tool parameters (`title`, `labels`, `data`, `type`) with
+markdown; those are arguments to a tool call, not something to type into a
+chat message. If you catch yourself typing `label` or `data` followed by `=`
+in a chat reply, stop and build the ` ```embed ` fence above instead.
+
 **Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
 
 - `sql` — required, non-empty.
