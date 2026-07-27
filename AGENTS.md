@@ -169,6 +169,12 @@ instructions, and application state.
   decide identity. Run `npx agent-native doctor --only no-env-credentials` from
   the app directory before finishing a credential change. See the `secrets`
   skill.
+- `resolveCredential` searches exactly one organization, so it cannot read a
+  shared key for a caller with no org (cron, CLI) or one synced under a
+  different org. Swapping `process.env` for it looks like a fix and changes
+  nothing; the doctor guard does not catch this form. For workspace-wide keys
+  use a resolver that also sweeps the caller's memberships and a designated
+  vault org. See the `secrets` skill.
 - Never create an organization, repoint a user's `active-org-id`, or migrate a
   roster/identity list into a new org on your own initiative. Vault credentials
   are per-organization, so a second org orphans every key synced under the first
