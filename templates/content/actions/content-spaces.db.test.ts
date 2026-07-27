@@ -224,7 +224,11 @@ describe("Content space provisioning", () => {
     );
     expect(ownerSpaces.spaces).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: first.spaceId, name: "Writing" }),
+        expect.objectContaining({
+          id: first.spaceId,
+          name: "Writing",
+          catalogPosition: expect.any(Number),
+        }),
       ]),
     );
     const outsiderSpaces = await runWithRequestContext(

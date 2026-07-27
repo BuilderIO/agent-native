@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { ContentDatabaseItem, ContentDatabaseResponse } from "@shared/api";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,6 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   ContentFilesSidebarView,
   DatabaseSidebarView,
+  contentSidebarOrderedItems,
   databaseSidebarItemTree,
   databaseSidebarRootItems,
   databaseSidebarRowIndent,
@@ -40,6 +42,110 @@ const item = (id: string, title: string, parentId: string | null = null) =>
   }) as ContentDatabaseItem;
 
 describe("DatabaseSidebarView", () => {
+  it("keeps a personal custom item order before new membership positions", () => {
+    const first = { ...item("first", "First"), position: 1 };
+    const second = { ...item("second", "Second"), position: 2 };
+    const newItem = { ...item("new", "New"), position: 0 };
+
+    expect(
+      contentSidebarOrderedItems([first, second, newItem], {
+        mode: "custom",
+        itemIds: [second.id, first.id],
+      }).map((candidate) => candidate.id),
+    ).toEqual([second.id, first.id, newItem.id]);
+  });
+
+  it("uses stable computed Files ordering without replacing the custom order", () => {
+    const alpha = {
+      ...item("alpha", "Alpha"),
+      document: {
+        ...item("alpha", "Alpha").document,
+        createdAt: "2026-01-03T00:00:00.000Z",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    };
+    const beta = {
+      ...item("beta", "Beta"),
+      document: {
+        ...item("beta", "Beta").document,
+        createdAt: "2026-01-02T00:00:00.000Z",
+        updatedAt: "2026-01-03T00:00:00.000Z",
+      },
+    };
+    const customItemIds = [beta.id, alpha.id];
+
+    expect(
+      contentSidebarOrderedItems([beta, alpha], {
+        mode: "name",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([alpha.id, beta.id]);
+    expect(
+      contentSidebarOrderedItems([alpha, beta], {
+        mode: "last_edited",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([beta.id, alpha.id]);
+    expect(
+      contentSidebarOrderedItems([beta, alpha], {
+        mode: "created",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual([alpha.id, beta.id]);
+    expect(
+      contentSidebarOrderedItems([alpha, beta], {
+        mode: "custom",
+        itemIds: customItemIds,
+      }).map((candidate) => candidate.id),
+    ).toEqual(customItemIds);
+  });
+
+  it("renders an order control only when its parent can persist a personal order", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={
+              {
+                database: {
+                  viewConfig: {
+                    version: 1,
+                    activeViewId: "default",
+                    views: [],
+                  },
+                },
+                items: [],
+                properties: [],
+              } as unknown as ContentDatabaseResponse
+            }
+            overrides={null}
+            isLoading={false}
+            sidebarOrder={{ mode: "name", itemIds: [] }}
+            onSidebarOrderChange={() => {}}
+            sidebarOrderLabels={{
+              button: (mode) => `Order: ${mode}`,
+              modes: {
+                custom: "Custom",
+                last_edited: "Last edited",
+                name: "Name",
+                created: "Created",
+              },
+            }}
+            labels={{
+              loadingLabel: "Loading",
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain("Order: name");
+  });
+
   it("aligns sibling icons whether or not a page has children", () => {
     expect(databaseSidebarRowIndent(1, false)).toBe(
       databaseSidebarRowIndent(1, true),
@@ -538,25 +644,20 @@ describe("DatabaseSidebarView", () => {
     await act(async () => root.unmount());
   });
 
-  it("restores contextual more and add-child controls for Files rows", () => {
-    const markup = renderToStaticMarkup(
-      <MemoryRouter>
-        <TooltipProvider>
+  it("leaves modified row clicks to the native link", async () => {
+    const onOpenItem = vi.fn(() => true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
           <DatabaseSidebarView
             groups={[
               {
                 id: "all",
                 label: "All pages",
-                items: [
-                  {
-                    ...item("page", "Project"),
-                    document: {
-                      ...item("page", "Project").document,
-                      canEdit: true,
-                      canManage: true,
-                    },
-                  },
-                ],
+                items: [item("workspace", "Builder.io")],
                 property: null,
                 value: "all",
               },
@@ -572,13 +673,82 @@ describe("DatabaseSidebarView", () => {
             untitledLabel="Untitled"
             onClearResultConstraints={() => {}}
             onPreview={() => {}}
-            onCreateChildPage={() => {}}
-            onCreateChildDatabase={() => {}}
-            onDeleteItem={() => {}}
-            onToggleFavorite={() => {}}
+            onOpenItem={onOpenItem}
           />
-        </TooltipProvider>
-      </MemoryRouter>,
+        </MemoryRouter>,
+      );
+    });
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      metaKey: true,
+    });
+    await act(async () => {
+      container.querySelector("a")?.dispatchEvent(click);
+    });
+
+    expect(onOpenItem).not.toHaveBeenCalled();
+    expect(click.defaultPrevented).toBe(false);
+    await act(async () => root.unmount());
+  });
+
+  it("restores contextual more and add-child controls for Files rows", () => {
+    const markup = renderToStaticMarkup(
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        persistPreference={false}
+        catalog={{
+          sourceLocale: "en-US",
+          messages: {
+            sidebar: {
+              moreActionsFor: "More actions for {{label}}",
+              addChildTo: "Add child to {{title}}",
+            },
+          },
+        }}
+      >
+        <MemoryRouter>
+          <TooltipProvider>
+            <DatabaseSidebarView
+              groups={[
+                {
+                  id: "all",
+                  label: "All pages",
+                  items: [
+                    {
+                      ...item("page", "Project"),
+                      document: {
+                        ...item("page", "Project").document,
+                        canEdit: true,
+                        canManage: true,
+                      },
+                    },
+                  ],
+                  property: null,
+                  value: "all",
+                },
+              ]}
+              grouped={false}
+              isLoading={false}
+              hasActiveConstraints={false}
+              openPagesIn="full_page"
+              loadingLabel="Loading list"
+              noMatchesLabel="No rows match this view"
+              clearLabel="Clear"
+              navigationLabel="Database pages"
+              untitledLabel="Untitled"
+              onClearResultConstraints={() => {}}
+              onPreview={() => {}}
+              onCreateChildPage={() => {}}
+              onCreateChildDatabase={() => {}}
+              onDeleteItem={() => {}}
+              onToggleFavorite={() => {}}
+            />
+          </TooltipProvider>
+        </MemoryRouter>
+      </AgentNativeI18nProvider>,
     );
 
     expect(markup).toContain('aria-label="More actions for Project"');

@@ -216,7 +216,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "group-focus-visible/workspace-toggle:opacity-100",
     );
-    expect(sidebar).not.toContain(
+    expect(sidebar).toContain(
       "group-focus-within/workspace-header:opacity-100",
     );
     expect(sidebar).not.toContain('className="group/workspace min-w-0"');
@@ -268,7 +268,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("handleCreateWorkspace");
     expect(sidebar).toContain("workspaceCatalogDatabaseId");
     expect(sidebar).toContain("workspaceCatalogPersonalView.data?.overrides");
-    expect(sidebar).toContain("renderItem={(item) =>");
+    expect(sidebar).toContain("renderItem={(item, reorder) =>");
     expect(sidebar).toContain("name: item.document.title || space.name");
     expect(sidebar).toContain("scroll={false}");
   });
@@ -363,11 +363,9 @@ describe("document sidebar layout", () => {
     expect(agents).toContain("remove-local-file-source");
   });
 
-  it("keeps favorite rows constrained so long titles ellipsize", () => {
+  it("renders Pinned through exact database memberships with accessible reordering", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
 
-    expect(sidebar).toContain("const favoriteRowWidth =");
     expect(sidebar).toContain("{showFavorites && (");
     expect(sidebar).toContain('toggleSection("favorites")');
     expect(sidebar).toContain("!collapsedSections.favorites &&");
@@ -379,22 +377,14 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('"mb-2 min-w-0 px-2"');
     expect(sidebar).toContain("favoritesDocumentId");
     expect(sidebar).toContain("`/page/${favoritesDocumentId}`");
-    expect(sidebar).toContain("handleOpenFavorite(doc)");
-    expect(sidebar).toContain("<FavoriteDocumentItem");
-    expect(treeItem).toContain("export function FavoriteDocumentItem");
+    expect(sidebar).toContain("data={favoritesDatabase.data}");
+    expect(sidebar).toContain("handlePinnedReorder");
+    expect(sidebar).toContain("movePinnedItem.isPending");
+    expect(sidebar).toContain("onReorder: handlePinnedReorder");
     expect(sidebar).toContain(
       "flex h-7 w-full min-w-0 items-center rounded-md px-1",
     );
-    expect(treeItem).toContain('paddingInlineStart: "26px"');
-    expect(treeItem).toContain('? "font-semibold text-foreground"');
-    expect(treeItem).not.toContain(
-      '"border-primary bg-accent font-medium text-accent-foreground"',
-    );
-    expect(treeItem).toContain("Remove from favorites");
-    expect(treeItem).toContain("aria-label={`Open ${title}`}");
-    expect(treeItem).toContain("onClick={(event) => event.stopPropagation()}");
-    expect(treeItem).toContain("onCreateChildPage()");
-    expect(treeItem).toContain("setDeleteDialogOpen(true)");
+    expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
