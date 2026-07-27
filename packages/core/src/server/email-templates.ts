@@ -96,6 +96,24 @@ export interface RenderVerifySignupEmailArgs {
   verifyUrl: string;
 }
 
+/**
+ * Customer-facing description overrides for the verification email body. The
+ * default descriptions come from the app-picker hints, which name competitors
+ * for internal positioning; these rewrites frame them as "replacement" for a
+ * customer-facing email without changing the picker copy.
+ */
+const VERIFY_EMAIL_DESCRIPTIONS: Record<string, string> = {
+  calendar:
+    "Agent-native Google Calendar replacement — manage events, sync, and public booking",
+  content:
+    "Open-source Obsidian/Notion replacement for MDX — edit local docs with agent assistance",
+  slides:
+    "Agent-native Google Slides replacement — generate and edit React presentations",
+  analytics:
+    "Agent-native Amplitude/Mixpanel replacement — connect data sources, prompt for charts",
+  mail: "Agent-native Superhuman replacement — email client with keyboard shortcuts and AI triage",
+};
+
 export function renderVerifySignupEmail(
   args: RenderVerifySignupEmailArgs,
 ): RenderedEmailMessage {
@@ -105,8 +123,10 @@ export function renderVerifySignupEmail(
   // can tell which app they signed up for. Fall back to the generic name when
   // the app can't be resolved (unknown/serverless runtime).
   const brand = appName ? `Agent-Native ${stripCrlf(appName)}` : "Agent Native";
-  const description = appName ? getAppDescription() : undefined;
   const slug = appName ? getAppSlug() : undefined;
+  const description = appName
+    ? ((slug && VERIFY_EMAIL_DESCRIPTIONS[slug]) ?? getAppDescription())
+    : undefined;
 
   const paragraphs = [
     `Thanks for signing up for ${emailStrong(brand)}. To finish creating your account, confirm that ${emailStrong(email)} is your email address.`,
