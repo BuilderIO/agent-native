@@ -5,10 +5,7 @@ import {
   buildA2ARecoverableArtifactMessage,
 } from "../a2a/artifact-response.js";
 import type { A2AContinuation } from "./a2a-continuations-store.js";
-import type {
-  PlatformAdapter,
-  PlatformDeliveryOptions,
-} from "./types.js";
+import type { PlatformAdapter, PlatformDeliveryOptions } from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
 const claimDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => []));
@@ -880,9 +877,7 @@ describe("A2A continuation processor", () => {
     });
 
     expect(sendResponse).toHaveBeenCalledTimes(2);
-    expect(providerDeliveries).toEqual(
-      new Set(["a2a-continuation:cont-1"]),
-    );
+    expect(providerDeliveries).toEqual(new Set(["a2a-continuation:cont-1"]));
     expect(visibleProviderDeliveries).toBe(1);
     expect(retainA2AUnconfirmedDeliveryClaimMock).toHaveBeenCalledOnce();
     expect(completeA2AContinuationMock).toHaveBeenCalledOnce();
