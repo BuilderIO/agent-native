@@ -777,6 +777,7 @@ function DatabaseSidebarRow({
           to={`/page/${item.document.id}`}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
+          role="link"
           className={cn(
             "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             reorder &&

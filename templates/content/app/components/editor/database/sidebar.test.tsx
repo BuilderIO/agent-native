@@ -178,6 +178,7 @@ describe("DatabaseSidebarView", () => {
     );
 
     expect(markup).not.toContain("Drag First");
+    expect(markup).toContain('role="link"');
   });
 
   it("leaves the compact order control to the workspace header", () => {

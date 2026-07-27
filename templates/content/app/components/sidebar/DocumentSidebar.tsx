@@ -430,6 +430,7 @@ function WorkspaceSidebarItem({
           to={`/page/${space.filesDocumentId}`}
           {...reorder?.controls.attributes}
           {...reorder?.controls.listeners}
+          role="link"
           className={cn(
             "flex h-7 min-w-0 flex-1 items-center truncate pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
             reorder &&

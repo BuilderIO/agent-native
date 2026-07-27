@@ -229,6 +229,7 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<SidebarDragHandle");
     expect(sidebar).not.toContain("<SidebarReorderMenuItems");
+    expect(sidebar).toContain('role="link"');
     expect(sidebar).toContain(
       'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
     );
