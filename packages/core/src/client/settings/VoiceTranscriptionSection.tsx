@@ -19,7 +19,6 @@ import {
   IconExternalLink,
   IconLoader2,
   IconLockOpen,
-  IconMicrophone,
 } from "@tabler/icons-react";
 import React, { useCallback, useEffect, useState } from "react";
 
@@ -942,8 +941,4 @@ function SystemAudioStatus() {
       </div>
     </div>
   );
-}
-
-export function VoiceTranscriptionIcon() {
-  return <IconMicrophone size={14} />;
 }

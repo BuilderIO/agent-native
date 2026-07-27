@@ -1,5 +1,6 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
@@ -10,6 +11,7 @@ import {
   useChangeVersions,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -19,7 +21,12 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
-import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
+import {
+  CLIP_SHARE_REF,
+  DASHBOARD_REDIRECT_PARAM,
+  DASHBOARD_REDIRECT_VALUE,
+  REF_PARAM,
+} from "@shared/share-attribution";
 import {
   IconShare3,
   IconArrowLeft,
@@ -50,6 +57,7 @@ import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
+import { RecordingViewsBadge } from "@/components/player/recording-views-badge";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import {
@@ -85,6 +93,7 @@ import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+import { recordingShareUrl } from "@/lib/recording-link";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
@@ -214,10 +223,6 @@ function parseTimeParam(raw: string | null): number {
   return (hours * 3600 + minutes * 60 + seconds) * 1000;
 }
 
-function buildSignInHref(returnTo: string): string {
-  return `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnTo)}`;
-}
-
 export default function RecordingPage() {
   const t = useT();
   useAutoTitleBridge();
@@ -253,6 +258,18 @@ export default function RecordingPage() {
     }
     return currentMs;
   }, [currentMs]);
+  // The compact layout stacks the panel below the video, so switching tabs
+  // alone leaves the user looking at the player. Desktop always renders the
+  // side aside, so nothing to scroll there.
+  const openInsightsPanel = useCallback(() => {
+    setPanel("insights");
+    if (!isCompactLayout) return;
+    requestAnimationFrame(() => {
+      document
+        .getElementById("clip-activity-panel")
+        ?.scrollIntoView({ block: "start" });
+    });
+  }, [isCompactLayout]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -366,8 +383,11 @@ export default function RecordingPage() {
   // password.
   useEffect(() => {
     if (!recordingId || !playerDataForbidden) return;
+    const shareParams = new URLSearchParams();
+    shareParams.set(REF_PARAM, CLIP_SHARE_REF);
+    shareParams.set(DASHBOARD_REDIRECT_PARAM, DASHBOARD_REDIRECT_VALUE);
     navigate(
-      `/share/${encodeURIComponent(recordingId)}?${REF_PARAM}=${CLIP_SHARE_REF}`,
+      `/share/${encodeURIComponent(recordingId)}?${shareParams.toString()}`,
       {
         replace: true,
       },
@@ -408,23 +428,21 @@ export default function RecordingPage() {
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
     : "Untitled Clip";
+  // Attribution `via` must never point at someone who isn't the owner, so it
+  // is only tagged when the viewer is the owner (same rule as the share dialog).
+  const shareViaId =
+    role === "owner" ? (session?.userId ?? undefined) : undefined;
   const pendingShareUrl = useMemo(() => {
     if (!recordingId || typeof window === "undefined") return "";
-    return new URL(
-      appPath(`/share/${encodeURIComponent(recordingId)}`),
-      window.location.origin,
-    ).toString();
-  }, [recordingId]);
+    return recordingShareUrl(recordingId, shareViaId);
+  }, [recordingId, shareViaId]);
   const copyPendingShareLink = useCallback(async () => {
     if (!pendingShareUrl) return;
-    try {
-      await navigator.clipboard.writeText(pendingShareUrl);
-      setPendingLinkCopied(true);
-      window.setTimeout(() => setPendingLinkCopied(false), 1400);
-    } catch {
-      // The full Share popover remains available when clipboard permission is
-      // unavailable, so a denied clipboard write does not block the page.
-    }
+    // The full Share popover remains available when clipboard permission is
+    // unavailable, so a denied clipboard write does not block the page.
+    if (!(await writeClipboardText(pendingShareUrl))) return;
+    setPendingLinkCopied(true);
+    window.setTimeout(() => setPendingLinkCopied(false), 1400);
   }, [pendingShareUrl]);
   useEffect(() => {
     if (!recording?.id) return;
@@ -573,6 +591,12 @@ export default function RecordingPage() {
         toast.message(t("recordingPage.storageStillDisconnected"), {
           description: t("recordingPage.finishBuilderOrS3"),
         });
+        return;
+      }
+      if (retryingLoomImport && result?.status === "processing") {
+        // Download + reupload now run as a background job; this request only
+        // confirms the retry was accepted, not that the clip is ready yet.
+        toast.info(t("recordingPage.importingLoom"));
         return;
       }
       toast.success(
@@ -850,7 +874,9 @@ export default function RecordingPage() {
         <div className="flex flex-wrap items-center justify-center gap-2">
           {needsSignIn ? (
             <Button asChild>
-              <a href={buildSignInHref(returnTo)}>{t("sharePage.signIn")}</a>
+              <a href={buildSignInReturnHref({ returnTo })}>
+                {t("sharePage.signIn")}
+              </a>
             </Button>
           ) : null}
           <Button asChild variant="outline">
@@ -1335,6 +1361,16 @@ export default function RecordingPage() {
               </div>
             ) : null}
           </div>
+
+          {!editing ? (
+            <RecordingViewsBadge
+              recordingId={recording.id}
+              viewCount={playerDataQ.data?.viewCount ?? 0}
+              canViewDetails={canEdit}
+              onOpenInsights={openInsightsPanel}
+              className="shrink-0"
+            />
+          ) : null}
 
           {canUseNativeEditor ? (
             <Button

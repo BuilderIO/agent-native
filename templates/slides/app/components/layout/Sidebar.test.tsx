@@ -27,7 +27,12 @@ vi.mock("@agent-native/core/client/ui", () => ({
   FeedbackButton: () => null,
 }));
 
+vi.mock("@agent-native/core/client/navigation", () => ({
+  openCommandMenu: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
+  LanguagePicker: () => null,
   useT: () => (key: string) =>
     ({
       "navigation.brand": "Slides",
@@ -35,9 +40,31 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "navigation.designSystems": "Design Systems",
       "navigation.settings": "Settings",
       "settings.agentTitle": "Manage agent",
+      "settings.languageLabel": "Language",
+      "sidebar.search": "Search",
       "sidebar.expandSidebar": "Expand sidebar",
       "sidebar.collapseSidebar": "Collapse sidebar",
     })[key] ?? key,
+}));
+vi.mock("@agent-native/toolkit/app-shell", () => ({
+  SidebarFooterActions: ({
+    feedback,
+    translate,
+    search,
+    collapse,
+  }: {
+    feedback?: ReactNode;
+    translate?: ReactNode;
+    search?: ReactNode;
+    collapse?: ReactNode;
+  }) => (
+    <div>
+      {feedback}
+      {translate}
+      {search}
+      {collapse}
+    </div>
+  ),
 }));
 vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => null,
@@ -80,7 +107,6 @@ describe("<Sidebar collapsed>", () => {
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
-    expect(screen.getByLabelText("Manage agent")).toBeDefined();
   });
 });
 
@@ -96,7 +122,6 @@ describe("<Sidebar expanded>", () => {
     expect(screen.getByText("Decks")).toBeDefined();
     expect(screen.getByText("Design Systems")).toBeDefined();
     expect(screen.getByText("Settings")).toBeDefined();
-    expect(screen.getByText("Manage agent")).toBeDefined();
 
     const collapseBtn = screen.getByLabelText("Collapse sidebar");
     collapseBtn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -142,7 +167,6 @@ describe("<Sidebar> accessibility", () => {
     expect(screen.getByLabelText("Decks")).toBeDefined();
     expect(screen.getByLabelText("Design Systems")).toBeDefined();
     expect(screen.getByLabelText("Settings")).toBeDefined();
-    expect(screen.getByLabelText("Manage agent")).toBeDefined();
   });
 
   it("labels the Collapse button in the expanded layout", () => {

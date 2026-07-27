@@ -32,11 +32,19 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
+import { describeErrorWithCauses } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
+  splitSystemPromptForCache,
+  stablePrefixCacheControl,
+} from "./prompt-cache.js";
+import {
+  createStreamedToolInputState,
   engineMessagesToBuilderGatewayAnthropic,
   engineToolsToAnthropic,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
 } from "./translate-anthropic.js";
 import type {
   AgentEngine,
@@ -71,6 +79,8 @@ const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
 const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
   MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
+export const BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE =
+  "builder_model_unauthorized";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
@@ -170,17 +180,23 @@ class BuilderEngine implements AgentEngine {
     const cacheEnabled =
       opts.providerOptions?.anthropic?.cacheControl !== false;
 
-    // System: wrap in array with cache_control when caching is on.
+    // System: split into a stable block carrying the breakpoint and a volatile
+    // tail (resources, app extras, model overlay, runtime context) without one,
+    // so mid-turn resource churn no longer invalidates system + tools.
+    const { stable, volatile } = splitSystemPromptForCache(
+      opts.systemPrompt ?? "",
+    );
     const systemValue: unknown = opts.systemPrompt
       ? cacheEnabled
         ? [
             {
               type: "text",
-              text: opts.systemPrompt,
-              cache_control: { type: "ephemeral" },
+              text: stable,
+              cache_control: stablePrefixCacheControl(),
             },
+            ...(volatile ? [{ type: "text", text: volatile }] : []),
           ]
-        : opts.systemPrompt
+        : stable + volatile
       : undefined;
 
     // Tools: add cache_control to the last tool definition.
@@ -188,12 +204,14 @@ class BuilderEngine implements AgentEngine {
     if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
       const last = { ...cachedTools[cachedTools.length - 1] } as any;
-      last.cache_control = { type: "ephemeral" };
+      last.cache_control = stablePrefixCacheControl();
       cachedTools[cachedTools.length - 1] = last;
     }
 
     // Messages: add a moving cache breakpoint on the last user message's last
-    // content block so the entire conversation prefix is cached.
+    // content block so the entire conversation prefix is cached. Stays on the
+    // default 5m TTL — it moves every iteration, so a longer-lived entry would
+    // only pay the higher write premium.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
       let lastUserIdx = -1;
@@ -520,6 +538,27 @@ async function* parseJsonlStream(
     flushPendingThinking();
   };
 
+  const toolInputs = createStreamedToolInputState();
+
+  // The gateway can announce a tool call through `tool-call-delta` frames and
+  // then die before the terminal `tool-call` frame. Assemble what streamed, or
+  // hand the model an in-band error — never end the turn advertising a call
+  // that was silently dropped.
+  const recoverUndeliveredToolCalls = (): EngineEvent[] => {
+    const events = finalizeStreamedToolInputs(toolInputs);
+    for (const event of events) {
+      if (event.type === "tool-call") {
+        parts.push({
+          type: "tool-call",
+          id: event.id,
+          name: event.name,
+          input: event.input,
+        });
+      }
+    }
+    return events;
+  };
+
   try {
     for await (const line of readJsonlLines(
       reader,
@@ -572,8 +611,8 @@ async function* parseJsonlStream(
           break;
         }
 
-        case "tool-call-delta":
-          yield {
+        case "tool-call-delta": {
+          const delta: EngineEvent = {
             type: "tool-input-delta",
             id: event.id,
             name: event.name,
@@ -584,7 +623,10 @@ async function* parseJsonlStream(
                   ? event.delta
                   : "",
           };
+          observeStreamedToolInput(toolInputs, delta);
+          yield delta;
           break;
+        }
 
         case "heartbeat":
           yield { type: "gateway-heartbeat" };
@@ -592,18 +634,15 @@ async function* parseJsonlStream(
 
         case "tool-call": {
           flushPending();
-          parts.push({
-            type: "tool-call",
-            id: event.id,
-            name: event.name,
-            input: event.input,
-          });
-          yield {
-            type: "tool-call",
+          const call = {
+            type: "tool-call" as const,
             id: event.id,
             name: event.name,
             input: event.input,
           };
+          parts.push(call);
+          observeStreamedToolInput(toolInputs, call);
+          yield { ...call };
           break;
         }
 
@@ -624,6 +663,7 @@ async function* parseJsonlStream(
 
         case "stop": {
           flushPending();
+          yield* recoverUndeliveredToolCalls();
           yield { type: "assistant-content", parts };
 
           const reason = event.reason ?? "end_turn";
@@ -669,8 +709,16 @@ async function* parseJsonlStream(
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayErrCode = event.errorCode ?? event.code;
+            // The gateway already authenticated this request before streaming,
+            // so a bare "Unauthorized" here means the account cannot use this
+            // model — not that the connection is broken. Only a message that
+            // names the credential may tear down the Builder connection.
             const isCredentialAuthError =
               Boolean(explicitErrMsg) &&
+              isBuilderCredentialAuthErrorInStream(String(errMsg));
+            const isModelAuthError =
+              Boolean(explicitErrMsg) &&
+              !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
             // Anthropic's bare "Connection error." often arrives here with no
             // gateway code. Tag it as a network error so in-run retries and
@@ -680,10 +728,12 @@ async function* parseJsonlStream(
               isProviderConnectionErrorMessage(String(explicitErrMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
-              : isProviderConnectionError
-                ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
-                : (gatewayErrCode ??
-                  (!explicitErrMsg ? "builder_gateway_error" : undefined));
+              : isModelAuthError
+                ? BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE
+                : isProviderConnectionError
+                  ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
+                  : (gatewayErrCode ??
+                    (!explicitErrMsg ? "builder_gateway_error" : undefined));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
@@ -742,6 +792,7 @@ async function* parseJsonlStream(
 
     // Stream ended without a stop event — synthesize one so callers don't hang.
     flushPending();
+    yield* recoverUndeliveredToolCalls();
     yield { type: "assistant-content", parts };
     yield {
       type: "stop",
@@ -988,6 +1039,25 @@ function isBuilderCredentialAuthError(message: string): boolean {
   );
 }
 
+/**
+ * Stricter than {@link isBuilderCredentialAuthError} for errors that arrive
+ * inside an already-authenticated stream, where a bare "unauthorized" is far
+ * more likely to be a per-model entitlement rejection than a bad credential.
+ * Misreading one there disconnects Builder for every model, including the ones
+ * that still work.
+ */
+function isBuilderCredentialAuthErrorInStream(message: string): boolean {
+  if (!isBuilderCredentialAuthError(message)) return false;
+  const lowerMessage = message.toLowerCase();
+  return (
+    lowerMessage.includes("private key") ||
+    lowerMessage.includes("access token") ||
+    lowerMessage.includes("invalid token") ||
+    lowerMessage.includes("invalid_token") ||
+    lowerMessage.includes("token invalid")
+  );
+}
+
 function normalizeBuilderGatewayFetchError(
   err: unknown,
   timedOut: boolean,
@@ -1029,8 +1099,7 @@ function formatTimeoutMs(timeoutMs: number): string {
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
+  return describeErrorWithCauses(err);
 }
 
 function errorSearchText(err: unknown): string {

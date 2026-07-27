@@ -1,5 +1,6 @@
 import {
   AgentSidebar,
+  isAgentChatHomeHandoffActive,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
@@ -92,6 +93,7 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !chatRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
     chatPath: "/",
@@ -206,6 +208,7 @@ export function Layout({ children }: LayoutProps) {
             position="right"
             defaultOpen={false}
             chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
             agentPageHref="/agent"

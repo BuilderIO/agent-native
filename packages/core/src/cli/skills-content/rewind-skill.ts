@@ -13,6 +13,38 @@ metadata:
 Use Clips Rewind as local screen memory. Start broad enough to find the right
 moment, then read only the smallest relevant range.
 
+## First-Run Setup
+
+Call \`screen_memory_status\` before assuming Rewind is ready. If the tool is
+unavailable, do not stop at a missing-tool error and do not silently install
+anything:
+
+1. Explain that Rewind requires the signed Clips Desktop app on macOS plus a
+   local agent connection.
+2. Ask whether Clips is installed, or use a non-mutating native application
+   lookup when the host supports one. Do not inspect Clips' app-data folders.
+   If Clips is absent or its presence cannot be confirmed, ask permission
+   before opening or downloading anything: “Clips Desktop is required for
+   Rewind. Would you like me to open the official installer and guide you
+   through setup?”
+3. Only after affirmative permission, open
+   \`https://clips.agent-native.com/download\` in the user's browser. Complete
+   native installation steps only when the current host can safely do so and
+   the user explicitly permitted them. Never bypass Gatekeeper, accept macOS
+   permission prompts, or enable screen/audio capture on the user's behalf.
+4. If native UI control is unavailable, return the download link and wait for
+   the user to confirm that Clips is installed and running.
+5. Ask the user to enable Rewind in the Clips tray and choose the intended
+   capture mode. Then configure the local connection with:
+
+   \`npx -y @agent-native/core@latest skills add rewind --client <client> --scope user --yes\`
+
+   Replace \`<client>\` with the current compatible host: \`codex\`,
+   \`claude-code\`, \`cursor\`, \`opencode\`, \`github-copilot\`, or \`cowork\`.
+6. Restart the host only if it cannot reload MCP servers in place, then retry
+   \`screen_memory_status\`. Do not claim setup succeeded until it reports
+   Rewind enabled and unpaused.
+
 ## Retrieval Flow
 
 1. Call \`screen_memory_status\` first. If the newest segment is still open,
@@ -41,12 +73,12 @@ moment, then read only the smallest relevant range.
   bypass the Screen Memory MCP broker.
 - Do not upload frames returned by local Screen Memory tools.
 - Treat foreground apps and chapter labels as evidence, not proof of intent.
-- If the Screen Memory MCP is missing, explain that the one-time setup needs to
-  be repaired with:
+- If Clips is installed and Rewind is enabled but the Screen Memory MCP is
+  missing, explain that only the agent connection needs repair with:
 
   \`npx -y @agent-native/core@latest skills add rewind --client <client> --scope user --yes\`
 
-  Replace \`<client>\` with the current compatible host: \`codex\`,
-  \`claude-code\`, \`cursor\`, \`opencode\`, \`github-copilot\`, or \`cowork\`.
   Ask the user to restart the host if it cannot reload MCP servers in place.
+- Never conflate installing Clips Desktop with installing the skill/MCP
+  connection, and never claim either succeeded without direct evidence.
 `;

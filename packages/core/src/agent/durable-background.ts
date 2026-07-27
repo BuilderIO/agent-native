@@ -114,10 +114,15 @@ function isNetlifyHostedRuntimeForDispatch(): boolean {
   if (process.env.NETLIFY_LOCAL === "true") return false;
   if (process.env.NETLIFY === "false") return false;
   if (process.env.NETLIFY && process.env.NETLIFY !== "false") return true;
-  // Netlify sets AWS Lambda runtime env on deployed Functions, but the build-time
-  // NETLIFY flag is not always present in the runtime isolate. Treat Lambda as
-  // Netlify here unless Netlify was explicitly disabled above; non-Netlify AWS
-  // falls back inline if the /.netlify/functions dispatch fast-fails.
+  // NETLIFY is a build-only read-only variable. In deployed Functions Netlify
+  // documents URL, SITE_NAME, and SITE_ID as the runtime read-only variables;
+  // SITE_ID is the unambiguous host marker. Lambda compatibility mode also
+  // exposes AWS runtime variables, so keep the function-name fallback for older
+  // deploys. Without either check a modern Netlify Function silently selects the
+  // portable framework route even though the emitted background function exists.
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
+  // Non-Netlify AWS falls back inline if the /.netlify/functions dispatch
+  // fast-fails.
   return Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
 }
 
@@ -202,6 +207,9 @@ export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
  * what "hosted" means.
  */
 export function isHostedRuntimeForDurableBackground(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.NETLIFY === "false") return false;
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   if (
     process.env.NETLIFY &&
     process.env.NETLIFY !== "false" &&
@@ -294,16 +302,53 @@ export function shouldUseBackgroundFunctionTimeoutForWorker(
 }
 
 export function backgroundRuntimeDiagnosticDetail(marker: unknown): string {
-  return [
+  const detail = [
     `markerExpected=${backgroundRunMarkerExpectsBackgroundRuntime(marker)}`,
     `runtimeDetected=${isInBackgroundFunctionRuntime()}`,
     `globalMarker=${(globalThis as Record<string, unknown>).__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true}`,
     `lambdaNameEndsBackground=${typeof process.env.AWS_LAMBDA_FUNCTION_NAME === "string" && process.env.AWS_LAMBDA_FUNCTION_NAME.toLowerCase().endsWith("-background")}`,
     `forceEnv=${typeof process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME === "string" && process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME.trim().length > 0}`,
   ].join(" ");
+  reportMissingBackgroundFunctionOnce(marker, detail);
+  return detail;
 }
 
-function isFlagEnabled(): boolean {
+export const BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY =
+  "__AGENT_NATIVE_BACKGROUND_UNREACHABLE_NOTICE__";
+
+/**
+ * The foreground targeted the `-background` function's default url, yet this
+ * worker is NOT running in that function: the deploy is missing the artifact (or
+ * Netlify routed the url to the synchronous function). The turn still completes
+ * on the 40s-clamped path, so nothing else ever surfaces it — an app can lose
+ * the 15-min budget for its whole lifetime in silence (agent-native-plan did:
+ * zero background runs ever, every turn pinned to the ~60s wall). Announce it
+ * once per isolate; the same detail is already recorded on the run row by the
+ * caller, so this only adds the server-side signal a deploy owner can grep.
+ */
+function reportMissingBackgroundFunctionOnce(
+  marker: unknown,
+  detail: string,
+): void {
+  if (!backgroundRunMarkerExpectsBackgroundRuntime(marker)) return;
+  if (isInBackgroundFunctionRuntime()) return;
+  const scope = globalThis as Record<string, unknown>;
+  if (scope[BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY] === true) return;
+  scope[BACKGROUND_FUNCTION_UNREACHABLE_NOTICE_KEY] = true;
+  console.error(
+    `[agent-chat] durable background is enabled but the "${AGENT_BACKGROUND_FUNCTION_NAME}" ` +
+      "function is unreachable — this worker is running on the synchronous function " +
+      "with the 40s clamp instead of the 15-min budget. Check that the deploy emitted " +
+      `it (build log: "Emitted durable-background function"). ${detail}`,
+  );
+}
+
+/**
+ * Env flag parse, shared by the runtime gate and the deploy-time emit gates so
+ * they can never drift apart (they did: the workspace deploy copy defaulted ON
+ * while this one defaulted OFF).
+ */
+export function isDurableBackgroundFlagEnabled(): boolean {
   // Read the literal key (not `process.env[CONST]`) so guard:no-env-credentials
   // can statically verify it against the allowlisted `AGENT_*` prefix. Keep this
   // in sync with AGENT_CHAT_DURABLE_BACKGROUND_ENV.
@@ -329,7 +374,7 @@ function isFlagEnabled(): boolean {
   );
 }
 
-function isFlagExplicitlyDisabled(): boolean {
+export function isDurableBackgroundFlagExplicitlyDisabled(): boolean {
   const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
   if (raw == null) return false;
   const normalized = raw.trim().toLowerCase();
@@ -358,10 +403,10 @@ export function isAgentChatDurableBackgroundEnabled(options?: {
   // recreates the missing-background-function failure this gate is meant to
   // prevent.
   if (options?.appOptIn === false) return false;
-  const envOptIn = isFlagEnabled();
+  const envOptIn = isDurableBackgroundFlagEnabled();
   const workspaceAppOptIn =
     options?.appOptIn === true &&
-    !isFlagExplicitlyDisabled() &&
+    !isDurableBackgroundFlagExplicitlyDisabled() &&
     resolveWorkspaceBackgroundFunctionUrlPath() !== null;
   return (
     (envOptIn || workspaceAppOptIn) &&

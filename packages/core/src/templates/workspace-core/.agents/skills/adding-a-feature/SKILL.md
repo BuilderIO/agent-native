@@ -14,6 +14,8 @@ metadata:
 
 Every new feature MUST update all four areas. Skipping any one breaks the agent-native contract — the agent and UI must always be equal partners.
 
+Scope check first: this is the checklist for a feature that adds app data or a new capability. A restyle, a copy change, or a screen with no new data model and no new agent-visible operation only needs the areas it actually touches — do not manufacture actions, state keys, or a skill for it.
+
 ## Why
 
 Agent-native apps are defined by parity: everything the UI can do, the agent can do, and vice versa. A feature that only has UI is invisible to the agent. A feature that only has scripts is invisible to the user. A feature without app-state sync means the agent is blind to what the user is doing.

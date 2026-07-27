@@ -113,6 +113,11 @@ export const dashboardReportSubscriptions = table(
       enum: ["success", "error", "running"],
     }),
     lastError: text("last_error"),
+    lastCaptureAt: text("last_capture_at"),
+    lastCaptureMode: text("last_capture_mode", {
+      enum: ["full", "partial", "none"],
+    }),
+    lastCaptureError: text("last_capture_error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -184,6 +189,18 @@ export const bigqueryCache = table("bigquery_cache", {
   sql: text("sql").notNull(),
   result: text("result").notNull(),
   bytesProcessed: integer("bytes_processed").notNull().default(0),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
+
+/**
+ * First-party dashboard panel result cache — see
+ * server/lib/first-party-analytics-cache.ts.
+ */
+export const firstPartyAnalyticsCache = table("first_party_analytics_cache", {
+  key: text("key").primaryKey(),
+  sql: text("sql").notNull(),
+  result: text("result").notNull(),
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
 });

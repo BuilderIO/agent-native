@@ -26,7 +26,7 @@ export default createAuthPlugin({
     "https://www.googleapis.com/auth/calendar.events",
   ],
   marketing: {
-    appName: "Agent-Native Mail",
+    appName: "Mail",
     tagline: "Your AI agent reads, drafts, and organizes email alongside you.",
     features: [
       "Replies that match your tone and style",

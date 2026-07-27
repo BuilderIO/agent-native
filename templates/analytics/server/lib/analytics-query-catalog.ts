@@ -68,7 +68,8 @@ export type AnalyticsQueryCatalogCandidate =
       panelTitle: string;
       panelDescription?: string;
       source?: string;
-      query: string | Record<string, unknown>;
+      /** Absent for extension/embed panels, which are matched on title and description. */
+      query?: string | Record<string, unknown>;
       timeScope?: string;
     }
   | {
@@ -105,17 +106,96 @@ function compactQuery(value: unknown): string | Record<string, unknown> | null {
   return null;
 }
 
-function searchTerms(search: string): string[] {
-  const normalized = search
+// Analytics vocabulary the corpus spells out but users abbreviate (or vice versa).
+// Expansions match at reduced weight so they break ties without outranking a literal hit.
+const SYNONYM_EXPANSIONS: Record<string, string[]> = {
+  account: ["company", "customer", "org"],
+  active: ["engaged"],
+  arr: ["annual", "recurring", "revenue"],
+  churn: ["cancel", "attrition", "downgrade"],
+  csql: ["sale", "qualified", "lead", "opportunity"],
+  customer: ["account", "company"],
+  dau: ["daily", "active", "user"],
+  deal: ["opportunity", "pipeline"],
+  error: ["5xx", "4xx", "exception", "failure", "fault"],
+  icp: ["ideal", "customer", "profile"],
+  mau: ["monthly", "active", "user"],
+  mql: ["marketing", "qualified", "lead"],
+  mrr: ["monthly", "recurring", "revenue"],
+  pageview: ["page", "view", "traffic", "session"],
+  pipeline: ["deal", "opportunity", "forecast"],
+  poc: ["proof", "concept", "trial", "pilot"],
+  revenue: ["bookings", "arr", "mrr", "won"],
+  signup: ["registration", "created", "onboard"],
+  traffic: ["pageview", "session", "visit"],
+  usage: ["active", "engagement"],
+  user: ["member", "person", "seat"],
+  wau: ["weekly", "active", "user"],
+};
+
+// Metric-shaped words that appear in a large share of titles and so discriminate
+// almost nothing on their own. Scored down rather than dropped: "error rate" must
+// still beat "rate", but four unrelated "... Rate" entries must not tie above the
+// panel that actually matches "error".
+const LOW_INFORMATION_TERMS = new Set([
+  "average",
+  "percent",
+  "percentage",
+  "rate",
+  "ratio",
+  "score",
+  "value",
+  "volume",
+]);
+
+// Cheap plural folding. The corpus writes "Template"/"Deal" while users type
+// "templates"/"deals"; exact substring matching missed every one of those.
+function stem(token: string): string {
+  if (token.length > 4 && token.endsWith("ies"))
+    return `${token.slice(0, -3)}y`;
+  if (token.length > 4 && token.endsWith("sses")) return token.slice(0, -2);
+  if (token.length > 3 && token.endsWith("s") && !token.endsWith("ss")) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+// Splits camelCase and snake_case so warehouse identifiers are searchable:
+// `dim_hs_deals` -> dim, hs, deal.
+function tokenize(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-  if (!normalized) return [];
-  const meaningful = normalized
+    .trim()
     .split(/\s+/)
-    .filter((term) => term.length > 1 && !STOP_WORDS.has(term));
-  return meaningful.length ? Array.from(new Set(meaningful)) : [normalized];
+    .filter(Boolean)
+    .map(stem);
 }
+
+function searchTerms(search: string): string[] {
+  const tokens = tokenize(search);
+  if (!tokens.length) return [];
+  const meaningful = tokens.filter(
+    (term) => term.length > 1 && !STOP_WORDS.has(term),
+  );
+  return Array.from(new Set(meaningful.length ? meaningful : tokens));
+}
+
+function expandedTerms(primary: string[]): string[] {
+  const primarySet = new Set(primary);
+  const expanded = new Set<string>();
+  for (const term of primary) {
+    for (const synonym of SYNONYM_EXPANSIONS[term] ?? []) {
+      const stemmed = stem(synonym);
+      if (!primarySet.has(stemmed)) expanded.add(stemmed);
+    }
+  }
+  return [...expanded];
+}
+
+// SQL bodies run to 12k chars; scoring only needs the leading identifiers.
+const MAX_SCORED_FIELD_CHARS = 4_000;
 
 function matchScore(
   search: string,
@@ -123,25 +203,38 @@ function matchScore(
 ): { score: number; matchedTerms: string[] } {
   const terms = searchTerms(search);
   if (!terms.length) return { score: 0, matchedTerms: [] };
+  const synonyms = expandedTerms(terms);
 
   const normalizedSearch = search.toLowerCase().trim();
   const matched = new Set<string>();
   let score = 0;
   for (const field of weightedFields) {
-    const value = text(field.value).toLowerCase();
-    if (!value) continue;
-    if (normalizedSearch.length > 2 && value.includes(normalizedSearch)) {
+    const raw = text(field.value).slice(0, MAX_SCORED_FIELD_CHARS);
+    if (!raw) continue;
+    const lowered = raw.toLowerCase();
+    const tokens = new Set(tokenize(raw));
+
+    if (normalizedSearch.length > 2 && lowered.includes(normalizedSearch)) {
       score += field.weight * 4;
     }
     for (const term of terms) {
-      if (!value.includes(term)) continue;
+      if (!tokens.has(term) && !lowered.includes(term)) continue;
       matched.add(term);
-      score += field.weight;
+      score += field.weight * (LOW_INFORMATION_TERMS.has(term) ? 0.3 : 1);
+    }
+    for (const synonym of synonyms) {
+      if (!tokens.has(synonym)) continue;
+      score += field.weight * 0.4;
     }
   }
 
-  if (matched.size === terms.length) score += 40;
-  return { score, matchedTerms: [...matched] };
+  // Proportional, not all-or-nothing: a 7-word question could never hit the old
+  // full-coverage bonus, so long real questions collapsed to near-random scores.
+  // Damped for short queries — at full strength every one-of-one-token match tied
+  // at the same score, so generic "... Rate" entries mass-tied above exact panels.
+  const coverageWeight = Math.min(terms.length, 3) / 3;
+  score += 40 * (matched.size / terms.length) * coverageWeight;
+  return { score: Math.round(score), matchedTerms: [...matched] };
 }
 
 function dashboardPanelCandidates(args: {
@@ -156,9 +249,15 @@ function dashboardPanelCandidates(args: {
     ? (args.config.panels as DashboardPanel[])
     : [];
 
+  const wantsDemo = /\bdemo\b|node exporter/i.test(args.search);
+
   return panels.flatMap((panel) => {
+    // 38k of the ~39k indexed panels are clones of the demo Node Exporter dashboard.
+    // They drown real saved work and are never the answer to a real data question.
+    if (!wantsDemo && text(panel.source) === "demo") return [];
+    // Panels without SQL (extensions, embeds) used to be dropped outright, which hid
+    // 61% of real dashboards from search even when their titles matched exactly.
     const query = compactQuery(panel.sql);
-    if (!query) return [];
     const panelConfig =
       panel.config &&
       typeof panel.config === "object" &&
@@ -174,20 +273,49 @@ function dashboardPanelCandidates(args: {
       { value: args.dashboardDescription, weight: 6 },
       { value: panel.source, weight: 5 },
       {
-        value: typeof query === "string" ? query : JSON.stringify(query),
-        weight: 2,
+        // Weighted 2 against a title's 24, this 12x discount hid every panel whose
+        // match lived only in its SQL — the majority of them.
+        value: query
+          ? typeof query === "string"
+            ? query
+            : JSON.stringify(query)
+          : "",
+        weight: 8,
       },
     ]);
+    // Prefer the general panel over a narrower variant ("Signups" over "Clip Share
+    // Signups 30d"), but cap it: the original uncapped -12/token buried long,
+    // well-named panels under short vague ones.
     const requestedTerms = new Set(searchTerms(args.search));
-    const titleSpecificityPenalty =
-      searchTerms(panelTitle).filter((term) => !requestedTerms.has(term))
-        .length * 12;
+    const unmatchedTitleTerms = searchTerms(panelTitle).filter(
+      (term) => !requestedTerms.has(term),
+    ).length;
+    const titleSpecificityPenalty = Math.min(unmatchedTitleTerms, 4) * 4;
+    // A panel with no SQL costs the agent another call to become useful, so it must
+    // not outrank an equally-relevant runnable one. Waived when the title is clearly
+    // on-topic: real questions carry clause words no title contains, so requiring
+    // full coverage here never fires and buries exact-topic panels.
+    const titleMatchedTerms = matchScore(args.search, [
+      { value: panelTitle, weight: 1 },
+    ]).matchedTerms;
+    const strongTitleTerms = titleMatchedTerms.filter(
+      (term) => !LOW_INFORMATION_TERMS.has(term),
+    ).length;
+    const titleIsOnTopic =
+      requestedTerms.size > 0 &&
+      (strongTitleTerms >= 2 ||
+        titleMatchedTerms.length / requestedTerms.size >= 0.6);
+    const missingQueryPenalty = query || titleIsOnTopic ? 0 : 10;
     const aggregateIntent =
       /\b(how many|count|number|total)\b/i.test(args.search) &&
       text(panel.chartType) === "metric"
         ? 20
         : 0;
-    const score = rawScore - titleSpecificityPenalty + aggregateIntent;
+    const score =
+      rawScore -
+      titleSpecificityPenalty -
+      missingQueryPenalty +
+      aggregateIntent;
     if (score <= 0) return [];
 
     return [
@@ -205,7 +333,7 @@ function dashboardPanelCandidates(args: {
         panelTitle,
         ...(panelDescription ? { panelDescription } : {}),
         ...(text(panel.source) ? { source: text(panel.source) } : {}),
-        query,
+        ...(query ? { query } : {}),
         ...(text(panelConfig.timeScope)
           ? { timeScope: text(panelConfig.timeScope) }
           : {}),
@@ -270,6 +398,26 @@ function dictionaryCandidates(
   });
 }
 
+function candidateIsRunnable(
+  candidate: AnalyticsQueryCatalogCandidate,
+): boolean {
+  return candidate.kind === "dashboard-panel"
+    ? Boolean(candidate.query)
+    : Boolean(candidate.queryTemplate);
+}
+
+function candidateDedupeKey(candidate: AnalyticsQueryCatalogCandidate): string {
+  if (candidate.kind === "data-dictionary") return `dict:${candidate.id}`;
+  const query =
+    typeof candidate.query === "string"
+      ? candidate.query
+      : JSON.stringify(candidate.query ?? "");
+  return `panel:${candidate.panelTitle.toLowerCase()}:${query
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()}`;
+}
+
 export function rankAnalyticsQueryCatalog(args: {
   search: string;
   dashboards: Array<{
@@ -296,13 +444,26 @@ export function rankAnalyticsQueryCatalog(args: {
     ...dictionaryCandidates(args.dictionaryEntries, args.search),
   ];
 
-  return candidates
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.kind !== b.kind) return a.kind === "data-dictionary" ? -1 : 1;
-      return JSON.stringify(a).localeCompare(JSON.stringify(b));
-    })
-    .slice(0, args.limit);
+  const ranked = candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    // Prefer something the agent can run over something it must look up again.
+    const aRunnable = candidateIsRunnable(a);
+    const bRunnable = candidateIsRunnable(b);
+    if (aRunnable !== bRunnable) return aRunnable ? -1 : 1;
+    if (a.kind !== b.kind) return a.kind === "data-dictionary" ? -1 : 1;
+    return JSON.stringify(a).localeCompare(JSON.stringify(b));
+  });
+
+  // Cloned dashboards produce near-identical panels that otherwise eat every slot.
+  const seen = new Set<string>();
+  const deduped: AnalyticsQueryCatalogCandidate[] = [];
+  for (const candidate of ranked) {
+    if (deduped.length >= args.limit) break;
+    if (seen.has(candidateDedupeKey(candidate))) continue;
+    seen.add(candidateDedupeKey(candidate));
+    deduped.push(candidate);
+  }
+  return deduped;
 }
 
 async function listDictionaryEntries(args: {

@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  MAX_AGENT_INSTRUCTION_CHARS,
   MAX_DECLARED_STARTER_TOOLS,
   analyzeAgentChatContextPolicy,
+  checkAgentInstructionSizes,
 } from "./guard-agent-chat-context";
 
 describe("agent chat context policy guard", () => {
@@ -73,5 +76,36 @@ describe("agent chat context policy guard", () => {
     });
 
     assert.equal(policy, null);
+  });
+});
+
+describe("agent instruction size guard", () => {
+  const repoRoot = path.resolve(import.meta.dirname, "..");
+
+  it("keeps the analytics guide inside the compact-prompt cap", () => {
+    const { sizes } = checkAgentInstructionSizes(repoRoot);
+    const analytics = sizes.find(
+      (entry) => entry.file === "templates/analytics/AGENTS.md",
+    );
+
+    assert.ok(
+      analytics,
+      "expected templates/analytics/AGENTS.md to be checked",
+    );
+    assert.equal(
+      analytics.overCap,
+      false,
+      `templates/analytics/AGENTS.md is ${analytics.chars} chars; anything past ${MAX_AGENT_INSTRUCTION_CHARS} is silently dropped before the model sees it`,
+    );
+  });
+
+  it("fails any agent instruction file that overflows the compact-prompt cap", () => {
+    const { errors } = checkAgentInstructionSizes(repoRoot);
+
+    assert.equal(
+      errors.length,
+      0,
+      `unexpected instruction-size failures:\n${errors.join("\n")}`,
+    );
   });
 });

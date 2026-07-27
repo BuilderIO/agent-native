@@ -25,6 +25,7 @@ import {
   AGENT_BACKGROUND_PROCESSOR_ROUTE,
   AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
+  isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
   INTEGRATION_RETRY_SWEEP_PATH,
@@ -42,6 +43,7 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import { assertEmittedBackgroundFunctionOnDisk } from "./build.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -680,12 +682,14 @@ function copyNetlifyFunctionIntoWorkspace(
   copyDir(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
 
-  // Durable background agent runs (default-ON; opt out with a falsy
-  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: when explicitly opted out
+  // Durable background agent runs. Additive ONLY: when explicitly opted out
   // this emits nothing and the single-function deploy is unchanged.
   const integrationDurableDispatch =
     app === "dispatch" && isIntegrationDurableDispatchConfigured();
-  if (isDurableBackgroundDeployEnabled() || integrationDurableDispatch) {
+  if (
+    isDurableBackgroundWorkspaceDeployEnabled() ||
+    integrationDurableDispatch
+  ) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
   }
   if (integrationDurableDispatch) {
@@ -699,21 +703,21 @@ function copyNetlifyFunctionIntoWorkspace(
 }
 
 /**
- * Deploy-time gate for emitting the second `-background` Netlify function. Reads
- * the same env flag the runtime gate uses (`AGENT_CHAT_DURABLE_BACKGROUND`).
+ * Deploy-time gate for emitting the per-app `-background` Netlify function.
  *
- * DEFAULT-ON, matching the runtime gate (`isFlagEnabled` in
- * durable-background.ts) and the single-template gate
- * (`isDurableBackgroundDeployEnabled` in deploy/build.ts): unset/empty/unknown
- * means enabled; an app opts OUT only with an explicit falsy value
- * (`false`/`0`/`no`/`off`). This emits the per-app 15-min `-background` function
- * so the chat `_process-run` dispatch lands on it with the real long budget.
+ * DELIBERATELY WIDER THAN THE SINGLE-TEMPLATE GATE, and it must stay exactly as
+ * wide as the WORKSPACE half of the runtime gate: a workspace app opts in
+ * through its agent-chat plugin (`durableBackgroundRuns`), which
+ * `isAgentChatDurableBackgroundEnabled({ appOptIn: true })` honors unless the
+ * env flag is EXPLICITLY falsy. So the emit condition is "not explicitly
+ * disabled" — narrowing it to the env-only opt-in would leave plugin-opted-in
+ * apps dispatching at a function that was never deployed. The predicates come
+ * from durable-background.ts so the deploy and runtime parses cannot drift
+ * (they had: this file's former local copy claimed to match a default-off gate
+ * while implementing a default-on one).
  */
-function isDurableBackgroundDeployEnabled(): boolean {
-  const raw = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
-  if (raw == null) return true;
-  const v = raw.trim().toLowerCase();
-  return !(v === "0" || v === "false" || v === "no" || v === "off");
+export function isDurableBackgroundWorkspaceDeployEnabled(): boolean {
+  return !isDurableBackgroundFlagExplicitlyDisabled();
 }
 
 /**
@@ -878,6 +882,7 @@ export const config = {
   // is the function entrypoint, mirroring patchNetlifyFunctionEntry.
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
+  assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
   console.log(
     `[workspace-deploy] Emitted durable-background function "${backgroundName}" ` +
       `for app "${app}" with config { background:true } and NO custom path — ` +

@@ -362,7 +362,9 @@ function isAuthFailureStatus(status: number): boolean {
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
-  if (url.pathname === "/_agent-native/sign-in") return false;
+  // Suffix, not equality: an app mounted under a base path serves
+  // `/<app>/_agent-native/sign-in`, which the old exact match never matched.
+  if (url.pathname.endsWith("/_agent-native/sign-in")) return false;
   return true;
 }
 

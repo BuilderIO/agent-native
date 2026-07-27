@@ -7,6 +7,7 @@
  *   - reactions
  *   - chapters (parsed from recording.chaptersJson)
  *   - CTAs
+ *   - counted-view total
  *
  * This is the read endpoint the player/:id and share/:id routes use.
  * Access is gated by assertAccess at viewer level — for public-visibility
@@ -20,23 +21,24 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
+import { countRecordingAgentViews } from "../server/lib/agent-views.js";
 import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpired,
 } from "../server/lib/recording-page-access.js";
-import { parseSpaceIds } from "../server/lib/recordings.js";
+import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
+import {
+  countRecordingViews,
+  parseSpaceIds,
+} from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
@@ -93,7 +95,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -121,55 +123,13 @@ export default defineAction({
       throw new ForbiddenError("Recording has expired");
     }
 
-    let hasExplicitShare = access.role === "owner";
-    if (
-      rec.visibility === "public" &&
-      access.role !== "owner" &&
-      !rec.password &&
-      isAgentRecordingCaller(ctx?.caller)
-    ) {
-      hasExplicitShare = true;
-    }
-    if (
-      rec.visibility === "public" &&
-      access.role !== "owner" &&
-      !hasExplicitShare
-    ) {
-      const userEmail = getRequestUserEmail()?.trim().toLowerCase();
-      const orgId = getRequestOrgId();
-      const principals = [];
-      if (userEmail) {
-        principals.push(
-          and(
-            eq(schema.recordingShares.principalType, "user"),
-            sql`lower(${schema.recordingShares.principalId}) = ${userEmail}`,
-          ),
-        );
-      }
-      if (orgId) {
-        principals.push(
-          and(
-            eq(schema.recordingShares.principalType, "org"),
-            eq(schema.recordingShares.principalId, orgId),
-          ),
-        );
-      }
-      if (principals.length > 0) {
-        const [share] = await db
-          .select({ id: schema.recordingShares.id })
-          .from(schema.recordingShares)
-          .where(
-            and(
-              eq(schema.recordingShares.resourceId, args.recordingId),
-              or(...principals),
-            ),
-          )
-          .limit(1);
-        hasExplicitShare = Boolean(share);
-      } else {
-        hasExplicitShare = false;
-      }
-    }
+    const hasExplicitShare = await hasExplicitRecordingShare({
+      recordingId: args.recordingId,
+      role: access.role,
+      visibility: rec.visibility,
+      hasPassword: Boolean(rec.password),
+      isAgentCaller: isAgentRecordingCaller(ctx?.caller),
+    });
 
     if (
       !canOpenDirectRecordingPage({
@@ -193,20 +153,27 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const [cleanupStateRaw, builderCreditsRaw, verificationPending] =
-      await Promise.all([
-        readAppState(`transcript-cleanup-${args.recordingId}`).catch(
-          () => null,
-        ),
-        canEditRecording
-          ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
-          : Promise.resolve(null),
-        isMediaVerificationPending({
-          ownerEmail: rec.ownerEmail,
-          recordingId: args.recordingId,
-          recordingStatus: rec.status,
-        }),
-      ]);
+    // This action is on a 1-3s poll from the player, so every read here shares
+    // one Promise.all instead of adding serial round-trips.
+    const [
+      cleanupStateRaw,
+      builderCreditsRaw,
+      verificationPending,
+      viewCount,
+      agentViewCount,
+    ] = await Promise.all([
+      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
+      canEditRecording
+        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+        : Promise.resolve(null),
+      isMediaVerificationPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+      }),
+      countRecordingViews(args.recordingId).catch(() => 0),
+      countRecordingAgentViews(args.recordingId).catch(() => 0),
+    ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
@@ -338,6 +305,8 @@ export default defineAction({
 
     return {
       role: access.role,
+      viewCount,
+      agentViewCount,
       recording: {
         id: rec.id,
         organizationId: rec.organizationId,

@@ -16,11 +16,33 @@ visually instead of generating standalone Alpine HTML. The source of truth is
 the running localhost app plus its route URLs. Design shows those routes as
 iframe-backed screens on the infinite canvas.
 
+## Installing this skill for an external MCP host
+
+The hosted install path
+(`npx @agent-native/core@latest skills add visual-edit`, or `design` for the
+full Design bundle) installs the exported instructions and registers the
+hosted Design MCP connector together. The open Skills CLI path
+(`npx skills@latest add BuilderIO/agent-native --skill visual-edit`) installs
+exported instructions only, with no MCP connector registration.
+
 ## Core Model
 
 - Each screen is a URL-backed iframe, not copied HTML.
 - Each screen keeps URL metadata: `connectionId`, `routeId`, `path`,
   `url`, `bridgeUrl`, title, and viewport size.
+- Localhost Edit mode renders the running app through the local bridge as a live
+  iframe with the same editor bridge used by HTML designs. It is not a frozen
+  static DOM snapshot.
+- The live editor is same-origin through the local bridge proxy. This boots
+  CSR apps and root-relative assets, but it is still a localhost editing proxy:
+  app-origin cookies, WebSockets/HMR, SSE, and non-GET app API calls may need a
+  future dev-server/plugin integration for perfect parity with the app's own
+  origin.
+- Interact mode renders the app's normal URL so app navigation, scrolling,
+  links, and form controls behave as they would in the browser.
+- While a localhost screen has pending live visual edits, do not switch back to
+  Interact until the user either applies the edits to source or explicitly
+  aborts/discards the preview.
 - Start in Design's screen overview mode. In overview, screens are static
   design frames; full-screen focus is for scrolling and app interaction.
 - Alt-drag duplicates a screen. For localhost screens, duplication copies the
@@ -31,6 +53,28 @@ iframe-backed screens on the infinite canvas.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means
   `http://localhost:1234/onboarding/1`.
+
+## Select And Reprompt
+
+When a chat message begins with `[Reprompt selection]`, the selected subtree is
+a hard write boundary. The only mutation path is `propose-node-rewrite` with
+the exact `repromptId`, target, and `baseVersionHash` captured in
+`design-reprompt-pending:<designId>:<fileId>`. Never use `apply-visual-edit`,
+`apply-source-edit`, `write-source`, `write-local-file`, `edit-design`, or any
+other content-writing action for that request. Clarifying questions are allowed,
+but a requested change must remain a proposal.
+
+Produce one variant by default. Produce two or three only when the instruction
+asks for options. A retry includes `priorProposalId`; keep the same target and
+base version, incorporate the feedback, and call `propose-node-rewrite` again.
+The UI previews the returned subtree without persisting it.
+
+Use `resolve-node-rewrite` for the accept/reject lifecycle. Accept applies the
+chosen variant as one version-checked inline/Yjs content transaction so one
+undo restores the prior structure; reject clears the proposal without changing
+content. For conversational resolution such as "apply the second one," call
+`view-screen`, read the active `design.reprompt.proposal`, and pass its
+`proposalId` plus the zero-based `variantIndex` to `resolve-node-rewrite`.
 
 ## Review Quality
 
@@ -81,6 +125,14 @@ This prints the manifest (routes + capabilities). Parse it to build
 `routeManifest` for the next step. (Skip this if the user already gave explicit
 paths/URLs to place.)
 
+Inside the agent-native monorepo itself, use the workspace CLI instead of
+`npx` — `npx` installs the last published `@agent-native/core`, which will not
+contain local changes and costs a slow install on every call:
+
+```bash
+pnpm dev:cli design connect --url http://localhost:5173 --root templates/<app> --json
+```
+
 **2. Call `open-visual-edit`** (see Action Flow below) with NO `bridgeToken`.
 The server mints one, stores it on the user's connection row, copies it into the
 placed screens' metadata, and returns it to you as `bridgeToken`. Capture it.
@@ -100,12 +152,21 @@ the command exits.
 For a manual health/manifest check on the running bridge:
 
 ```bash
-curl http://127.0.0.1:7331/manifest.json
+curl http://127.0.0.1:7331/health
 ```
+
+`/health` needs no token. The full manifest at `/manifest.json` is
+preview-token protected, so an unauthenticated `curl` of it returns
+`{"ok":false,"error":"invalid or missing preview token"}` — that response means
+the bridge is up, not that it is broken.
 
 Only use `--json` for the step-1 route probe. Never use `--json`, `--once`,
 or `--dry-run` for the durable step-3 bridge: they print the manifest and exit,
 so Design falls back to a non-editable live iframe.
+
+The bridge listens on a single fixed port (7331) and refuses to start for a
+second, different app. It is detached with no log file, so if `--daemon` reports
+a timeout, check for a stale process (`lsof -ti:7331`) before retrying.
 
 ## Action Flow
 
@@ -139,6 +200,52 @@ the bridge. On follow-up calls reusing an existing `connectionId`, the same
 token is returned (it is minted once and reused), so the running bridge stays
 valid.
 
+### Desktop and mobile side by side
+
+Pass `viewports` to place every requested route once per viewport. Frames lay
+out as a grid: one row per route, one column per viewport. Presets are
+`desktop` (1280x900), `laptop` (1440x900), `tablet` (834x1112), and `mobile`
+(390x844); an explicit `{ "label": "...", "width": N, "height": N }` also works.
+
+```bash
+pnpm action open-visual-edit '{
+  "title": "Tasks responsive visual edit",
+  "devServerUrl": "http://localhost:5173",
+  "bridgeUrl": "http://127.0.0.1:7331",
+  "rootPath": "/absolute/path/to/app",
+  "paths": ["/tasks", "/inbox"],
+  "viewports": ["desktop", "mobile"]
+}'
+```
+
+Prefer this over two separate calls with `defaultWidth`/`defaultHeight`: it
+keeps each route's viewports aligned in a row and titles them
+`Tasks — Desktop` / `Tasks — Mobile` so the canvas reads clearly. `viewports`
+overrides `defaultWidth`/`defaultHeight`. With no `routes`/`paths`, it expands
+every route in the localhost manifest, which is usually far more frames than
+the user wants — name the paths.
+
+### Adding more page frames later
+
+Call `open-visual-edit` again with the same `designId` and `connectionId` and
+only the new paths. Existing frames for the same route and viewport are
+refreshed in place rather than duplicated, and a frame the user has dragged or
+resized keeps its position unless you explicitly pass `x`/`y`/`width`/`height`.
+
+```bash
+pnpm action open-visual-edit '{
+  "designId": "<existing-design-id>",
+  "connectionId": "<existing-connection-id>",
+  "devServerUrl": "http://localhost:5173",
+  "paths": ["/settings", "/team"],
+  "startY": 2200
+}'
+```
+
+Do NOT add `defaultWidth`/`defaultHeight` just to restate the default size:
+supplying either one marks the viewport as explicitly requested, which
+overwrites frame sizes the user has already adjusted on the canvas.
+
 For a numbered flow the user describes in chat, keep the labels and order:
 
 ```bash
@@ -151,22 +258,6 @@ pnpm action open-visual-edit '{
     { "url": "localhost:1234/onboarding/2", "title": "Screen 2" },
     { "url": "localhost:1234/onboarding/3", "title": "Screen 3" }
   ]
-}'
-```
-
-For responsive follow-ups, call `open-visual-edit` again with the same
-`designId` and `connectionId`, plus explicit viewport dimensions:
-
-```bash
-pnpm action open-visual-edit '{
-  "designId": "<existing-design-id>",
-  "connectionId": "<existing-connection-id>",
-  "devServerUrl": "http://localhost:5173",
-  "paths": ["/"],
-  "defaultWidth": 390,
-  "defaultHeight": 844,
-  "startX": 1600,
-  "startY": 0
 }'
 ```
 
@@ -194,26 +285,77 @@ Fallback, only when `open-visual-edit` is unavailable:
   `vscode://builder.agent-native/open?url=<encoded-design-url>`. Its
   `Agent Native: Open Design Canvas` command also starts the local bridge and
   opens hosted Design in the VS Code side panel.
-- After `add-localhost-screens`, confirm the Design editor is in overview mode
-  with the requested URL-backed frames visible. Do not stop at "screens added"
-  when the user asked to inspect or edit visually.
+- After `open-visual-edit`, confirm the Design editor is in overview mode
+  with the requested URL-backed frames visible, and that they render the app
+  rather than a spinner. Do not stop at "screens added" when the user asked to
+  inspect or edit visually.
+
+## Applying Visual Edits Back To Source
+
+Canvas edits on a localhost screen do not write source as you make them. They
+accumulate as pending edits and the editor shows an "Apply with Design agent"
+button in the bottom-right corner of the canvas. Clicking it hands a structured
+prompt to the Design agent chat, which performs the real source write.
+
+- Style, text, and drag/drop structure edits all collect into the same pending
+  batch, so the user can make several changes and apply once.
+- After the write lands, the target app's own dev-server HMR refreshes the
+  frames — no manual reload. If frames do not refresh, the write did not land;
+  say so rather than assuming.
+- The separate disk-icon "Apply to source" button is the deterministic
+  whole-file HTML/CSS writer. It is intentionally disabled for compiled
+  `.jsx`/`.tsx` routes — those must go through the agent path above.
 
 ## Editing URLs
 
 Keep localhost screens as URL files plus `screenMetadata[fileId]`. Do not
 replace them with copied `srcdoc` HTML unless the user explicitly asks for a
-frozen snapshot. To change a state, rerun `add-localhost-screens` with the new
+frozen snapshot. To change a state, rerun `open-visual-edit` with the new
 path/query or duplicate the screen and update the copy's URL metadata.
+
+## Local Files in the Code Tab
+
+Once a connection is registered, the design editor's Code panel (left rail →
+Code, or `navigate --view editor --designId <id> --leftPanel code`) shows a
+local-files workspace root for that connection next to the design's own files.
+Treat that root like VS Code opened at the connected project directory: file
+tree, search, open/edit, and save are backed by the real local files. It lists
+the connected app's text/code files through the bridge
+(`list-local-files` / `read-local-file`); build output, `node_modules`,
+`.git`, and secret-looking paths (`.env*`, key files) are always excluded.
+
+- Browsing and reading need only editor access on the design plus the running
+  bridge.
+- Saving goes through `write-local-file`: the first save opens the
+  write-consent dialog (an 8-hour, folder-scoped grant) and retries
+  automatically once granted. Only text/code files are writable; secret paths
+  are always blocked.
+- If the agent calls `write-local-file` directly (not through a UI save) and it
+  fails with "no write-consent grant", call `request-localhost-write-consent`.
+  It opens the write-consent dialog in the editor, or reports `alreadyGranted`
+  if one already exists. Granting is human-only —
+  `grant-localhost-write-consent` is hidden from agents, so you cannot approve
+  it yourself. Tell the user to click "Allow writes", then retry
+  `write-local-file` once. Do not keep retrying blindly: the write stays
+  blocked until the user approves.
+- Saves are conflict-checked against the file's on-disk version — a file that
+  changed since it was read fails with a version conflict instead of being
+  overwritten.
 
 ## React Source Writeback
 
 - Use compiler/debug provenance (project-relative file, line, column,
   component, and runtime multiplicity) to locate React/TSX source. Treat it as
   evidence, not as permission for a generic AST structural transform.
+- A single-instance leaf text edit, literal `className`/`class` edit, or flat
+  literal `style={{ ... }}` property may use `apply-visual-edit` with a
+  `local-file` source and exact `target.sourceAnchor`. Preview first (omit
+  `persist`), inspect `proposedDiff`, then call with `persist: true`.
 - Reparenting, grouping/ungrouping, wrappers, dynamic expressions, repeated
-  `.map()` instances, shared components, and cross-file changes go through the
-  coding agent with exact subject/target anchors and their runtime
-  relationship.
+  `.map()` instances, shared components, breakpoint-scoped edits, and
+  cross-file changes go through the coding agent with exact subject/target
+  anchors and their runtime relationship. `apply-visual-edit` refuses these
+  with `status: "needsAgent"` rather than guessing.
 - Before each write, read the file and pass its exact `versionHash` to
   `write-local-file` with `requireExpectedVersionHash: true`; on conflict,
   re-read and re-plan. Keep the optimistic preview until HMR/runtime confirms
@@ -223,5 +365,8 @@ path/query or duplicate the screen and update the copy's URL metadata.
 
 - `list-localhost-connections` returns the expected connection and routes.
 - The Design editor opens in overview mode.
-- Every requested screen renders the intended localhost URL.
+- Every requested screen renders the intended localhost URL, showing real app
+  content rather than an endless loading spinner.
 - Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
+- A query/path edit changes only the target screen's URL metadata and iframe.
+- The Code tab shows a local-files root for the connection and opens its files.

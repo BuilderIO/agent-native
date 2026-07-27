@@ -57,6 +57,29 @@ describe("DatabaseSidebarView", () => {
     ).toEqual(["item-first", "item-second"]);
   });
 
+  it("renders an empty fallback while database data is incomplete", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContentFilesSidebarView
+            data={{} as ContentDatabaseResponse}
+            overrides={null}
+            isLoading={false}
+            labels={{
+              loadingLabel: "Loading",
+              noMatchesLabel: "No matches",
+              clearLabel: "Clear",
+              navigationLabel: "Files",
+              untitledLabel: "Untitled",
+            }}
+          />
+        </TooltipProvider>
+      </MemoryRouter>,
+    );
+
+    expect(markup).toContain('aria-label="Files"');
+  });
+
   it("renders compact router links for an ungrouped saved view", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>

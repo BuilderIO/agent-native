@@ -1,0 +1,103 @@
+---
+title: "Mail: Drafting, Scheduling & the Draft Queue"
+description: "Compose, schedule, and send email in Mail, queue a draft for a teammate to review before it sends, and track opens and clicks on what you send."
+---
+
+# Drafting, Scheduling & the Draft Queue
+
+This page covers writing and sending email in [Mail](/docs/template-mail): composing and replying, scheduling a send or snoozing a message, letting a teammate or Slack request queue a draft for you to approve, and checking whether a sent email was opened. It's written for anyone using Mail, not just developers.
+
+## Composing and replying
+
+Ask the agent to draft or reply, or hit `C` to compose yourself. A few things shape what gets written:
+
+- **Your signature.** If you've configured one in Settings → Drafting, it's appended automatically and used exactly as written — the agent never invents one from your name or profile.
+- **Your writing style.** An optional style note in Settings steers the agent's tone toward how you actually write.
+- **Snippets.** Save a canned response once and insert it from the compose slash menu any time — "add my pricing blurb" works whether you or the agent wrote the snippet.
+- **Attachments.** Attach a file you've already uploaded in the compose panel; the agent only attaches what you've explicitly provided, never something it invents or fetches on your behalf.
+
+The agent never sends without asking first. Drafting and editing happen freely; the moment it's time to actually send, Mail pauses for your explicit go-ahead — this is one of the few places in the app that works this way, because sending mail is hard to undo.
+
+## Scheduling a send or snoozing a message
+
+Ask to "send this Monday at 9am" or "snooze this until tomorrow afternoon" and Mail schedules it rather than sending immediately. Scheduled sends and snoozes both show up under the Scheduled view, where you can fire one off early or cancel it before it runs.
+
+## Queuing a draft for a teammate to review
+
+Teammates — and people messaging your team's Slack — can ask the agent to prepare an email on your behalf without ever sending it themselves. The request lands in your **draft queue** at `/draft-queue`, where you review, edit, and send it yourself.
+
+<WireframeBlock id="doc-block-mail6">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:480px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Draft queue</strong><span class='wf-pill'>Review</span><span class='wf-pill'>Requested</span><div style='flex:1'></div><button class='primary'>New request</button></div><div style='display:grid;grid-template-columns:280px 1fr;gap:0;flex:1;min-height:0'><div style='display:flex;flex-direction:column;gap:6px;padding:10px;border-right:1.4px solid var(--wf-line)'><div class='wf-box' style='display:flex;flex-direction:column;gap:4px;padding:8px'><span class='wf-pill accent' style='width:fit-content'>queued</span><strong>Follow up with Acme</strong><span class='wf-muted'>from Priya Mehta</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:4px;padding:8px'><span class='wf-pill' style='width:fit-content'>in review</span><strong>Reschedule kickoff</strong><span class='wf-muted'>from #sales-slack</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:4px;padding:8px'><span class='wf-pill' style='width:fit-content'>sent</span><strong>Thanks for the intro</strong><span class='wf-muted'>from Marcus Tang</span></div></div><div style='display:flex;flex-direction:column;gap:10px;padding:16px'><div class='wf-muted'>To: acme-team@acme.com</div><div class='wf-muted'>Subject: Follow up with Acme</div><div class='wf-card' style='min-height:120px'>Hi team, following up on last week's call...</div><div style='display:flex;gap:8px'><button>Edit in compose</button><button class='primary'>Send</button><button>Dismiss</button></div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+<Diagram id="doc-block-mail5" title="Draft queue lifecycle" summary={"A teammate or Slack request never sends directly — it queues a draft that only the owner can edit and send."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Teammate or Slack request<br /><small class="diagram-muted"
+      >"ask the agent to draft..."</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">queued</span
+    ><small class="diagram-muted">queued_email_drafts row</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Owner opens /draft-queue<br /><small class="diagram-muted">in_review</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Owner edits and sends<br /><small class="diagram-muted">sent</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+A few things worth knowing about the queue:
+
+<Callout tone="warning">
+
+Only the draft's **owner** — or an org owner/admin — can edit or send a queued draft. The person who requested it cannot edit or send their own request, even though they created it. Once a draft is sent, it's frozen; ask for a new one instead of editing a sent draft.
+
+</Callout>
+
+Requests from Slack verify the requester's real email address before queuing anything — if that verification isn't set up, Slack intake won't guess an address from a display name, and the request won't queue.
+
+## Tracking opens and clicks
+
+If you've turned on open or click tracking in Settings, every email you send after that gets a tracking pixel and per-link click tokens. Ask "did they open my email?" and the agent reports open count and per-link click stats. Emails sent before you turned tracking on simply report as untracked — that's expected, not an error.
+
+## Aliases: sending from a different address
+
+Configure aliases — named groups of email addresses you can send as — from Settings → Aliases. Aliases are managed from that Settings page directly; the agent can read and use an alias you've set up, but adding or editing one is a manual step in Settings today.
+
+## What's next
+
+- [**Inbox, Search & Automations**](/docs/template-mail-inbox) — triaging what arrives before you reply
+- [**Talking to the Agent**](/docs/template-mail-agent) — prompts for drafting, scheduling, and the queue
+- [**Developer Guide**](/docs/template-mail-developers) — the draft, scheduling, and queue action reference
+- [**Mail overview**](/docs/template-mail) — back to the app summary

@@ -116,15 +116,27 @@ move is rewritten only when the installed destination package exports its target
 
 ## Whole-package ejection
 
-`@agent-native/scheduling` is the first package with the generic manifest. Add
-creates action re-export stubs, adds the schema export, copies its agent skills,
-records the dependency, and reports required secret names and providers.
-Eject copies the published Scheduling source to `packages/scheduling`, switches
-the dependency to `workspace:*`, and preserves canonical
-`@agent-native/scheduling` imports so workspace resolution selects the local
-copy.
+`@agent-native/scheduling` and `@agent-native/creative-context` both ship the
+generic manifest. Add creates action re-export stubs, adds the schema export,
+copies the package's agent skills, records the dependency, and reports
+required secret names and providers. Eject copies the published package source
+to `packages/scheduling` (or `packages/creative-context`), switches the
+dependency to `workspace:*`, and preserves the canonical package import
+specifier so workspace resolution selects the local copy.
 
 Whole-package ejection and feature ejection solve different ownership needs.
 Use `agent-native package eject` when the complete domain package should become
 a workspace package. Use `agent-native eject <unit>` when the package should
 keep supplying upgrades for everything except one app-owned feature.
+
+## What's next
+
+- [**Toolkit Capability Modules**](/docs/toolkit-capability-packages) — the
+  Scheduling, Creative Context, and Pinpoint packages these commands manage.
+- [**Toolkit overview**](/docs/agent-native-toolkit#customize-or-eject) — the
+  broader `agent-native eject` unit catalog for components and integrations
+  beyond whole packages.
+- [**Doctor**](/docs/doctor) — `doctor --only migration-manifest` and the
+  framework's other CI guard checks.
+- [**Syncing Template Changes**](/docs/syncing-template-changes) — the mirror-image
+  command: pulling upstream template fixes in, instead of ejecting a package out.

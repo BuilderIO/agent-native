@@ -81,8 +81,14 @@ import {
 } from "../mcp/route-paths.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
+import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_LEGACY_RETURN_PARAM,
+  normalizeAppPath,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -535,33 +541,19 @@ export function isDevEnvironment(): boolean {
 }
 
 /**
- * Validate a `?return=` URL for the /_agent-native/sign-in entrypoint.
+ * @deprecated Prefer `normalizeAppPath` from `@agent-native/core/shared`,
+ * which returns `null` for a rejected path instead of a `"/"` a caller cannot
+ * distinguish from a genuine request for the home page.
  *
- * Parses the candidate against a sentinel base origin; any input that
- * resolves to a different origin (network-path references, absolute URLs,
- * `data:` / `javascript:` schemes, backslash-bypass tricks WHATWG normalises
- * to `//`) gets rejected and falls back to "/". Control characters are
- * stripped up front to defend against header-injection. Returns the
- * normalised path the parser produced — never the raw input.
- *
- * Exported for unit tests.
+ * Retained because eight template call sites use it for PROVIDER OAuth
+ * returns (Google Calendar, Slack, Google Docs, …), which is a legitimately
+ * separate concern from the sign-in journey. Deliberately passes NO base path:
+ * provider return targets are not guaranteed to be base-path prefixed, and
+ * tightening that here would silently collapse working provider returns to
+ * "/" on base-path deploys. Base-path containment belongs to `signInJourney`.
  */
 export function safeReturnPath(raw: string | null | undefined): string {
-  if (!raw) return "/";
-  if (/[\x00-\x1f]/.test(raw)) return "/";
-  try {
-    const parsed = new URL(raw, "http://safe-base.invalid");
-    if (parsed.origin !== "http://safe-base.invalid") return "/";
-    // Never return to the sign-in entry point itself. A `return` that resolves
-    // back to `…/_agent-native/sign-in` re-enters the redirect loop — each hop
-    // nests the prior sign-in URL as a fresh `?return=`. Collapse it to "/" so
-    // the post-sign-in 302 lands on the app, not another sign-in page. Matches
-    // with or without an app base-path prefix (`/<app>/_agent-native/sign-in`).
-    if (parsed.pathname.endsWith("/_agent-native/sign-in")) return "/";
-    return parsed.pathname + parsed.search + parsed.hash;
-  } catch {
-    return "/";
-  }
+  return normalizeAppPath(raw) ?? "/";
 }
 
 /**
@@ -1658,8 +1650,9 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
         // template roots do not invoke origin just to render anonymous login UI.
         // The login markup is env-INDEPENDENT (a Google-only app always renders
         // a working button); the analytics script is public build configuration,
-        // not user/session state. Never downgrade this to private/no-store.
-        ...DEFAULT_SSR_CACHE_HEADERS,
+        // not user/session state. Never vary this per request — the
+        // deployment-wide override inside the resolver is the only knob.
+        ...resolveSsrCacheHeaders(),
         "X-Robots-Tag": "noindex, nofollow",
       },
     },
@@ -1914,14 +1907,21 @@ function createAuthGuardFn(): (
       // reaches this explicit entrypoint after discovering there is no
       // session; only a fresh local development DB can take this redirect.
       if (getMethod(event) === "GET") {
-        const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
-        const safeReturn = safeReturnPath(
-          new URLSearchParams(queryStr).get("return"),
+        const query = new URLSearchParams(
+          queryStart >= 0 ? url.slice(queryStart + 1) : "",
         );
-        const autoSession = await maybeAutoCreateDevSession(
-          event,
-          safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
-        );
+        // `?return=` is read as a fallback FOREVER. Generated apps in the wild
+        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // dropping the fallback would send them all to "/" — a UX quirk no
+        // test would catch. New producers emit `c`; only NEW `?return=`
+        // producers are forbidden, never this consumer.
+        const { resumeHref } = signInJourney({
+          at: url,
+          continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
+          legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
       return loginHtmlResponse(loginHtml, event);
@@ -2000,7 +2000,14 @@ function createAuthGuardFn(): (
       // dev account, so production SSR remains one cacheable anonymous shell
       // and explicit sign-out still works.
       if (getMethod(event) === "GET") {
-        const autoSession = await maybeAutoCreateDevSession(event, url);
+        // Same source of truth as the sign-in entry above. This used to pass
+        // the raw request URL, which made one decision with two sources — the
+        // shape the sign-in unification exists to delete.
+        const { resumeHref } = signInJourney({
+          at: url,
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
         if (autoSession) return autoSession;
       }
       return;

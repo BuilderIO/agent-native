@@ -11,10 +11,11 @@
 import { createRequire } from "node:module";
 
 import {
+  assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
-  resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
   resolveSecret,
 } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/store.js";
@@ -471,16 +472,12 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
   const hasAllKeys = async (entry: AgentEngineEntry): Promise<boolean> => {
     if (!isAgentEnginePackageInstalled(entry)) return false;
     if (entry.requiredEnvVars.length === 0) return false;
-    if (entry.name === "builder") {
-      const creds = await resolveBuilderCredentials();
-      return Boolean(creds.privateKey && creds.publicKey);
-    }
+    if (entry.name === "builder") return hasUsableBuilderConnection();
     for (const key of entry.requiredEnvVars) {
-      try {
-        if (!(await resolveUsableProviderSecret(key))) return false;
-      } catch {
-        return false;
-      }
+      // A throw here means the credential store could not be read. Let it
+      // propagate: swallowing it reports "no provider connected" to a user
+      // whose key is sitting in a row we simply failed to load.
+      if (!(await resolveUsableProviderSecret(key))) return false;
     }
     return true;
   };
@@ -583,6 +580,17 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
 }
 
+/**
+ * A Builder connection we could not read is not a missing connection. Throwing
+ * keeps that distinction instead of reporting "connect a provider" to a user
+ * whose org-shared keys exist but were unreadable.
+ */
+async function hasUsableBuilderConnection(): Promise<boolean> {
+  const creds = await resolveBuilderCredentialsDetailed();
+  assertCredentialStoreReadable(creds);
+  return Boolean(creds.privateKey && creds.publicKey);
+}
+
 async function resolveUsableProviderSecret(
   key: string,
 ): Promise<string | null> {
@@ -648,17 +656,9 @@ export async function isStoredEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }
@@ -680,10 +680,7 @@ export async function isResolvedEngineUsableForRequest(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (entry.requiredEnvVars.length === 0) return true;
 
-  if (entry.name === "builder") {
-    const creds = await resolveBuilderCredentials();
-    return Boolean(creds.privateKey && creds.publicKey);
-  }
+  if (entry.name === "builder") return hasUsableBuilderConnection();
 
   if (options.apiKey?.trim()) {
     const key = entry.requiredEnvVars[0];
@@ -695,12 +692,7 @@ export async function isResolvedEngineUsableForRequest(
   }
 
   for (const key of entry.requiredEnvVars) {
-    try {
-      if (await resolveUsableProviderSecret(key)) continue;
-    } catch {
-      return false;
-    }
-    return false;
+    if (!(await resolveUsableProviderSecret(key))) return false;
   }
   return true;
 }

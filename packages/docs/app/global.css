@@ -48,7 +48,7 @@
   --muted-foreground: 0 0% 64%;
   --accent: 0 0% 15%;
   --accent-foreground: 0 0% 93%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 93%;
   --border: 0 0% 12%;
   --input: 0 0% 12%;
@@ -977,7 +977,6 @@ html.dark .shiki span {
 .hero-section {
   text-align: center;
   padding: 80px 24px 64px;
-  border-bottom: 1px solid var(--docs-border);
 }
 
 .hero-section h1 {
@@ -1043,7 +1042,15 @@ html.dark .shiki span {
   display: none;
 }
 
-/* Comparison table */
+/* Comparison media */
+.homepage-comparison-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
 .approaches-table-wrapper {
   margin: 0 auto;
   max-width: 900px;

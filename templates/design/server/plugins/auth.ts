@@ -7,7 +7,7 @@ export default createAuthPlugin({
   // still go through authenticated actions.
   workspaceAppPublicPaths: ["/visual-edit", "/design", "/present"],
   marketing: {
-    appName: "Agent-Native Design",
+    appName: "Design",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [

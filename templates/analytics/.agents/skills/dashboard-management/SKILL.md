@@ -84,6 +84,21 @@ Do not rely on undeclared time variables. Server validation rejects unbound
 first-party SQL, so declare the filter or choose an explicit non-dashboard
 scope before saving.
 
+**A bound anywhere in the SQL is not the same as every CTE having its own
+bound.** If a panel has multiple top-level CTEs (`WITH a AS (...), b AS
+(...)`) and more than one of them reads `analytics_events`, EVERY one of
+those CTEs needs its own `{{timeRange}}`/`{{<id>Start}}`/`{{<id>End}}`
+reference or literal date bound — not just the final `SELECT` or one sibling
+CTE. A CTE that computes something like "this user's first-ever active day"
+by scanning `analytics_events` with no bound at all will full-table-scan on
+every render even though the panel *looks* time-bound overall (root cause of
+a 2026-07-25 production incident: several dashboards had exactly this shape).
+Server validation checks each top-level CTE independently now, so this fails
+at save time — but write it right the first time: bound every CTE, or use
+`config.timeScope: "cohort-history"` only for a CTE that is genuinely
+defining a cohort (e.g. a first-seen date), never as a way to skip bounding
+an ordinary activity scan.
+
 ## Creating A Dashboard
 
 When the user asks for a dashboard:
@@ -105,12 +120,49 @@ pnpm action navigate --view=adhoc --dashboardId=weekly-metrics
 
 The save path dry-runs BigQuery panels before persisting. If validation returns a provider error, fix the query and retry. Never work around validation by writing directly to a table.
 
+## Dual-Axis Charts
+
+`line`, `area`, and `bar` panels can plot series against two y-axes. Reach for
+this whenever series share an x-axis but not a unit — a count next to a rate, or
+revenue next to a conversion percent. On a single axis the smaller series
+flattens into the baseline and reads as "no data."
+
+```json
+{
+  "id": "signups-vs-conversion",
+  "title": "Signups vs conversion rate",
+  "source": "first-party",
+  "chartType": "line",
+  "width": 1,
+  "sql": "SELECT day, signups, conversion_rate FROM ...",
+  "config": {
+    "timeScope": "dashboard",
+    "xKey": "day",
+    "yKeys": ["signups", "conversion_rate"],
+    "yFormatter": "number",
+    "rightYKeys": ["conversion_rate"],
+    "rightYFormatter": "percent"
+  }
+}
+```
+
+- `rightYKeys` names series from `yKeys`; everything unnamed stays on the left.
+- `rightYFormatter` defaults to `yFormatter` when omitted.
+- Each axis is labelled with its series names (up to two per side), and tooltip
+  values use the formatter of the axis the series belongs to.
+- At least one series must remain on the left. If `rightYKeys` names every
+  series, or names a column the query never returned, the panel falls back to a
+  single axis and shows a config warning rather than dropping the series.
+- Scheduled email reports render the same two scales, so a dual-axis panel is
+  safe to put on a subscribed dashboard.
+
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
 components. Use native dashboard actions only when the request fits that model:
 standard panels, supported chart types, filters, variables, sections, and grid
-layout.
+layout. Dual-axis charts are part of that model — build one with
+`config.rightYKeys`, never as an extension.
 
 If the user asks for a dashboard or analytical surface that needs bespoke UI or
 code beyond the dashboard JSON/component model, create an extension and embed it
@@ -398,6 +450,9 @@ type PanelConfig = Record<string, unknown> & {
   // Use "dashboard" for AI-generated first-party panels by default.
   timeScope?: PanelTimeScope;
   // Fixed bar width in pixels for bar charts.
+  // Series to plot against a second, right-hand y-axis. See "Dual-Axis Charts".
+  rightYKeys?: string[];
+  rightYFormatter?: "number" | "currency" | "percent";
 };
 
 type PanelPatch = {
@@ -614,6 +669,16 @@ repeat-user panels. A docs event may carry `signed_in = true` from shared auth
 state or tracker context, but docs traffic is not app usage and should not appear
 as an app/template series. Use a minimum cohort-size threshold for retention
 rates so one or two identities cannot create misleading 100% or 0% spikes.
+
+## Template Catalog And Demo Dashboards
+
+`list-dashboard-templates` / `install-dashboard-template` install shipped
+dashboard templates (Node Exporter, the canonical Agent Native observability
+dashboard, etc.), and `ensure-demo-dashboards` auto-installs a per-user demo
+on first app open. See
+`references/template-catalog-and-demo.md` for the canonical-dashboard panel
+rule, Node Exporter template specifics, and the full demo-dashboard lifecycle
+(source routing, env var overrides, tombstoning, reset).
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 

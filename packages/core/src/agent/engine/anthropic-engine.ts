@@ -23,6 +23,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
+import { describeErrorWithCauses } from "./error-detail.js";
 import {
   createFirstEventAbortController,
   FIRST_STREAM_EVENT_TIMEOUT_MS,
@@ -32,11 +33,18 @@ import {
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
 import {
+  splitSystemPromptForCache,
+  stablePrefixCacheControl,
+} from "./prompt-cache.js";
+import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
+  createStreamedToolInputState,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
 } from "./translate-anthropic.js";
 import type {
   AgentEngine,
@@ -72,7 +80,10 @@ class AnthropicEngine implements AgentEngine {
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey: this.apiKey });
+    // Explicit: the agent loop already retries a failed model call up to
+    // MAX_RETRIES times with backoff. Leaving the SDK on its default (2)
+    // multiplies the two layers into ~12 HTTP requests per failed run.
+    const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
 
     const tools = engineToolsToAnthropic(opts.tools);
     const messages = engineMessagesToAnthropic(opts.messages);
@@ -133,10 +144,16 @@ class AnthropicEngine implements AgentEngine {
     // changes turn-to-turn, it's a no-op. Templates can opt out by setting
     // providerOptions.anthropic.cacheControl = false.
     const cacheEnabled = anthropicOpts?.cacheControl !== false;
-    const systemBlocks: any[] = [{ type: "text", text: opts.systemPrompt }];
+    // Two system blocks: the breakpoint sits on the stable prefix so a change
+    // in the volatile tail (resources the agent itself creates mid-turn, app
+    // extras, model overlay, runtime context) no longer invalidates system +
+    // tools. Callers that emit no sentinel get one block, as before.
+    const { stable, volatile } = splitSystemPromptForCache(opts.systemPrompt);
+    const systemBlocks: any[] = [{ type: "text", text: stable }];
     if (cacheEnabled) {
-      systemBlocks[0].cache_control = { type: "ephemeral" };
+      systemBlocks[0].cache_control = stablePrefixCacheControl();
     }
+    if (volatile) systemBlocks.push({ type: "text", text: volatile });
 
     // Apply cache_control to the last tool definition when caching is enabled.
     // Anthropic caches the prefix up to and including the last cached block.
@@ -144,14 +161,16 @@ class AnthropicEngine implements AgentEngine {
     if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
       const last = { ...cachedTools[cachedTools.length - 1] } as any;
-      last.cache_control = { type: "ephemeral" };
+      last.cache_control = stablePrefixCacheControl();
       cachedTools[cachedTools.length - 1] = last;
     }
 
     // Apply a moving cache breakpoint on the last user message's last content
     // block so the entire conversation prefix (system + tools + growing
     // history) is cached turn-over-turn as the thread lengthens. Mirrors the
-    // Builder gateway engine's identical handling in builder-engine.ts.
+    // Builder gateway engine's identical handling in builder-engine.ts. This
+    // breakpoint keeps the default 5m TTL: it moves every iteration, so a
+    // longer-lived entry would only pay the higher write premium.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
       let lastUserIdx = -1;
@@ -200,6 +219,7 @@ class AnthropicEngine implements AgentEngine {
     // long tool-input generation emits countable `tool-input-start` /
     // `tool-input-delta` progress events (mirroring the Builder engine).
     const chunkState = createAnthropicChunkStreamState();
+    const toolInputs = createStreamedToolInputState();
 
     try {
       for await (const chunk of apiStream) {
@@ -208,12 +228,33 @@ class AnthropicEngine implements AgentEngine {
         firstEventAbort.markFirstEvent();
         const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
+          observeStreamedToolInput(toolInputs, event);
           yield event;
         }
       }
 
       const finalMessage = await apiStream.finalMessage();
       const assistantContent = anthropicContentToEngine(finalMessage.content);
+
+      // A tool call the stream announced but the final message never carried
+      // would otherwise vanish, leaving the turn claiming an action it never
+      // ran. Recover it from its deltas, or tell the model in-band.
+      for (const recovered of finalizeStreamedToolInputs(
+        toolInputs,
+        assistantContent.flatMap((part) =>
+          part.type === "tool-call" ? [part.id] : [],
+        ),
+      )) {
+        if (recovered.type === "tool-call") {
+          assistantContent.push({
+            type: "tool-call",
+            id: recovered.id,
+            name: recovered.name,
+            input: recovered.input,
+          });
+        }
+        yield recovered;
+      }
 
       // Emit usage
       if (finalMessage.usage) {
@@ -256,16 +297,18 @@ class AnthropicEngine implements AgentEngine {
       // A first-event abort surfaces from the SDK as a generic
       // APIUserAbortError ("Request was aborted.") — replace it with a
       // message that actually explains what happened.
+      const rawMessage: string = err?.message ?? String(err);
       const errorMessage = timedOut
         ? `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`
-        : (err?.message ?? String(err));
+        : describeErrorWithCauses(err);
       // Anthropic SDK APIConnectionError defaults to "Connection error." with
       // no HTTP status. Tag it so in-run retries and run-level resume treat
-      // the failure as a transient network interruption.
+      // the failure as a transient network interruption. Classify on the bare
+      // message — the recorded `errorMessage` carries the cause chain.
       const isConnectionError =
         !timedOut &&
         statusCode === undefined &&
-        String(errorMessage).trim().toLowerCase() === "connection error.";
+        rawMessage.trim().toLowerCase() === "connection error.";
       if (statusCode === 401) {
         await recordProviderCredentialAuthFailure({
           key: "ANTHROPIC_API_KEY",

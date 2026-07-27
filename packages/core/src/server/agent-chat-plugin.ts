@@ -65,6 +65,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
@@ -123,6 +124,7 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
+import { isCheckpointRestorePath } from "../checkpoints/route-match.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import {
@@ -1584,12 +1586,14 @@ export function createAgentChatPlugin(
           const runtimeContext = runtimeContextForEvent(context.event);
           const systemPrompt = devActive
             ? devPrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
               modelOverlay +
               runtimeContext
             : basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               extra +
@@ -1790,6 +1794,10 @@ export function createAgentChatPlugin(
               runSoftTimeoutMs: options?.runSoftTimeoutMs,
             },
             {
+              // Without the hosted default an app that never sets
+              // `runSoftTimeoutMs` resolves to 0 and the wrapper degrades to a
+              // bare `runAgentLoop` — no resume at all on a delegated turn.
+              useHostedDefault: true,
               backgroundFunction:
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
@@ -2072,10 +2080,12 @@ export function createAgentChatPlugin(
             // this plugin (A2A above, prod/anonymous/dev handlers below).
             const systemPrompt = devActiveMcp
               ? mcpDevPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt()
               : basePrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 resources +
                 schemaBlock +
                 buildRuntimeContextPrompt();
@@ -2125,6 +2135,9 @@ export function createAgentChatPlugin(
                 runSoftTimeoutMs: options?.runSoftTimeoutMs,
               },
               {
+                // Same as the A2A call site: without this a hosted app that
+                // never configured `runSoftTimeoutMs` gets no resume at all.
+                useHostedDefault: true,
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
@@ -2927,6 +2940,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // less-stable content would still invalidate the cached prefix for
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
+          // `SYSTEM_PROMPT_CACHE_SPLIT` marks where the cacheable prefix ends,
+          // so everything after it can change without a cache write.
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
@@ -2946,6 +2961,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return setSystemPromptOnContext(
               leanBasePrompt +
                 leanRunPolicyPrompt +
+                SYSTEM_PROMPT_CACHE_SPLIT +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2977,6 +2993,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           });
           return setSystemPromptOnContext(
             basePrompt +
+              SYSTEM_PROMPT_CACHE_SPLIT +
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
@@ -4770,11 +4787,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          // POST /checkpoints — restore to a checkpoint
-          // h3 prefix-matches, so /checkpoints/restore hits this handler with
-          // event.path containing "/restore".
-          const remainder = (event.path || "").replace(/^\/+/, "");
-          if (method === "POST" && remainder.startsWith("restore")) {
+          // POST /checkpoints/restore — restore to a checkpoint.
+          const restorePath = event.path || event.node?.req?.url || "";
+          if (method === "POST" && isCheckpointRestorePath(restorePath)) {
             if (!canToggle) {
               setResponseStatus(event, 403);
               return { error: "Checkpoints only available in dev mode" };
@@ -4785,17 +4800,25 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             const body = await readBody(event);
             const checkpointId = body?.checkpointId;
-            if (!checkpointId) {
+            const restoreRunId =
+              typeof body?.runId === "string" ? body.runId : "";
+            if (!checkpointId && !restoreRunId) {
               setResponseStatus(event, 400);
-              return { error: "checkpointId is required" };
+              return { error: "checkpointId or runId is required" };
             }
             try {
-              const { getCheckpointById } =
+              const { getCheckpointById, getCheckpointByRunId } =
                 await import("../checkpoints/store.js");
-              const checkpoint = await getCheckpointById(checkpointId);
+              const checkpoint = checkpointId
+                ? await getCheckpointById(checkpointId)
+                : await getCheckpointByRunId(restoreRunId);
               if (!checkpoint) {
                 setResponseStatus(event, 404);
-                return { error: "Checkpoint not found" };
+                return {
+                  error: restoreRunId
+                    ? "No checkpoint was saved for this turn, so there is nothing to restore."
+                    : "Checkpoint not found",
+                };
               }
               const owner = await getOwnerFromEvent(event);
               const thread = await getThread(checkpoint.threadId);
@@ -5821,7 +5844,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 const {
                   listUnclaimedBackgroundRunRows,
                   shouldRedispatchUnclaimedBackgroundRun,
+                  reapAllStaleRuns,
                 } = await import("../agent/run-store.js");
+                // The unclaimed-background sweep below only matches
+                // dispatch_mode='background' — handoffs a worker never
+                // claimed. Once a worker CLAIMS a row nothing periodic looked
+                // at it again, so a dead producer was only reaped when some
+                // client request path or an unrelated run's cleanup happened
+                // to notice (prod: 24 minutes after the last heartbeat,
+                // against a 45s window). `reapAllStaleRuns` is per-row,
+                // idempotent, re-checks staleness at UPDATE time and honours
+                // the in-flight grace, so it is safe on this cadence.
+                await reapAllStaleRuns().catch(() => {});
                 let rows: { id: string; startedAt: number }[];
                 try {
                   rows = await listUnclaimedBackgroundRunRows();

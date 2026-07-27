@@ -4,13 +4,17 @@ import { pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
+import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  isAgentChatDurableBackgroundEnabled,
+} from "../agent/durable-background.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  assertEmittedBackgroundFunctionOnDisk,
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
@@ -211,6 +215,7 @@ export function createRequestHandler() {
 // contention; focused runs normally complete well below this limit.
 describe("generateWorkerEntry", { timeout: 15_000 }, () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     for (const dir of tempDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -524,6 +529,56 @@ export default (event) =>
     );
 
     expectDefaultWorkerSsrCacheHeaders(response);
+  });
+
+  it("inlines the default SSR cache policy when AGENT_NATIVE_SSR_CACHE is unset", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", undefined);
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      `const SSR_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_CDN_CACHE_CONTROL)};`,
+    );
+    expect(source).toContain(
+      `const SSR_NETLIFY_CDN_CACHE_CONTROL = ${JSON.stringify(DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL)};`,
+    );
+  });
+
+  it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
+
+    const source = generateWorkerEntry([], []);
+    expect(source).toContain('const SSR_CACHE_CONTROL = "no-store";');
+    expect(source).toContain('const SSR_CDN_CACHE_CONTROL = "no-store";');
+    expect(source).toContain(
+      'const SSR_NETLIFY_CDN_CACHE_CONTROL = "no-store";',
+    );
+    expect(source).not.toContain(DEFAULT_SSR_CACHE_CONTROL);
+
+    const worker = await importGeneratedWorker(source);
+    const response = await worker.fetch(
+      new Request("https://app.test/docs/inbox"),
+      { APP_BASE_PATH: "/docs" },
+      {},
+    );
+
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("netlify-cdn-cache-control")).toBe("no-store");
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("caps SSR freshness when AGENT_NATIVE_SSR_CACHE names a duration", () => {
+    vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "30s");
+
+    const source = generateWorkerEntry([], []);
+
+    expect(source).toContain(
+      'const SSR_CACHE_CONTROL = "public, max-age=30, stale-while-revalidate=30, stale-if-error=3600";',
+    );
   });
 
   it("adds immutable cache headers to Cloudflare Pages hashed assets only", async () => {
@@ -1584,6 +1639,8 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     const entry = fs.readFileSync(entryPath, "utf8");
     expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
     expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain('nodeBundler: "none"');
+    expect(entry).not.toContain("includedFiles");
     expect(entry).toContain("await fetch(url");
     expect(entry).toContain("agent-native-netlify-keep-warm");
     expect(entry).not.toMatch(/^\s*path:/m);
@@ -1745,6 +1802,90 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       emitSingleTemplateNetlifyBackgroundFunction(cwd),
     ).not.toThrow();
     expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
+  });
+
+  it("FAILS the build instead of warning when the opted-in emit cannot run", () => {
+    // agent-native-plan shipped for its whole history without this function:
+    // the emit warned, the build stayed green, and every chat turn silently ran
+    // on the ~60s synchronous wall.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+
+    expect(() => emitSingleTemplateNetlifyBackgroundFunction(cwd)).toThrow(
+      /Durable-background emit skipped/,
+    );
+    expect(fs.existsSync(backgroundDir(cwd))).toBe(false);
+  });
+
+  it("rejects a partially emitted background function", () => {
+    const dest = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(dest);
+    fs.writeFileSync(
+      path.join(dest, "server-agent-background.mjs"),
+      "export default () => {};\n",
+    );
+
+    expect(() =>
+      assertEmittedBackgroundFunctionOnDisk(dest, "server-agent-background"),
+    ).toThrow(/missing main\.mjs/);
+
+    fs.writeFileSync(path.join(dest, "main.mjs"), "export default {};\n");
+    expect(() =>
+      assertEmittedBackgroundFunctionOnDisk(dest, "server-agent-background"),
+    ).not.toThrow();
+  });
+
+  it("parses the deploy gate exactly like the runtime gate", () => {
+    // Three copies of this flag parse existed; one of them was inverted.
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "shhh";
+    try {
+      for (const value of [undefined, "", "true", "1", "false", "off", "?"]) {
+        if (value === undefined)
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        else process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+        expect(isDurableBackgroundDeployEnabled()).toBe(
+          isAgentChatDurableBackgroundEnabled(),
+        );
+      }
+    } finally {
+      delete process.env.NETLIFY;
+      delete process.env.A2A_SECRET;
+    }
+  });
+
+  it("keeps the background function warm too when durable background is on", () => {
+    // The background Lambda is a separate container; warming only the health
+    // route left it cold-starting on essentially every dispatch.
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entry = fs.readFileSync(
+      path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain(
+      'const BACKGROUND_WARM_PATH = "/.netlify/functions/server-agent-background"',
+    );
+    // A body with no runId is rejected by the _process-run route before any DB
+    // work, so the ping only keeps the container alive.
+    expect(entry).toContain('body: "{}"');
+    expect(entry).toContain('method: "POST"');
+  });
+
+  it("does not ping a background function that was never emitted", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entry = fs.readFileSync(
+      path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs"),
+      "utf8",
+    );
+    expect(entry).toContain("const BACKGROUND_WARM_PATH = null");
   });
 
   function prepareSingleTemplateNetlifyOutput(cwd: string): void {

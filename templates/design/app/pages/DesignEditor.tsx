@@ -45,6 +45,7 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
@@ -213,6 +214,7 @@ import {
 import { toast } from "sonner";
 import * as Y from "yjs";
 
+import { AddLocalhostScreenDialog } from "@/components/design/AddLocalhostScreenDialog";
 import { AutoLayoutSuggestionDialog } from "@/components/design/AutoLayoutSuggestionDialog";
 import {
   BreakpointDeviceControl,
@@ -568,6 +570,7 @@ import {
   getCanvasFrameGeometry,
   getDesignDataRecord,
   isDesignData,
+  nextLocalhostScreenPosition,
   parseDesignDataJson,
   staleGeometryFrameIds,
   viewportChangedFrameIds,
@@ -992,25 +995,15 @@ interface SelectedCanvasLayerSnapshot extends CanvasLayerClipboardEntry {
 }
 
 function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
-  const base = agentNativePath("/_agent-native/sign-in");
-  if (typeof window === "undefined") return base;
-
-  const returnUrl = new URL(window.location.href);
-  returnUrl.search = "";
-  returnUrl.hash = "";
-  returnUrl.searchParams.set("intent", intent);
-  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
-  return `${base}?return=${encodeURIComponent(ret)}`;
+  if (typeof window === "undefined") return buildSignInReturnHref();
+  return buildSignInReturnHref({
+    returnTo: `${window.location.pathname}?intent=${encodeURIComponent(intent)}`,
+  });
 }
 
 function buildSignInHrefForComment(): string {
-  const base = agentNativePath("/_agent-native/sign-in");
-  if (typeof window === "undefined") return base;
-  const returnUrl = new URL(window.location.href);
-  returnUrl.search = "";
-  returnUrl.hash = "";
-  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
-  return `${base}?return=${encodeURIComponent(ret)}`;
+  if (typeof window === "undefined") return buildSignInReturnHref();
+  return buildSignInReturnHref({ returnTo: window.location.pathname });
 }
 
 type PatchProofStatus =
@@ -4041,7 +4034,9 @@ function DesignEditor() {
         designId: id,
         actorScope: designSaveActorScope,
       });
-      if (result.saved.length > 0) {
+      if (result.saved.length > 0 || result.rebased.length > 0) {
+        // rebased = a 409 the server moved past; refetch so the editor rebases
+        // onto current content. No toast: the file wasn't lost, unlike dropped.
         queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
@@ -4265,7 +4260,12 @@ function DesignEditor() {
             );
             if (failureKind === "offline") {
               warnChangesWillRetry();
-            } else if (failureKind !== "intentional-abort") {
+            } else if (
+              failureKind !== "intentional-abort" &&
+              failureKind !== "conflict"
+            ) {
+              // Conflicts already rebased above (acked-hash reset + get-design
+              // invalidation); a red toast for a routine rebase is just noise.
               toast.error(
                 designSaveErrorMessage(error) ?? t("common.genericError"),
                 { id: `design-save-error:${pending.id}` },
@@ -25318,6 +25318,39 @@ function DesignEditor() {
     return [...seen.values()];
   }, [activeLocalhostConnectionResult?.connections, overviewScreens]);
 
+  // "Add screen" for a localhost-sourced design offers a route picker instead
+  // of a blank artboard — see AddLocalhostScreenDialog.
+  const [addLocalhostScreenOpen, setAddLocalhostScreenOpen] = useState(false);
+  const addLocalhostScreenConnectionId =
+    activeLocalhostConnectionId ||
+    workbenchLocalhostConnections[0]?.connectionId;
+  const addLocalhostScreenFallbackPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const screen of overviewScreens) {
+      if (screen.sourceType !== "localhost") continue;
+      const screenUrl = screen.url ?? screen.previewUrl;
+      if (!screenUrl) continue;
+      try {
+        const parsed = new URL(screenUrl);
+        paths.add(`${parsed.pathname}${parsed.search}`);
+      } catch {
+        // Skip malformed screen URLs.
+      }
+    }
+    return [...paths];
+  }, [overviewScreens]);
+  const addLocalhostScreenPosition = useMemo(
+    () => nextLocalhostScreenPosition(canvasFrameGeometryById),
+    [canvasFrameGeometryById],
+  );
+  const handleAddScreenAffordance = useCallback(() => {
+    if (designSourceType === "localhost") {
+      setAddLocalhostScreenOpen(true);
+      return;
+    }
+    handleAddScreen();
+  }, [designSourceType, handleAddScreen]);
+
   // Consent round trip for code-workbench saves to local files: opens the
   // shared write-consent dialog and retries the save once granted.
   const handleWorkbenchLocalWriteConsent = useCallback(
@@ -28746,9 +28779,14 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto">
-        {deviceFrameControl}
-        {responsiveEditScopeControl}
+      {/* Zoom sits here rather than in the inspector tab row below: sharing
+          that row truncated the "Comments" tab label at normal panel widths. */}
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto">
+          {deviceFrameControl}
+          {responsiveEditScopeControl}
+        </div>
+        <div className="shrink-0">{renderZoomControl("inspector")}</div>
       </div>
     </div>
   );
@@ -28847,7 +28885,7 @@ function DesignEditor() {
                     searchQuery={layersSearchQuery}
                     onScreenSelect={handleSidebarScreenSelect}
                     onScreenOverview={handleSidebarScreenOverview}
-                    onAddScreen={handleAddScreen}
+                    onAddScreen={handleAddScreenAffordance}
                     onSearchQueryChange={setLayersSearchQuery}
                     onExpandedIdsChange={setExpandedLayerIds}
                     onSelectionChange={handleLayerSelectionChange}
@@ -29400,66 +29438,71 @@ function DesignEditor() {
                     />
                   )}
                   {showPendingVisualStyleApply ? (
-                    <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            className="pointer-events-auto h-11 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)] hover:bg-blue-400 focus-visible:ring-blue-400"
-                            aria-label={t(
-                              "designEditor.pendingVisualStyles.applyAria",
-                            )}
-                          >
-                            <IconBrush className="h-4 w-4" />
-                            {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyButton",
-                            )}
-                            <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
-                              {pendingVisualStylePropertyCount}
-                            </span>
-                            <IconChevronDown className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="design-editor-app-menu-content w-64"
+                    <div
+                      data-design-pending-visual-style-toolbar
+                      className="pointer-events-none absolute inset-x-0 top-4 z-[70] flex justify-center px-4"
+                    >
+                      <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur">
+                        <Button
+                          className="h-11 min-w-0 shrink-0 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          aria-label={t(
+                            "designEditor.pendingVisualStyles.applyAria",
+                          )}
+                          disabled={pendingStructureVerificationBusy}
+                          onClick={handleApplyPendingVisualStylesWithAgent}
                         >
-                          <DropdownMenuLabel className="text-xs text-muted-foreground">
-                            {t("designEditor.pendingVisualStyles.previewLabel")}
-                          </DropdownMenuLabel>
-                          <DropdownMenuItem
-                            disabled={pendingStructureVerificationBusy}
-                            onClick={handleApplyPendingVisualStylesWithAgent}
-                          >
-                            <IconMessage className="mr-2 h-4 w-4" />
+                          <span className="truncate">
                             {t(
                               pendingStructureVerificationBusy
                                 ? "designEditor.pendingVisualStyles.verifying"
                                 : pendingStructureVerificationStatus ===
                                     "conflict"
                                   ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyWithAgent",
+                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={handleCopyPendingVisualStylePrompt}
+                          </span>
+                          <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
+                            {pendingVisualStylePropertyCount}
+                          </span>
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              className="h-11 w-8 shrink-0 cursor-pointer rounded-md border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              aria-label={t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            >
+                              <IconChevronDown className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="design-editor-app-menu-content w-64"
                           >
-                            <IconClipboard className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.copyPrompt")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={handleAbortPendingVisualStyles}
-                          >
-                            <IconX className="mr-2 h-4 w-4" />
-                            {t("designEditor.pendingVisualStyles.abortPreview")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">
+                              {t(
+                                "designEditor.pendingVisualStyles.previewLabel",
+                              )}
+                            </DropdownMenuLabel>
+                            <DropdownMenuItem
+                              onClick={handleCopyPendingVisualStylePrompt}
+                            >
+                              <IconClipboard className="mr-2 h-4 w-4" />
+                              {t("designEditor.pendingVisualStyles.copyPrompt")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onClick={handleAbortPendingVisualStyles}
+                            >
+                              <IconX className="mr-2 h-4 w-4" />
+                              {t(
+                                "designEditor.pendingVisualStyles.abortPreview",
+                              )}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                   ) : null}
                   {viewMode === "overview" ? (
@@ -30037,7 +30080,6 @@ function DesignEditor() {
                     canEditDesign ? handleCreateScreenFromPreset : undefined
                   }
                   zoom={zoom}
-                  headerTrailing={renderZoomControl("inspector")}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}
@@ -30629,6 +30671,16 @@ function DesignEditor() {
           payload={localhostWriteConsentPayload}
         />
       )}
+      {id ? (
+        <AddLocalhostScreenDialog
+          open={addLocalhostScreenOpen}
+          onOpenChange={setAddLocalhostScreenOpen}
+          designId={id}
+          connectionId={addLocalhostScreenConnectionId}
+          fallbackPaths={addLocalhostScreenFallbackPaths}
+          position={addLocalhostScreenPosition}
+        />
+      ) : null}
     </div>
   );
 }

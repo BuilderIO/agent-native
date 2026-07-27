@@ -2,7 +2,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   marketing: {
-    appName: "Agent-Native Brain",
+    appName: "Brain",
     tagline:
       "A company knowledge layer where raw conversations become reviewed, searchable institutional knowledge.",
     features: [

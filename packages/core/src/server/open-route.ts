@@ -38,6 +38,7 @@ import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getSession, getConfiguredLoginHtml } from "./auth.js";
 import { requestHasEmbedAuthMarker } from "./embed-session.js";
@@ -108,7 +109,11 @@ function safeRelativePath(raw: string | undefined | null): string | null {
   if (!raw.startsWith("/")) return null;
   if (raw.startsWith("//") || raw.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  return raw;
+  // Shared validator: adds the WHATWG reparse the prefix checks above miss,
+  // and the auth-entry rejection, so a deep link cannot resolve to a login
+  // form. No base path here — the base is applied later by
+  // `withConfiguredRedirectBasePath`, so this value is still base-relative.
+  return normalizeAppPath(raw);
 }
 
 function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {

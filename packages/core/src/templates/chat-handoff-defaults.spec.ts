@@ -23,6 +23,7 @@ const PAGE_CHAT_TEMPLATES = [
   "brain",
   "forms",
   "plan",
+  "crm",
 ] as const;
 
 const REQUIRE_ACTIVE_HANDOFF: Record<
@@ -35,6 +36,7 @@ const REQUIRE_ACTIVE_HANDOFF: Record<
   brain: true,
   forms: true,
   plan: true,
+  crm: false,
 };
 
 function readTemplateFile(template: string, relativePath: string): string {
@@ -50,12 +52,16 @@ describe("page-chat handoff defaults", () => {
     (template) => {
       const layout = readTemplateFile(
         template,
-        "app/components/layout/Layout.tsx",
+        template === "crm"
+          ? "app/components/layout/CrmLayout.tsx"
+          : "app/components/layout/Layout.tsx",
       );
 
       expect(layout).toContain("useAgentChatHomeHandoff");
       expect(layout).toContain("useAgentChatHomeHandoffLinks");
+      expect(layout).toContain("isAgentChatHomeHandoffActive");
       expect(layout).toContain("chatViewTransition");
+      expect(layout).toContain("chatViewTransitionHandoff");
       expect(layout).toContain(
         `requireActiveHandoff: ${REQUIRE_ACTIVE_HANDOFF[template]}`,
       );

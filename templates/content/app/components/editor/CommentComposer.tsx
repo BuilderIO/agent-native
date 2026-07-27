@@ -28,6 +28,7 @@ interface CommentComposerProps {
   members: MentionMember[];
   placeholder?: string;
   autoFocus?: boolean;
+  disabled?: boolean;
   rows?: number;
   className?: string;
 }
@@ -52,6 +53,7 @@ export const CommentComposer = forwardRef<
     members,
     placeholder,
     autoFocus,
+    disabled = false,
     rows = 2,
     className,
   },
@@ -158,6 +160,7 @@ export const CommentComposer = forwardRef<
       <textarea
         ref={setRefs}
         value={value}
+        disabled={disabled}
         rows={rows}
         onChange={(e) => {
           onChange(e.target.value);
@@ -177,7 +180,7 @@ export const CommentComposer = forwardRef<
           "w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
         }
       />
-      {menuOpen && (
+      {!disabled && menuOpen && (
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-md border border-border bg-popover py-1 shadow-md">
           {filtered.map((member, i) => (
             <button

@@ -92,6 +92,27 @@ describe("RunStuckBanner", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
+  it("does not poll when disabled for an inactive tab", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    function InactiveProbe() {
+      const state = useRunStuckDetection({
+        threadId: "thread-1",
+        enabled: false,
+      });
+      return <div>{state.runId ?? "inactive"}</div>;
+    }
+
+    await act(async () => {
+      root.render(<InactiveProbe />);
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(container.textContent).toBe("inactive");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("clears stale run state and slows polling after a permanent client error", async () => {
     const fetchSpy = vi
       .fn()

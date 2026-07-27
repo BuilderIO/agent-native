@@ -125,7 +125,11 @@ describe("Nitro dev startup recovery", () => {
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(503);
     expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
-    expect(res.end).toHaveBeenCalledWith(expect.stringContaining("refresh"));
+    const html = res.end.mock.calls[0]?.[0] as string;
+    expect(html).toContain("__agent_native_nitro_startup_retry");
+    expect(html).toContain("Retrying in one second");
+    expect(html).toContain("Refresh when it is ready");
+    expect(html).not.toContain('http-equiv="refresh"');
   });
 
   it("preserves genuine Nitro errors and non-document requests", () => {
@@ -430,6 +434,107 @@ describe("dev server mounted path helpers", () => {
 
     expect(server.transformRequest).not.toHaveBeenCalled();
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("strips the mounted base off API paths for media Sec-Fetch-Dest requests", () => {
+    // <img>/<video>/<audio> fetches send Sec-Fetch-Dest: image/video/audio/
+    // track, not "empty" or "document". Nitro's dev router matches routes
+    // against req.url with the mount prefix already gone (its own baseURL is
+    // unset in dev), so unless we strip here too, these requests fall through
+    // to Vite/connect's generic 404 instead of the real API handler — this is
+    // the Assets thumbnail "Preview unavailable" bug.
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    for (const dest of ["image", "video", "audio", "track"]) {
+      const req = {
+        method: "GET",
+        url: "/assets/api/assets/asset-1/content?variant=thumb",
+        headers: { "sec-fetch-dest": dest },
+      };
+      const next = vi.fn();
+
+      middleware!(req, { setHeader: vi.fn() }, next);
+
+      expect(req.url).toBe("/api/assets/asset-1/content?variant=thumb");
+      expect(next).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("still strips document/empty/absent Sec-Fetch-Dest API requests", () => {
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/clips/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    for (const headers of [
+      { "sec-fetch-dest": "document" },
+      { "sec-fetch-dest": "empty" },
+      {},
+    ]) {
+      const req = {
+        method: "GET",
+        url: "/clips/api/video/recording-1",
+        headers,
+      };
+      const next = vi.fn();
+
+      middleware!(req, { setHeader: vi.fn() }, next);
+
+      expect(req.url).toBe("/api/video/recording-1");
+      expect(next).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("never strips non-API mounted paths regardless of Sec-Fetch-Dest", () => {
+    // Guards the original Clips regression: only /api/** paths are ever
+    // rewritten (see stripMountedDevApiPath's isApiDevPath gate), so widening
+    // which Sec-Fetch-Dest values trigger stripping can never make Vite's own
+    // base middleware see an unprefixed non-API path.
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/clips/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+
+    plugin.configureServer(server);
+
+    for (const dest of ["image", "video", "document", "empty"]) {
+      const req = {
+        method: "GET",
+        url: "/clips/recordings/recording-1/poster.png",
+        headers: { "sec-fetch-dest": dest },
+      };
+      const next = vi.fn();
+
+      middleware!(req, { setHeader: vi.fn() }, next);
+
+      expect(req.url).toBe("/clips/recordings/recording-1/poster.png");
+      expect(next).toHaveBeenCalledOnce();
+    }
   });
 });
 
