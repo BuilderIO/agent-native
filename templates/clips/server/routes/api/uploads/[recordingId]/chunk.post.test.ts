@@ -7,6 +7,7 @@ const mockAppState = vi.hoisted(() => new Map<string, Record<string, any>>());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockTrack = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockGetHeader = vi.hoisted(() => vi.fn());
@@ -49,6 +50,11 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -187,6 +193,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockIsStreamingUploadDisabled.mockReturnValue(false);
     mockShouldRejectVideoUploadWithoutStorage.mockResolvedValue(false);
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockResolveResumableUploadProvider.mockResolvedValue({
       resumable: { relayChunk: mockRelayChunk },
     });
@@ -277,6 +284,55 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockReadRawBody).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("forces a full restart when the retry flag switches off between chunks", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    mockIsFeatureFlagEnabled
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    setRequest({
+      query: {
+        index: "0",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "retry-attempt",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      finalized: false,
+      index: 0,
+      bytes: 3,
+    });
+
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        mimeType: "video/webm",
+        attemptId: "retry-attempt",
+      },
+      body: new Uint8Array([4, 5, 6]),
+    });
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: false,
+      error: "Resumable upload retry is disabled.",
+      restartRequired: true,
+      recoveryEnabled: false,
+    });
+    expect(mockSetResponseStatus).toHaveBeenLastCalledWith({}, 409);
+    expect(mockReadRawBody).toHaveBeenCalledOnce();
+    expect(mockRelayChunk).toHaveBeenCalledOnce();
+    expect(mockRenewUploadLease).toHaveBeenCalledTimes(3);
   });
 
   it("stores in-order chunks and advances upload progress state", async () => {

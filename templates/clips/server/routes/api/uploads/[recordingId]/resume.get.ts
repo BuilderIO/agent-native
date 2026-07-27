@@ -15,6 +15,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull } from "drizzle-orm";
 import {
@@ -27,6 +28,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import {
   listRecordingChunkKeys,
@@ -76,6 +78,21 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
 
+  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId,
+  });
+  if (!recoveryEnabled) {
+    return {
+      recoveryEnabled: false,
+      resumable: false,
+      recordingId,
+      status: null,
+      reason: "feature_disabled",
+    };
+  }
+
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const [recording] = await getDb()
       .select({
@@ -112,6 +129,7 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 409);
       return {
         resumable: false,
+        recoveryEnabled: true,
         recordingId,
         status: "uploading",
         reason: "retry_already_active",
@@ -120,6 +138,7 @@ export default defineEventHandler(async (event: H3Event) => {
     if (recording.status !== "uploading" && !retryableFailure) {
       return {
         resumable: false,
+        recoveryEnabled: true,
         recordingId,
         status: recording.status,
         failureReason: recording.failureReason,
@@ -162,6 +181,7 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 409);
       return {
         resumable: false,
+        recoveryEnabled: true,
         recordingId,
         status: "uploading",
         reason: "retry_already_active",
@@ -190,6 +210,7 @@ export default defineEventHandler(async (event: H3Event) => {
     if (session) {
       return {
         resumable: true,
+        recoveryEnabled: true,
         recordingId,
         status: "uploading",
         uploadMode: "streaming" as const,
@@ -211,6 +232,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
     return {
       resumable: true,
+      recoveryEnabled: true,
       recordingId,
       status: "uploading",
       uploadMode: "buffered" as const,

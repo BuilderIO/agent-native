@@ -8,6 +8,7 @@ const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockUpdateRows = vi.hoisted(() => ({ rows: [{ id: "rec-1" }] }));
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
@@ -33,6 +34,11 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+}));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -102,6 +108,22 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockReadAppState.mockResolvedValue({ progress: 50 });
     mockWriteAppState.mockResolvedValue(undefined);
     mockUpdateRows.rows = [{ id: "rec-1" }];
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
+  });
+
+  it("leaves upload state untouched when resumable retry is disabled", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      recoveryEnabled: false,
+      resumable: false,
+      recordingId: "rec-1",
+      status: null,
+      reason: "feature_disabled",
+    });
+    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("reports the provider's committed offset for a streaming upload", async () => {
@@ -223,6 +245,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
 
     await expect(handler({} as any)).resolves.toEqual({
       resumable: false,
+      recoveryEnabled: true,
       recordingId: "rec-1",
       status: "uploading",
       reason: "retry_already_active",
@@ -242,6 +265,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
 
     await expect(handler({} as any)).resolves.toEqual({
       resumable: false,
+      recoveryEnabled: true,
       recordingId: "rec-1",
       status: "uploading",
       reason: "retry_already_active",

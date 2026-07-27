@@ -17,6 +17,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -34,6 +35,7 @@ import {
 } from "h3";
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import {
@@ -220,6 +222,23 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
+
+  if (
+    attemptId !== null &&
+    !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+      userEmail: ownerEmail,
+      userKey: ownerEmail,
+      orgId,
+    }))
+  ) {
+    setResponseStatus(event, 409);
+    return {
+      ok: false,
+      error: "Resumable upload retry is disabled.",
+      restartRequired: true,
+      recoveryEnabled: false,
+    };
+  }
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();

@@ -156,6 +156,8 @@ const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
 const CLIP_DRAFTS_DIR: &str = "Drafts";
 const NATIVE_UPLOAD_RESTART_REQUIRED: &str = "native upload requires a one-time restart";
+const NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED: &str =
+    "native upload requires an unfenced one-time restart";
 static NATIVE_RETRY_CLAIM_COUNTER: AtomicU64 = AtomicU64::new(1);
 // Minimum free space required to start recording; below this we hard-block.
 pub(crate) const DISK_SPACE_BLOCK_BYTES: u64 = 500 * 1024 * 1024;
@@ -192,6 +194,8 @@ enum NativeRetryUploadPlan {
 #[serde(rename_all = "camelCase")]
 struct NativeUploadResumeResponse {
     resumable: bool,
+    #[serde(default)]
+    recovery_enabled: bool,
     status: Option<String>,
     upload_mode: Option<String>,
     bytes_received: Option<u64>,
@@ -3125,6 +3129,10 @@ pub async fn native_fullscreen_recording_retry_upload(
             streaming_resume,
         )
         .await;
+        let replay_attempt_id = native_replay_attempt_id(
+            &upload_result,
+            active_attempt_id.as_deref(),
+        );
         let upload_result = if native_upload_restart_required(&upload_result) {
             eprintln!(
                 "[clips-tray] native retry replaying from byte zero after the provider requested a restart"
@@ -3133,7 +3141,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                 &saved.server_url,
                 &saved.recording_id,
                 &prepared.mime_type,
-                active_attempt_id.as_deref(),
+                replay_attempt_id.as_deref(),
                 &auth_token,
                 &cookie,
             )
@@ -3153,7 +3161,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                         saved.height,
                         saved.has_audio,
                         saved.has_camera,
-                        active_attempt_id.clone(),
+                        replay_attempt_id.clone(),
                         None,
                     )
                     .await
@@ -3168,7 +3176,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                 &saved.server_url,
                 &saved.recording_id,
                 err,
-                active_attempt_id.as_deref(),
+                replay_attempt_id.as_deref(),
                 &auth_token,
                 &cookie,
             )
@@ -4842,6 +4850,7 @@ async fn get_native_retry_upload_plan(
 #[serde(rename_all = "camelCase")]
 struct NativeUploadErrorReceipt {
     restart_required: Option<bool>,
+    recovery_enabled: Option<bool>,
 }
 
 fn is_native_upload_restart_required(status: reqwest::StatusCode, body: &str) -> bool {
@@ -4852,8 +4861,28 @@ fn is_native_upload_restart_required(status: reqwest::StatusCode, body: &str) ->
             == Some(true)
 }
 
+fn is_native_upload_unfenced_restart_required(status: reqwest::StatusCode, body: &str) -> bool {
+    status == reqwest::StatusCode::CONFLICT
+        && serde_json::from_str::<NativeUploadErrorReceipt>(body)
+            .ok()
+            .is_some_and(|receipt| {
+                receipt.restart_required == Some(true) && receipt.recovery_enabled == Some(false)
+            })
+}
+
 fn native_upload_restart_required(result: &Result<NativeFullscreenUploadResult, String>) -> bool {
-    matches!(result, Err(error) if error == NATIVE_UPLOAD_RESTART_REQUIRED)
+    matches!(result, Err(error) if error == NATIVE_UPLOAD_RESTART_REQUIRED || error == NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED)
+}
+
+fn native_replay_attempt_id(
+    result: &Result<NativeFullscreenUploadResult, String>,
+    active_attempt_id: Option<&str>,
+) -> Option<String> {
+    if matches!(result, Err(error) if error == NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED) {
+        None
+    } else {
+        active_attempt_id.map(str::to_string)
+    }
 }
 
 fn native_retry_attempt_id() -> String {
@@ -4878,6 +4907,10 @@ fn plan_native_retry_upload(
     local_bytes: u64,
     exact_local_stream: bool,
 ) -> NativeRetryUploadPlan {
+    if !response.recovery_enabled {
+        return NativeRetryUploadPlan::Restart { attempt_id: None };
+    }
+
     match response.status.as_deref() {
         Some("ready") | Some("processing") => {
             return NativeRetryUploadPlan::Reconcile;
@@ -4977,14 +5010,17 @@ async fn interrupt_native_retry_upload(
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
-        is_native_upload_restart_required, native_retry_attempt_id, plan_native_retry_upload,
-        saved_native_retry_attempt_id, upload_url, NativeRetryUploadPlan,
-        NativeUploadResumeResponse, UPLOAD_CHUNK_BYTES,
+        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
+        native_replay_attempt_id, native_retry_attempt_id, plan_native_retry_upload,
+        saved_native_retry_attempt_id, upload_url, NativeFullscreenUploadResult,
+        NativeRetryUploadPlan, NativeUploadResumeResponse, NATIVE_UPLOAD_RESTART_REQUIRED,
+        NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED, UPLOAD_CHUNK_BYTES,
     };
 
     fn response(bytes_received: u64, next_chunk_index: u64) -> NativeUploadResumeResponse {
         NativeUploadResumeResponse {
             resumable: true,
+            recovery_enabled: true,
             status: Some("uploading".to_string()),
             upload_mode: Some("streaming".to_string()),
             bytes_received: Some(bytes_received),
@@ -5030,10 +5066,33 @@ mod native_retry_upload_plan_tests {
     }
 
     #[test]
+    fn restarts_without_a_claim_when_resumable_retry_is_disabled() {
+        let plan = plan_native_retry_upload(
+            NativeUploadResumeResponse {
+                resumable: false,
+                recovery_enabled: false,
+                status: None,
+                upload_mode: None,
+                bytes_received: None,
+                next_chunk_index: None,
+                attempt_id: Some("ignored-attempt".to_string()),
+            },
+            UPLOAD_CHUNK_BYTES as u64,
+            true,
+        );
+
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart { attempt_id: None }
+        ));
+    }
+
+    #[test]
     fn reconciles_terminal_resume_without_an_attempt_echo() {
         let terminal = plan_native_retry_upload(
             NativeUploadResumeResponse {
                 resumable: false,
+                recovery_enabled: true,
                 status: Some("ready".to_string()),
                 upload_mode: None,
                 bytes_received: None,
@@ -5057,6 +5116,7 @@ mod native_retry_upload_plan_tests {
         let restart = plan_native_retry_upload(
             NativeUploadResumeResponse {
                 resumable: true,
+                recovery_enabled: true,
                 status: Some("uploading".to_string()),
                 upload_mode: Some("buffered".to_string()),
                 bytes_received: Some(0),
@@ -5119,6 +5179,28 @@ mod native_retry_upload_plan_tests {
             reqwest::StatusCode::BAD_REQUEST,
             r#"{"restartRequired":true}"#,
         ));
+        assert!(is_native_upload_unfenced_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":true,"recoveryEnabled":false}"#,
+        ));
+        assert!(!is_native_upload_unfenced_restart_required(
+            reqwest::StatusCode::CONFLICT,
+            r#"{"restartRequired":true}"#,
+        ));
+    }
+
+    #[test]
+    fn drops_the_retry_claim_for_a_feature_disabled_replay() {
+        let disabled: Result<NativeFullscreenUploadResult, String> =
+            Err(NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED.to_string());
+        assert_eq!(native_replay_attempt_id(&disabled, Some("attempt-1")), None);
+
+        let expired: Result<NativeFullscreenUploadResult, String> =
+            Err(NATIVE_UPLOAD_RESTART_REQUIRED.to_string());
+        assert_eq!(
+            native_replay_attempt_id(&expired, Some("attempt-1")).as_deref(),
+            Some("attempt-1")
+        );
     }
 }
 
@@ -5280,7 +5362,13 @@ async fn send_upload_post_with_attempt(
     );
     if !status.is_success() {
         if is_native_upload_restart_required(status, &body) {
-            return Err(NATIVE_UPLOAD_RESTART_REQUIRED.to_string());
+            return Err(
+                if is_native_upload_unfenced_restart_required(status, &body) {
+                    NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED.to_string()
+                } else {
+                    NATIVE_UPLOAD_RESTART_REQUIRED.to_string()
+                },
+            );
         }
         return Err(format!(
             "native recording upload returned {status}: {}",

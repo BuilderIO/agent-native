@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
+const mockAbortUpload = vi.hoisted(() => vi.fn());
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -36,6 +38,10 @@ vi.mock("@agent-native/core/application-state", () => ({
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
+}));
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
@@ -61,6 +67,9 @@ vi.mock("../../../../lib/recordings.js", () => ({
   }),
   ownerEmailMatches: () => "owner-match",
 }));
+vi.mock("./abort.post.js", () => ({
+  default: (...args: unknown[]) => mockAbortUpload(...args),
+}));
 
 import handler from "./interrupt.post";
 
@@ -84,6 +93,20 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
       progress: 40,
     });
     mockWriteAppState.mockResolvedValue(undefined);
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
+    mockAbortUpload.mockResolvedValue({ ok: true, legacyAbort: true });
+  });
+
+  it("uses the existing destructive abort when resumable retry is disabled", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      legacyAbort: true,
+    });
+    expect(mockAbortUpload).toHaveBeenCalledOnce();
+    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("marks the row retryable without deleting resumable state", async () => {

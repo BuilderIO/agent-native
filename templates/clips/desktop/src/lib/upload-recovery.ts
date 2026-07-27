@@ -1,6 +1,7 @@
 export type UploadResumeResponse =
   | {
       resumable: true;
+      recoveryEnabled: boolean;
       status: string;
       uploadMode: "streaming" | "buffered";
       attemptId: string;
@@ -9,6 +10,7 @@ export type UploadResumeResponse =
     }
   | {
       resumable: false;
+      recoveryEnabled: boolean;
       status: string | null;
       failureReason?: string | null;
       videoUrl?: string | null;
@@ -31,6 +33,13 @@ export interface StreamingReplayRequest {
   start: number;
   end: number;
   final: boolean;
+}
+
+export function retryAttemptIdAfterRestartSignal(
+  attemptId: string | undefined,
+  recoveryEnabled: unknown,
+): string | undefined {
+  return recoveryEnabled === false ? undefined : attemptId;
 }
 
 export function buildStreamingReplayPlan(input: {
@@ -67,6 +76,9 @@ export function planStreamingRecovery(input: {
   chunkBytes: number;
 }): StreamingRecoveryPlan {
   const { response, localBytes, chunkBytes } = input;
+  if (!response.recoveryEnabled) {
+    return { action: "restart", reason: "resumable retry is disabled" };
+  }
   if (response.status === "ready" || response.status === "processing") {
     return { action: "reconcile", status: response.status };
   }

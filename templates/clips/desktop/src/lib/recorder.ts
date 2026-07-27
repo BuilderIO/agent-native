@@ -90,6 +90,7 @@ import {
 import {
   buildStreamingReplayPlan,
   planStreamingRecovery,
+  retryAttemptIdAfterRestartSignal,
   type UploadResumeResponse,
 } from "./upload-recovery";
 import {
@@ -985,7 +986,10 @@ function buildRetryHeaders(mimeType: string, authToken?: string): Headers {
 }
 
 class UploadRestartRequiredError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly recoveryEnabled?: boolean,
+  ) {
     super(message);
     this.name = "UploadRestartRequiredError";
   }
@@ -1009,7 +1013,10 @@ async function postBackupChunk(
   if (!res.ok) {
     const details = (() => {
       try {
-        return JSON.parse(body) as { restartRequired?: unknown };
+        return JSON.parse(body) as {
+          restartRequired?: unknown;
+          recoveryEnabled?: unknown;
+        };
       } catch {
         return null;
       }
@@ -1017,6 +1024,9 @@ async function postBackupChunk(
     if (details?.restartRequired === true) {
       throw new UploadRestartRequiredError(
         `The prior upload session expired (${res.status})`,
+        typeof details.recoveryEnabled === "boolean"
+          ? details.recoveryEnabled
+          : undefined,
       );
     }
     throw new Error(
@@ -1179,7 +1189,8 @@ export async function retryBrowserRecordingBackup(input: {
   }
   const chunks = await getBrowserRecordingBackupChunks(input.recordingId);
   const validatedChunks = validateBrowserRecordingBackupChunks(meta, chunks);
-  const activeAttemptId = meta.uploadAttemptId || crypto.randomUUID();
+  let activeAttemptId: string | undefined =
+    meta.uploadAttemptId || crypto.randomUUID();
 
   try {
     await putBrowserRecordingBackupMeta({
@@ -1202,6 +1213,7 @@ export async function retryBrowserRecordingBackup(input: {
       localBytes: recordingBytes,
       chunkBytes: STREAM_CHUNK_BYTES,
     });
+    if (!resumeResponse.recoveryEnabled) activeAttemptId = undefined;
     if (recoveryPlan.action === "reconcile") {
       input.onRecoveryDecision?.({ action: "reconcile", progress: 1 });
       if (
@@ -1262,6 +1274,10 @@ export async function retryBrowserRecordingBackup(input: {
         );
       } catch (err) {
         if (err instanceof UploadRestartRequiredError) {
+          activeAttemptId = retryAttemptIdAfterRestartSignal(
+            activeAttemptId,
+            err.recoveryEnabled,
+          );
           input.onRecoveryDecision?.({ action: "restart", progress: 0 });
           console.info("[clips-recorder] restarting expired upload session", {
             recordingId: meta.recordingId,

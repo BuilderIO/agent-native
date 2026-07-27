@@ -6,6 +6,7 @@ const mockGetActiveFileUploadProviderForRequest = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
@@ -53,6 +54,11 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/file-upload", () => ({
   getActiveFileUploadProviderForRequest: (...args: unknown[]) =>
     mockGetActiveFileUploadProviderForRequest(...args),
+}));
+
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: (...args: unknown[]) =>
+    mockIsFeatureFlagEnabled(...args),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -134,6 +140,7 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(false);
     mockShouldEnableStreamingUpload.mockReturnValue(true);
     mockIsMediaVerificationPending.mockResolvedValue(false);
+    mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockExistingRecording.current = {
       id: "rec-1",
       status: "uploading",
@@ -148,6 +155,22 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       id: "test-provider",
       resumable: { startSession: mockStartSession },
     });
+  });
+
+  it("clears a recovery claim when the flag is disabled mid-retry", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+    mockExistingRecording.current.uploadAttemptId = "old-attempt";
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+    expect(mockUpdateSets).toContainEqual(
+      expect.objectContaining({ uploadAttemptId: null }),
+    );
   });
 
   it("recreates a resumable session for a browser backup retry", async () => {

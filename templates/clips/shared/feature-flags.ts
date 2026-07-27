@@ -28,7 +28,19 @@ export const CUSTOM_SCK_LIVE_UPLOAD_FLAG = defineFeatureFlag({
     "Upload recording chunks while capture is still in progress. Requires the custom ScreenCaptureKit pipeline.",
 });
 
+/**
+ * Desktop app and hosted upload routes: preserve interrupted resumable
+ * sessions and continue saved retries from the provider-confirmed offset.
+ */
+export const UPLOAD_RETRY_RESUME_FLAG = defineFeatureFlag({
+  key: "uploadRetryResume",
+  displayName: "Resumable upload retry",
+  description:
+    "Resume interrupted desktop uploads from their last confirmed byte instead of replaying the full local backup.",
+});
+
 export const CLIPS_FEATURE_FLAGS = defineFeatureFlags([
   USE_CUSTOM_SCK_PIPELINE_FLAG,
   CUSTOM_SCK_LIVE_UPLOAD_FLAG,
+  UPLOAD_RETRY_RESUME_FLAG,
 ]);

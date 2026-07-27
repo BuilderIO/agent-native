@@ -28,6 +28,7 @@ import {
   writeAppState,
   deleteAppStateByPrefix,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import type { UploadMode } from "@shared/recording-core.js";
@@ -41,6 +42,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
 import {
@@ -100,6 +102,11 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType?: string;
     attemptId?: string;
   } | null;
+  const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+    userEmail: ownerEmail,
+    userKey: ownerEmail,
+    orgId,
+  });
 
   // Sanitize compression metadata. The recorder is the only client we trust
   // here, but the values land in Sentry extras — so we still bound them to
@@ -142,13 +149,14 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording is already ready" };
     }
 
-    const attemptId =
+    const requestedAttemptId =
       typeof body?.attemptId === "string" &&
       body.attemptId.length > 0 &&
       body.attemptId.length <= 128
         ? body.attemptId
         : null;
-    if ((existing.uploadAttemptId ?? null) !== attemptId) {
+    const existingAttemptId = existing.uploadAttemptId ?? null;
+    if (recoveryEnabled && existingAttemptId !== requestedAttemptId) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
@@ -176,6 +184,7 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         failureReason: null,
         uploadProgress: 0,
+        ...(!recoveryEnabled ? { uploadAttemptId: null } : {}),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
@@ -183,9 +192,9 @@ export default defineEventHandler(async (event: H3Event) => {
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-          attemptId === null
+          existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
-            : eq(schema.recordings.uploadAttemptId, attemptId),
+            : eq(schema.recordings.uploadAttemptId, existingAttemptId),
         ),
       )
       .returning({ id: schema.recordings.id });

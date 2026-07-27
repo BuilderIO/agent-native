@@ -3,9 +3,24 @@ import { describe, expect, it } from "vitest";
 import {
   buildStreamingReplayPlan,
   planStreamingRecovery,
+  retryAttemptIdAfterRestartSignal,
 } from "./upload-recovery";
 
 const CHUNK_BYTES = 3_932_160;
+
+describe("retryAttemptIdAfterRestartSignal", () => {
+  it("drops the retry claim only when the server disables recovery", () => {
+    expect(
+      retryAttemptIdAfterRestartSignal("attempt-1", false),
+    ).toBeUndefined();
+    expect(retryAttemptIdAfterRestartSignal("attempt-1", true)).toBe(
+      "attempt-1",
+    );
+    expect(retryAttemptIdAfterRestartSignal("attempt-1", undefined)).toBe(
+      "attempt-1",
+    );
+  });
+});
 
 describe("planStreamingRecovery", () => {
   it("resumes from an aligned authoritative offset", () => {
@@ -13,6 +28,7 @@ describe("planStreamingRecovery", () => {
       planStreamingRecovery({
         response: {
           resumable: true,
+          recoveryEnabled: true,
           status: "uploading",
           uploadMode: "streaming",
           attemptId: "attempt-1",
@@ -41,6 +57,7 @@ describe("planStreamingRecovery", () => {
         planStreamingRecovery({
           response: {
             resumable: true,
+            recoveryEnabled: true,
             status: "uploading",
             uploadMode: "streaming",
             attemptId: "attempt-1",
@@ -59,6 +76,7 @@ describe("planStreamingRecovery", () => {
       planStreamingRecovery({
         response: {
           resumable: false,
+          recoveryEnabled: true,
           status: "failed",
           reason: "missing_session",
         },
@@ -71,11 +89,33 @@ describe("planStreamingRecovery", () => {
   it("reconciles a response lost after the server accepted finalization", () => {
     expect(
       planStreamingRecovery({
-        response: { resumable: false, status: "processing" },
+        response: {
+          resumable: false,
+          recoveryEnabled: true,
+          status: "processing",
+        },
         localBytes: CHUNK_BYTES,
         chunkBytes: CHUNK_BYTES,
       }),
     ).toEqual({ action: "reconcile", status: "processing" });
+  });
+
+  it("uses the full-restart control path while the rollout flag is off", () => {
+    expect(
+      planStreamingRecovery({
+        response: {
+          resumable: false,
+          recoveryEnabled: false,
+          status: null,
+          reason: "feature_disabled",
+        },
+        localBytes: CHUNK_BYTES,
+        chunkBytes: CHUNK_BYTES,
+      }),
+    ).toEqual({
+      action: "restart",
+      reason: "resumable retry is disabled",
+    });
   });
 });
 
