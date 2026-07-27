@@ -177,14 +177,24 @@ ${bulletItems}
 </div>`;
 }
 
-/** Render the slide's embedded image, or a text placeholder if it couldn't be uploaded. */
+/**
+ * Render the slide's embedded image, or a text placeholder if it couldn't
+ * be uploaded. `objectFit` defaults to `contain` — the stacked-image layout
+ * sizes its box to the shape's own placed aspect ratio specifically so the
+ * source photo isn't cropped, but the embedded file's actual pixel ratio
+ * can still differ slightly from that placed ratio, and `cover` would crop
+ * to fill the box in that case, defeating the point. `cover` is only
+ * correct for a full-bleed background image, which intentionally fills its
+ * box edge-to-edge.
+ */
 function imageOrPlaceholder(
   imageUrl: string | undefined,
   imageName: string,
   style: string,
+  objectFit: "cover" | "contain" = "contain",
 ): string {
   if (imageUrl) {
-    return `<img src="${esc(imageUrl)}" alt="" style="${style} object-fit: cover;" />`;
+    return `<img src="${esc(imageUrl)}" alt="" style="${style} object-fit: ${objectFit};" />`;
   }
   return `<div class="fmd-img-placeholder" style="${style}">Imported image: ${esc(imageName)}</div>`;
 }

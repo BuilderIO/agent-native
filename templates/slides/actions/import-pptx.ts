@@ -117,13 +117,22 @@ export default defineAction({
               layout: parsedSlide.layoutHint ?? "content",
               notes: parsedSlide.notes,
             },
-            imageSkipped: Boolean(parsedSlide.images[0] && !imageUrl),
+            // Only the first image on a slide is ever uploaded, so every
+            // other image on that slide is unconditionally dropped too —
+            // not just the first one when it's unsupported.
+            imageSkippedCount: Math.max(
+              0,
+              parsedSlide.images.length - (imageUrl ? 1 : 0),
+            ),
           };
         }),
       ),
     );
     const slides = results.map((r) => r.slide);
-    const imagesSkipped = results.filter((r) => r.imageSkipped).length;
+    const imagesSkipped = results.reduce(
+      (total, r) => total + r.imageSkippedCount,
+      0,
+    );
 
     const db = getDb();
     const now = new Date().toISOString();

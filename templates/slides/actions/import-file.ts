@@ -146,7 +146,10 @@ export default defineAction({
           ),
         );
         const slides = pptxResults.map((r) => r.slide);
-        const imagesSkipped = pptxResults.filter((r) => r.imageSkipped).length;
+        const imagesSkipped = pptxResults.reduce(
+          (total, r) => total + r.imageSkippedCount,
+          0,
+        );
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
         return {
           format: "pptx",
@@ -479,7 +482,7 @@ async function buildPptxSlide(
   themeFont: string | undefined,
 ): Promise<{
   slide: { id: string; content: string; layout: string; notes?: string };
-  imageSkipped: boolean;
+  imageSkippedCount: number;
 }> {
   const { convertToSlideHtml } =
     await import("../server/handlers/import/html-converter.js");
@@ -512,7 +515,10 @@ async function buildPptxSlide(
       layout: slide.layoutHint ?? "content",
       notes: slide.notes,
     },
-    imageSkipped: Boolean(image && !imageUrl),
+    // Only the first image on a slide is ever uploaded, so every other
+    // image on that slide is unconditionally dropped too — not just the
+    // first one when it's unsupported.
+    imageSkippedCount: Math.max(0, slide.images.length - (imageUrl ? 1 : 0)),
   };
 }
 

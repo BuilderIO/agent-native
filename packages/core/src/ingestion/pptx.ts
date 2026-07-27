@@ -111,6 +111,7 @@ export async function parsePptxPresentation(
       // relationship scan has no way to know.
       const pictureShapes: PictureShape[] = [];
       collectPictureShapes(slide, pictureShapes);
+      reorderByDocumentPosition(pictureShapes, xml);
       addBackgroundFillShape(
         slide,
         pictureShapes,
@@ -333,19 +334,29 @@ function groupChildScale(
   return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
 }
 
+/**
+ * `a:xfrm/a:ext` always stores the shape's *unrotated* design-time width and
+ * height — `a:xfrm/@rot` (in 60,000ths of a degree) rotates it around its
+ * own center afterward. For a 90/270-degree turn, the shape's effective
+ * on-slide footprint has its width and height swapped relative to that
+ * declared size, so a rotated full-bleed photo can otherwise get treated as
+ * a small inset, or a portrait image get an inverted aspect ratio.
+ */
 function extFromSpPr(shapeNode: Record<string, unknown> | null): {
   cx?: number;
   cy?: number;
 } {
-  const ext = record(
-    record(record(shapeNode?.["p:spPr"])?.["a:xfrm"])?.["a:ext"],
-  );
+  const xfrm = record(record(shapeNode?.["p:spPr"])?.["a:xfrm"]);
+  const ext = record(xfrm?.["a:ext"]);
   const cx = Number(ext?.["@_cx"]);
   const cy = Number(ext?.["@_cy"]);
-  return {
-    cx: Number.isFinite(cx) && cx > 0 ? cx : undefined,
-    cy: Number.isFinite(cy) && cy > 0 ? cy : undefined,
-  };
+  if (!Number.isFinite(cx) || cx <= 0 || !Number.isFinite(cy) || cy <= 0) {
+    return { cx: undefined, cy: undefined };
+  }
+  const rot = Number(xfrm?.["@_rot"]);
+  const quarterTurns = Number.isFinite(rot) ? Math.round(rot / 60000 / 90) : 0;
+  const isOddQuarterTurn = ((quarterTurns % 2) + 2) % 2 === 1;
+  return isOddQuarterTurn ? { cx: cy, cy: cx } : { cx, cy };
 }
 
 function scaledShape(
@@ -359,6 +370,27 @@ function scaledShape(
     widthEmu: size.cx !== undefined ? size.cx * scaleX : undefined,
     heightEmu: size.cy !== undefined ? size.cy * scaleY : undefined,
   };
+}
+
+/**
+ * fast-xml-parser groups sibling elements by tag name, so a slide whose
+ * picture-bearing shapes alternate types on the page (e.g. `p:sp`, `p:pic`,
+ * `p:sp`) comes out of `collectPictureShapes` re-sorted by tag rather than
+ * by the order they actually appear — every `p:sp` gets visited before any
+ * `p:pic`, even if a `p:pic` came first in the file. Re-derive the true
+ * order from the raw XML text instead: `<a:blip r:embed="...">` occurrences
+ * appear in exactly document order regardless of nesting, so they can be
+ * used to restore the author's original front-to-back ordering (which
+ * matters because downstream rendering treats the first image as primary).
+ */
+function reorderByDocumentPosition(shapes: PictureShape[], xml: string): void {
+  const order: string[] = [];
+  const blipPattern = /<a:blip\b[^>]*\br:embed="([^"]+)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = blipPattern.exec(xml))) order.push(match[1]);
+  const indexOf = (embedId: string | undefined) =>
+    embedId ? order.indexOf(embedId) : -1;
+  shapes.sort((a, b) => indexOf(a.embedId) - indexOf(b.embedId));
 }
 
 /** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
