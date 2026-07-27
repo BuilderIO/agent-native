@@ -97,6 +97,7 @@ describe("Cloudflare module Worker entry", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
     expect(entry).toContain("globalThis.__env__ = env;");
+    expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain('await import("./index.mjs")');
     expect(entry).toContain("return handler.fetch(request, env, ctx);");
   });
@@ -2192,6 +2193,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
     const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
     const editorChunk = path.join(serverDir, "_chunks", "editor.mjs");
+    const nitroChunk = path.join(serverDir, "_chunks", "nitro-yjs.mjs");
     fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
     fs.writeFileSync(
       collabChunk,
@@ -2200,6 +2202,10 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     fs.writeFileSync(
       editorChunk,
       'import { Text, UndoManager } from "yjs";\nexport { Text, UndoManager };\n',
+    );
+    fs.writeFileSync(
+      nitroChunk,
+      'import { Text } from "../_libs/yjs.mjs";\nexport { Text };\n',
     );
 
     expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
@@ -2216,6 +2222,9 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'from "../_libs/yjs-runtime.mjs"',
     );
     expect(fs.readFileSync(editorChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(nitroChunk, "utf-8")).toContain(
       'from "../_libs/yjs-runtime.mjs"',
     );
     const [collab, editor] = await Promise.all([

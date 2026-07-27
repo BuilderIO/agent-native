@@ -8966,6 +8966,7 @@ export function createProductionAgentHandler(
         // assistant message. Falls back to the runId (turn == run) when the
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
+        waitUntil: getRequestRunContext()?.waitUntil,
         dispatchMode: foregroundSelfChainEligible
           ? "foreground-self-chain"
           : "foreground",

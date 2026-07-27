@@ -92,7 +92,6 @@ export function generateCloudflareModuleWorkerEntry(): string {
 
 export default {
   async fetch(request, env, ctx) {
-    if (ctx) globalThis.__cf_ctx = ctx;
     if (env) {
       globalThis.__cf_env = env;
       globalThis.__env__ = env;
@@ -182,9 +181,18 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
 
   const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
     main?: string;
+    compatibility_flags?: unknown;
     [key: string]: unknown;
   };
   config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
+  const compatibilityFlags = Array.isArray(config.compatibility_flags)
+    ? config.compatibility_flags.filter(
+        (flag): flag is string => typeof flag === "string",
+      )
+    : [];
+  config.compatibility_flags = [
+    ...new Set([...compatibilityFlags, "nodejs_compat"]),
+  ];
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
   fs.writeFileSync(
     nitroEntryPath,
@@ -1015,7 +1023,9 @@ function requestWithMountedApiPrefixStripped(request) {
     return request;
   }
   url.pathname = strippedPathname;
-  return new Request(url, request);
+  const rewritten = new Request(url, request);
+  rewritten.waitUntil = request.waitUntil;
+  return rewritten;
 }
 
 function prefixMountedPath(path, basePath) {
@@ -1469,8 +1479,10 @@ ${
 
 export default {
   async fetch(request, env, ctx) {
-    // Expose env and ctx bindings globally for compatibility
-    if (ctx) globalThis.__cf_ctx = ctx;
+    // Attach the request-scoped continuation hook before any URL rewrite.
+    if (typeof ctx?.waitUntil === "function") {
+      request.waitUntil = ctx.waitUntil.bind(ctx);
+    }
     if (env) {
       globalThis.process = globalThis.process || { env: {} };
       globalThis.process.env = globalThis.process.env || {};
@@ -3081,6 +3093,23 @@ export function bundleYjsRuntimeForServerlessOutput(
     );
   }
 
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const bundledImport = path
+      .relative(path.dirname(filePath), bundledYjsPath)
+      .split(path.sep)
+      .join("/");
+    const relativeBundledImport = bundledImport.startsWith(".")
+      ? bundledImport
+      : `./${bundledImport}`;
+    const source = fs.readFileSync(filePath, "utf-8");
+    const rewritten = source.replace(
+      /(\b(?:from\s*|import\s*\(\s*|import\s*))(["'])\.\.?\/(?:\.\.\/)*_libs\/yjs\.mjs\2/g,
+      (_match, importPrefix: string, quote: string) =>
+        `${importPrefix}${quote}${relativeBundledImport}${quote}`,
+    );
+    if (rewritten !== source) fs.writeFileSync(filePath, rewritten);
+  });
+
   return bareImports;
 }
 
@@ -4019,6 +4048,10 @@ export default bundle;
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
+  if (isCloudflareModulePreset(preset)) {
+    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
+  }
+
   if (preset === "netlify") {
     emitSingleTemplateNetlifyKeepWarmFunction(cwd);
 
@@ -4127,6 +4160,32 @@ export default bundle;
     if (bareImports.size > 0) {
       const libsDir = path.join(outputDir, "_libs");
       fs.mkdirSync(libsDir, { recursive: true });
+      function rewriteExternalImports(mod: string, outFile: string) {
+        function rewriteImports(dir: string) {
+          if (!fs.existsSync(dir)) return;
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              rewriteImports(p);
+              continue;
+            }
+            if (!entry.name.endsWith(".mjs") && !entry.name.endsWith(".js"))
+              continue;
+            const code = fs.readFileSync(p, "utf8");
+            const relPath = path
+              .relative(path.dirname(p), outFile)
+              .replace(/\\/g, "/");
+            const importPath = relPath.startsWith(".")
+              ? relPath
+              : "./" + relPath;
+            const escaped = mod.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const re = new RegExp(`from["']${escaped}["']`, "g");
+            const rewritten = code.replace(re, `from"${importPath}"`);
+            if (rewritten !== code) fs.writeFileSync(p, rewritten);
+          }
+        }
+        rewriteImports(outputDir);
+      }
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
         // Nitro may already have emitted a correctly minified module wrapper
@@ -4135,6 +4194,7 @@ export default bundle;
         // sibling chunks fail during Worker module linking.
         if (fs.existsSync(outFile)) {
           console.log(`[deploy] Retaining Nitro external: ${mod}`);
+          rewriteExternalImports(mod, outFile);
           continue;
         }
         try {

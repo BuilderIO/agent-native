@@ -281,6 +281,21 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("registers the run with the explicit request waitUntil callback", () => {
+    const waitUntil = vi.fn();
+
+    startRun(
+      "run-request-wait-until",
+      "thread-request-wait-until",
+      async () => {},
+      undefined,
+      { waitUntil },
+    );
+
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise));
+  });
+
   it("emits an internal continuation signal and aborts the run chunk", async () => {
     const events: AgentChatEvent[] = [];
     let aborted = false;
