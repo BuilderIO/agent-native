@@ -460,9 +460,8 @@ async function buildPptxSlide(
   layout: string;
   notes?: string;
 }> {
-  const { convertToSlideHtml } = await import(
-    "../server/handlers/import/html-converter.js"
-  );
+  const { convertToSlideHtml } =
+    await import("../server/handlers/import/html-converter.js");
   const image = slide.images[0];
   const imageUrl = image
     ? (
