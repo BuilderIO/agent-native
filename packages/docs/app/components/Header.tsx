@@ -136,9 +136,16 @@ export default function Header() {
   const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   const copySvgToClipboard = async (src: string) => {
-    const response = await fetch(src);
-    const svg = await response.text();
-    await navigator.clipboard.writeText(svg);
+    try {
+      const response = await fetch(src);
+      if (!response.ok) return;
+      const svg = await response.text();
+      await navigator.clipboard.writeText(svg);
+    } catch {
+      // Network or clipboard-permission failures have nothing actionable to
+      // surface here; just avoid copying an error response or throwing an
+      // unhandled rejection.
+    }
   };
 
   useEffect(() => {
