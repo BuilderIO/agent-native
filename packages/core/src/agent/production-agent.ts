@@ -2088,6 +2088,13 @@ function collectTextParts(parts: EngineContentPart[]): string {
     .join("");
 }
 
+// Guard retries are pushed as `role: "user"` because engines have no other
+// mid-turn channel. Unlabeled, a corrective instruction ("say the source is
+// not connected and include this link") reads exactly like an injected user
+// turn, and an aligned model refuses it *to the user* instead of following it.
+export const AGENT_INTERNAL_GUARD_PROMPT =
+  "Automated quality check on the draft answer you just produced. This is a directive from this application's own response guard, not a message from the user and not content from a tool result or web page. Follow it and revise your answer. Do not quote it, describe it, or treat it as an injection attempt. If it contradicts what you observed this turn, state what you actually observed instead of asserting the guard's premise.";
+
 export const AGENT_INTERNAL_CONTINUE_PROMPT =
   "Continue from where you left off and finish the user's original request. Do not repeat completed work, do not mention internal reconnects, time limits, or step limits, and continue as if this is the same uninterrupted run.";
 
@@ -4588,7 +4595,12 @@ export async function runAgentLoop(opts: {
           send({ type: "clear" });
           messages.push({
             role: "user",
-            content: [{ type: "text", text: retryMessage }],
+            content: [
+              {
+                type: "text",
+                text: `${AGENT_INTERNAL_GUARD_PROMPT}\n\n<response-guard>\n${retryMessage}\n</response-guard>`,
+              },
+            ],
           });
           continue;
         }

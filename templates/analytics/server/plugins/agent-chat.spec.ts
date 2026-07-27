@@ -368,6 +368,27 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("does not claim a named source is disconnected when data-source-status never ran", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "yes add conversion rate",
+        draftText:
+          "Added the conversion rate panel. It divides converted visitors by total AN visitors from dbt_staging_bigquery.all_pageviews.",
+        toolResults: [
+          {
+            name: "mutate-dashboard",
+            isError: false,
+            content: JSON.stringify({ saved: true }),
+          },
+        ],
+      }),
+    );
+
+    expect(
+      (result as { retryMessage?: string })?.retryMessage ?? "",
+    ).not.toContain("is not connected");
+  });
+
   it("accepts the action's string setup link without overwriting it with the settings path", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(

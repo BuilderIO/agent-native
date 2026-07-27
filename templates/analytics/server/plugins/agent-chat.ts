@@ -472,11 +472,16 @@ export function realDataFinalGuard(
   const noConnectedExternalSources =
     sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
-  const missingRequestedExternalSource = hasMissingRequestedExternalSource(
-    userText,
-    sourceStatus.externalSourceLabels,
-    sourceStatus.availableExternalSources,
-  );
+  // Only `data-source-status` can prove a source is missing. Without it both
+  // label lists are empty, which would make every named provider look
+  // disconnected — an unchecked turn is not a disconnected one.
+  const missingRequestedExternalSource =
+    sourceStatus.checked &&
+    hasMissingRequestedExternalSource(
+      userText,
+      sourceStatus.externalSourceLabels,
+      sourceStatus.availableExternalSources,
+    );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
