@@ -227,7 +227,8 @@ const esES = {
     },
     templates: {
       title: "Prueba una app Agent-Native",
-      eyebrow: "Bifurca una app funcional y deja que el agente la evolucione.",
+      eyebrow:
+        "Empieza con una app funcional y deja que el agente la evolucione.",
       cta: "Ver apps",
     },
     skills: {
@@ -284,7 +285,7 @@ const esES = {
         polishedButRigid: "Pulidas pero rígidas",
         none: "Ninguna",
         mixedQuality: "Calidad irregular",
-        fullUi: "UI completa, fork y listo",
+        fullUi: "UI completa, personaliza y listo",
         boltedOn: "Añadida encima",
         powerful: "Potente",
         shallowlyConnected: "Conexión superficial",
@@ -304,7 +305,7 @@ const esES = {
     },
     finalCta: {
       title: "Software construido para la era agentic",
-      body: "Empieza con un comando o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
+      body: "Empieza con un comando o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Cloneable SaaS. Tuyo.",
       primaryCta: "Probar una app",
       secondaryCta: "Leer la documentación",
       githubCta: "Ver en GitHub",
@@ -387,7 +388,7 @@ const esES = {
       providerApis: "Proveedor APIs",
       agentWebSurfaces: "Superficies web de agentes",
       templateSkills: "Habilidades de app",
-      oneClickForks: "Horquillas de un clic",
+      oneClickForks: "Creación de apps con un clic",
       localFileMode: "Modo de archivo local",
       memory: "Memoria",
       webhooks: "Ganchos web",
@@ -417,7 +418,8 @@ const esES = {
   },
   templatesPage: {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
-    eyebrow: "Bifurca una app funcional y deja que el agente la evolucione.",
+    eyebrow:
+      "Empieza con una app funcional y deja que el agente la evolucione.",
     body: "Puedes personalizarlo todo.",
     community:
       "¿Prefieres una app en blanco? Empieza desde cero con la guía del framework.",

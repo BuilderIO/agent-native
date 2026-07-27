@@ -228,7 +228,7 @@ const deDE = {
     templates: {
       title: "Teste eine Agent-Native-App",
       eyebrow:
-        "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+        "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
       cta: "Apps ansehen",
     },
     skills: {
@@ -285,7 +285,7 @@ const deDE = {
         polishedButRigid: "Ausgereift, aber starr",
         none: "Keine",
         mixedQuality: "Gemischte Qualität",
-        fullUi: "Volle UI, fork & go",
+        fullUi: "Volle UI, anpassen & loslegen",
         boltedOn: "Nachträglich angebaut",
         powerful: "Mächtig",
         shallowlyConnected: "Oberflächlich verbunden",
@@ -305,7 +305,7 @@ const deDE = {
     },
     finalCta: {
       title: "Software, gebaut für die agentic era",
-      body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
+      body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Cloneable SaaS. Deins.",
       primaryCta: "App ausprobieren",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
@@ -388,7 +388,7 @@ const deDE = {
       providerApis: "Anbieter APIs",
       agentWebSurfaces: "Agenten-Weboberflächen",
       templateSkills: "App-Fähigkeiten",
-      oneClickForks: "One-Click-Gabeln",
+      oneClickForks: "App-Erstellung mit einem Klick",
       localFileMode: "Lokaler Dateimodus",
       memory: "Erinnerung",
       webhooks: "Webhooks",
@@ -419,7 +419,7 @@ const deDE = {
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
     eyebrow:
-      "Forke eine funktionierende App und lass sie vom Agenten weiterentwickeln.",
+      "Starte mit einer funktionierenden App und lass sie vom Agenten weiterentwickeln.",
     body: "Du kannst alles anpassen.",
     community:
       "Du möchtest lieber eine leere App? Starte von Grund auf mit dem Framework-Guide.",

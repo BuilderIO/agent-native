@@ -227,7 +227,8 @@ const frFR = {
     },
     templates: {
       title: "Essayez une app Agent-Native",
-      eyebrow: "100 % gratuit et open source",
+      eyebrow:
+        "Partez d'une app fonctionnelle et laissez l'agent la faire évoluer.",
       cta: "Voir les apps",
     },
     skills: {
@@ -284,7 +285,7 @@ const frFR = {
         polishedButRigid: "Soignés mais rigides",
         none: "Aucune",
         mixedQuality: "Qualité variable",
-        fullUi: "UI complète, fork et go",
+        fullUi: "UI complète, personnalisez et lancez",
         boltedOn: "Greffée dessus",
         powerful: "Puissante",
         shallowlyConnected: "Connexion superficielle",
@@ -304,7 +305,7 @@ const frFR = {
     },
     finalCta: {
       title: "Un logiciel conçu pour l'ère agentic",
-      body: "Commencez avec une commande ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
+      body: "Commencez avec une commande ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Cloneable SaaS. À vous.",
       primaryCta: "Commencer avec un Action",
       secondaryCta: "Lire la documentation",
       githubCta: "Voir sur GitHub",
@@ -387,7 +388,7 @@ const frFR = {
       providerApis: "Fournisseur APIs",
       agentWebSurfaces: "Surfaces Web des agents",
       templateSkills: "Compétences d'app",
-      oneClickForks: "Fourches en un clic",
+      oneClickForks: "Création d'app en un clic",
       localFileMode: "Mode fichier local",
       memory: "Mémoire",
       webhooks: "Webhooks",
@@ -418,7 +419,7 @@ const frFR = {
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
     eyebrow:
-      "Forkez une app fonctionnelle et laissez l'agent la faire évoluer.",
+      "Partez d'une app fonctionnelle et laissez l'agent la faire évoluer.",
     body: "Vous pouvez tout personnaliser.",
     community:
       "Vous préférez une app vide ? Commencez de zéro avec le guide du framework.",

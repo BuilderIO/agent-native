@@ -226,7 +226,7 @@ const hiIN = {
     },
     templates: {
       title: "Agent-Native app आज़माएं",
-      eyebrow: "100% मुफ्त और ओपन सोर्स",
+      eyebrow: "एक working app से शुरू करें और agent को इसे evolve करने दें।",
       cta: "apps देखें",
     },
     skills: {
@@ -283,7 +283,7 @@ const hiIN = {
         polishedButRigid: "साफ-सुथरे लेकिन कठोर",
         none: "कोई नहीं",
         mixedQuality: "मिली-जुली quality",
-        fullUi: "Full UI, fork और go",
+        fullUi: "Full UI, customize और go",
         boltedOn: "ऊपर से जोड़ा गया",
         powerful: "शक्तिशाली",
         shallowlyConnected: "ऊपरी तौर पर connected",
@@ -303,7 +303,7 @@ const hiIN = {
     },
     finalCta: {
       title: "agentic era के लिए बना software",
-      body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
+      body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Cloneable SaaS। आपका।",
       primaryCta: "एक app आज़माएँ",
       secondaryCta: "दस्तावेज़ पढ़ें",
       githubCta: "GitHub पर देखें",
@@ -386,7 +386,7 @@ const hiIN = {
       providerApis: "प्रदाता APIs",
       agentWebSurfaces: "एजेंट वेब सतहें",
       templateSkills: "ऐप कौशल",
-      oneClickForks: "एक-क्लिक कांटे",
+      oneClickForks: "एक-क्लिक app निर्माण",
       localFileMode: "स्थानीय फ़ाइल मोड",
       memory: "स्मृति",
       webhooks: "वेबहुक",
@@ -416,7 +416,7 @@ const hiIN = {
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",
-    eyebrow: "एक working app fork करें और agent को इसे evolve करने दें।",
+    eyebrow: "एक working app से शुरू करें और agent को इसे evolve करने दें।",
     body: "आप हर चीज़ customize कर सकते हैं।",
     community: "Blank app चाहिए? Framework guide से scratch से शुरू करें।",
     createYourOwn: "Scratch से शुरू करें",

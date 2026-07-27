@@ -227,7 +227,7 @@ const koKR = {
     },
     templates: {
       title: "Agent-Native app 사용해 보기",
-      eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
+      eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
       cta: "apps 보기",
     },
     skills: {
@@ -284,7 +284,7 @@ const koKR = {
         polishedButRigid: "세련됐지만 경직됨",
         none: "없음",
         mixedQuality: "품질이 들쭉날쭉",
-        fullUi: "전체 UI, fork 후 바로 사용",
+        fullUi: "전체 UI, 맞춤 설정 후 바로 사용",
         boltedOn: "덧붙임",
         powerful: "강력함",
         shallowlyConnected: "얕게 연결됨",
@@ -304,7 +304,7 @@ const koKR = {
     },
     finalCta: {
       title: "agentic era 를 위해 구축된 소프트웨어",
-      body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
+      body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Cloneable SaaS. 당신의 것입니다.",
       primaryCta: "app 사용해 보기",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
@@ -387,7 +387,7 @@ const koKR = {
       providerApis: "제공자 APIs",
       agentWebSurfaces: "에이전트 웹 표면",
       templateSkills: "앱 스킬",
-      oneClickForks: "원클릭 포크",
+      oneClickForks: "원클릭 앱 생성",
       localFileMode: "로컬 파일 모드",
       memory: "메모리",
       webhooks: "웹훅",
@@ -417,7 +417,7 @@ const koKR = {
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
-    eyebrow: "작동하는 app을 포크하고 agent가 발전시키게 하세요.",
+    eyebrow: "작동하는 app에서 시작하고 agent가 발전시키게 하세요.",
     body: "모든 것을 맞춤 설정할 수 있습니다.",
     community:
       "빈 앱에서 시작하고 싶다면 프레임워크 가이드로 처음부터 시작하세요.",

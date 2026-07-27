@@ -222,7 +222,7 @@ const zhCN = {
     },
     templates: {
       title: "试用一个 Agent-Native app",
-      eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
+      eyebrow: "从一个可运行的 app 开始，让 agent 继续改进它。",
       cta: "查看 apps",
     },
     skills: {
@@ -278,7 +278,7 @@ const zhCN = {
         polishedButRigid: "精致但僵硬",
         none: "无",
         mixedQuality: "质量参差",
-        fullUi: "完整 UI，fork 即用",
+        fullUi: "完整 UI，自定义即用",
         boltedOn: "后加上去",
         powerful: "强大",
         shallowlyConnected: "浅层连接",
@@ -298,7 +298,7 @@ const zhCN = {
     },
     finalCta: {
       title: "为 agentic 时代而建的软件",
-      body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
+      body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。Cloneable SaaS。属于你。",
       primaryCta: "试用一个 app",
       secondaryCta: "阅读文档",
       githubCta: "在 GitHub 查看",
@@ -381,7 +381,7 @@ const zhCN = {
       providerApis: "提供商 APIs",
       agentWebSurfaces: "代理网络表面",
       templateSkills: "应用技巧",
-      oneClickForks: "一键叉子",
+      oneClickForks: "一键创建 app",
       localFileMode: "本地文件模式",
       memory: "内存",
       webhooks: "网络钩子",
@@ -411,7 +411,7 @@ const zhCN = {
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
-    eyebrow: "Fork 一个可运行的 app，让 agent 继续改进它。",
+    eyebrow: "从一个可运行的 app 开始，让 agent 继续改进它。",
     body: "你可以自定义一切。",
     community: "想要空白应用？从框架指南开始从零构建。",
     createYourOwn: "从零开始",

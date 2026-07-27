@@ -220,7 +220,7 @@ const messages = {
     },
     templates: {
       title: "試用一個 Agent-Native app",
-      eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
+      eyebrow: "從一個可執行的 app 開始，讓 agent 繼續改進它。",
       cta: "檢視 apps",
     },
     skills: {
@@ -276,7 +276,7 @@ const messages = {
         polishedButRigid: "精致但僵硬",
         none: "無",
         mixedQuality: "品質參差",
-        fullUi: "完整 UI，fork 即用",
+        fullUi: "完整 UI，自訂即用",
         boltedOn: "後加上去",
         powerful: "強大",
         shallowlyConnected: "淺層連線",
@@ -296,7 +296,7 @@ const messages = {
     },
     finalCta: {
       title: "為 agentic 時代而建的軟體",
-      body: "從一條指令或 durable action 開始，讓它跑過 app-agent loop，然後在不重寫操作的情況下成長為 UI、jobs 和協作。開放原始碼。可 fork。屬於你。",
+      body: "從一條指令或 durable action 開始，讓它跑過 app-agent loop，然後在不重寫操作的情況下成長為 UI、jobs 和協作。開放原始碼。Cloneable SaaS。屬於你。",
       primaryCta: "試用一個 app",
       secondaryCta: "閱讀檔案",
       githubCta: "在 GitHub 檢視",
@@ -379,7 +379,7 @@ const messages = {
       providerApis: "提供者 APIs",
       agentWebSurfaces: "代理網路表面",
       templateSkills: "應用程式技巧",
-      oneClickForks: "一鍵叉子",
+      oneClickForks: "一鍵建立 app",
       localFileMode: "本機檔案模式",
       memory: "記憶",
       webhooks: "網路鉤子",
@@ -409,7 +409,7 @@ const messages = {
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
-    eyebrow: "Fork 一個可執行的 app，讓 agent 繼續改進它。",
+    eyebrow: "從一個可執行的 app 開始，讓 agent 繼續改進它。",
     body: "你可以自訂一切。",
     community: "想要空白應用？從框架指南開始從零建置。",
     createYourOwn: "從零開始",

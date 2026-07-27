@@ -227,7 +227,7 @@ const jaJP = {
     },
     templates: {
       title: "Agent-Native app を試す",
-      eyebrow: "100% 無料でオープンソース",
+      eyebrow: "動く app から始め、agent に進化させます。",
       cta: "apps を見る",
     },
     skills: {
@@ -284,7 +284,7 @@ const jaJP = {
         polishedButRigid: "洗練されているが硬直的",
         none: "なし",
         mixedQuality: "品質がまちまち",
-        fullUi: "完全な UI、fork してすぐ使える",
+        fullUi: "完全な UI、カスタマイズしてすぐ使える",
         boltedOn: "後付け",
         powerful: "強力",
         shallowlyConnected: "浅く接続",
@@ -304,7 +304,7 @@ const jaJP = {
     },
     finalCta: {
       title: "agentic era のために作られたソフトウェア",
-      body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
+      body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Cloneable SaaS。あなたのものです。",
       primaryCta: "app を試す",
       secondaryCta: "ドキュメントを読む",
       githubCta: "GitHub で見る",
@@ -387,7 +387,7 @@ const jaJP = {
       providerApis: "プロバイダー APIs",
       agentWebSurfaces: "エージェントの Web サーフェス",
       templateSkills: "アプリスキル",
-      oneClickForks: "ワンクリックフォーク",
+      oneClickForks: "ワンクリックで app を作成",
       localFileMode: "ローカルファイルモード",
       memory: "記憶",
       webhooks: "Webhook",
@@ -417,7 +417,7 @@ const jaJP = {
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
-    eyebrow: "動く app をフォークし、agent に進化させます。",
+    eyebrow: "動く app から始め、agent に進化させます。",
     body: "すべてをカスタマイズできます。",
     community:
       "空のアプリから始めたい場合は、フレームワークガイドでゼロから始められます。",

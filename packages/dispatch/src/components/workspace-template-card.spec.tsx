@@ -103,7 +103,7 @@ describe("WorkspaceTemplateCard", () => {
     });
 
     const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remix into workspace"),
+      (button) => button.textContent?.includes("Create from template"),
     );
     expect(trigger).not.toBeUndefined();
 
@@ -140,7 +140,7 @@ describe("WorkspaceTemplateCard", () => {
       });
     });
     expect(toast.success).toHaveBeenCalledWith(
-      "Template remixed into your workspace.",
+      "Template app creation started.",
     );
   });
 
@@ -167,7 +167,7 @@ describe("WorkspaceTemplateCard", () => {
     expect(container.textContent).toContain("Installed");
     expect(container.querySelector('a[href^="https://"]')).toBeNull();
     const remixButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remix into workspace"),
+      (button) => button.textContent?.includes("Create from template"),
     );
     expect(remixButton).not.toHaveProperty("disabled", true);
   });

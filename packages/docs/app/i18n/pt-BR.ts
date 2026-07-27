@@ -226,7 +226,7 @@ const ptBR = {
     },
     templates: {
       title: "Experimente uma app Agent-Native",
-      eyebrow: "100% grátis e open source",
+      eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
       cta: "Ver apps",
     },
     skills: {
@@ -283,7 +283,7 @@ const ptBR = {
         polishedButRigid: "Polidas, mas rígidas",
         none: "Nenhuma",
         mixedQuality: "Qualidade irregular",
-        fullUi: "UI completa, fork e pronto",
+        fullUi: "UI completa, personalize e pronto",
         boltedOn: "Acoplada depois",
         powerful: "Poderosa",
         shallowlyConnected: "Conexão superficial",
@@ -303,7 +303,7 @@ const ptBR = {
     },
     finalCta: {
       title: "Software feito para a era agentic",
-      body: "Comece com um comando ou um durable action, rode pelo app-agent loop e depois expanda para UI, jobs e colaboração sem reescrever a operação. Open source. Forkable. Seu.",
+      body: "Comece com um comando ou um durable action, rode pelo app-agent loop e depois expanda para UI, jobs e colaboração sem reescrever a operação. Open source. Cloneable SaaS. Seu.",
       primaryCta: "Testar uma app",
       secondaryCta: "Ler a documentação",
       githubCta: "Ver no GitHub",
@@ -386,7 +386,7 @@ const ptBR = {
       providerApis: "Provedor APIs",
       agentWebSurfaces: "Superfícies da Web do agente",
       templateSkills: "Habilidades de app",
-      oneClickForks: "Garfos com um clique",
+      oneClickForks: "Criação de app com um clique",
       localFileMode: "Modo de arquivo local",
       memory: "Memória",
       webhooks: "Webhooks",
@@ -416,7 +416,7 @@ const ptBR = {
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
-    eyebrow: "Bifurque uma app funcional e deixe o agente evoluí-la.",
+    eyebrow: "Comece com uma app funcional e deixe o agente evoluí-la.",
     body: "Você pode personalizar tudo.",
     community:
       "Quer uma app em branco? Comece do zero com o guia do framework.",

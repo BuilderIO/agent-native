@@ -225,7 +225,7 @@ const arSA = {
     },
     templates: {
       title: "جرّب app من Agent-Native",
-      eyebrow: "مجاني 100% ومفتوح المصدر",
+      eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
       cta: "عرض apps",
     },
     skills: {
@@ -415,7 +415,7 @@ const arSA = {
   },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
-    eyebrow: "انسخ تطبيقًا جاهزًا ودع الوكيل يطوره.",
+    eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
     body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",
