@@ -936,9 +936,10 @@ async function renderChartBlock(args: {
     .join(", ")}`;
 
   try {
+    // Title and description stay in the surrounding HTML card: text there is
+    // selectable, wraps instead of truncating, and cannot be duplicated by the
+    // image beneath it.
     const svg = renderReportChartSvg({
-      title: panel.title,
-      ...(subtitle ? { subtitle } : {}),
       labels: input.labels,
       series: input.series,
       type: chartType,
