@@ -99,6 +99,10 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).toContain("globalThis.__env__ = env;");
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
+    expect(entry).toContain("function initializeBindings(env)");
+    expect(entry).toContain(
+      "initializeBindings(env);\n    return (await loadHandler())",
+    );
     expect(entry).toContain('await import("./index.mjs")');
     expect(entry).toContain(
       "return (await loadHandler()).fetch(request, env, ctx);",

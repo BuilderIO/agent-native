@@ -312,6 +312,43 @@ describe("route chunk recovery", () => {
     expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
   });
 
+  it("recovers desktop navigation after React Router commits the target URL", () => {
+    const { fakeWindow, fakeLocation, originalReload, dispatchDocument } =
+      createFakeWindow("https://example.com/dispatch/apps", {
+        userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7",
+      });
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/dispatch/new-app",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+    fakeWindow.history.pushState({}, "", "/dispatch/new-app");
+
+    fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
+    );
+    fakeLocation.reload();
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/new-app",
+    );
+    expect(originalReload).not.toHaveBeenCalled();
+  });
+
   it("recovers unhandled dynamic import rejections using the intended target", () => {
     const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
       createFakeWindow();

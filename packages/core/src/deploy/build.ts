@@ -95,36 +95,43 @@ async function loadHandler() {
   return handler;
 }
 
+function initializeBindings(env) {
+  if (!env) return;
+  globalThis.__cf_env = env;
+  globalThis.__env__ = env;
+  globalThis.process = globalThis.process || { env: {} };
+  globalThis.process.env = globalThis.process.env || {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") globalThis.process.env[key] = value;
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (typeof ctx?.waitUntil === "function") {
       request.waitUntil = ctx.waitUntil.bind(ctx);
     }
-    if (env) {
-      globalThis.__cf_env = env;
-      globalThis.__env__ = env;
-      globalThis.process = globalThis.process || { env: {} };
-      globalThis.process.env = globalThis.process.env || {};
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === "string") globalThis.process.env[key] = value;
-      }
-    }
-
+    initializeBindings(env);
     return (await loadHandler()).fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
+    initializeBindings(env);
     return (await loadHandler()).scheduled?.(controller, env, ctx);
   },
   async email(message, env, ctx) {
+    initializeBindings(env);
     return (await loadHandler()).email?.(message, env, ctx);
   },
   async queue(batch, env, ctx) {
+    initializeBindings(env);
     return (await loadHandler()).queue?.(batch, env, ctx);
   },
   async tail(traces, env, ctx) {
+    initializeBindings(env);
     return (await loadHandler()).tail?.(traces, env, ctx);
   },
   async trace(traces, env, ctx) {
+    initializeBindings(env);
     return (await loadHandler()).trace?.(traces, env, ctx);
   },
 };
