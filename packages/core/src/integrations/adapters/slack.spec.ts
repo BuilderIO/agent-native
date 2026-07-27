@@ -1392,6 +1392,47 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("aborts reconciliation before a fresh terminal post can outlive its claim", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    const controller = new AbortController();
+    const deliveryUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: RequestInit) => {
+        deliveryUrls.push(String(url));
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        });
+      }),
+    );
+
+    const delivery = slackAdapter().sendResponse(
+      { text: "done", platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a design ask",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+      {
+        idempotencyKey: "a2a-continuation:cont-1",
+        signal: controller.signal,
+      },
+    );
+    await vi.waitFor(() => expect(deliveryUrls).toHaveLength(1));
+    controller.abort(new Error("delivery claim expired"));
+
+    await expect(delivery).rejects.toThrow("delivery claim expired");
+    expect(deliveryUrls).toEqual([
+      expect.stringContaining("conversations.replies"),
+    ]);
+  });
+
   it("does not replace a strict stable target with a fresh terminal post", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryUrls: string[] = [];

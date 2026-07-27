@@ -1270,11 +1270,13 @@ describe("A2A continuation processor", () => {
     );
     expect(onEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent_call", status: "done" }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(sendResponse).not.toHaveBeenCalled();
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
@@ -1344,6 +1346,7 @@ describe("A2A continuation processor", () => {
           "https://content.agent-native.com/page/design_ask_123",
         ),
       }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(sendResponse).not.toHaveBeenCalled();
     expect(claimA2AContinuationDeliveryMock).toHaveBeenCalledTimes(1);
@@ -1386,9 +1389,11 @@ describe("A2A continuation processor", () => {
       expect.objectContaining({
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(fail).toHaveBeenCalledWith(
       "I couldn't update the live response, but I posted the final result in this thread.",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2810,9 +2815,21 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
   });
 
-  it("reschedules and redispatches when the platform send hangs", async () => {
+  it("aborts and settles a hung platform send before releasing its claim", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(() => new Promise<void>(() => {}));
+    let settleAbortedSend: (() => void) | undefined;
+    const sendResponse = vi.fn(
+      (_message: unknown, _incoming: unknown, opts?: PlatformDeliveryOptions) =>
+        new Promise<void>((_resolve, reject) => {
+          opts?.signal?.addEventListener(
+            "abort",
+            () => {
+              settleAbortedSend = () => reject(opts.signal?.reason);
+            },
+            { once: true },
+          );
+        }),
+    );
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     const { processA2AContinuationById } =
       await import("./a2a-continuation-processor.js");
@@ -2822,6 +2839,9 @@ describe("A2A continuation processor", () => {
     });
 
     await vi.advanceTimersByTimeAsync(12_000);
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(settleAbortedSend).toBeTypeOf("function");
+    settleAbortedSend?.();
     await processing;
 
     expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(

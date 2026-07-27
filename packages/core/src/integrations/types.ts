@@ -141,6 +141,8 @@ export interface PlatformDeliveryOptions {
   idempotencyKey?: string;
   /** Earliest provider timestamp (epoch ms) that can contain this delivery. */
   reconcileAfter?: number;
+  /** Abort provider I/O before the caller releases its durable delivery claim. */
+  signal?: AbortSignal;
   /** Do not fall back to a fresh post if the stable target cannot be updated. */
   strictTargetRef?: boolean;
 }
@@ -215,11 +217,17 @@ export interface PlatformRunProgress {
   /** Stable provider message target that can receive the terminal answer. */
   responseTargetRef?: string;
   /** Receive normalized agent events. Implementations should throttle writes. */
-  onEvent(event: AgentChatEvent): Promise<void> | void;
+  onEvent(
+    event: AgentChatEvent,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
-  complete(message: OutgoingMessage): Promise<void | PlatformDeliveryReceipt>;
+  complete(
+    message: OutgoingMessage,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void | PlatformDeliveryReceipt>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
-  fail?(message: string): Promise<void>;
+  fail?(message: string, opts?: { signal?: AbortSignal }): Promise<void>;
 }
 
 /**

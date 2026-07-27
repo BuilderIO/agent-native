@@ -490,6 +490,7 @@ export function slackAdapter(
               opts.idempotencyKey,
               freshChunkIndexes,
               opts.reconcileAfter,
+              opts.signal,
             )
           : new Map<number, string>();
 
@@ -519,6 +520,7 @@ export function slackAdapter(
               "Content-Type": "application/json",
             },
             body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
+            signal: opts?.signal,
           });
           const data = (await res.json()) as {
             ok: boolean;
@@ -538,6 +540,7 @@ export function slackAdapter(
               opts?.idempotencyKey
                 ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
                 : baseBody,
+              opts?.signal,
             );
             if (postedTs) messageRefs.push(postedTs);
           } else {
@@ -555,6 +558,7 @@ export function slackAdapter(
               opts?.idempotencyKey
                 ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
                 : baseBody,
+              opts?.signal,
             );
             if (postedTs) messageRefs.push(postedTs);
           }
@@ -592,6 +596,7 @@ export function slackAdapter(
                   chunkIndex,
                 )
               : overflowBody,
+            opts?.signal,
           );
           if (postedTs) messageRefs.push(postedTs);
         }
@@ -1145,6 +1150,7 @@ async function postFresh(
   channelId: string,
   threadTs: string | undefined,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
   const hasBlocks =
     Array.isArray(body.blocks) && (body.blocks as unknown[]).length > 0;
@@ -1168,6 +1174,7 @@ async function postFresh(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
+    signal,
   });
   const data = (await res.json()) as {
     ok: boolean;
@@ -1227,6 +1234,7 @@ async function reconcileSlackDeliveryChunks(
   key: string,
   chunkIndexes: number[],
   reconcileAfter?: number,
+  signal?: AbortSignal,
 ): Promise<Map<number, string>> {
   if (!threadTs) {
     throw new Error(
@@ -1260,6 +1268,7 @@ async function reconcileSlackDeliveryChunks(
     }
     const response = await slackApiFetch(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     });
     const body = (await response.json()) as {
       ok: boolean;
@@ -1297,6 +1306,16 @@ async function slackApiFetch(
 ): Promise<Response> {
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : undefined;
+  const externalSignal = init.signal;
+  const abortFromExternal = () => controller?.abort(externalSignal?.reason);
+  if (controller && externalSignal) {
+    if (externalSignal.aborted) abortFromExternal();
+    else {
+      externalSignal.addEventListener("abort", abortFromExternal, {
+        once: true,
+      });
+    }
+  }
   const timer = controller
     ? setTimeout(() => controller.abort(), timeoutMs)
     : undefined;
@@ -1307,6 +1326,7 @@ async function slackApiFetch(
     });
   } finally {
     if (timer) clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
   }
 }
 
@@ -1778,6 +1798,7 @@ async function postSlackJson(
   token: string,
   method: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<Record<string, any>> {
   const response = await slackApiFetch(`https://slack.com/api/${method}`, {
     method: "POST",
@@ -1786,6 +1807,7 @@ async function postSlackJson(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    signal,
   });
   const data = (await response.json()) as Record<string, any>;
   if (!data.ok) throw new Error(data.error || `${method} failed`);
@@ -2094,7 +2116,7 @@ function createSlackRunProgress(
         });
       }
     },
-    async complete(message) {
+    async complete(message, opts) {
       if (pendingTimer) clearTimeout(pendingTimer);
       const finalChunks = [...tasks.entries()].map(([id, task]) => ({
         type: "task_update",
@@ -2129,25 +2151,35 @@ function createSlackRunProgress(
             },
           ]
         : [];
-      await postSlackJson(token, "chat.stopStream", {
-        channel,
-        ts: streamTs,
-        markdown_text: message.text || "Done.",
-        ...(finalChunks.length ? { chunks: finalChunks } : {}),
-        ...(messageBlocks.length || controlBlocks.length
-          ? { blocks: [...messageBlocks, ...controlBlocks].slice(0, 50) }
-          : {}),
-      });
+      await postSlackJson(
+        token,
+        "chat.stopStream",
+        {
+          channel,
+          ts: streamTs,
+          markdown_text: message.text || "Done.",
+          ...(finalChunks.length ? { chunks: finalChunks } : {}),
+          ...(messageBlocks.length || controlBlocks.length
+            ? { blocks: [...messageBlocks, ...controlBlocks].slice(0, 50) }
+            : {}),
+        },
+        opts?.signal,
+      );
       setSlackAssistantStatus(token, channel, threadTs, "");
       return { status: "delivered", messageRefs: [streamTs] };
     },
-    async fail(message) {
+    async fail(message, opts) {
       if (pendingTimer) clearTimeout(pendingTimer);
-      await postSlackJson(token, "chat.stopStream", {
-        channel,
-        ts: streamTs,
-        markdown_text: message.slice(0, SLACK_MAX_LENGTH),
-      }).catch(() => {});
+      await postSlackJson(
+        token,
+        "chat.stopStream",
+        {
+          channel,
+          ts: streamTs,
+          markdown_text: message.slice(0, SLACK_MAX_LENGTH),
+        },
+        opts?.signal,
+      ).catch(() => {});
       setSlackAssistantStatus(token, channel, threadTs, "");
     },
   };

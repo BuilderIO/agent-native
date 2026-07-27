@@ -753,13 +753,15 @@ async function notifyAndFailA2AContinuation(
   try {
     outgoing = adapter.formatAgentResponse(message);
     deliveryReceipt = await withTimeout(
-      deliverA2AContinuationResponse(
-        adapter,
-        deliveryContinuation,
-        outgoing,
-        progress,
-        "error",
-      ),
+      (signal) =>
+        deliverA2AContinuationResponse(
+          adapter,
+          deliveryContinuation,
+          outgoing,
+          progress,
+          "error",
+          signal,
+        ),
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} failure notification timed out`,
     );
@@ -813,13 +815,15 @@ async function deliverAndCompleteA2AContinuation(
       stripA2APersistedArtifactMarkers(text),
     );
     deliveryReceipt = await withTimeout(
-      deliverA2AContinuationResponse(
-        adapter,
-        deliveryContinuation,
-        outgoing,
-        progress,
-        "done",
-      ),
+      (signal) =>
+        deliverA2AContinuationResponse(
+          adapter,
+          deliveryContinuation,
+          outgoing,
+          progress,
+          "done",
+          signal,
+        ),
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
     );
@@ -844,18 +848,24 @@ async function deliverA2AContinuationResponse(
   message: OutgoingMessage,
   progress: PlatformRunProgress | null,
   status: "done" | "error",
+  signal: AbortSignal,
 ): Promise<PlatformDeliveryReceipt> {
   if (progress) {
     try {
-      await progress.onEvent({
-        type: "agent_call",
-        agent: continuation.agentName,
-        status,
-      });
-      const receipt = await progress.complete(message);
+      await progress.onEvent(
+        {
+          type: "agent_call",
+          agent: continuation.agentName,
+          status,
+        },
+        { signal },
+      );
+      throwIfAborted(signal);
+      const receipt = await progress.complete(message, { signal });
       if (receipt?.status === "delivered") return receipt;
       throw new Error("Continuation progress completed without delivery proof");
     } catch {
+      throwIfAborted(signal);
       // A resumed Slack stream can no longer be finalized (for example when
       // chat.stopStream rejects). Preserve the final answer with the same
       // thread reply fallback used by the initial webhook run. Also ask the
@@ -864,6 +874,7 @@ async function deliverA2AContinuationResponse(
       try {
         await progress.fail?.(
           "I couldn't update the live response, but I posted the final result in this thread.",
+          { signal },
         );
       } catch {
         // The thread reply below is still the authoritative final answer.
@@ -871,9 +882,11 @@ async function deliverA2AContinuationResponse(
       logA2AContinuationTransition("native_progress_fallback", continuation);
     }
   }
+  throwIfAborted(signal);
   const receipt = await adapter.sendResponse(message, continuation.incoming, {
     idempotencyKey: `a2a-continuation:${continuation.id}`,
     reconcileAfter: continuation.createdAt,
+    signal,
     placeholderRef:
       progress?.responseTargetRef ?? continuation.placeholderRef ?? undefined,
     strictTargetRef: true,
@@ -1194,21 +1207,34 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function withTimeout<T>(
-  promise: Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   message: string,
 ): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error(message));
+    }, timeoutMs);
+    const result = await operation(controller.signal);
+    if (timedOut) throw new Error(message);
+    return result;
+  } catch (error) {
+    if (timedOut) throw new Error(message);
+    throw error;
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error("Platform delivery was aborted");
 }
 
 function sanitizeFailureReason(reason: string): string {
