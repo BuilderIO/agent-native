@@ -365,6 +365,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "Redimensionner le panneau",
     loadFailedTitle: "Cet enregistrement n’a pas pu être chargé",
     loadFailedDescription:
       "Le CRM n’a pas pu lire cet enregistrement. Il est peut-être hors de votre périmètre d’accès.",

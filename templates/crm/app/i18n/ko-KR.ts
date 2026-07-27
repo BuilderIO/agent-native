@@ -359,6 +359,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "패널 크기 조정",
     loadFailedTitle: "이 레코드를 불러오지 못했습니다",
     loadFailedDescription:
       "CRM이 이 레코드를 읽지 못했습니다. 접근 범위 밖일 수 있습니다.",

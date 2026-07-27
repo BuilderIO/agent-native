@@ -9,8 +9,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import {
+  BOARD_UNGROUPED,
+  boardColumns,
+  boardColumnTotals,
+  cardAmountFor,
+  pickCurrencyAttribute,
+} from "../app/components/crm/board/board-model.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -24,7 +32,10 @@ const CONNECTION_ID = "conn_lists";
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
+let writeCrmRecordField: (typeof import("../server/lib/record-fields.js"))["writeCrmRecordField"];
 
+let configureNativeCrm: any;
+let createCrmRecord: any;
 let createCrmList: any;
 let listCrmLists: any;
 let updateCrmList: any;
@@ -97,6 +108,10 @@ beforeAll(async () => {
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 
+  writeCrmRecordField = (await import("../server/lib/record-fields.js"))
+    .writeCrmRecordField;
+  configureNativeCrm = (await import("./configure-native-crm.js")).default;
+  createCrmRecord = (await import("./create-crm-record.js")).default;
   createCrmList = (await import("./create-crm-list.js")).default;
   listCrmLists = (await import("./list-crm-lists.js")).default;
   updateCrmList = (await import("./update-crm-list.js")).default;
@@ -137,7 +152,7 @@ async function newList(name: string, parentObjectType = "companies") {
 }
 
 describe("create-crm-list", () => {
-  it("seeds a Stage attribute on the list and derives an immutable slug", async () => {
+  it("seeds a Stage and a currency attribute on the list and derives an immutable slug", async () => {
     const list = await newList("Q3 Renewals");
 
     expect(list).toMatchObject({
@@ -153,8 +168,17 @@ describe("create-crm-list", () => {
       .select()
       .from(schema.crmFieldPolicies)
       .where(eq(schema.crmFieldPolicies.targetId, list.id));
-    expect(attributes).toHaveLength(1);
-    expect(attributes[0]).toMatchObject({
+    // A board with no stage has no columns and a board with no currency has no
+    // column total, so both are the floor for a new list — `companies` here
+    // declares neither, so both come from the fallbacks.
+    expect(
+      attributes.map((row: any) => [row.apiSlug, row.attributeType]).sort(),
+    ).toEqual([
+      ["amount", "currency"],
+      ["stage", "status"],
+    ]);
+    const stage = attributes.find((row: any) => row.apiSlug === "stage");
+    expect(stage).toMatchObject({
       target: "list",
       targetId: list.id,
       // Mirrors target_id so the legacy (connection_id, object_type,
@@ -164,6 +188,14 @@ describe("create-crm-list", () => {
       attributeType: "status",
       storagePolicy: "local-authoritative",
       historyTracked: true,
+    });
+    expect(stage.id).toBe(list.stageAttributeId);
+    // The record's own Stage and the list's Stage are different fields; the
+    // label has to say which is which.
+    expect(stage.label).toBe("Q3 Renewals Stage");
+    const amount = attributes.find((row: any) => row.apiSlug === "amount");
+    expect(JSON.parse(amount.configJson)).toEqual({
+      currency: { code: "USD" },
     });
 
     const options = await getDb()
@@ -275,7 +307,9 @@ describe("list membership", () => {
     ).rejects.toMatchObject({
       code: "unknown-status",
       statusCode: 422,
-      message: expect.stringContaining('"invented" is not a value of "Stage"'),
+      message: expect.stringContaining(
+        '"invented" is not a value of "Managed Options Stage"',
+      ),
     });
   });
 });
@@ -407,6 +441,418 @@ describe("entry attribute values", () => {
       "won",
       "lost",
     ]);
+  });
+});
+
+// The QA finding these cover: a brand-new board showed every card "ungrouped",
+// with no attributes and no column total, because the list was seeded with a
+// stage nobody had set and nothing copied the record's own values onto the
+// entry. The board math below is the real `board-model`, fed the real
+// `list-crm-list-entries` payload.
+describe("seeding a list from its parent object", () => {
+  const OBJECT = "opportunities";
+  let objectStage: any;
+  let objectAmount: any;
+  let objectCloseDate: any;
+
+  async function createObjectAttribute(input: {
+    apiSlug: string;
+    label: string;
+    attributeType: string;
+    valueType: string;
+    position: number;
+    config?: Record<string, unknown>;
+    options?: Array<{ value: string; title: string; celebrate?: boolean }>;
+  }) {
+    const id = `attr_obj_${++counter}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmFieldPolicies)
+      .values({
+        id,
+        connectionId: CONNECTION_ID,
+        objectType: OBJECT,
+        fieldName: input.apiSlug,
+        label: input.label,
+        valueType: input.valueType,
+        storagePolicy: "local-authoritative",
+        updateable: true,
+        target: "object",
+        targetId: OBJECT,
+        apiSlug: input.apiSlug,
+        attributeType: input.attributeType,
+        authority: "local-authoritative",
+        historyTracked: true,
+        configJson: JSON.stringify(input.config ?? {}),
+        position: input.position,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+    if (input.options?.length) {
+      await getDb()
+        .insert(schema.crmAttributeOptions)
+        .values(
+          input.options.map((option, index) => ({
+            id: `opt_${++counter}`,
+            attributeId: id,
+            value: option.value,
+            title: option.title,
+            position: index,
+            archived: false,
+            celebrate: option.celebrate ?? false,
+            ...ownership,
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+    }
+    return {
+      id,
+      apiSlug: input.apiSlug,
+      attributeType: input.attributeType,
+      multi: false,
+      historyTracked: true,
+      valueType: input.valueType,
+      storagePolicy: "local-authoritative" as const,
+      fieldPolicyId: id,
+    };
+  }
+
+  const setRecordValue = (recordId: string, attribute: any, value: unknown) =>
+    asOwner(() =>
+      writeCrmRecordField({
+        target: { recordId },
+        attribute: attribute as never,
+        value: value as never,
+        actor: { type: "user", id: OWNER },
+        ownership,
+        now: new Date().toISOString(),
+      }),
+    );
+
+  beforeAll(async () => {
+    objectAmount = await createObjectAttribute({
+      apiSlug: "amount",
+      label: "Amount",
+      attributeType: "currency",
+      valueType: "currency",
+      position: 0,
+      config: { currency: { code: "EUR" } },
+    });
+    objectStage = await createObjectAttribute({
+      apiSlug: "stage",
+      label: "Stage",
+      attributeType: "status",
+      valueType: "enum",
+      position: 1,
+      options: [
+        { value: "discovery", title: "Discovery" },
+        { value: "negotiation", title: "Negotiation" },
+        { value: "closed-won", title: "Closed Won", celebrate: true },
+      ],
+    });
+    objectCloseDate = await createObjectAttribute({
+      apiSlug: "close_date",
+      label: "Close Date",
+      attributeType: "date",
+      valueType: "date",
+      position: 2,
+    });
+  }, 30_000);
+
+  it("copies the object's stage options, currency, and date onto the list", async () => {
+    const list = await newList("Enterprise Pipeline", OBJECT);
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+
+    expect(
+      page.attributes.map((a: any) => [a.apiSlug, a.attributeType]),
+    ).toEqual([
+      ["stage", "status"],
+      ["amount", "currency"],
+      ["close_date", "date"],
+    ]);
+    expect(page.attributes[0].options.map((o: any) => o.value)).toEqual([
+      "discovery",
+      "negotiation",
+      "closed-won",
+    ]);
+    expect(
+      page.attributes[0].options.find((o: any) => o.value === "closed-won")
+        .celebrate,
+    ).toBe(true);
+    // Qualified so it can never be read as the opportunity's own Stage.
+    expect(page.attributes[0].label).toBe("Enterprise Pipeline Stage");
+    expect(page.attributes[0].description).toContain("Enterprise Pipeline");
+    expect(list.seededAttributes.map((a: any) => a.seededFrom)).toEqual([
+      "stage",
+      "amount",
+      "close_date",
+    ]);
+  });
+
+  it("populates a first board: cards group, show attributes, and the column sums", async () => {
+    const list = await newList("First Board", OBJECT);
+    const won = await createRecord(OBJECT, "Initech Expansion");
+    const open = await createRecord(OBJECT, "Hooli Renewal");
+    await setRecordValue(won, objectStage, "closed-won");
+    await setRecordValue(won, objectAmount, 4200);
+    await setRecordValue(won, objectCloseDate, "2026-09-30");
+    await setRecordValue(open, objectStage, "closed-won");
+    await setRecordValue(open, objectAmount, 800);
+
+    const added = await asOwner(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId: won }, ownerCtx),
+    );
+    expect(added.initialValues).toEqual(
+      expect.arrayContaining([
+        { attribute: "stage", from: "stage", applied: true },
+        { attribute: "amount", from: "amount", applied: true },
+        { attribute: "close_date", from: "close_date", applied: true },
+      ]),
+    );
+    await asOwner(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId: open }, ownerCtx),
+    );
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    const stageAttribute = page.attributes.find(
+      (a: any) => a.apiSlug === "stage",
+    );
+    const currencyAttribute = pickCurrencyAttribute(page.attributes);
+    expect(currencyAttribute.apiSlug).toBe("amount");
+
+    const cards = page.entries.map((entry: any) => ({
+      id: entry.id,
+      recordId: entry.recordId,
+      title: entry.record.displayName,
+      subtitle: null,
+      owner: null,
+      groupValue: entry.values.stage ?? BOARD_UNGROUPED,
+      groupSince: entry.valuesSince.stage ?? null,
+      remoteRevision: null,
+      amount: cardAmountFor(currencyAttribute, entry.values),
+      currencyCode: "EUR",
+      attributes: [],
+      actorType: null,
+    }));
+    const columns = boardColumns(cards, stageAttribute.options);
+
+    // Defect 1: every card used to land here.
+    expect(
+      columns.find((column: any) => column.key === BOARD_UNGROUPED).cards,
+    ).toHaveLength(0);
+    const wonColumn = columns.find(
+      (column: any) => column.key === "closed-won",
+    );
+    expect(wonColumn.cards.map((card: any) => card.title).sort()).toEqual([
+      "Hooli Renewal",
+      "Initech Expansion",
+    ]);
+    // Defect 2 and 3: per-card values, and a column total that is a number.
+    expect(page.entries[0].values.close_date).toBe("2026-09-30");
+    expect(boardColumnTotals(wonColumn.cards)).toMatchObject({
+      count: 2,
+      sum: 5000,
+      currencyCode: "EUR",
+      withoutAmount: 0,
+    });
+  });
+
+  it("keeps the entry independent of the record after the initial copy", async () => {
+    const list = await newList("Independence", OBJECT);
+    const recordId = await createRecord(OBJECT, "Vandelay Deal");
+    await setRecordValue(recordId, objectStage, "discovery");
+    await setRecordValue(recordId, objectAmount, 1000);
+    const { entryId } = await asOwner(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+    );
+
+    await asOwner(() =>
+      updateCrmListEntry.run(
+        { entryId, values: { stage: "closed-won", amount: 9999 } },
+        ownerCtx,
+      ),
+    );
+
+    // The record's own current values are untouched: a board move is not a
+    // record write, and never a provider write.
+    const recordRows = await getDb()
+      .select()
+      .from(schema.crmRecordFields)
+      .where(
+        and(
+          eq(schema.crmRecordFields.recordId, recordId),
+          isNull(schema.crmRecordFields.entryId),
+          isNull(schema.crmRecordFields.activeUntil),
+        ),
+      );
+    expect(
+      Object.fromEntries(
+        recordRows.map((row: any) => [
+          row.fieldName,
+          row.stringValue ?? row.numberValue,
+        ]),
+      ),
+    ).toEqual({ stage: "discovery", amount: 1000 });
+
+    // And the entry kept its own new values.
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries[0].values).toMatchObject({
+      stage: "closed-won",
+      amount: 9999,
+    });
+  });
+
+  it("reports a record value this list cannot represent instead of dropping it", async () => {
+    const list = await newList("Drifted Options", OBJECT);
+    // The object gains a stage after the list copied its options — the list
+    // does not have it, and inventing it here would be a silent auto-create.
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmAttributeOptions)
+      .values({
+        id: `opt_${++counter}`,
+        attributeId: objectStage.id,
+        value: "on-hold",
+        title: "On Hold",
+        position: 3,
+        archived: false,
+        celebrate: false,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+    const recordId = await createRecord(OBJECT, "Paused Deal");
+    await setRecordValue(recordId, objectStage, "on-hold");
+
+    const added = await asOwner(() =>
+      addCrmRecordToList.run({ listId: list.id, recordId }, ownerCtx),
+    );
+    expect(
+      added.initialValues.find((entry: any) => entry.attribute === "stage"),
+    ).toMatchObject({
+      from: "stage",
+      applied: false,
+      reason: expect.stringContaining("on-hold"),
+    });
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries[0].values.stage).toBeUndefined();
+  });
+
+  // The hand-built attributes above assume what a real object looks like; this
+  // one runs the whole flow over the native adapter's own `opportunities`
+  // template, so a change to its slugs or types breaks here rather than on a
+  // user's first board.
+  it("gives a first board over the native opportunities object columns and a total", async () => {
+    const connection = await asOwner(() =>
+      configureNativeCrm.run({ label: "Native Board" }, ownerCtx),
+    );
+    const record = await asOwner(() =>
+      createCrmRecord.run(
+        {
+          connectionId: connection.id,
+          kind: "opportunity",
+          displayName: "Initech Expansion",
+          fields: {
+            amount: 4200,
+            stage: "in-progress",
+            closeDate: "2026-09-30",
+          },
+          idempotencyKey: `native-board-${Date.now()}`,
+        },
+        ownerCtx,
+      ),
+    );
+    const list = await asOwner(() =>
+      createCrmList.run(
+        {
+          connectionId: connection.id,
+          name: "Native Pipeline",
+          parentObjectType: "opportunities",
+        },
+        ownerCtx,
+      ),
+    );
+    await asOwner(() =>
+      addCrmRecordToList.run(
+        { listId: list.id, recordId: record.recordId },
+        ownerCtx,
+      ),
+    );
+
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries[0].values).toEqual({
+      stage: "in-progress",
+      amount: 4200,
+      closeDate: "2026-09-30",
+    });
+
+    const stageAttribute = page.attributes.find(
+      (a: any) => a.attributeType === "status",
+    );
+    const currencyAttribute = pickCurrencyAttribute(page.attributes);
+    const columns = boardColumns(
+      page.entries.map((entry: any) => ({
+        id: entry.id,
+        recordId: entry.recordId,
+        title: entry.record.displayName,
+        subtitle: null,
+        owner: null,
+        groupValue: entry.values[stageAttribute.apiSlug] ?? BOARD_UNGROUPED,
+        groupSince: entry.valuesSince[stageAttribute.apiSlug] ?? null,
+        remoteRevision: null,
+        amount: cardAmountFor(currencyAttribute, entry.values),
+        currencyCode: "USD",
+        attributes: [],
+        actorType: null,
+      })),
+      stageAttribute.options,
+    );
+    expect(
+      columns.find((column: any) => column.key === BOARD_UNGROUPED).cards,
+    ).toHaveLength(0);
+    expect(
+      boardColumnTotals(
+        columns.find((column: any) => column.key === "in-progress").cards,
+      ),
+    ).toMatchObject({ count: 1, sum: 4200, currencyCode: "USD" });
+  }, 30_000);
+
+  it("lets an explicit value win over the initial copy", async () => {
+    const list = await newList("Explicit Wins", OBJECT);
+    const recordId = await createRecord(OBJECT, "Override Co");
+    await setRecordValue(recordId, objectStage, "discovery");
+    await setRecordValue(recordId, objectAmount, 250);
+
+    const added = await asOwner(() =>
+      addCrmRecordToList.run(
+        { listId: list.id, recordId, values: { stage: "negotiation" } },
+        ownerCtx,
+      ),
+    );
+    // A value the caller chose was not initialized from anything, so it is not
+    // reported as if it had been.
+    expect(added.initialValues.map((entry: any) => entry.attribute)).toEqual([
+      "amount",
+    ]);
+    const page = await asOwner(() =>
+      listCrmListEntries.run({ listId: list.id }, ownerCtx),
+    );
+    expect(page.entries[0].values).toMatchObject({
+      stage: "negotiation",
+      amount: 250,
+    });
   });
 });
 

@@ -17,7 +17,7 @@ import { listEntryValuesSchema } from "./add-crm-record-to-list.js";
 
 export default defineAction({
   description:
-    "Set values on a CRM list entry's own attributes and/or reorder it. Moving an entry to another stage is exactly this call: the previous value's row is closed and a new one opened, so time-in-stage is derivable from the entry's own history. Entry attributes belong to the list, not to the record — this never writes to the record or to a provider.",
+    "Set values on a CRM list entry's own attributes and/or reorder it. Moving an entry to another stage is exactly this call: the previous value's row is closed and a new one opened, so time-in-stage is derivable from the entry's own history. Entry attributes belong to the list, not to the record — this never writes to the record or to a provider. An entry's values were copied from the record once, when it was added; they are not bound to it, so changing one here leaves the record's own value alone and a later record change does not reach the entry.",
   schema: z.object({
     entryId: z.string().trim().min(1).max(128),
     values: listEntryValuesSchema.optional(),

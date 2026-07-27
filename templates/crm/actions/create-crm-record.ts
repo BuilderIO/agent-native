@@ -104,11 +104,19 @@ export default defineAction({
       ).id;
     const objectType = kindToObjectType[args.kind];
     const remoteId = crypto.randomUUID();
-    const fields = {
-      ...(args.fields as Record<string, CrmValue> | undefined),
-      displayName: args.displayName,
-      ...(args.kind === "person" ? {} : { name: args.displayName }),
-    };
+    // accounts and opportunities already carry a `name` attribute, so only
+    // people (which have no `name` field) need a separate stored `displayName`
+    // attribute. Minting both would leave two attributes for one value.
+    const fields =
+      args.kind === "person"
+        ? {
+            ...(args.fields as Record<string, CrmValue> | undefined),
+            displayName: args.displayName,
+          }
+        : {
+            ...(args.fields as Record<string, CrmValue> | undefined),
+            name: args.displayName,
+          };
     const idempotencyKey = await scopedCrmIdempotencyKey({
       ...ownership,
       recordId: `${connectionId}:${objectType}`,
