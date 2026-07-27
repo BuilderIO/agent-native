@@ -2,6 +2,7 @@ import path from "path";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -213,6 +214,25 @@ export default defineAction({
 
     if (detectedFormat === "pdf") {
       const { PDFParse, canvasFactory } = await setupPdfParse();
+      const title = titleFromPath(filename);
+
+      // Designed slide PDFs (photo backgrounds, gradients, custom
+      // typography) bake their visuals into vector/image page content with
+      // no reliable text/shape structure to reconstruct, so importing into a
+      // deck rasterizes each page instead of flattening it to generic bullet
+      // text. Falls through to the text-only path below when the optional
+      // canvas renderer isn't available in this runtime.
+      if (importIntoDeck && canvasFactory) {
+        if (!deckId) throw new Error("deckId is required to import into deck");
+        return importPdfPagesAsFullBleedSlides({
+          fileBuffer,
+          title,
+          deckId,
+          PDFParse,
+          canvasFactory,
+        });
+      }
+
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
       const pdf = new PDFParse({
@@ -222,7 +242,6 @@ export default defineAction({
       const result = await pdf.getText().finally(() => pdf.destroy());
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
-      const title = titleFromPath(filename);
 
       if (textPages.length === 0) {
         throw new Error(
@@ -277,6 +296,72 @@ export default defineAction({
     throw new Error(`Unsupported format: ${detectedFormat}`);
   },
 });
+
+async function importPdfPagesAsFullBleedSlides(args: {
+  fileBuffer: Buffer;
+  title: string;
+  deckId: string;
+  PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
+  canvasFactory: object;
+}) {
+  const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
+  const { buildFullBleedImageSlideHtml } =
+    await import("../server/handlers/import/html-converter.js");
+
+  const pdf = new PDFParse({
+    data: new Uint8Array(fileBuffer),
+    CanvasFactory: canvasFactory,
+  });
+  let pages: { num: number; text: string }[];
+  let screenshotPages: { pageNumber: number; data: Uint8Array }[];
+  try {
+    pages = normalizePdfPages(await pdf.getText());
+    const screenshots = await pdf.getScreenshot({
+      desiredWidth: 1600,
+      imageBuffer: true,
+      imageDataUrl: false,
+    });
+    screenshotPages = screenshots.pages;
+  } finally {
+    await pdf.destroy();
+  }
+
+  const ownerEmail = getRequestUserEmail();
+  const slides = await Promise.all(
+    screenshotPages.map(async (page) => {
+      const uploadResult = await uploadFile({
+        data: Buffer.from(page.data),
+        filename: `slide-import-${Date.now()}-p${page.pageNumber}.png`,
+        mimeType: "image/png",
+        ownerEmail: ownerEmail ?? undefined,
+        recordAsset: false,
+      });
+      if (!uploadResult?.url) {
+        throw new Error(
+          "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
+        );
+      }
+      const pageText = pages.find((p) => p.num === page.pageNumber)?.text ?? "";
+      return {
+        id: newSlideId(),
+        content: buildFullBleedImageSlideHtml(uploadResult.url),
+        layout: "full-image",
+        notes: pageText,
+      };
+    }),
+  );
+
+  await replaceDeckSlides(deckId, title, slides, "import-file:pdf");
+
+  return {
+    format: "pdf",
+    title,
+    pageCount: slides.length,
+    slideCount: slides.length,
+    deckId,
+    imported: true,
+  };
+}
 
 function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;

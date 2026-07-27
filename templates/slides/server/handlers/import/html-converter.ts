@@ -9,6 +9,18 @@ function esc(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Render a page image as the full-bleed slide background. Designed PDF pages
+ * (photo backgrounds, gradients, custom typography baked into vector/image
+ * content) have no reliable text/shape structure to reconstruct, so a
+ * rasterized page image is the only faithful conversion.
+ */
+export function buildFullBleedImageSlideHtml(imageUrl: string): string {
+  return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
+    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+</div>`;
+}
+
 /** Wrap text in formatting tags based on run properties. */
 function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);
