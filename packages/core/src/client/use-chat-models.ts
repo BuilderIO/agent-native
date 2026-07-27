@@ -42,6 +42,8 @@ interface Options {
 }
 
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
+export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
+  "agent-native:chat-model-selection-changed";
 
 interface PersistedSelection {
   model?: string;
@@ -63,6 +65,13 @@ function writePersisted(key: string | null, value: PersistedSelection) {
   if (!key || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
+    queueMicrotask(() => {
+      window.dispatchEvent(
+        new CustomEvent(CHAT_MODEL_SELECTION_CHANGED_EVENT, {
+          detail: { key },
+        }),
+      );
+    });
   } catch {}
 }
 
@@ -109,6 +118,42 @@ export function useChatModels({
       selectedEffort,
     };
   }, [selectedEffort, selectedEngine, selectedModel]);
+
+  useEffect(() => {
+    if (!storageKey || typeof window === "undefined") return;
+
+    const syncPersistedSelection = (event?: Event) => {
+      const detail = (event as CustomEvent<{ key?: string }> | undefined)
+        ?.detail;
+      if (detail?.key && detail.key !== storageKey) return;
+
+      const next = readPersisted(storageKey);
+      if (!next.model) return;
+
+      hasExplicitSelectionRef.current = true;
+      setSelectedModel(next.model);
+      setSelectedEngine(next.engine ?? "");
+      setSelectedEffort(
+        resolveReasoningEffortSelection(next.model, next.effort),
+      );
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === storageKey) syncPersistedSelection();
+    };
+
+    window.addEventListener(
+      CHAT_MODEL_SELECTION_CHANGED_EVENT,
+      syncPersistedSelection,
+    );
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(
+        CHAT_MODEL_SELECTION_CHANGED_EVENT,
+        syncPersistedSelection,
+      );
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [storageKey]);
 
   const onModelChange = useCallback(
     (model: string, engine: string) => {

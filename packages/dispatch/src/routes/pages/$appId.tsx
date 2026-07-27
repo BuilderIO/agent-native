@@ -149,7 +149,7 @@ export default function WorkspaceAppCatchAllRoute() {
       title={app?.name || t("dispatch.pages.pageNotFound")}
       description={t("dispatch.pages.pageNotFoundDescription")}
     >
-      <div className="max-w-2xl rounded-lg border bg-card p-5">
+      <div className="max-w-2xl rounded-lg bg-card p-5">
         <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
           <Link to={appPath("/overview")}>
             <IconArrowLeft size={15} className="mr-1.5" />

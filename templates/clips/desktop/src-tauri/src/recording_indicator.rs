@@ -66,12 +66,15 @@ static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 /// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
 /// — clips logo on top, waveform below — so it is taller than it is wide. The
 /// expanded form stretches horizontally to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 38;
+const PILL_W_LOGICAL: u32 = 44;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode uses the same focused transcript width as other recordings;
 /// live notes are intentionally kept out of this compact overlay.
 const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
-const PILL_H_LOGICAL: u32 = 92;
+/// Keep this close to the rendered capsule's height. The window frame is what
+/// hover is polled against, so slack here makes the pill light up while the
+/// cursor is still nowhere near it.
+const PILL_H_LOGICAL: u32 = 64;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
@@ -232,14 +235,18 @@ fn default_bottom_center(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     (x, y)
 }
 
-fn default_center_right(app: &AppHandle, w: u32, _h: u32) -> (i32, i32) {
+fn default_center_right(app: &AppHandle, w: u32, h: u32) -> (i32, i32) {
     let scale = scale_factor(app);
     let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale) as i32;
     let (mx, my, mw, mh) = tray_monitor_physical_rect(app);
     let x = (mx + mw as i32 - w as i32 - right_margin).max(mx);
-    // Anchor Y to expanded height so header stays fixed on expand.
+    // Center whatever is actually on screen — meetings now open collapsed, so
+    // reserving the expanded height here would strand the capsule high up.
+    // Expanding pins this top edge and grows downward (see `anchored_rect`),
+    // clamped below so a tall panel still fits.
     let (_, h_exp) = pill_size_physical(app, true);
-    let y = (my + (mh as i32 - h_exp as i32) / 2).max(my);
+    let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
+    let y = (my + (mh as i32 - h as i32) / 2).clamp(my, max_y_exp);
     (x, y)
 }
 
@@ -458,7 +465,9 @@ pub async fn recording_pill_show(
 
 /// True when the global cursor sits inside the pill window's frame. Cursor and
 /// frame both come from Tauri (physical px, desktop top-left origin), so the
-/// test is a plain point-in-rect with no AppKit hop.
+/// test is a plain point-in-rect with no AppKit hop. The frame is inset by the
+/// transparent shadow gutter the renderer pads out, so the polled hover state
+/// matches the capsule the user actually sees.
 fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s)) = (
         window.cursor_position(),
@@ -467,10 +476,12 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     ) else {
         return false;
     };
-    c.x >= p.x as f64
-        && c.x <= (p.x + s.width as i32) as f64
-        && c.y >= p.y as f64
-        && c.y <= (p.y + s.height as i32) as f64
+    let gutter = overlay_shadow_gutter_physical(window.app_handle()) as i32;
+    let left = p.x + gutter;
+    let top = p.y + gutter;
+    let right = p.x + s.width as i32 - gutter;
+    let bottom = p.y + s.height as i32 - gutter;
+    c.x >= left as f64 && c.x <= right as f64 && c.y >= top as f64 && c.y <= bottom as f64
 }
 
 /// Start polling the cursor against the pill frame and emitting

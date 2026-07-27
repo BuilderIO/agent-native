@@ -35,6 +35,7 @@ export interface ExistingBuilderSourceRowIdentity {
   sourceRowId: string;
   sourceQualifiedId: string;
   sourceDisplayKey: string;
+  provenance?: string | null;
   lastSourceUpdatedAt: string | null;
   sourceValuesJson?: string | null;
 }

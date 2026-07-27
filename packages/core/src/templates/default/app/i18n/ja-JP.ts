@@ -446,6 +446,14 @@ const messages = {
     remove: "削除",
     save: "保存",
     loading: "読み込み中...",
+    dangerZone: "危険区域",
+    deleteOrg: "組織を削除",
+    deleteOrgDescription:
+      "この組織、そのメンバー、および保留中の招待状を完全に削除します。組織が所有するデータにはアクセスできなくなります。この操作は元に戻せません。",
+    deleteOrgConfirmPrompt: "確認するには {{name}} と入力してください。",
+    deleteOrgConfirmPlaceholder: "組織名",
+    deleteOrgConfirmCta: "組織を削除",
+    deleteOrgPending: "削除中...",
   },
   integrations: {
     webhookUrl: "Webhook の URL",

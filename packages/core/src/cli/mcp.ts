@@ -92,6 +92,15 @@ export interface ScreenMemoryStoreResolutionOptions {
   homeDir?: string;
 }
 
+function existingScreenMemoryStore(candidate: string): string | undefined {
+  const resolved = path.resolve(candidate);
+  try {
+    return fs.statSync(resolved).isDirectory() ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Resolve the active Clips store without asking people to find an app-data
  * path. Environment overrides remain the unambiguous escape hatch; otherwise
@@ -100,11 +109,12 @@ export interface ScreenMemoryStoreResolutionOptions {
 export function resolveScreenMemoryStoreDir(
   options: ScreenMemoryStoreResolutionOptions = {},
 ): string | undefined {
-  if (options.explicitDir) return path.resolve(options.explicitDir);
+  if (options.explicitDir)
+    return existingScreenMemoryStore(options.explicitDir);
   const env = options.env ?? process.env;
   const override =
     env.CLIPS_SCREEN_MEMORY_DIR || env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
-  if (override) return path.resolve(override);
+  if (override) return existingScreenMemoryStore(override);
 
   const platform = options.platform ?? process.platform;
   const home = options.homeDir ?? os.homedir();
@@ -116,7 +126,7 @@ export function resolveScreenMemoryStoreDir(
         : env.XDG_DATA_HOME || path.join(home, ".local", "share");
   return ["com.clips.tray", "com.clips.tray.alpha"]
     .map((bundleId) => path.join(appDataRoot, bundleId, "screen-memory"))
-    .filter((candidate) => fs.existsSync(candidate))
+    .filter((candidate) => existingScreenMemoryStore(candidate))
     .map((candidate) => ({
       candidate,
       modifiedAt: Math.max(

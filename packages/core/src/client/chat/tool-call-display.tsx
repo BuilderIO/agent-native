@@ -25,7 +25,10 @@ import React, {
   useRef,
 } from "react";
 
-import type { A2AAgentActivitySnapshot } from "../../a2a/activity.js";
+import type {
+  A2AAgentActivitySnapshot,
+  A2AAgentActivityToolCall,
+} from "../../a2a/activity.js";
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
@@ -100,11 +103,13 @@ export function ToolActivityPresentation({
   toolName,
   isRunning,
   isActiveTail,
+  suppressLongRunningHint = false,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
   isActiveTail: boolean;
+  suppressLongRunningHint?: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
@@ -114,7 +119,7 @@ export function ToolActivityPresentation({
   const [animateEntry] = useState(isActiveTail);
 
   useEffect(() => {
-    if (!isRunning) {
+    if (!isRunning || suppressLongRunningHint) {
       setShowLongRunningHint(false);
       return;
     }
@@ -123,7 +128,7 @@ export function ToolActivityPresentation({
       setShowLongRunningHint(true);
     }, TOOL_LONG_RUNNING_HINT_DELAY_MS);
     return () => window.clearTimeout(timeout);
-  }, [isRunning, toolName]);
+  }, [isRunning, suppressLongRunningHint, toolName]);
 
   return (
     <div
@@ -584,6 +589,9 @@ export function ToolCallDisplay({
       toolName={toolName}
       isRunning={isRunning}
       isActiveTail={showActiveTail}
+      suppressLongRunningHint={
+        toolName === "call-agent" || toolName.startsWith("agent:")
+      }
     >
       {children}
     </ToolActivityPresentation>
@@ -922,13 +930,22 @@ function AgentCallCell({
 }) {
   const t = useT();
   const [open, setOpen] = useState(true);
-  const finalText = isRunning
-    ? activity?.responseText || responseText
-    : responseText || activity?.responseText;
-  const work = activity?.reasoning?.length || activity?.toolCalls?.length;
+  const toolCount = activity?.toolCalls?.length ?? 0;
+  // Response segments are ordered against the tool calls that preceded them, so
+  // they render in the timeline where the remote agent actually said them.
+  // Once the authoritative result text arrives, its segment moves to the
+  // bottom block instead of being rendered twice.
+  const segments = activity?.response ?? [];
+  const inlineSegments =
+    responseText && !isRunning ? segments.slice(0, toolCount) : segments;
+  const finalText =
+    responseText || (inlineSegments.length ? "" : activity?.responseText);
+  const work =
+    activity?.reasoning?.length || toolCount || inlineSegments.length;
   const workItemCount = Math.max(
     activity?.reasoning?.length ?? 0,
-    activity?.toolCalls?.length ?? 0,
+    toolCount,
+    inlineSegments.length,
   );
   const label = isRunning
     ? t("agentPanel.delegatedAgent.asking", { name: agentName })
@@ -939,6 +956,7 @@ function AgentCallCell({
     <div className="space-y-1 ps-5">
       {Array.from({ length: workItemCount }, (_, index) => {
         const reasoningText = activity?.reasoning?.[index];
+        const segment = inlineSegments[index];
         const tool = activity?.toolCalls?.[index];
         return (
           <React.Fragment key={`activity-${index}`}>
@@ -954,19 +972,23 @@ function AgentCallCell({
                 collapseWhenReplaced={index < activity.toolCalls.length}
               />
             )}
+            {segment && (
+              <div className="pb-1">
+                <SmoothMarkdownText
+                  text={segment}
+                  streaming={
+                    isRunning &&
+                    activity?.activePhase === "responding" &&
+                    index === inlineSegments.length - 1
+                  }
+                  resetKey={`agent-response-${agentName}-${index}`}
+                  statusType={isRunning ? "running" : "complete"}
+                />
+              </div>
+            )}
             {tool && (
-              <ToolCallDisplay
-                toolName={tool.name}
-                args={{}}
-                argsText=""
-                isRunning={tool.status === "running"}
-                result={
-                  tool.status === "failed"
-                    ? "Failed"
-                    : tool.status === "completed"
-                      ? "Done"
-                      : undefined
-                }
+              <AgentActivityToolCallRow
+                tool={tool}
                 isActiveTail={
                   isRunning && index === activity.toolCalls.length - 1
                 }
@@ -1048,6 +1070,44 @@ function AgentCallCell({
         </div>
       </AnimatedCollapse>
     </div>
+  );
+}
+
+function AgentActivityToolCallRow({
+  tool,
+  isActiveTail,
+}: {
+  tool: A2AAgentActivityToolCall;
+  isActiveTail: boolean;
+}) {
+  const isRunning = tool.status === "running";
+  const ToolIcon = resolveToolIcon(tool.name);
+
+  return (
+    <ToolActivityPresentation
+      toolName={tool.name}
+      isRunning={isRunning}
+      isActiveTail={isActiveTail}
+      suppressLongRunningHint
+    >
+      <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {isRunning ? (
+            <IconLoader2 className="size-3.5 animate-spin" />
+          ) : (
+            <ToolIcon className="size-3.5" />
+          )}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isActiveTail && "agent-running-shimmer",
+          )}
+        >
+          {humanizeToolName(tool.name)}
+        </span>
+      </div>
+    </ToolActivityPresentation>
   );
 }
 

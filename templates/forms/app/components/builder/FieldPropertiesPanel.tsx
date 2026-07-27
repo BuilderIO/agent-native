@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { FormField, FormFieldType } from "@shared/types";
+import type { ConditionalRule, FormField, FormFieldType } from "@shared/types";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface FieldPropertiesPanelProps {
   field: FormField;
+  fields: FormField[];
   onChange: (field: FormField) => void;
   onDelete: () => void;
 }
@@ -39,13 +40,48 @@ const fieldTypeLabels: Record<FormFieldType, string> = {
 
 const hasOptions: FormFieldType[] = ["select", "multiselect", "radio"];
 
+function conditionValueOptions(source: FormField | undefined): string[] {
+  if (!source) return [];
+  if (hasOptions.includes(source.type)) {
+    return (source.options || []).filter(
+      (option, index, options) =>
+        Boolean(option.trim()) && options.indexOf(option) === index,
+    );
+  }
+  if (source.type === "checkbox") return ["true", "false"];
+  if (source.type === "rating") return ["1", "2", "3", "4", "5"];
+  return [];
+}
+
+function defaultConditionOperator(
+  source: FormField,
+): ConditionalRule["operator"] {
+  return source.type === "multiselect" ? "contains" : "equals";
+}
+
 export function FieldPropertiesPanel({
   field,
+  fields,
   onChange,
   onDelete,
 }: FieldPropertiesPanelProps) {
   const t = useT();
   const [newOption, setNewOption] = useState("");
+  const fieldIndex = fields.findIndex((candidate) => candidate.id === field.id);
+  const availableFields =
+    fieldIndex >= 0
+      ? fields.slice(0, fieldIndex)
+      : fields.filter((candidate) => candidate.id !== field.id);
+  const conditionSource =
+    availableFields.find(
+      (candidate) => candidate.id === field.conditional?.fieldId,
+    ) || availableFields[0];
+  const conditionOptions = conditionValueOptions(conditionSource);
+  const conditionFieldId = conditionSource?.id || "";
+  const conditionOperator =
+    field.conditional?.operator ||
+    (conditionSource ? defaultConditionOperator(conditionSource) : "equals");
+  const conditionValue = field.conditional?.value || conditionOptions[0] || "";
 
   function update(partial: Partial<FormField>) {
     onChange({ ...field, ...partial });
@@ -160,6 +196,168 @@ export function FieldPropertiesPanel({
             </SelectContent>
           </Select>
         </div>
+
+        {availableFields.length > 0 && (
+          <>
+            <Separator />
+            <div className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs">
+                    {t("fieldProperties.conditionalVisibility")}
+                  </Label>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    {t("fieldProperties.conditionalVisibilityDescription")}
+                  </p>
+                </div>
+                <Switch
+                  checked={Boolean(field.conditional)}
+                  onCheckedChange={(checked) => {
+                    if (!checked) {
+                      update({ conditional: undefined });
+                      return;
+                    }
+                    if (!conditionSource) return;
+                    update({
+                      conditional: {
+                        fieldId: conditionSource.id,
+                        operator: defaultConditionOperator(conditionSource),
+                        value: conditionOptions[0] || "",
+                      },
+                    });
+                  }}
+                />
+              </div>
+
+              {field.conditional && conditionSource && (
+                <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2.5">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      {t("fieldProperties.conditionField")}
+                    </Label>
+                    <Select
+                      value={conditionFieldId}
+                      onValueChange={(value) => {
+                        const nextSource = availableFields.find(
+                          (candidate) => candidate.id === value,
+                        );
+                        if (!nextSource) return;
+                        const nextOptions = conditionValueOptions(nextSource);
+                        update({
+                          conditional: {
+                            fieldId: nextSource.id,
+                            operator: defaultConditionOperator(nextSource),
+                            value: nextOptions[0] || "",
+                          },
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableFields.map((candidate) => (
+                          <SelectItem
+                            key={candidate.id}
+                            value={candidate.id}
+                            className="text-xs"
+                          >
+                            {candidate.label || candidate.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      {t("fieldProperties.conditionOperator")}
+                    </Label>
+                    <Select
+                      value={conditionOperator}
+                      onValueChange={(value) =>
+                        update({
+                          conditional: {
+                            fieldId: conditionFieldId,
+                            operator: value as ConditionalRule["operator"],
+                            value: conditionValue,
+                          },
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals" className="text-xs">
+                          {t("fieldProperties.conditionEquals")}
+                        </SelectItem>
+                        <SelectItem value="not_equals" className="text-xs">
+                          {t("fieldProperties.conditionNotEquals")}
+                        </SelectItem>
+                        <SelectItem value="contains" className="text-xs">
+                          {t("fieldProperties.conditionContains")}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      {t("fieldProperties.conditionValue")}
+                    </Label>
+                    {conditionOptions.length > 0 ? (
+                      <Select
+                        value={conditionValue}
+                        onValueChange={(value) =>
+                          update({
+                            conditional: {
+                              fieldId: conditionFieldId,
+                              operator: conditionOperator,
+                              value,
+                            },
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {conditionOptions.map((option) => (
+                            <SelectItem
+                              key={option}
+                              value={option}
+                              className="text-xs"
+                            >
+                              {option}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        value={conditionValue}
+                        onChange={(event) =>
+                          update({
+                            conditional: {
+                              fieldId: conditionFieldId,
+                              operator: conditionOperator,
+                              value: event.target.value,
+                            },
+                          })
+                        }
+                        placeholder={t(
+                          "fieldProperties.conditionValuePlaceholder",
+                        )}
+                        className="h-8 text-xs"
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Options (for select/radio/multiselect) */}
         {hasOptions.includes(field.type) && (

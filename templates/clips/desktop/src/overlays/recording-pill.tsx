@@ -1,11 +1,11 @@
 import {
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconChevronUp,
   IconCopy,
   IconExternalLink,
   IconLoader2,
-  IconMessageCircle,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor } from "../lib/transcription-engine";
+import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
 
@@ -31,8 +32,8 @@ interface PillContext {
  * Granola-style recording indicator. A floating pill anchored by Rust:
  * center-right for meetings, bottom-center for ordinary recordings.
  *
- *   - Collapsed (default): red dot + elapsed timer + tiny waveform + chevron.
- *   - Expanded: same header + scrolling live transcript + Pause / Stop.
+ *   - Collapsed (default): logo + live waveform capsule, click to expand.
+ *   - Expanded: header + scrolling live transcript + Pause / Stop + Ask bar.
  *
  * The hosting Tauri window is always-on-top, transparent, no decorations,
  * and capture-excluded — see `recording_indicator.rs`. We only deal with
@@ -50,6 +51,7 @@ export function RecordingPill() {
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
+  const [ask, setAsk] = useState("");
   const activeMeetingIdRef = useRef<string | null>(null);
   // Detached / "floating" mode — Wispr-style pill that auto-moves to the
   // top-right when the main app loses focus, with a drag handle. Driven by
@@ -65,9 +67,6 @@ export function RecordingPill() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Mic and system audio share one calm activity meter, matching Granola's
   // single indicator for the combined meeting capture.
-  const levelRef = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
@@ -165,15 +164,6 @@ export function RecordingPill() {
         if (ev.payload?.detached) setExpanded(false);
       }),
     );
-    trackListen(
-      listen<{ level: number; source?: "mic" | "system" }>(
-        "voice:audio-level",
-        (ev) => {
-          const lvl = Math.max(0, Math.min(1, ev.payload.level));
-          levelRef.current = lvl;
-        },
-      ),
-    );
     // Signal that all listeners are registered. app.tsx listens for this and
     // re-emits the pill context and transcript preload for a fresh window.
     emit("clips:pill-ready", {}).catch(() => {});
@@ -206,73 +196,6 @@ export function RecordingPill() {
       tickRef.current = null;
     };
   }, [ctx.mode, paused]);
-
-  // One combined "dancing bars" meter — a few discrete vertical bars instead
-  // of separate mic and system waveforms.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const N_BARS = 3;
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.clientWidth;
-    const H = canvas.clientHeight;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    const ctx2d = canvas.getContext("2d");
-    if (!ctx2d) return;
-    ctx2d.scale(dpr, dpr);
-    const slot = W / N_BARS;
-    const gap = Math.max(2, slot * 0.3);
-    const barWidth = Math.max(3, slot - gap);
-    const centerY = H / 2;
-    const startMs = Date.now();
-    let lastDrawMs = 0;
-    const FRAME_INTERVAL_MS = 1000 / 20;
-    const tick = () => {
-      rafRef.current = requestAnimationFrame(tick);
-      const nowMs = Date.now();
-      if (nowMs - lastDrawMs < FRAME_INTERVAL_MS) return;
-      lastDrawMs = nowMs;
-      const t = (nowMs - startMs) % 1_000_000;
-      const target = Math.min(1, levelRef.current);
-      ctx2d.clearRect(0, 0, W, H);
-      ctx2d.fillStyle = "rgba(132, 204, 22, 0.98)";
-      ctx2d.shadowColor = "rgba(132, 204, 22, 0.48)";
-      ctx2d.shadowBlur = 4;
-      for (let i = 0; i < N_BARS; i += 1) {
-        const phase = t * 0.005 + i * (Math.PI * 0.65);
-        const barTarget = 0.2 + Math.sin(phase) * 0.42 * target + target * 0.38;
-        const h = Math.max(4, Math.min(1, barTarget) * H * 0.92);
-        const x = i * (barWidth + gap) + gap / 2;
-        const y = centerY - h / 2;
-        const radius = Math.min(barWidth / 2, 3);
-        ctx2d.beginPath();
-        if (typeof ctx2d.roundRect === "function") {
-          ctx2d.roundRect(x, y, barWidth, h, radius);
-        } else {
-          ctx2d.rect(x, y, barWidth, h);
-        }
-        ctx2d.fill();
-      }
-      ctx2d.shadowBlur = 0;
-    };
-    tick();
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    };
-  }, [expanded]);
-
-  // Let the compact chip land first, then reveal the live transcript once per
-  // meeting. The delay keeps the indicator from feeling like a sudden panel.
-  useEffect(() => {
-    if (ctx.mode !== "meeting" || detached) return;
-    const timer = setTimeout(() => {
-      setExpanded(true);
-      invoke("recording_pill_expand", { expanded: true }).catch(() => {});
-    }, 280);
-    return () => clearTimeout(timer);
-  }, [ctx.mode, detached]);
 
   async function toggleExpanded() {
     const next = !expanded;
@@ -325,6 +248,19 @@ export function RecordingPill() {
     }
   };
 
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const question = ask.trim();
+    const mid = activeMeetingIdRef.current;
+    if (!question || !mid) return;
+    setAsk("");
+    emit("clips:open-meeting", {
+      meetingId: mid,
+      openChat: true,
+      prompt: question,
+    }).catch(() => {});
+  };
+
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -374,13 +310,14 @@ export function RecordingPill() {
                 ? " pill-vertical"
                 : ""
           }`}
+          onClick={!expanded && !detached ? handlePillMediaClick : undefined}
         >
-          <div
-            className="pill-media"
-            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
-          >
+          <div className="pill-media">
             <PillLogo className="pill-logo" />
-            <canvas ref={canvasRef} className="pill-wave-canvas" aria-hidden />
+            <LiveAudioBars
+              compact={!expanded && !detached}
+              className="pill-wave-meter"
+            />
           </div>
           <div className="pill-controls">
             <span className="pill-timer">
@@ -477,43 +414,43 @@ export function RecordingPill() {
             />
           </div>
           {ctx.mode === "meeting" ? (
-            <div className="pill-saved-bar">
+            <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
+              <input
+                data-no-drag
+                className="pill-ask-input"
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                placeholder="Ask anything"
+                aria-label="Ask anything about this meeting"
+                disabled={!ctx.meetingId}
+              />
+              <button
+                type="submit"
+                data-no-drag
+                className="pill-ask-send"
+                disabled={!ask.trim() || !ctx.meetingId}
+                aria-label="Ask"
+                title="Ask"
+              >
+                <IconArrowUp size={13} />
+              </button>
               <button
                 type="button"
                 data-no-drag
-                className="pill-open-web-btn"
+                className="pill-ask-open"
                 onClick={() => {
                   const mid = activeMeetingIdRef.current;
                   if (mid)
-                    emit("clips:open-meeting", {
-                      meetingId: mid,
-                      openChat: true,
-                    }).catch(() => {});
+                    emit("clips:open-meeting", { meetingId: mid }).catch(
+                      () => {},
+                    );
                 }}
-                title="Chat with transcript"
+                aria-label="Open in browser"
+                title="Open this meeting in the browser"
               >
-                <IconMessageCircle size={12} />
-                Chat with transcript
+                <IconExternalLink size={13} />
               </button>
-              <span className="pill-saved-status">
-                <button
-                  type="button"
-                  data-no-drag
-                  className="pill-open-web-btn"
-                  onClick={() => {
-                    const mid = activeMeetingIdRef.current;
-                    if (mid)
-                      emit("clips:open-meeting", { meetingId: mid }).catch(
-                        () => {},
-                      );
-                  }}
-                  title="Open this meeting in the browser"
-                >
-                  <IconExternalLink size={12} />
-                  Open in browser
-                </button>
-              </span>
-            </div>
+            </form>
           ) : null}
         </div>
       </div>

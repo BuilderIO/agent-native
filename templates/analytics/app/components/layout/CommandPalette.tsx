@@ -1,7 +1,4 @@
-import {
-  agentNativePath,
-  appApiPath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogDialog } from "@agent-native/core/client/changelog";
 import { extensionPath } from "@agent-native/core/client/extensions";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
@@ -288,11 +285,7 @@ async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
 }
 
 function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
+  callAction("set-theme", { theme }).catch(() => {});
 }
 
 export function CommandPalette() {
@@ -381,9 +374,11 @@ export function CommandPalette() {
     const openHandler = () => setOpen(true);
     document.addEventListener("keydown", handler);
     window.addEventListener("analytics:open-command-palette", openHandler);
+    window.addEventListener("agent-native:open-command-menu", openHandler);
     return () => {
       document.removeEventListener("keydown", handler);
       window.removeEventListener("analytics:open-command-palette", openHandler);
+      window.removeEventListener("agent-native:open-command-menu", openHandler);
     };
   }, []);
 

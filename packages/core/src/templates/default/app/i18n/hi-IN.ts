@@ -441,6 +441,14 @@ const messages = {
     remove: "हटाएं",
     save: "सहेजें",
     loading: "लोड हो रहा है...",
+    dangerZone: "खतरे का क्षेत्र",
+    deleteOrg: "संगठन हटाएं",
+    deleteOrgDescription:
+      "यह इस संगठन, इसके सदस्यों और इसके लंबित निमंत्रणों को स्थायी रूप से हटा देता है। संगठन के स्वामित्व वाला डेटा दुर्गम हो जाएगा। इसे पूर्ववत नहीं किया जा सकता।",
+    deleteOrgConfirmPrompt: "पुष्टि के लिए {{name}} टाइप करें।",
+    deleteOrgConfirmPlaceholder: "संगठन का नाम",
+    deleteOrgConfirmCta: "संगठन हटाएं",
+    deleteOrgPending: "हटाया जा रहा है...",
   },
   integrations: {
     webhookUrl: "वेबहुक URL",

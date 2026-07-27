@@ -4,7 +4,6 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -34,6 +33,9 @@ const navItems = [
     href: "/",
     view: "chat",
   },
+];
+
+const bottomNavItems = [
   {
     icon: IconHierarchy2,
     labelKey: "settings.agentTitle",
@@ -415,11 +417,40 @@ export function Sidebar({
       </nav>
 
       <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
-        {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
+        <nav
+          className={cn(
+            "grid",
+            collapsed ? "gap-0 px-1 py-1" : "gap-1 px-2 py-1",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.href);
+            const link = (
+              <Link
+                to={item.href}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {t(item.labelKey)}
+                </span>
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip
+                key={item.href}
+                placement="right"
+                trigger={link}
+                content={t(item.labelKey)}
+              />
+            ) : (
+              <div key={item.href}>{link}</div>
+            );
+          })}
+        </nav>
 
         <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
           <OrgSwitcher

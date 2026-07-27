@@ -16,6 +16,11 @@ belongs there; it is not a changing synopsis of the current body.
 
 Always use the dedicated scripts for document operations. Never use raw `db-exec` SQL.
 
+In dev, call actions with `pnpm action <name>`; in production, call native
+tools. Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for
+document operations. `.env` is loaded automatically — never manually set
+`DATABASE_URL` or other env vars.
+
 ### list-documents
 
 List document metadata in a tree structure. This intentionally does not return full document bodies; call `get-document` for the one document you need to read.
@@ -134,6 +139,10 @@ pnpm action refresh-list
 
 Always run this after any document modification to update the sidebar.
 
+`create-document`, `update-document`, and `delete-document` already signal a UI
+refresh, so in practice only call `refresh-list` directly if you mutate
+documents another way and the UI doesn't update.
+
 ## Document Schema
 
 | Column        | Type    | Description                            |
@@ -148,6 +157,25 @@ Always run this after any document modification to update the sidebar.
 | `is_favorite` | integer | Whether document is favorited (0 or 1) |
 | `created_at`  | text    | ISO timestamp                          |
 | `updated_at`  | text    | ISO timestamp                          |
+
+### Related Tables
+
+Documents live in the SQL `documents` table via Drizzle; the framework injects
+the live column schema separately, so this covers only semantics the schema
+can't convey:
+
+- `document_shares` holds per-user/per-org grants with a `viewer`, `editor`,
+  or `admin` role.
+- `document_versions`, `document_comments`, and `document_sync_links` all
+  carry `owner_email` so a workspace can upgrade from local mode to a real
+  account without losing history, comments, or Notion links.
+- A database is a normal document (`content_databases` +
+  `document_property_definitions`) whose rows are also documents, linked
+  through `content_database_items`. Row pages are omitted from the ordinary
+  sidebar tree — they're reached through the database view.
+
+Documents are **private by default**; use `share-resource` /
+`set-resource-visibility` (`resourceType document`) to change access.
 
 ## Content Format
 
@@ -191,6 +219,24 @@ return the focused page's own description plus a computed root-to-parent
 ancestor descriptions into the child. Database, property, and option
 descriptions narrow the guidance further when working with structured values.
 
+## Screen Context And IDs
+
+Screen context is auto-included as a `<current-screen>` block on every message —
+check it before acting instead of calling `view-screen` by default. Call
+`view-screen` explicitly only when that snapshot is truncated or doesn't yet
+reflect something that changed earlier in the same turn (for example, right
+after `create-document` or `navigate`).
+
+IDs for edits always come from `<current-screen>` or a prior action result —
+never guessed.
+
+| User request              | What to do                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
+| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
+
 ## Common Tasks
 
 | User says                    | What to do                                                                          |
@@ -205,3 +251,24 @@ descriptions narrow the guidance further when working with structured values.
 | "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.
+
+## Reference Files
+
+- **`references/document-behavior.md`** — self-documenting descriptions,
+  `pull-document`'s collab-flush handshake vs `get-document`, versions, image
+  blocks, and the sharing/visibility model (`/page/<id>` vs `/p/<id>`,
+  discoverability, the read-only public chat). Read it before touching
+  descriptions, external ingest, or a document's visibility.
+- **`references/databases.md`** — full behavioral reference for Content
+  databases: property types, Blocks fields, and every view type (table,
+  list, gallery, board, calendar, timeline, form). Read it before building or
+  modifying database views, properties, or forms.
+
+Also read on demand, outside this skill:
+
+- `references/local-file-mode.md` in the `content` skill — local folder
+  sources, Builder Symbol/source-component preservation, local MDX components.
+- The `notion-integration` skill — connecting, sync, conflicts, the read-only
+  database-source pilot, and the raw Notion provider API path.
+- The **Comments** section above — inline anchor-tracked threads, @mentions,
+  resolve/reopen.

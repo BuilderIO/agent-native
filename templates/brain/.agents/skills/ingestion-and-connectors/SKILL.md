@@ -16,7 +16,8 @@ provider-agnostic source lifecycle.
 ## Source Providers
 
 `create-source` accepts exactly `manual`, `generic`, `clips`, `slack`,
-`granola`, or `github` (`sourceProviderSchema`). There is no arbitrary/custom
+`granola`, or `github` (`sourceProviderSchema` in `actions/_schemas.ts`), and
+rejects anything else. There is no arbitrary/custom
 provider string — a generic webhook-fed source uses `provider: "generic"`
 with a `sourceKey` + minted `ingestToken`, not a made-up provider id.
 
@@ -71,10 +72,21 @@ individual sources by hand.
   sources are push/import-driven, not polled — there's no `nextSyncAt` to
   wait on for those.
 
+## Beyond the Source Actions
+
+Source sync actions are convenience readers, not integration limits. For ad hoc
+provider analysis, or a question that needs an endpoint, filter, or payload the
+source actions do not model, call `provider-api-catalog` / `provider-api-docs`
+first, then `provider-api-request` against the provider's real HTTP API. Use
+`connectionId` for a specific shared grant and `accountId` for a specific OAuth
+account.
+
 ## Credential Resolution Order
 
-Every provider-backed source resolves its credential in this order (never
-skip ahead or ask for a duplicate token if an earlier tier already has one):
+For connector work, use existing workspace integration grants when available;
+do not duplicate provider tokens into Brain. Every provider-backed source
+resolves its credential in this order (never skip ahead or ask for a duplicate
+token if an earlier tier already has one):
 
 1. Granted `workspace_connections` / `workspace_connection_grants` for
    `appId=brain` — a shared credential another app or Dispatch already

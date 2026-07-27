@@ -63,6 +63,19 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "thinking", text: "First, " } },
@@ -587,7 +600,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
       ],
       "run-fold-1",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 40_000,
+      },
     );
     const secondChunk = buildAssistantMessage(
       [
@@ -595,7 +612,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "done" } },
       ],
       "run-fold-2",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 15_000,
+      },
     );
     expect(firstChunk).not.toBeNull();
     expect(secondChunk).not.toBeNull();
@@ -630,9 +651,18 @@ describe("buildAssistantMessage", () => {
       custom: {
         turnId: "turn-fold",
         foldedRunIds: ["run-fold-1", "run-fold-2"],
+        agentNativeRunDurationMs: 55_000,
       },
     });
     expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
+
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold",
+      runId: "run-fold-2",
+    });
+    expect(
+      repo.messages[1].message.metadata.custom.agentNativeRunDurationMs,
+    ).toBe(55_000);
   });
 
   it("keeps tool call ids unique when folding continuation chunks", () => {
@@ -691,6 +721,46 @@ describe("buildAssistantMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("preserves a saved run duration when a later client copy omits it", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-1",
+              custom: { agentNativeRunDurationMs: 12_000 },
+            },
+          },
+          parentId: null,
+        },
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(
+      merged.messages[0].message.metadata.custom.agentNativeRunDurationMs,
+    ).toBe(12_000);
+  });
+
   it("preserves server-only assistant messages when a stale client save arrives", () => {
     const existing = {
       queuedMessages: [{ id: "queued", text: "next" }],

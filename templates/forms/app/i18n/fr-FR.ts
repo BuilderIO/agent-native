@@ -88,6 +88,16 @@ const messages = {
     addOption: "Ajouter une option",
     min: "Min.",
     max: "Max.",
+    conditionalVisibility: "Visibilité conditionnelle",
+    conditionalVisibilityDescription:
+      "Afficher ce champ uniquement si une réponse précédente correspond.",
+    conditionField: "Réponse précédente",
+    conditionOperator: "Condition",
+    conditionEquals: "est",
+    conditionNotEquals: "n'est pas",
+    conditionContains: "contient",
+    conditionValue: "Réponse",
+    conditionValuePlaceholder: "Saisir une réponse...",
     fieldTypes: {
       text: "Texte court",
       email: "E-mail",
@@ -145,6 +155,7 @@ const messages = {
     integrationsTab: "Intégrations",
     settingsSaved: "Paramètres enregistrés",
     integrationsSaved: "Intégrations enregistrées",
+    saveFailed: "Échec de l’enregistrement des modifications",
     formTitlePlaceholder: "Titre du formulaire",
     addDescriptionPlaceholder: "Ajouter une description...",
     dragToReorder: "Faire glisser pour réordonner",
@@ -218,7 +229,7 @@ const messages = {
       googleSheetsBlurb:
         "Copiez chaque réponse dans une feuille de calcul partageable par votre équipe.",
       googleSheetsHelp:
-        "Déployez une app web Apps Script qui reçoit des données POST",
+        "Utilisez une URL Apps Script /exec déployée qui lit le JSON de e.postData.contents et ajoute la ligne.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",

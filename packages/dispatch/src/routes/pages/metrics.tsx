@@ -217,7 +217,7 @@ function RangeSelector({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="flex rounded-md border bg-card p-0.5">
+    <div className="flex rounded-md bg-card p-0.5">
       {RANGES.map((range) => (
         <Button
           key={range}
@@ -246,7 +246,7 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-muted-foreground">
           {label}
@@ -275,7 +275,7 @@ function Panel({
   action?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border bg-card">
+    <section className="rounded-lg bg-card">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground">{icon}</span>
@@ -295,7 +295,7 @@ function LoadingMetrics() {
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="rounded-lg border bg-card p-4">
+          <div key={index} className="rounded-lg bg-card p-4">
             <Skeleton className="mb-4 h-4 w-24" />
             <Skeleton className="h-7 w-20" />
             <Skeleton className="mt-3 h-3 w-28" />

@@ -5,6 +5,7 @@
  *   node_modules/.bin/tsx templates/forms/server/lib/submission-validation.spec.ts
  */
 
+import { isConditionalFieldVisible } from "../../shared/conditional.js";
 import type { FormField } from "../../shared/types.js";
 import {
   isEmptySubmissionValue,
@@ -128,6 +129,96 @@ check("rejects invalid regex patterns at save time", () => {
     threw = true;
   }
   assert(threw, "invalid regex pattern was accepted");
+});
+
+check("evaluates conditional visibility for scalar and list answers", () => {
+  const conditional = field({
+    id: "physical_details",
+    conditional: {
+      fieldId: "event_type",
+      operator: "equals",
+      value: "Physical",
+    },
+  });
+  assert(
+    isConditionalFieldVisible(conditional, { event_type: "Physical" }),
+    "matching scalar condition should show the field",
+  );
+  assert(
+    !isConditionalFieldVisible(conditional, { event_type: "Virtual" }),
+    "non-matching scalar condition should hide the field",
+  );
+  assert(
+    isConditionalFieldVisible(
+      {
+        ...conditional,
+        conditional: {
+          fieldId: "topics",
+          operator: "contains",
+          value: "Security",
+        },
+      },
+      { topics: ["Product", "Security"] },
+    ),
+    "list condition should match a selected option",
+  );
+});
+
+check("validates conditional references and operators at save time", () => {
+  assertValidFields([
+    field({ id: "event_type", type: "radio", options: ["Virtual"] }),
+    field({
+      id: "virtual_details",
+      conditional: {
+        fieldId: "event_type",
+        operator: "equals",
+        value: "Virtual",
+      },
+    }),
+  ]);
+
+  for (const fields of [
+    [
+      field({ id: "event_type" }),
+      field({
+        id: "details",
+        conditional: {
+          fieldId: "missing",
+          operator: "equals",
+          value: "yes",
+        },
+      }),
+    ],
+    [
+      field({ id: "event_type" }),
+      field({
+        id: "details",
+        conditional: {
+          fieldId: "event_type",
+          operator: "when",
+          value: "yes",
+        } as any,
+      }),
+    ],
+    [
+      field({
+        id: "event_type",
+        conditional: {
+          fieldId: "event_type",
+          operator: "equals",
+          value: "yes",
+        },
+      }),
+    ],
+  ]) {
+    let threw = false;
+    try {
+      assertValidFields(fields);
+    } catch {
+      threw = true;
+    }
+    assert(threw, "invalid conditional rule was accepted");
+  }
 });
 
 const total = passed + failures.length;

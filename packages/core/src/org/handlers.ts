@@ -36,14 +36,14 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import type { OrgRole } from "./types.js";
@@ -108,7 +108,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
-  let a2aSecret: string | null = null;
+  let a2aSecretSet = false;
   if (ctx.orgId) {
     try {
       const adRes = await e.execute({
@@ -118,7 +118,9 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
       if (adRes.rows[0]) {
         allowedDomain =
           String((adRes.rows[0] as any).allowed_domain ?? "") || null;
-        a2aSecret = String((adRes.rows[0] as any).a2a_secret ?? "") || null;
+        a2aSecretSet = Boolean(
+          String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
+        );
       }
     } catch {
       // Column may not exist yet
@@ -154,7 +156,11 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
-    a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
+    // Never serialize the A2A secret here. This route runs on every page load,
+    // so the value would sit in JSON any script on the page can read, and it
+    // signs the JWTs peers accept as first-party callers. Reveal is an explicit
+    // owner/admin GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
 
@@ -482,7 +488,7 @@ export const acceptInvitationHandler = defineEventHandler(
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
       });
-      await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+      await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
         orgName,
@@ -500,7 +506,7 @@ export const acceptInvitationHandler = defineEventHandler(
       args: [invitationId],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+    await setActiveOrgId(email, invOrgId, "accepted invitation");
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -678,6 +684,105 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
   return { orgId: ctx.orgId, name };
 });
 
+/**
+ * DELETE /_agent-native/org — permanently delete the current organization
+ * (owner only). Body: { name: string } must match the org's current name
+ * (trim + case-insensitive) as a confirmation guard against misclicks.
+ *
+ * Deletes org_invitations, org-scoped settings, org_members, and the
+ * organizations row, then repoints the caller's active-org-id to another
+ * membership of theirs (or null for Personal) so they aren't left pointing
+ * at a deleted org.
+ */
+export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  if (ctx.role !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can delete an organization",
+    });
+  }
+
+  const body = await readBody(event);
+  const confirmName = String(body?.name ?? "").trim();
+
+  const e = await exec();
+  const orgRes = await e.execute({
+    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    args: [ctx.orgId],
+  });
+  if (orgRes.rows.length === 0) {
+    throw createError({ statusCode: 404, message: "Organization not found" });
+  }
+  const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+
+  if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
+    throw createError({
+      statusCode: 400,
+      message: "Organization name does not match",
+    });
+  }
+
+  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsPrefix = `o:${ctx.orgId}:`.replace(
+    /[!%_]/g,
+    (character) => `!${character}`,
+  );
+  const deleteStatements = [
+    {
+      sql: `DELETE FROM org_invitations WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM app_secrets WHERE scope IN ('org', 'workspace') AND scope_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM ${settingsTable} WHERE key LIKE ? ESCAPE '!'`,
+      args: [`${settingsPrefix}%`],
+    },
+    {
+      sql: `DELETE FROM org_members WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM organizations WHERE id = ?`,
+      args: [ctx.orgId],
+    },
+  ];
+
+  if (e.transaction) {
+    await e.transaction(async (tx) => {
+      for (const statement of deleteStatements) await tx.execute(statement);
+    });
+  } else if (e.atomicBatch) {
+    await e.atomicBatch(deleteStatements);
+  } else {
+    throw createError({
+      statusCode: 503,
+      message: "Organization deletion requires atomic database support",
+    });
+  }
+
+  const nextRes = await e.execute({
+    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const nextOrgId =
+    nextRes.rows.length > 0
+      ? String(
+          (nextRes.rows[0] as any).orgId ?? (nextRes.rows[0] as any).org_id,
+        )
+      : null;
+
+  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+
+  return { success: true, orgId: ctx.orgId, nextOrgId };
+});
+
 /** PUT /_agent-native/org/switch — switch the user's active organization */
 export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event);
@@ -687,7 +792,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await putUserSetting(email, "active-org-id", { orgId: null });
+    await setActiveOrgId(email, null, "cleared active organization");
     return { orgId: null, orgName: null, role: null };
   }
 
@@ -707,7 +812,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await putUserSetting(email, "active-org-id", { orgId });
+  await setActiveOrgId(email, orgId, "user switched organization");
 
   const row = membership.rows[0] as any;
   return {
@@ -766,7 +871,7 @@ export const joinByDomainHandler = defineEventHandler(
       args: [nanoid(), orgId, email, Date.now()],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId });
+    await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
     return {
       orgId,
@@ -848,6 +953,39 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
 
   return { domain: raw };
 });
+
+/**
+ * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
+ * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * to the browser when an operator explicitly asks to see or copy it.
+ */
+export const revealA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can read the A2A secret",
+      });
+    }
+
+    const e = await exec();
+    const res = await e.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+
+    return {
+      a2aSecret: String((res.rows[0] as any)?.a2a_secret ?? "") || null,
+    };
+  },
+);
 
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(

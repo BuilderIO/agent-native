@@ -74,6 +74,30 @@ describe("variant slot state", () => {
     );
   });
 
+  it("keeps unscoped slots when another process overwrites the shared row", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "Batch prompt",
+      slotId: "slot-1",
+      status: "pending",
+    });
+
+    await upsertVariantSlot({
+      runId: "run-2",
+      batchId: "batch-2",
+      libraryId: "lib-1",
+      prompt: "Concurrent solo prompt",
+      slotId: "other-slot",
+      status: "pending",
+    });
+
+    await expect(wasVariantSlotDismissed("lib-1", "slot-1")).resolves.toBe(
+      false,
+    );
+  });
+
   it("updates one slot without dropping its siblings", async () => {
     await Promise.all(
       ["slot-1", "slot-2"].map((slotId, index) =>

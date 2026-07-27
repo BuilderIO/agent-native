@@ -4,10 +4,9 @@ name: Cancel superseded Netlify main deploys
 # "Version Packages" release PR lands), Netlify enqueues a separate production
 # deploy per site per commit. Older queued deploys are wasted work — only the
 # latest main commit needs to ship. This coalesces the production queue: on each
-# push to main it cancels every still-queued production deploy for an OLDER
-# commit, per site, and leaves the just-pushed deploy (and anything already
-# building/uploading/processing) alone. That matches "skip older main deploys,
-# only do the latest, unless it's already partway through a build."
+# push to main it cancels an older queued production deploy only when Netlify
+# also shows a newer queued production deploy for main to replace it. Anything
+# already building/uploading/processing is left alone.
 #
 # Preview (deploy-preview) deploys are handled separately by
 # cancel-stale-netlify-previews.yml.
@@ -72,25 +71,6 @@ jobs:
             // (building/uploading/preparing/processing) is left to finish so we
             // never kill a deploy that's "partway through".
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
-
-            async function commitSubject(ref) {
-              try {
-                const response = await github.rest.repos.getCommit({
-                  ...context.repo,
-                  ref,
-                });
-                return response.data.commit.message.split('\n')[0] ?? '';
-              } catch (err) {
-                core.info(`Could not read commit subject for ${ref.slice(0, 7)}: ${err?.message || err}`);
-                return '';
-              }
-            }
-
-            const currentCommitSubject = await commitSubject(currentSha);
-            const currentCommitBuildsSites = !/^chore:\s*version packages\b/i.test(currentCommitSubject);
-            if (!currentCommitBuildsSites) {
-              core.info(`Current commit ${currentSha.slice(0, 7)} is a version-packages release that Netlify sites intentionally skip; keeping older queued deploys.`);
-            }
 
             function readJson(filePath) {
               return JSON.parse(fs.readFileSync(path.join(repoRoot, filePath), 'utf8'));
@@ -164,17 +144,16 @@ jobs:
               watchedPathsBySite.set(name, watchedPathsForTarget(packages, target));
             }
 
-            async function supersedingChangeAffectsSite(name, commitRef) {
-              if (!currentCommitBuildsSites) return false;
+            async function supersedingChangeAffectsSite(name, commitRef, supersedingRef) {
               const watchedPaths = watchedPathsBySite.get(name);
               if (!watchedPaths) return false;
               try {
                 const comparison = await github.rest.repos.compareCommitsWithBasehead({
                   ...context.repo,
-                  basehead: `${commitRef}...${currentSha}`,
+                  basehead: `${commitRef}...${supersedingRef}`,
                 });
                 if (comparison.data.status !== 'ahead') {
-                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; compare status=${comparison.data.status}`);
+                  core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; queued replacement ${supersedingRef.slice(0, 7)} compare status=${comparison.data.status}`);
                   return false;
                 }
 
@@ -201,10 +180,10 @@ jobs:
                   }
                 }
 
-                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; newer main commits do not change this site (ignoring version-packages releases).`);
+                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; queued replacement ${supersedingRef.slice(0, 7)} does not change this site (ignoring version-packages releases).`);
                 return false;
               } catch (err) {
-                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove replacement changes this site: ${err?.message || err}`);
+                core.info(`[${name}] keeping queued production deploy for ${commitRef.slice(0, 7)}; could not prove queued replacement ${supersedingRef.slice(0, 7)} changes this site: ${err?.message || err}`);
                 return false;
               }
             }
@@ -225,20 +204,35 @@ jobs:
                 return { name, error: `list json failed: ${err?.message || err}` };
               }
 
-              // Superseded == queued production deploy for a commit GitHub
-              // proves is an ancestor of the one we just pushed AND whose site
-              // is also touched by the newer commit range. The second condition
-              // keeps us from canceling the only deploy that would ship a site
-              // changed by an earlier main commit.
+              const queuedMainDeploys = deploys.filter(d =>
+                d.context === 'production' &&
+                d.branch === 'main' &&
+                CANCELABLE_STATES.has(d.state) &&
+                d.commit_ref
+              );
+
+              // A GitHub push alone is not evidence that Netlify has a
+              // replacement. Only cancel when another queued production main
+              // deploy is visible for a descendant commit that changes this
+              // site. This fail-closed check protects the only deploy when
+              // Netlify ignores the newer commit or has not queued it yet.
               const stale = [];
-              for (const d of deploys) {
-                if (
-                  d.context === 'production' &&
-                  CANCELABLE_STATES.has(d.state) &&
-                  d.commit_ref &&
-                  d.commit_ref !== currentSha &&
-                  await supersedingChangeAffectsSite(name, d.commit_ref)
-                ) {
+              for (const d of queuedMainDeploys) {
+                if (d.commit_ref === currentSha) continue;
+
+                let replacement = null;
+                for (const candidate of queuedMainDeploys) {
+                  if (
+                    candidate.id !== d.id &&
+                    candidate.commit_ref !== d.commit_ref &&
+                    await supersedingChangeAffectsSite(name, d.commit_ref, candidate.commit_ref)
+                  ) {
+                    replacement = candidate;
+                    break;
+                  }
+                }
+
+                if (replacement) {
                   stale.push(d);
                 }
               }

@@ -426,6 +426,14 @@ const messages = {
     remove: "移除",
     save: "保存",
     loading: "正在加载...",
+    dangerZone: "危险区域",
+    deleteOrg: "删除组织",
+    deleteOrgDescription:
+      "永久删除此组织及其成员和待处理的邀请。组织拥有的数据将变得无法访问。此操作无法撤销。",
+    deleteOrgConfirmPrompt: "输入 {{name}} 以确认。",
+    deleteOrgConfirmPlaceholder: "组织名称",
+    deleteOrgConfirmCta: "删除组织",
+    deleteOrgPending: "正在删除...",
   },
   integrations: {
     webhookUrl: "查看：Webhook URL",

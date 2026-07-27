@@ -18,9 +18,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hydration";
-import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
-
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import {
   removeOptimisticItemFromContentDatabase,
@@ -243,28 +240,12 @@ export function seedDatabaseItemDocumentCaches(
   queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   item: ContentDatabaseItem,
 ) {
-  const sourceBackedEmptyBody =
-    (!!item.bodyHydration || !!item.document.databaseMembership?.sourceId) &&
-    isEffectivelyEmptyDocumentContent(item.document.content);
-  // Seed only cold caches. Overwriting an existing entry would bump its
-  // freshness with possibly older table-snapshot data (a background database
-  // refetch can lag a just-saved document edit) and suppress the correcting
-  // refetch for the whole staleTime window. Source-backed rows are never seeded:
-  // list snapshots are not authoritative enough to unlock the body editor, even
-  // when they happen to contain non-empty content. The dedicated get-document
-  // response owns that decision and prevents an edit from racing hydration.
-  if (
-    !databaseItemBodyHydrationIsPending(item) &&
-    !sourceBackedEmptyBody &&
-    !item.bodyHydration &&
-    !item.document.databaseMembership?.sourceId &&
-    queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
-  ) {
-    queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {
-      ...item.document,
-      properties: item.properties,
-    });
-  }
+  // Database table responses are list snapshots, not authoritative editable
+  // bodies. Even a cold cache can race a just-saved collaborative edit: seeding
+  // it marks the row snapshot fresh and can mount ProseMirror before the
+  // dedicated get-document request returns. Keep document bodies exclusively
+  // owned by get-document; the table may still warm the separately scoped
+  // property cache below.
   if (
     queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
     undefined
@@ -289,12 +270,23 @@ export function useDocuments() {
   });
 }
 
+export const DOCUMENT_QUERY_FRESHNESS_OPTIONS = {
+  // Database/list snapshots may seed this cache before the page opens. Their
+  // body can lag a just-saved collaborative edit, so never treat that seed as
+  // authoritative for mounting the editor. The dedicated get-document action
+  // must win once per page mount; subsequent background refetches can keep the
+  // already-mounted editor current without remounting it.
+  staleTime: 0,
+  refetchOnMount: "always" as const,
+  retry: false,
+};
+
 export function useDocument(id: string | null) {
   return useActionQuery<Document>("get-document", id ? { id } : undefined, {
     enabled: !!id,
     // Doc-not-found / no-access errors are deterministic — retrying just keeps
     // the spinner up for ~7s before the UI can render "Not found".
-    retry: false,
+    ...DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   });
 }
 
@@ -342,7 +334,9 @@ export function useUpdatePreviewDocumentDraft() {
         expectedTitle: string;
         expectedContent: string;
       }
-  >("update-preview-document-draft");
+  >("update-preview-document-draft", {
+    skipActionQueryInvalidation: true,
+  });
 }
 
 export function useCreateDocument() {

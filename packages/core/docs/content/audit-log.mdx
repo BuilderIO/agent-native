@@ -35,6 +35,83 @@ When any **mutating** action runs (anything that isn't a read-only `GET`), the f
 
 No wiring needed — the capture hooks into `defineAction` transparently. Read-only actions are skipped, and a few high-frequency framework actions (app-state sync, context-xray, navigation) are skipped by default to avoid flooding the log.
 
+<DataModel
+  id="doc-block-auditlog1"
+  title="agent_audit_log"
+  summary="One append-only row per mutating action call. 'caller' is the actual column name for what the prose above calls the surface."
+  entities={[
+    {
+      id: "auditLog",
+      name: "agent_audit_log",
+      note: "Append-only — no update or delete action exists for these rows.",
+      fields: [
+        { name: "id", type: "text", pk: true },
+        { name: "created_at", type: "integer", nullable: false },
+        {
+          name: "action",
+          type: "text",
+          nullable: false,
+          note: "The action name, e.g. delete-recording.",
+        },
+        {
+          name: "caller",
+          type: "enum",
+          nullable: false,
+          note: "tool | frontend | http | cli | mcp | a2a — the surface that invoked the action.",
+        },
+        {
+          name: "actor_kind",
+          type: "enum",
+          nullable: false,
+          note: "agent | human | system",
+        },
+        { name: "actor_email", type: "text", nullable: true },
+        { name: "org_id", type: "text", nullable: true },
+        {
+          name: "thread_id",
+          type: "text",
+          nullable: true,
+          note: "Agent conversation thread, when caller is the agent loop.",
+        },
+        { name: "turn_id", type: "text", nullable: true },
+        {
+          name: "target_type",
+          type: "text",
+          nullable: true,
+          note: "Set via audit.target on the action.",
+        },
+        { name: "target_id", type: "text", nullable: true },
+        {
+          name: "status",
+          type: "enum",
+          nullable: false,
+          note: "success | error | denied — default 'success'.",
+        },
+        { name: "summary", type: "text", nullable: true },
+        {
+          name: "input",
+          type: "text",
+          nullable: true,
+          note: "Redacted call arguments, JSON-encoded.",
+        },
+        { name: "error_code", type: "text", nullable: true },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: true,
+          note: "Scopes who can read this event.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "private | org | public — default 'private'.",
+        },
+      ],
+    },
+  ]}
+/>
+
 ## Declare what an action changed {#target}
 
 By default an event is scoped to the **actor** — you see your own changes and the agent's changes on your behalf. To make a change to a _shared_ resource also appear in the **owner's** trail, and to label events by resource, declare a `target`:
@@ -109,3 +186,4 @@ Configure via environment:
 - [**Human-in-the-Loop Approvals**](/docs/human-approval) — gated actions, recorded as `denied`
 - [**Security & Data Scoping**](/docs/security) — the ownership model audit reads reuse
 - [**Observability**](/docs/observability) — agent-run telemetry (the other "what happened")
+- [**Toolkit piece: History Kit**](/docs/toolkit-history) — the version-history timeline and undo/redo UI built on this trail

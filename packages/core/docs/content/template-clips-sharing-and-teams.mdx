@@ -1,0 +1,182 @@
+---
+title: "Sharing, Teams, and Agent-Readable Clips"
+description: "Visibility, passwords, and expiry for a shared clip; organizations and member roles for teams; and the API contract that lets an outside agent read a clip's transcript and frames."
+search: "Clips sharing visibility password expiry embed Slack unfurl organization team roles agent-readable CRM call evidence"
+---
+
+# Sharing, teams, and agent-readable clips
+
+This page is for anyone sharing a clip with people or agents, and for admins setting up a Clips organization. It covers who can see a recording, how teams and roles work, and how an outside agent reads a shared clip without downloading raw video.
+
+## Visibility, passwords, and expiry
+
+- **Share clips** with per-clip permissions (public, team/organization, or private). Link tracking and threaded comments work too.
+- **Add a password or an expiry date** on any clip from the Share dialog. Both only tighten access — they can never grant access the sharing rules above them would otherwise deny.
+- **Organization admins** can set the default visibility new recordings get when nobody chooses one explicitly (see [Organizations and teams](#organizations-and-teams) below). Recordings default to public unless an admin changes that, and picking a visibility explicitly always wins over the default.
+
+## Embeds and Slack previews
+
+Build an embed URL for a clip to drop it into a wiki page, an internal tool, or anywhere else that accepts an `<iframe>`. Supported query parameters:
+
+| Param             | Meaning                                            |
+| ----------------- | -------------------------------------------------- |
+| `?t=80`           | Start playback at 80 seconds                       |
+| `?autoplay=1`     | Autoplay (muted — browsers block unmuted autoplay) |
+| `?hideControls=1` | Hide the player chrome                             |
+| `?loop=1`         | Loop playback                                      |
+
+Public share links also preview as a playable, Loom-style video once your workspace installs its Clips Slack app — see [Extending Clips](/docs/template-clips-developers) for the Slack app setup steps. Only ready, public clips without a password, expiry hit, or archive/trash marker produce a playable Slack preview; anything else falls back to normal title/thumbnail link metadata.
+
+## Agent-readable clips
+
+Paste a public Clips share link into an agent, or use **Share → Copy** in the **Share with agents** row to mint a temporary private agent link. Private, organization, and passworded clips do not need to become public: the copied URL carries a recording-scoped `agent_access` token that expires after two hours.
+
+The share page advertises a compact agent context URL, and that context points to the transcript and frame APIs, so models that only accept text or still images can still understand what happened in the recording.
+
+Any agent that can fetch an image URL into its vision — ChatGPT, Claude Code, Cursor, Codex, and MCP-connected agents — reads the transcript and sees the frames. A few text-only web chats read the transcript but won't pull frame images in on their own; there, upload a key frame or open the clip in an image-capable agent.
+
+| Endpoint                                          | What agents get                                                                                                |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript/frame APIs   |
+| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
+
+The endpoints follow the same public/password/expiry rules as the share page, or accept the scoped `agent_access` token from a temporary agent link. Password-protected clips require the password once; successful responses return short-lived tokenized links so downstream agents do not need the plaintext password.
+
+When `transcript.status` is `pending`, agents should wait 15-30 seconds and retry the context or transcript URL a few times before falling back to frames or reporting that no transcript is available. Long recordings can take several minutes to finish. Failed transcripts include `failureReason`; if Builder transcription credits are exhausted, the agent should explain that the user needs Builder.io credits/upgrade or a Groq key for backup speech-to-text — see [AI Pipeline, Editing, and Insights](/docs/template-clips-ai-and-editing) for the full provider order.
+
+<Endpoint id="doc-block-6q76u0" title="Agent context entry point" method="GET" path="/api/agent-context.json" summary="Compact, agent-readable description of a shared clip" auth="Same public / password / expiry rules as the share page, or a scoped agent_access token" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "agent_access",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "Temporary token from Copy for agent links"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Clip metadata, transcript status/failureReason/retryAfterSeconds, agent instructions, and transcript/frame API links"
+  }
+]}>
+
+Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by public share pages and temporary private agent links so a text- or image-only agent can understand a recording without ingesting raw video.
+
+</Endpoint>
+
+<Endpoint id="doc-block-8ryota" title="Timestamped transcript" method="GET" path="/api/agent-transcript.json" summary="Timestamped transcript segments for a shared clip" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Transcript status, failureReason, retryAfterSeconds, full text, and segments with startMs, endMs, readable timestamps, text, and optional source labels"
+  }
+]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-jlizey" title="Frame at a timestamp" method="GET" path="/api/agent-frame.jpg" summary="A JPEG frame extracted from the video at an original-video timestamp" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "atMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Original-video timestamp in milliseconds"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg frame"
+  }
+]}>
+
+</Endpoint>
+
+## Organizations and teams {#organizations-and-teams}
+
+Anyone can create an organization to share a Clips workspace with a team. Creating one makes you its first admin.
+
+- **Branding.** Admins set a brand color and logo, shown across the shared workspace.
+- **Default visibility.** Admins choose what new recordings default to (public, organization, or private) when nobody picks one explicitly.
+- **Invite members** by email. An invite is either accepted or declined; admins can change a member's role or remove them later.
+
+| Role       | Can do                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------- |
+| **Admin**  | Invite and remove members, change roles, set branding and default visibility, plus everything a member can do |
+| **Member** | Record, edit, and share their own clips; work in any space they've been added to                              |
+
+## CRM call evidence
+
+CRM and sales automations sometimes need a durable link to a call recording as evidence on a deal, without pulling in the full clip. Clips supports exactly that one narrow handoff:
+
+- It returns only an opaque clip id, a durable `https://.../r/<id>` page, and optionally the capture time — never the video URL, a transcript, or a temporary access token.
+- It only runs for a recording you can already view, triggered by an explicit user action or an exact, user-approved automation — never to go fish for a plausible clip on someone's behalf.
+
+<Diagram id="doc-block-clips3" title="CRM call evidence" summary={"A clip.created automation hands a CRM workflow a durable link, never the media itself."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">Recording finishes</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    clip.created event<br /><small class="diagram-muted"
+      >approved automation only</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Call evidence link</span
+    ><small class="diagram-muted">opaque id + /r/&lt;id&gt;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">CRM record</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## What's next
+
+- [**Clips**](/docs/template-clips) — the overview
+- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — desktop, mobile, and browser-log capture
+- [**AI Pipeline, Editing, and Insights**](/docs/template-clips-ai-and-editing) — what happens to a clip after it's shared and watched
+- [**Extending Clips**](/docs/template-clips-developers) — the sharing data model, organization tables, and Slack app setup

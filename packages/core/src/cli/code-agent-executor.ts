@@ -50,7 +50,11 @@ import {
   readAgentsBundleFromFs,
   generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getAmbientOrgId,
+  getAmbientUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -1157,8 +1161,8 @@ function runWithOptionalCodeAgentRequestContext<T>(
   const userEmail =
     metadataString(run, "ownerEmail") ??
     metadataString(run, "userEmail") ??
-    process.env.AGENT_USER_EMAIL;
-  const orgId = metadataString(run, "orgId") ?? process.env.AGENT_ORG_ID;
+    getAmbientUserEmail();
+  const orgId = metadataString(run, "orgId") ?? getAmbientOrgId();
   if (!userEmail && !orgId) return fn();
   return runWithRequestContext({ userEmail, orgId }, fn);
 }

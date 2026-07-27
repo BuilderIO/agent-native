@@ -88,6 +88,16 @@ const messages = {
     addOption: "옵션 추가",
     min: "최소",
     max: "맥스",
+    conditionalVisibility: "조건부 표시",
+    conditionalVisibilityDescription:
+      "이전 답변이 일치할 때만 이 필드를 표시합니다.",
+    conditionField: "이전 답변",
+    conditionOperator: "조건",
+    conditionEquals: "같음",
+    conditionNotEquals: "같지 않음",
+    conditionContains: "포함",
+    conditionValue: "답변",
+    conditionValuePlaceholder: "답변 입력...",
     fieldTypes: {
       text: "짧은 텍스트",
       email: "이메일",
@@ -141,6 +151,7 @@ const messages = {
     integrationsTab: "연동",
     settingsSaved: "설정이 저장되었습니다",
     integrationsSaved: "연동이 저장되었습니다",
+    saveFailed: "변경사항을 저장하지 못했습니다",
     formTitlePlaceholder: "양식 제목",
     addDescriptionPlaceholder: "설명 추가...",
     dragToReorder: "드래그하여 순서 변경",
@@ -208,7 +219,8 @@ const messages = {
         "제출 데이터가 포함된 JSON POST를 보냅니다. Zapier, Make, n8n 등과 함께 작동합니다.",
       googleSheetsBlurb:
         "모든 응답을 팀이 공유할 수 있는 스프레드시트에 반영합니다.",
-      googleSheetsHelp: "POST 데이터를 받는 Apps Script 웹 앱을 배포하세요",
+      googleSheetsHelp:
+        "배포된 Apps Script /exec URL을 사용하고 e.postData.contents의 JSON을 읽어 행을 추가하세요.",
       googleSheetsLabel: "Google 스프레드시트",
       webhookLabel: "Webhook",
       discordLabel: "Discord",

@@ -29,6 +29,7 @@ import {
   IconGauge,
   IconApps,
   IconUsersGroup,
+  IconTool,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -67,6 +68,7 @@ import {
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
+import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { SecretsSection } from "./SecretsSection.js";
 import {
   SettingsSection,
@@ -3000,17 +3002,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     const workspace = searchTab("workspace");
     return [
       {
-        ...agent,
-        icon: IconHierarchy2,
-        group: "agent",
-        href: "/agent#settings",
-        searchEntries: undefined,
-        content: <Navigate to="/agent#settings" replace />,
-      },
-      {
         ...connections,
         icon: IconPlugConnected,
-        group: "agent",
+        group: "workspace",
         content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
@@ -3036,6 +3030,22 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
             className="mx-auto w-full max-w-2xl"
           />
         ),
+      },
+      {
+        id: "extensions",
+        label: "Extensions",
+        icon: IconTool,
+        group: "workspace",
+        keywords: "extensions widgets mini apps tools sandboxed apps",
+        content: <ExtensionsSettingsContent />,
+      },
+      {
+        ...agent,
+        icon: IconHierarchy2,
+        group: "manage-agent",
+        href: "/agent#settings",
+        searchEntries: undefined,
+        content: <Navigate to="/agent#settings" replace />,
       },
     ];
   }, [baseProps]);

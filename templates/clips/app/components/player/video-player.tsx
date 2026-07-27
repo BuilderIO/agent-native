@@ -209,6 +209,13 @@ export interface VideoPlayerProps {
    * a visible frame for missing or blank auto-generated library thumbnails.
    */
   role?: "owner" | "admin" | "editor" | "viewer";
+  /**
+   * Called with the live `<video>` DOM node whenever it is created or
+   * destroyed (e.g. swapping to/from the Loom iframe or unsupported-format
+   * placeholder). Lets a caller key an effect off the actual element
+   * lifecycle instead of polling an imperative-handle getter.
+   */
+  onVideoElementChange?: (video: HTMLVideoElement | null) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -245,6 +252,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       cover,
       recordingId,
       role,
+      onVideoElementChange,
     } = props;
 
     const resolvedVideoSrc = useMemo(
@@ -252,6 +260,13 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [videoUrl],
     );
     const videoRef = useRef<HTMLVideoElement | null>(null);
+    const setVideoNode = useCallback(
+      (el: HTMLVideoElement | null) => {
+        videoRef.current = el;
+        onVideoElementChange?.(el);
+      },
+      [onVideoElementChange],
+    );
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const touchTapCandidateRef = useRef<{
@@ -1262,7 +1277,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         ) : activeVideoSrc ? (
           <video
-            ref={videoRef}
+            ref={setVideoNode}
             src={domVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
             // `crossOrigin` is only needed so the owner's canvas thumbnail
@@ -1385,7 +1400,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 v,
                 resolvedDurationMs,
               );
-              if (visibleMs !== ms) {
+              // Only ever correct forward (skipping a trimmed range). Seeking
+              // backwards here flushes the decode pipeline and replays from the
+              // previous keyframe, which reads as a stutter with a buffering flash.
+              if (visibleMs > ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
                 if (visibleMs > 0) {
@@ -1800,21 +1818,23 @@ function CenterPlaybackOverlay({
  * trustworthy finite number we have — preferring the resolved duration from
  * the player, then falling back to `video.duration`, then the seekable range.
  */
-function clampSeek(
+export function clampSeek(
   ms: number,
   v: HTMLVideoElement,
   resolvedDurationMs: number,
 ): number {
-  let maxSec = Number.POSITIVE_INFINITY;
+  // Clamp in integer milliseconds. Routing through seconds and back loses 1ms
+  // for ~1% of integer inputs (1001 -> 1000), which the timeupdate handler
+  // would then "correct" by seeking the player backwards.
+  let maxMs = Number.POSITIVE_INFINITY;
   if (resolvedDurationMs > 0) {
-    maxSec = resolvedDurationMs / 1000;
+    maxMs = resolvedDurationMs;
   } else if (Number.isFinite(v.duration) && v.duration > 0) {
-    maxSec = v.duration;
+    maxMs = v.duration * 1000;
   } else if (v.seekable && v.seekable.length > 0) {
-    maxSec = v.seekable.end(v.seekable.length - 1);
+    maxMs = v.seekable.end(v.seekable.length - 1) * 1000;
   }
-  const sec = Math.max(0, Math.min(maxSec, ms / 1000));
-  return Math.floor(sec * 1000);
+  return Math.floor(Math.max(0, Math.min(maxMs, ms)));
 }
 
 function skipExcludedRange(

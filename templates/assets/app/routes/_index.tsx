@@ -35,7 +35,7 @@ const CHAT_STARTERS = [
 ] as const;
 
 const SEO_TITLE =
-  "Agent-Native Assets - Open Source AI asset library for brand-safe images and video";
+  "Assets - Open Source AI asset library for brand-safe images and video";
 const SEO_DESCRIPTION =
   "Open Source asset manager for AI teams to organize brand libraries, search creative work, and generate on-brand images and videos.";
 

@@ -15,9 +15,11 @@ export {
   type UseSemanticNavigationStateResult,
 } from "../route-state.js";
 export {
+  COMMAND_MENU_OPEN_EVENT,
   CommandMenu,
   openAgentSidebar,
   openAgentSettings,
+  openCommandMenu,
   submitToAgent,
   useCommandMenuShortcut,
   type CommandMenuProps,

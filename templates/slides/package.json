@@ -1,6 +1,6 @@
 {
   "name": "slides",
-  "displayName": "Agent-Native Slides",
+  "displayName": "Slides",
   "private": true,
   "type": "module",
   "scripts": {

@@ -178,6 +178,17 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
+  it("replaces an optimistic page with the persisted document before conversion", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
+    expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
+    expect(sidebar).toContain("markDocumentCreationPending({");
+    expect(sidebar).toContain(
+      '["action", "get-document", { id: nextId }],\n          created',
+    );
+  });
+
   it("keeps independently expanded Files lists beneath their workspaces", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
@@ -246,9 +257,7 @@ describe("document sidebar layout", () => {
       'import { OrgSwitcher } from "@agent-native/core/client/org";',
     );
     expect(sidebar).toContain("<OrgSwitcher reserveSpace />");
-    expect(sidebar.indexOf("<ExtensionsSidebarSection />")).toBeLessThan(
-      sidebar.indexOf("<OrgSwitcher reserveSpace />"),
-    );
+    expect(sidebar).not.toContain("<ExtensionsSidebarSection />");
     expect(sidebar.indexOf("<OrgSwitcher reserveSpace />")).toBeLessThan(
       sidebar.indexOf("{/* Footer */}"),
     );

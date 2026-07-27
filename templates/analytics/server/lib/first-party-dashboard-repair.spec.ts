@@ -50,13 +50,19 @@ vi.mock("../db/index.js", () => ({
 }));
 
 import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "./canonical-first-party-dashboard-repair";
-import { repairPersistedFirstPartyDashboardQueries } from "./first-party-dashboard-repair";
+import {
+  repairPersistedFirstPartyDashboardQueries,
+  repairUnboundedFirstPartyPanelsAcrossDashboards,
+} from "./first-party-dashboard-repair";
 import {
   FIRST_PARTY_DASHBOARD_ID,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+  LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
+  LEGACY_SIGNUPS_OVER_TIME_SQL,
   buildPanel,
 } from "./first-party-metric-catalog";
+import { UNBOUNDED_FIRST_PARTY_PANEL_FIXES } from "./first-party-unbounded-panel-repair";
 
 function requiredFirstPartyPanel(
   id: string,
@@ -291,6 +297,28 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("repairs the exact legacy seeded signups date-fill query", async () => {
+    const signups = requiredFirstPartyPanel("signups-over-time");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [{ ...signups, sql: LEGACY_SEED_SIGNUPS_OVER_TIME_SQL }],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0].sql).toBe(
+      signups.sql,
+    );
+  });
+
   it("repairs only the exact live custom new-vs-recurring panel", async () => {
     const row = legacyRow({
       config: JSON.stringify({
@@ -377,6 +405,17 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         ],
       }),
     ],
+    [
+      "a changed custom signups date-fill query",
+      JSON.stringify({
+        panels: [
+          {
+            id: "signups-over-time",
+            sql: `${LEGACY_SIGNUPS_OVER_TIME_SQL} `,
+          },
+        ],
+      }),
+    ],
     ["invalid JSON", "not-json"],
   ])("does not update %s", async (_label, config) => {
     const mocks = createDb(legacyRow({ config }));
@@ -404,6 +443,79 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       column: "id",
       value: FIRST_PARTY_DASHBOARD_ID,
     });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("repairUnboundedFirstPartyPanelsAcrossDashboards", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-25T17:00:00.000Z"));
+    dbMocks.getDb.mockReset();
+    dbMocks.recordChange.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("repairs a non-canonical dashboard whose panel SQL matches a known-unbounded pattern", async () => {
+    const [{ legacySql }] = UNBOUNDED_FIRST_PARTY_PANEL_FIXES;
+    const row = {
+      id: "someone-elses-dashboard",
+      kind: "sql",
+      config: JSON.stringify({
+        panels: [
+          {
+            id: "sessions",
+            title: "Sessions",
+            source: "first-party",
+            chartType: "line",
+            width: 2,
+            sql: legacySql,
+          },
+        ],
+      }),
+      title: "Someone Else's Dashboard",
+      updatedAt: "2026-07-24T00:00:00.000Z",
+      ownerEmail: "nicholas@builder.io",
+      orgId: "builder",
+      visibility: "org" as const,
+    };
+    const mocks = createDb(row, [{ id: row.id }]);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    const repairedCount =
+      await repairUnboundedFirstPartyPanelsAcrossDashboards();
+
+    expect(repairedCount).toBe(1);
+    expect(mocks.update).toHaveBeenCalledOnce();
+    expect(mocks.insert).toHaveBeenCalledOnce();
+    expect(dbMocks.recordChange).toHaveBeenCalledWith(
+      expect.objectContaining({ key: row.id, orgId: "builder" }),
+    );
+  });
+
+  it("does not update a dashboard with no unbounded first-party panels", async () => {
+    const row = {
+      id: "already-fine",
+      kind: "sql",
+      config: JSON.stringify({
+        panels: [{ id: "p", source: "first-party", sql: "SELECT 1" }],
+      }),
+      title: "Already Fine",
+      updatedAt: "2026-07-24T00:00:00.000Z",
+      ownerEmail: "nicholas@builder.io",
+      orgId: null,
+      visibility: "private" as const,
+    };
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    const repairedCount =
+      await repairUnboundedFirstPartyPanelsAcrossDashboards();
+
+    expect(repairedCount).toBe(0);
     expect(mocks.update).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ description: "通过 Slack、Microsoft Teams、Discord 交互、电子邮件、T
 - **在 Slack** 上向代理发送私信，或在任何渠道中向 `@mention` 发送代理。
 - **通过手机向 Telegram 或 WhatsApp 上的客服人员发送消息**。
 - **相同的代理，相同的内存。**无论您在 Slack 上告诉什么，当您稍后通过电子邮件发送时，都会记住它。网络聊天和外部消息共享同一个线程历史记录。
+- **从一条消息操作其他工具。** 一次 @mention 可以变成 Notion 里的一行、Jira 里的一个工单，或 HubSpot 里的一条记录 —— 完整示例见 [Slack 中的 @mention → Notion 中的一行](#slack-to-notion)。
 - 有关单向应用内提醒（响铃图标、webhooks），请参阅 [Notifications](/docs/notifications)。
 
 <Diagram id="doc-block-iujha0" title={"多渠道，一位代理商"} summary={"每个平台都进入相同的代理循环和相同的 SQL 线程历史记录 - 因此 Slack 私信 和电子邮件继续相同的对话。"}>
@@ -189,6 +190,179 @@ Interactivity Request URL 设置为
 要求时保存或删除，绝不自动记忆。在频道中创建的例程会把结果发送回同一 Slack。
 组织、请求者和频道的每日或每月预算会随完整审计链一起执行。`assistant:write`
 启用 Agent View 上下文事件，`chat:write` 用于回复和实时状态更新。
+
+### 完整示例：Slack 中的 @mention → Notion 中的一行 {#slack-to-notion}
+
+Slack 提及跑通之后，最常见的下一个需求大致是 _“我在会话串里 @mention 代理时，把我说的内容作为一行写进我的 Notion 数据库”_。这件事已经可以做到 —— Slack 入站、Notion 供应商 API 和应用操作都是内置的 —— 但需要按正确顺序连接三个部分，其中两个如果跳过会静默失败。
+
+下面所有 `<ANGLE_BRACKETS>` 都是占位符。切勿把真实的 Notion 密钥粘贴到源码、提交到仓库的 `.env` 或聊天消息中。
+
+#### 1. 让提及先到达应用
+
+在动 Notion 之前，先完成 [设置Slack](#slack)，并确认频道中的 `@mention` 能得到回复。后续步骤有两点行为很关键：
+
+- 含 `@mention` 的那条消息就是调用，它的文本就是代理看到的内容。
+- 同一会话串里之后的普通回复，**只有在该会话串仍有运行中的工作时**才会到达代理。如果运行已结束，你的追加消息会被忽略 —— 请重新 @mention，而不要假定代理还在听。
+
+#### 2. 暴露供应商 API 操作
+
+Core 自带 Notion 供应商预设（基础 URL、`Notion-Version` 头、鉴权、文档链接），但让代理真正用上它的三个操作 —— `provider-api-catalog`、`provider-api-docs` 和 `provider-api-request` —— 是**需要主动启用的子路径导出**。从未添加过它们的应用根本没有通往 Notion 的路径，代理会回答自己没有 Notion 工具。这一步最容易被漏掉。
+
+添加一个供应商运行时：
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+然后为每个操作 ID 添加一个很薄的操作文件。工厂函数的所有选项都是可选的，因此每个文件只需一次调用：
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+`actions/` 中的文件会被自动发现 —— 没有需要维护的注册表。若要收窄供应商列表或通过 HTTP 暴露，请参阅 [复用 Core 的操作工厂](/docs/integrations#provider-api-factories)。
+
+#### 3. 把 Notion 密钥放进保险库，而不是 `.env`
+
+在 **[notion.so/my-integrations](https://www.notion.so/my-integrations)** 创建一个内部集成并复制它的密钥。然后在你的应用中打开 **Settings → API Keys & Connections**，添加一个名称恰好为 `NOTION_API_KEY` 的密钥，粘贴取值，并选择作用域：
+
+- **Personal** —— 只有以你的身份执行的运行才能使用。
+- **Workspace** —— 与组织共享。如果除你之外还有人会 @mention 代理，请选择这一项，因为 Slack 运行是以集成所有者的身份执行的，而不是以发消息的人的身份。
+
+供应商运行时按个人 → 组织 → 工作区的顺序从加密保险库解析凭据，并且**刻意从不读取 `process.env`**，因为部署级环境变量会被多租户应用的所有用户共享。在 `.env` 里写一行 `NOTION_API_KEY` 在这里不会生效。
+
+#### 4. 把数据库共享给集成
+
+在 Notion 中打开目标数据库，然后通过 **••• → Connections →** 添加你的集成。跳过这一步是最常见也最容易误判的 Notion 故障：API 返回的是 **404** 而不是 403，看起来像数据库 ID 写错了。目录条目中带有这段修复说明，`provider-api-request` 会把它追加到任何 401、403 或 404 响应的 `guidance` 字段里。
+
+数据库 ID 就在数据库 URL 里 —— 是 `?` 之前那段 32 个字符的字符串。
+
+#### 5. 让你的代理来实现
+
+这一步是所有设置界面都不会告诉你的：两半不需要你自己接起来，你只要提出想要的行为。在应用的代理聊天中：
+
+> 添加一个名为 `add-notion-row` 的操作，通过供应商 API 向 Notion 数据库 `<NOTION_DATABASE_ID>` 追加一行。它应接收消息文本、Slack 作者，以及回到该 Slack 消息的链接。然后更新 `AGENTS.md`，让别人在 Slack 里 @mention 你并要求记录或保存内容时，你调用这个操作并回复新的 Notion 页面 URL。
+
+代理应该写的是**一个操作** —— 不是 Nitro 路由，也不是浏览器里的 `fetch`：
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+这个示例里有三处很关键：
+
+- 当前版本的 Notion 把行挂在数据库内部的**数据源**上，所以先读取数据库，并用它的 `data_sources[0].id` 作为父级。直接把数据库 ID 当作父级是旧版 API 的写法。
+- `executeRequest` 会返回供应商错误而不是抛出异常，所以要自己检查 `response.ok`，并把返回的 `guidance` 一起传递出去 —— “请共享数据库”的提示就在那里。
+- 属性名（`Name`、`Author`、`Source`）必须与数据库的列完全一致，类型也要匹配。让代理先读取数据库的 `properties`，而不是靠猜。
+
+`AGENTS.md` 这一半不是可选项。没有它，代理虽然有工具，但在 Slack 消息说“把这个记下来”时没有理由去用。
+
+#### 6. 验证结果，以及失败时该查什么
+
+在代理所在的 Slack 频道里发送 `@YourAgent 把这个记到 Notion：<SOME_TEXT>`。成功的运行会在会话串里回复新页面的 URL，并在 Notion 中出现这一行。
+
+如果不成功：
+
+| 你看到的现象                                              | 该查哪里                                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Slack 完全没有回复                                        | 提及根本没到达应用。请重新检查 [设置Slack](#slack) 中的 Request URL 和签名密钥 —— 这不是 Notion 的问题。     |
+| 代理有回复，但说自己没有 Notion 工具                      | 第 2 步。供应商 API 操作从未添加到 `actions/`。                                                              |
+| `notion credential not configured. Tried: NOTION_API_KEY` | 第 3 步。密钥放在了 `.env`，或者以 **Personal** 保存在了与实际执行账号不同的账号下。请改存为 **Workspace**。 |
+| Notion 返回 `404`                                         | 第 4 步。数据库从未共享给该集成。                                                                            |
+| Notion 就属性返回 `400`                                   | 操作里的属性名或类型与数据库的列不一致。                                                                     |
+| 成功过一次，之后会话串里的回复被忽略                      | 这是预期行为。没有提及的会话串回复，只在该会话串有活动工作时才会到达代理 —— 请重新 @mention。                |
 
 ## 设置 Telegram {#telegram}
 

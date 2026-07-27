@@ -246,7 +246,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
-export { resolveOgFontFiles } from "./og-fonts.js";
+export { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
@@ -360,10 +360,13 @@ export {
 export {
   runWithRequestContext,
   hasRequestContext,
+  hasRequestBoundary,
   getRequestContext,
   getRequestUserEmail,
   getRequestUserName,
   getRequestOrgId,
+  getAmbientUserEmail,
+  getAmbientOrgId,
   getRequestTimezone,
   getRequestRunContext,
   getCredentialContext,
@@ -472,11 +475,14 @@ export {
   resolveHasBuilderPrivateKey,
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
+  resolveBuilderCredentialsDetailed,
+  resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,
+  type BuilderCredentialsDetailed,
 } from "./credential-provider.js";
 export {
   builderDesignSystemUrl,

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveCredential = vi.fn();
+const describeCredentialScopeGap = vi.fn();
 const isBlockedExtensionUrlWithDns = vi.fn();
 const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
@@ -10,6 +11,7 @@ const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveSecret = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
+  describeCredentialScopeGap,
   resolveCredential,
 }));
 
@@ -51,6 +53,8 @@ describe("provider API runtime", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resolveCredential.mockReset();
+    describeCredentialScopeGap.mockReset();
+    describeCredentialScopeGap.mockResolvedValue(null);
     isBlockedExtensionUrlWithDns.mockReset();
     createSsrfSafeDispatcher.mockReset();
     listOAuthAccountsByOwner.mockReset();
@@ -1292,6 +1296,55 @@ describe("provider API runtime", () => {
     expect(JSON.stringify(result)).not.toContain(fakeKey);
   });
 
+  it("attaches Notion sharing guidance to access failures and not to other errors", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "NOTION_API_KEY" ? "notion-test-token" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "Could not find page" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const denied = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(denied.guidance).toContain("••• → Connections");
+    expect(denied.guidance).toContain("may not match this app or workspace");
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("{}", {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const throttled = (await runtime.executeRequest({
+      provider: "notion",
+      path: "/pages/example",
+    })) as any;
+    expect(throttled.guidance).not.toContain("••• → Connections");
+  });
+
+  it("catalogs Notion's integration-label caveat", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const [catalogEntry] = (await runtime.listCatalog("notion")) as any[];
+
+    expect(catalogEntry.notes[0]).toContain("Notion-side integration label");
+    expect(catalogEntry.accessErrorGuidance).toContain("••• → Connections");
+  });
+
   it("exposes Clay's official catalog and docs metadata", async () => {
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -1338,6 +1391,56 @@ describe("provider API runtime", () => {
 
     expect(resolveCredential).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("explains an out-of-scope credential instead of reporting it missing", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
+        "It needs Workspace or Organization scope instead.",
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toContain("hubspot credential not configured");
+    expect(error?.message).toContain("with Personal scope");
+    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(describeCredentialScopeGap).toHaveBeenCalledWith(
+      expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
+      credentialContext,
+    );
+  });
+
+  it("keeps the generic message when nothing safe can be said about scope", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "hubspot", path: "/crm/v3/objects/deals" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toMatch(
+      /hubspot credential not configured\. Tried:/,
+    );
+    expect(error?.message).not.toContain("Personal scope");
   });
 
   it("wraps provider transport failures with a sanitized request target", async () => {
