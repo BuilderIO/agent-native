@@ -407,13 +407,22 @@ async function importPdfPagesAsFullBleedSlides(args: {
           "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
         );
       }
-      // Join every extracted line back into one heading — pdf-parse breaks
-      // wrapped title text across lines, and using only the first line was
-      // silently dropping the rest of the sentence from the overlay.
-      const heading = lines.length > 0 ? lines.join(" ") : undefined;
+      // pdf-parse breaks wrapped text across lines with no way to tell a
+      // wrapped title from a heading followed by a body paragraph. Treat a
+      // couple of short lines as one wrapped title (join them so the
+      // sentence isn't cut off); three or more lines as a heading plus body
+      // text, rendered with distinct sizes so they don't collapse into one
+      // flat paragraph.
+      const heading =
+        lines.length > 2 ? lines[0] : lines.join(" ") || undefined;
+      const subtitle = lines.length > 2 ? lines.slice(1).join(" ") : undefined;
       return {
         id: newSlideId(),
-        content: buildFullBleedImageSlideHtml(uploadResult.url, heading),
+        content: buildFullBleedImageSlideHtml(
+          uploadResult.url,
+          heading,
+          subtitle,
+        ),
         layout: "full-image",
         notes: page.text,
       };

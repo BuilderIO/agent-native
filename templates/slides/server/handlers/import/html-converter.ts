@@ -11,23 +11,37 @@ function esc(text: string): string {
 
 /**
  * Render a page's embedded photo as the full-bleed slide background with the
- * page's extracted heading text overlaid on a bottom gradient. Designed PDF
- * pages (photo backgrounds, gradients, custom typography) have no reliable
- * shape structure to reconstruct, so the embedded image is reused directly —
- * but the vector/glyph text on the page is not something we can rasterize
+ * page's extracted text overlaid on top. Designed PDF pages (photo
+ * backgrounds, gradients, custom typography) have no reliable shape
+ * structure to reconstruct, so the embedded image is reused directly — but
+ * the vector/glyph text on the page is not something we can rasterize
  * reliably headless, so the extracted text is drawn as real HTML on top
  * instead of relying on the page's own (font-dependent) rendering.
+ *
+ * `pdf-parse`'s plain-text extraction carries no color/font metadata, so the
+ * heading accent color below is a stand-in, not a recovered value — when a
+ * subtitle is present (a content slide, not a title slide) it renders as a
+ * centered card with a divider rule so the two text roles stay visually
+ * distinct instead of collapsing into one flat paragraph.
  */
 export function buildFullBleedImageSlideHtml(
   imageUrl: string,
   headingText?: string,
+  subtitleText?: string,
 ): string {
-  const overlay = headingText
-    ? `\n    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 45%, rgba(0,0,0,0) 65%);"></div>
+  let overlay = "";
+  if (headingText && subtitleText) {
+    overlay = `\n    <div style="position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(to top, rgba(12,10,8,0.95) 0%, rgba(12,10,8,0.88) 55%, rgba(12,10,8,0.4) 82%, rgba(12,10,8,0) 100%); padding: 56px 56px 60px; text-align: center; font-family: 'Poppins', sans-serif;">
+      <div style="width: 72px; height: 3px; background: #d8b26a; margin: 0 auto 20px;"></div>
+      <h2 style="font-size: 30px; font-weight: 800; color: #d8b26a; line-height: 1.25; margin: 0 0 14px;">${esc(headingText)}</h2>
+      <p style="font-size: 19px; font-weight: 500; color: #fff; line-height: 1.5; margin: 0;">${esc(subtitleText)}</p>
+    </div>`;
+  } else if (headingText) {
+    overlay = `\n    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 45%, rgba(0,0,0,0) 65%);"></div>
     <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 70px; font-family: 'Poppins', sans-serif;">
       <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0;">${esc(headingText)}</h2>
-    </div>`
-    : "";
+    </div>`;
+  }
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
     <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />${overlay}
 </div>`;
