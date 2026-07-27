@@ -61,6 +61,8 @@ const messages = {
     deckOptions: "Opciones de la presentación",
     generatingImage: "Generando imagen...",
     noAssetsYet: "Aún no hay recursos.",
+    assetUploadFailed: "Algunas subidas fallaron",
+    assetDeleteFailed: "No se pudo eliminar el recurso",
     contentMarkdown: "Contenido (Markdown)",
     speakerNotes: "Notas del presentador",
     speakerNotesForSlide:
@@ -198,6 +200,7 @@ const messages = {
     slideSettings: "Ajustes de diapositiva",
     layout: "Diseño",
     background: "Fondo",
+    customColor: "Color personalizado",
     media: "Multimedia",
     generateImage: "Generar imagen",
     assetLibrary: "Biblioteca de recursos",
