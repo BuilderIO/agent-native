@@ -46,8 +46,9 @@ To edit a slide's content:
    approved native template or component when it already fits; generate
    net-new structure only when the relevant corpus is empty.
 4. **Update the slide** with the `update-slide` action using `deckId`,
-   `slideId`, and `fullContent`. Do not write deck rows directly and do not add
-   raw `/api/decks/:id` PUT calls for normal slide edits.
+   `slideId`, and `fullContent`. Do not write deck rows directly or add raw
+   full-deck writes for normal slide edits; use `patch-deck` for browser/editor
+   changes.
 5. For browser/editor code, enqueue granular deck operations through
    `patch-deck` / `DeckContext.tsx` instead of replacing the whole deck JSON.
 

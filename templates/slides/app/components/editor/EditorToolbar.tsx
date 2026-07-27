@@ -164,6 +164,16 @@ const backgroundOptions = [
   "bg-[#ffffff]",
 ];
 
+const HEX_COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** Native <input type="color"> only accepts 3/6-digit hex — fall back to
+ * black for gradients or other raw CSS values so the picker still opens. */
+function toColorInputValue(background: string | undefined): string {
+  return background && HEX_COLOR_PATTERN.test(background)
+    ? background
+    : "#000000";
+}
+
 /** Popover anchored to a button ref */
 function ToolbarPopover({
   open,
@@ -294,6 +304,9 @@ export default function EditorToolbar({
   }, []);
 
   const activeAspectRatio: AspectRatio = aspectRatio ?? DEFAULT_ASPECT_RATIO;
+  const isCustomBackground =
+    !!currentSlide?.background &&
+    !backgroundOptions.includes(currentSlide.background);
   const [layoutOpen, setLayoutOpen] = useState(false);
   const layoutRef = useRef<HTMLButtonElement>(null);
 
@@ -544,6 +557,29 @@ export default function EditorToolbar({
                       }`}
                     />
                   ))}
+                  <label
+                    className={`relative w-10 h-7 rounded-md border cursor-pointer overflow-hidden transition-all ${
+                      isCustomBackground
+                        ? "border-[#609FF8] ring-1 ring-[#609FF8]/30"
+                        : "border-border hover:border-foreground/20"
+                    }`}
+                    style={{
+                      background: isCustomBackground
+                        ? currentSlide.background
+                        : "conic-gradient(from 180deg, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)",
+                    }}
+                    title={t("editorToolbar.customColor")}
+                  >
+                    <input
+                      type="color"
+                      value={toColorInputValue(currentSlide.background)}
+                      onChange={(e) => {
+                        onUpdateSlide!({ background: e.target.value });
+                      }}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      aria-label={t("editorToolbar.customColor")}
+                    />
+                  </label>
                 </div>
               </div>
 

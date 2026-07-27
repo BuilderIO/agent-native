@@ -1,5 +1,6 @@
 import { getDbExec } from "../db/client.js";
-import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
+import { getUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
 
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
@@ -103,7 +104,11 @@ export async function autoJoinDomainMatchingOrgs(
       const hasActive = Boolean(existing?.orgId);
       if (options.activateJoinedOrg === "always" || !hasActive) {
         activeOrgId = joined[0].orgId;
-        await putUserSetting(email, "active-org-id", { orgId: activeOrgId });
+        await setActiveOrgId(
+          email,
+          activeOrgId,
+          "auto-joined domain-matched org",
+        );
       }
     } catch {
       // settings table missing — not fatal.

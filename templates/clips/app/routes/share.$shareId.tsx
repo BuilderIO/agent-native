@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client/api-path";
 import { useSession, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -143,12 +144,6 @@ function failureDetail(reason: string | null | undefined): string | null {
   const trimmed = reason?.trim();
   if (!trimmed) return null;
   return trimmed.length > 800 ? `${trimmed.slice(0, 800)}...` : trimmed;
-}
-
-function buildSignInHref(returnTo: string): string {
-  return agentNativePath(
-    `/_agent-native/sign-in?return=${encodeURIComponent(returnTo)}`,
-  );
 }
 
 function shouldShowGeneratedTitleSkeleton(
@@ -717,7 +712,10 @@ export default function ShareRoute() {
           action={
             shareId ? (
               <Button asChild size="sm">
-                <a href={buildSignInHref(`/r/${shareId}`)} className="gap-1.5">
+                <a
+                  href={buildSignInReturnHref({ returnTo: `/r/${shareId}` })}
+                  className="gap-1.5"
+                >
                   <IconLogin2 className="h-4 w-4 rtl:-scale-x-100" />
                   {t("sharePage.signIn")}
                 </a>
@@ -753,7 +751,9 @@ export default function ShareRoute() {
       !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || storageSetupFailure || stuckFailure;
     const canManageStorage = viewerCanEdit;
-    const signInHref = buildSignInHref(`/r/${recording.id}`);
+    const signInHref = buildSignInReturnHref({
+      returnTo: `/r/${recording.id}`,
+    });
     const detail = failureDetail(rawFailureReason);
     const label = storageSetupFailure
       ? t("sharePage.connectStorageFinish")

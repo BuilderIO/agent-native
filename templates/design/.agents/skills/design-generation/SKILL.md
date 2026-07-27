@@ -171,6 +171,16 @@ defaults. The banned-defaults list above still applies, plus:
   your colors". Keep structure and layout genuinely varied per screen while the
   palette, type, and components stay on-brand.
 
+## Generation Application State
+
+- `design-generation-session:<designId>` — multi-screen generation planning
+  state from `generate-screens` (canvas region assignments, per-frame
+  instructions consumed by `generate-design`).
+- `show-design-questions` opens pre-generation questions in the main canvas
+  (`show-questions` state).
+- `guided-questions` may hold a one-click chat choice for the current variant
+  set.
+
 ## Generation Workflow — the canonical 5-phase flow
 
 This flow mirrors Claude Design's UX: clarify only what's unclear → show variants → user picks → refine. Don't collapse phases into one shot for new, open-ended designs.
@@ -239,7 +249,12 @@ Favor choice-first questions (2-5 concrete options, `allowOther: true`, and a
 combining multiple answers — stacking multi-select questions multiplies
 follow-up ambiguity instead of resolving it.
 
-**Carry the form-factor answer through to generation — do not just ask and discard it.** A "Desktop web app" answer means the generated screen's canvas frame must be desktop-sized (~1440×1024), not left at whatever a screen with no placement falls back to. Map the answer to real frame geometry: pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen to `generate-screens`, explicit `width`/`height` per variant to `present-design-variants`, or an explicit `canvasFrames` entry to `generate-design` — see Phase 2 and Phase 3 below. For "Both / responsive," generate at desktop width and rely on the responsive breakpoint system (see `responsive-breakpoints` skill) rather than guessing a size.
+**Carry the form-factor answer through to generation — do not just ask and discard it.** Map the answer to the design's device SET, not to separate per-device screen files. Device widths of the SAME page are breakpoint frames of one document (see the `responsive-breakpoints` skill), never a `mobile.html` + `desktop.html` pair. Pass the answer through `generate-design`'s `devices` param — `("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`:
+
+- If the prompt/answer names specific devices, generate EXACTLY those, deduped ("mobile" only → one mobile frame; "mobile, tablet, desktop" → all three).
+- If nothing about form factor is specified — or the answer is "Both / responsive" or "Decide for me" — default to `["desktop","mobile"]`: a Desktop base + a Mobile frame only. Never auto-add a tablet, a redundant desktop, or a stray duplicate frame.
+
+The WIDEST requested device is the base/primary frame; narrower devices become breakpoint frames (never at the primary width). Device frame sizes: mobile 390×844, tablet 768×1024, desktop 1440×900. `present-design-variants` still takes explicit `width`/`height` per variant to size its exploration screens (see Phase 2).
 
 ### Phase 2 — Generate side-by-side variations (2-5, three by default)
 
@@ -254,16 +269,16 @@ screen name.
   "designId": "<the design id>",
   "prompt": "Pick a direction",
   "variants": [
-    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>...full self-contained HTML..." },
-    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." },
-    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 1024, "content": "<!DOCTYPE html>..." }
+    { "id": "a", "label": "Editorial Serif", "width": 1440, "height": 900, "content": "<!DOCTYPE html>...full self-contained HTML..." },
+    { "id": "b", "label": "Bold Brutalist", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." },
+    { "id": "c", "label": "Soft & Spacious", "width": 1440, "height": 900, "content": "<!DOCTYPE html>..." }
   ]
 }
 ```
 
 Each `content` is a complete, self-contained document (Alpine.js + Tailwind via CDN, full `<head>`, CSS variables in `:root`). Variations should be **stylistically/structurally distinct** — different typography schools, layout grammars, color moods — never just color swaps. Label them with concrete style names ("Editorial Serif", not "Variant A").
 
-Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
+Pass `width`/`height` on every variant to match the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — the example above is desktop-sized. When `content` is omitted, `present-design-variants` infers a size from the prompt/label/description text and the width/height you pass still wins when given.
 
 Wait for the user's pick before refining. Once they choose, keep the selected
 screen, delete the unchosen variant screens with `delete-file`, and continue
@@ -289,10 +304,11 @@ pnpm action generate-design \
   --prompt "Description of the design" \
   --files '[{"filename":"index.html","content":"<full HTML>","fileType":"html"}]' \
   --tweaks '[{"id":"accent","label":"Accent","type":"color-swatch","options":[...],"defaultValue":"#0EA5E9","cssVar":"--color-accent"}]' \
-  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":1024}]'
+  --devices '["desktop","mobile"]' \
+  --canvasFrames '[{"filename":"index.html","x":0,"y":0,"width":1440,"height":900}]'
 ```
 
-Always pass `canvasFrames` with an explicit `width`/`height` matching the form-factor answer (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×1024 as above) — a screen saved without a placement falls back to a generic default that won't match a desktop-intended design. For multiple screens generated together, call `generate-screens` first and pass `deviceType` (`"mobile"` / `"tablet"` / `"desktop"`) per screen; it returns the matching `canvasFrame` to forward to each `generate-design` call.
+Pass the `devices` param (`("mobile"|"tablet"|"desktop")[]`, default `["desktop","mobile"]`) so a new design renders the right device frames: the widest device becomes the primary `canvasFrames` placement and each narrower device is added as a breakpoint frame of the SAME document — not an extra file. Default to Desktop + Mobile when the form factor is unspecified; never auto-add a tablet or a redundant desktop. When you also pass `canvasFrames` explicitly, size the primary to the widest device (mobile ≈ 390×844, tablet ≈ 768×1024, desktop ≈ 1440×900) — a screen saved without a placement falls back to a generic default that won't match the intended device. For genuinely distinct screens generated together (Home / Dashboard / Checkout — NOT per-device copies of one page), call `generate-screens` first; it returns the matching `canvasFrame` to forward to each `generate-design` call.
 
 #### Non-web sizes — ad units, print one-pagers, social sizes
 
@@ -401,7 +417,11 @@ Every `index.html` must include:
     }
 
     /* Base styles */
-    body { font-family: var(--font-body); }
+    body {
+      font-family: var(--font-body);
+      min-height: 100vh;
+      min-height: 100dvh; /* fill the frame — see Full-height frames below */
+    }
     h1, h2, h3, h4, h5, h6 {
       font-family: var(--font-heading);
       text-wrap: balance;
@@ -420,13 +440,23 @@ Every `index.html` must include:
   </style>
 </head>
 <body class="bg-[var(--color-primary)] text-[var(--color-text)]">
-  <!-- All interactive state goes on a root x-data -->
-  <div x-data="{ /* component state */ }">
+  <!-- Root wrapper fills the device viewport: prefer min-h-screen over inline height:100vh -->
+  <div x-data="{ /* component state */ }" class="min-h-screen">
     <!-- Content -->
   </div>
 </body>
 </html>
 ```
+
+**Full-height frames.** Overview frames now default to at least the device
+viewport height and grow to fit their own content at their own width
+(Framer-style), so a short page must still fill its frame instead of leaving a
+stubby box. The mandatory `body` rule above sets `min-height: 100dvh` (with a
+`100vh` fallback) for exactly this. Put full-height intent on the top-level
+wrapper with Tailwind's `min-h-screen` rather than raw inline `height: 100vh` —
+the editor keeps device-anchored full-height utilities pinned to the device
+viewport, so a full-height hero fills the frame without triggering runaway
+growth.
 
 ### Alpine.js Patterns
 
@@ -651,7 +681,10 @@ Fontshare `<link>`/`@import` and confirm it renders.
 
 A prototype with more than one screen is **multiple files** in the same design
 (e.g. `index.html`, `dashboard.html`, `checkout.html`). The editor shows them
-all in the artboard/overview and as screen tabs.
+all in the artboard/overview and as screen tabs. This is only for genuinely
+distinct screens — the mobile and desktop views of the *same* page are
+breakpoint frames of ONE document (the `devices` param + the
+`responsive-breakpoints` model), never a second file.
 
 The preview renders each file in a sandboxed `srcdoc` iframe. A real
 `<a href="/pricing">` or `<a href="page.html">` resolves against the *app* URL
@@ -679,6 +712,12 @@ the prototype. **Never link screens with real URLs.** Use one of:
 
 External links (`https://…`) are allowed — the editor opens them in a new tab.
 Never use `target="_top"` or relative paths expecting a real page load.
+
+## Locked subtrees
+
+Treat `data-agent-native-locked="true"` as authoritative: locked elements and
+their descendants stay byte-for-byte unchanged, and the server enforces this.
+Ask the user to unlock the layer in the Layers panel if they want it changed.
 
 ## Making edits — minimal, scoped "smart" diffs
 

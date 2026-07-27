@@ -1,0 +1,133 @@
+---
+title: "Calendar: Talking to the Agent"
+description: "What the agent sees when you're in Calendar, prompts organized by task, and when it reaches for the raw Google Calendar API instead of a canned action."
+---
+
+# Talking to the Agent
+
+Everything in Calendar is available to the agent through the same actions the UI uses, so anything you can click, you can also ask for in plain English. This page covers how the agent sees your screen, useful prompts by task, and where it escalates beyond the built-in actions. See [Calendar](/docs/template-calendar) for the overview.
+
+## How the agent sees your screen
+
+The agent always knows the current calendar view, the date range you're looking at, and the event you have selected. That's why "reschedule this" or "who's on this call" resolves correctly without you naming the event — the agent already knows which one "this" refers to.
+
+## Useful prompts by task
+
+**Schedule**
+
+- "Schedule a 30-minute call with Alex tomorrow at 2pm."
+- "Create a Zoom meeting with the design team Thursday at 10."
+- "Set me as out of office Friday."
+
+**Find time**
+
+- "Find a 1-hour slot next week with Sam and Priya and book 'Planning' on it."
+- "Am I free Thursday afternoon?"
+
+**Manage events**
+
+- "Move this event to Friday at 2pm." (with an event selected)
+- "Add Jordan to this meeting as an optional guest."
+- "Accept this invite." / "Decline with a note that I'm out that day."
+- "Delete this meeting, just for me — I'm not the organizer."
+
+**Booking links**
+
+- "Create a 15-minute intro booking link with a name field."
+- "Add Brent as a required co-host on my 'Steve + Brent' link."
+- "Pause my '30 min demo' link."
+- "Show me this week's bookings."
+
+**People and view**
+
+- "Who is jane at acme.com?"
+- "Add Priya's calendar to my view."
+- "Switch to day view and jump to next Monday."
+
+## Group and co-host booking links
+
+When a booking link has required co-hosts, the agent (and the UI) only offers a slot when the owner _and_ every co-host are free — it checks all of their calendars, not just the owner's. Once someone books, the agent invites every co-host to the created Google Calendar event alongside the visitor.
+
+<Diagram id="doc-block-calendar5" title="How a scheduling request flows" summary="Whether you click in the calendar or ask the agent, the same actions read live from Google Calendar and write back to the same view. Zoom and people search plug into the same flow.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      You click<br /><small class="diagram-muted"
+        >drag, toolbar, shortcuts</small
+      >
+    </div>
+    <div class="diagram-node">
+      You ask the agent<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >live, multi-account</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted">meeting created on booking</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">bookings · availability</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Calendar view updates live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## When the agent goes straight to the Google Calendar API
+
+The built-in actions (`list-events`, `search-events`, `find-a-time`, and so on) cover everyday scheduling. For requests that need an exact Google Calendar endpoint, filter, or pagination mode the actions don't expose — for example scanning every event across six months for a report, or an unusual calendar-list query — the agent can call the real Google Calendar API directly instead of forcing the answer through a narrower action. For large scans, it stages the results into a scratch dataset and works from a compact summary rather than dumping thousands of events into the conversation. You'll typically notice this as "let me pull that directly from Google Calendar" on requests that go beyond a normal schedule question.
+
+## Extensions
+
+Calendar supports Extensions — small sandboxed widgets you or the agent can build and drop into the app. The event detail panel exposes a slot at the bottom where an extension can render, with the event's id, title, times, timezones, location, attendees, and account already available to it. See [Extensions](/docs/extensions) for how to build one.
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Events, Availability & Finding Time**](/docs/template-calendar-scheduling) — views, availability, and finding time
+- [**Booking Links**](/docs/template-calendar-booking-links) — the public scheduling pages these prompts manage
+- [**Developer Guide**](/docs/template-calendar-developers) — every action, the data model, and how to extend the app
+- [**Extensions**](/docs/extensions) — building a widget for the event-detail slot

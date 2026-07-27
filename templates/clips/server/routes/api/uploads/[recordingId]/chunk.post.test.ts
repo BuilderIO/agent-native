@@ -15,7 +15,7 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteRecordingChunks = vi.hoisted(() => vi.fn());
-const mockPruneStaleRecordingChunks = vi.hoisted(() => vi.fn());
+const mockRenewUploadLease = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
@@ -102,8 +102,6 @@ vi.mock("../../../../db/index.js", () => ({
 vi.mock("../../../../lib/recording-upload-state.js", () => ({
   deleteRecordingChunks: (...args: unknown[]) =>
     mockDeleteRecordingChunks(...args),
-  pruneStaleRecordingChunks: (...args: unknown[]) =>
-    mockPruneStaleRecordingChunks(...args),
   sumRecordingChunkBytes: (...args: unknown[]) =>
     mockSumRecordingChunkBytes(...args),
 }));
@@ -117,6 +115,11 @@ vi.mock("../../../../lib/recordings.js", () => ({
 vi.mock("../../../../lib/resumable-session.js", () => ({
   getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
   setResumableSession: (...args: unknown[]) => mockSetResumableSession(...args),
+}));
+
+vi.mock("../../../../lib/upload-lease.js", () => ({
+  renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
+  uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
 }));
 
 vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
@@ -189,7 +192,22 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       status: "ready",
       videoUrl: "/api/video/rec-1",
     });
-    mockPruneStaleRecordingChunks.mockResolvedValue(0);
+    // The lease is a compare-and-set on the recording's status, so the fake
+    // mirrors that: in-progress rows hold it, terminal rows do not.
+    mockRenewUploadLease.mockImplementation(async () => {
+      const row = mockSelectRows.rows[0] as Record<string, any> | undefined;
+      if (row?.status === "uploading" || row?.status === "processing") {
+        return { held: true };
+      }
+      return {
+        held: false,
+        status: row?.status ?? null,
+        failureReason: row?.failureReason ?? null,
+        videoUrl: row?.videoUrl ?? null,
+        videoSizeBytes: row?.videoSizeBytes ?? null,
+        durationMs: row?.durationMs ?? null,
+      };
+    });
     // Faithful in-memory application_state: chunk writes land in the same
     // store that sumRecordingChunkBytes / deleteRecordingChunks operate on,
     // so byte accounting and sequencing come from the route's real logic.
@@ -283,10 +301,16 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         bytesReceived: 10,
       }),
     );
-    expect(mockUpdateSets).toEqual([
-      expect.objectContaining({ uploadProgress: 25 }),
-      expect.objectContaining({ uploadProgress: 50 }),
+    // Progress rides along on the lease renewal — one row write per chunk.
+    expect(
+      mockRenewUploadLease.mock.calls.filter(
+        ([, options]) => options?.uploadProgress !== undefined,
+      ),
+    ).toEqual([
+      ["rec-1", { uploadProgress: 25 }],
+      ["rec-1", { uploadProgress: 50 }],
     ]);
+    expect(mockUpdateSets).toEqual([]);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
@@ -447,21 +471,15 @@ describe("/api/uploads/:recordingId/chunk route", () => {
   });
 
   it("stops before persisting when an abort lands mid-request and clears scratch chunks", async () => {
-    let uploadStateReads = 0;
-    mockReadAppState.mockImplementation(async (key: string) => {
-      if (key === UPLOAD_KEY) {
-        uploadStateReads += 1;
-        // First read (pre-write snapshot) sees a healthy upload; the re-check
-        // just before the chunk write observes the concurrent /abort marker.
-        return uploadStateReads >= 2
-          ? {
-              recordingId: "rec-1",
-              status: "failed",
-              failureReason: "Recording was cancelled.",
-            }
-          : null;
-      }
-      return mockAppState.get(key) ?? null;
+    // /abort flips the row to failed, so the lease renewal updates zero rows.
+    // There is no window to re-check: the request cannot write past this.
+    mockRenewUploadLease.mockResolvedValue({
+      held: false,
+      status: "failed",
+      failureReason: "Recording was cancelled.",
+      videoUrl: null,
+      videoSizeBytes: null,
+      durationMs: null,
     });
     setRequest({
       query: { index: "1", total: "4", mimeType: "video/webm" },
@@ -482,6 +500,32 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     );
     expect(chunkKeys()).toEqual([]);
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the lease after reading the body before persisting a chunk", async () => {
+    mockRenewUploadLease
+      .mockResolvedValueOnce({ held: true })
+      .mockResolvedValueOnce({
+        held: false,
+        status: "failed",
+        failureReason: "Recording was cancelled.",
+        videoUrl: null,
+        videoSizeBytes: null,
+        durationMs: null,
+      });
+    setRequest({
+      query: { index: "0", total: "2", mimeType: "video/webm" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: false,
+      error: "Recording was cancelled.",
+    });
+
+    expect(mockRenewUploadLease).toHaveBeenCalledTimes(2);
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 
   it("acks a retried final chunk after the recording is ready without rewriting state", async () => {

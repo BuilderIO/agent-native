@@ -1,4 +1,3 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
@@ -9,6 +8,7 @@ import {
   ReviewStatusBadge,
   useReviewComments,
 } from "@agent-native/core/client/review";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -99,14 +99,11 @@ export default function Present() {
         )
         .map((comment) => comment.threadId),
     ).size;
-  const signInHref = (() => {
-    const base = agentNativePath("/_agent-native/sign-in");
-    if (typeof window === "undefined") return base;
-    const returnUrl = new URL(window.location.href);
-    returnUrl.search = "";
-    returnUrl.hash = "";
-    return `${base}?return=${encodeURIComponent(returnUrl.pathname)}`;
-  })();
+  const signInHref = buildSignInReturnHref(
+    typeof window === "undefined"
+      ? undefined
+      : { returnTo: window.location.pathname },
+  );
 
   // Keyboard navigation
   const handleKeyDown = useCallback(

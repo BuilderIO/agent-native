@@ -497,7 +497,7 @@ export class AppSyncState {
         event.resourceType ?? "",
         event.resourceId ?? "",
         dedupeKey,
-      ].join(" ");
+      ].join("\u0000");
       return createHash("sha256").update(identity).digest("hex").slice(0, 32);
     }
     return `${event.version}-${Math.random().toString(36).slice(2, 10)}`;

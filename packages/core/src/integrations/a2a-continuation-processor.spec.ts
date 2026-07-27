@@ -8,9 +8,24 @@ import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
+const recoverDueA2AContinuationIdsMock = vi.hoisted(() => vi.fn());
+const listRecoverableA2ATasksMock = vi.hoisted(() => vi.fn());
+const getPendingTaskMock = vi.hoisted(() => vi.fn());
+const durableDispatchEnabledMock = vi.hoisted(() => vi.fn());
+const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const getNextPendingTaskForThreadMock = vi.hoisted(() => vi.fn());
+const getIntegrationCampaignForTaskMock = vi.hoisted(() => vi.fn());
+const failDisabledIntegrationCampaignTaskMock = vi.hoisted(() => vi.fn());
+const completeIntegrationCampaignTaskAfterA2AMock = vi.hoisted(() =>
+  vi.fn(async () => true),
+);
 const claimA2AContinuationDeliveryMock = vi.hoisted(() => vi.fn());
 const completeA2AContinuationMock = vi.hoisted(() => vi.fn());
+const hasActiveA2AContinuationsForIntegrationTaskMock = vi.hoisted(() =>
+  vi.fn(async () => false),
+);
 const failA2AContinuationMock = vi.hoisted(() => vi.fn());
+const failA2AContinuationsForIntegrationTaskMock = vi.hoisted(() => vi.fn());
 const getA2AContinuationMock = vi.hoisted(() => vi.fn());
 const rescheduleA2AContinuationMock = vi.hoisted(() => vi.fn());
 const getTaskMock = vi.hoisted(() => vi.fn());
@@ -32,8 +47,35 @@ vi.mock("./a2a-continuations-store.js", () => ({
   claimDueA2AContinuations: vi.fn(async () => []),
   completeA2AContinuation: completeA2AContinuationMock,
   failA2AContinuation: failA2AContinuationMock,
+  failA2AContinuationsForIntegrationTask:
+    failA2AContinuationsForIntegrationTaskMock,
   getA2AContinuation: getA2AContinuationMock,
+  hasActiveA2AContinuationsForIntegrationTask:
+    hasActiveA2AContinuationsForIntegrationTaskMock,
+  listRecoverableA2AIntegrationTasks: listRecoverableA2ATasksMock,
+  recoverDueA2AContinuationIds: recoverDueA2AContinuationIdsMock,
   rescheduleA2AContinuation: rescheduleA2AContinuationMock,
+}));
+
+vi.mock("./pending-tasks-store.js", () => ({
+  getPendingTask: getPendingTaskMock,
+  getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
+}));
+
+vi.mock("./integration-durable-dispatch.js", () => ({
+  isIntegrationDurableDispatchEnabledForTask: durableDispatchEnabledMock,
+  dispatchPendingIntegrationTask: dispatchPendingIntegrationTaskMock,
+}));
+
+vi.mock("./integration-campaigns-store.js", () => ({
+  completeIntegrationCampaignTaskAfterA2A:
+    completeIntegrationCampaignTaskAfterA2AMock,
+  getIntegrationCampaignForTask: getIntegrationCampaignForTaskMock,
+  failDisabledIntegrationCampaignTask: failDisabledIntegrationCampaignTaskMock,
+}));
+
+vi.mock("../server/core-routes-plugin.js", () => ({
+  FRAMEWORK_ROUTE_PREFIX: "/_agent-native",
 }));
 
 vi.mock("../a2a/client.js", () => ({
@@ -135,6 +177,35 @@ describe("A2A continuation processor", () => {
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
     );
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([]);
+    listRecoverableA2ATasksMock.mockResolvedValue([
+      {
+        id: "task-1",
+        platform: "slack",
+        externalThreadId: "slack:team:C123:1",
+        dispatchScope: "C123",
+        status: "processing",
+      },
+      {
+        id: "task-2",
+        platform: "slack",
+        externalThreadId: "slack:team:C123:2",
+        dispatchScope: "C123",
+        status: "processing",
+      },
+    ]);
+    getPendingTaskMock.mockResolvedValue({
+      id: "task-1",
+      platform: "slack",
+      externalThreadId: "slack:team:C123:1",
+      status: "processing",
+    });
+    durableDispatchEnabledMock.mockReturnValue(true);
+    getIntegrationCampaignForTaskMock.mockResolvedValue(null);
+    getNextPendingTaskForThreadMock.mockResolvedValue(null);
+    dispatchPendingIntegrationTaskMock.mockResolvedValue(
+      "background-acknowledged",
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok", { status: 200 })),
@@ -195,6 +266,157 @@ describe("A2A continuation processor", () => {
     },
   );
 
+  it("recovers a bounded due batch by waking processors without claiming or polling", async () => {
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([
+      "cont-due-1",
+      "cont-due-2",
+    ]);
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations({ limit: 2 })).resolves.toEqual({
+      dispatched: 2,
+      failed: 0,
+    });
+
+    expect(recoverDueA2AContinuationIdsMock).toHaveBeenCalledWith(2, [
+      "task-1",
+      "task-2",
+    ]);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch)).toHaveBeenNthCalledWith(
+      1,
+      "https://dispatch.agent-native.test/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({
+        body: JSON.stringify({ continuationId: "cont-due-1" }),
+      }),
+    );
+  });
+
+  it("allows one durable wake-up dispatch failure without stranding the rest", async () => {
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([
+      "cont-fail",
+      "cont-healthy",
+    ]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValueOnce(new Error("example dispatch outage"))
+        .mockResolvedValueOnce(new Response("ok", { status: 200 })),
+    );
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).resolves.toEqual({
+      dispatched: 2,
+      failed: 0,
+    });
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+    expect(claimA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("does not recover A2A work outside the durable canary scope", async () => {
+    durableDispatchEnabledMock.mockReturnValue(false);
+    recoverDueA2AContinuationIdsMock.mockResolvedValue([]);
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).resolves.toEqual({
+      dispatched: 0,
+      failed: 0,
+    });
+    expect(recoverDueA2AContinuationIdsMock).toHaveBeenCalledWith(5, []);
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledTimes(2);
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a durable-store failure for the next scheduler run", async () => {
+    recoverDueA2AContinuationIdsMock.mockRejectedValueOnce(
+      new Error("example database timeout"),
+    );
+    const { recoverDueA2AContinuations } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(recoverDueA2AContinuations()).rejects.toThrow(
+      "example database timeout",
+    );
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it("fails a claimed durable continuation closed when its rollout scope is removed", async () => {
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValueOnce({
+      id: "campaign-1",
+      status: "waiting",
+    });
+    getPendingTaskMock.mockResolvedValueOnce({
+      id: claimed.integrationTaskId,
+      platform: "slack",
+      externalThreadId: claimed.externalThreadId,
+      dispatchScope: "C123",
+      status: "processing",
+    });
+    durableDispatchEnabledMock.mockReturnValueOnce(false);
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "task-2",
+      dispatchScope: "C999",
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter()]]),
+    });
+
+    expect(failA2AContinuationsForIntegrationTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
+    expect(getTaskMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith({
+      taskId: "task-2",
+      task: {
+        platform: "slack",
+        externalThreadId: claimed.externalThreadId,
+        platformContext: { channelId: "C999" },
+      },
+    });
+  });
+
+  it.each(["failed", "completed"] as const)(
+    "does not poll an A2A row after its owning campaign is %s",
+    async (status) => {
+      const claimed = continuation();
+      claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+      getIntegrationCampaignForTaskMock.mockResolvedValueOnce({
+        id: "campaign-1",
+        status,
+      });
+      const { processA2AContinuationById } =
+        await import("./a2a-continuation-processor.js");
+
+      await processA2AContinuationById(claimed.id, {
+        adapters: new Map([["slack", adapter()]]),
+      });
+
+      expect(failA2AContinuationMock).toHaveBeenCalledWith(
+        claimed.id,
+        expect.stringContaining("terminal"),
+      );
+      expect(getTaskMock).not.toHaveBeenCalled();
+    },
+  );
+
   it("logs when the continuation processor route rejects dispatch", async () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -243,6 +465,87 @@ describe("A2A continuation processor", () => {
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("closes the waiting parent campaign and wakes its successor after the last A2A reply", async () => {
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "waiting",
+    });
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "task-2",
+      dispatchScope: "C999",
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter()]]),
+    });
+
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith(claimed.id);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+    );
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith({
+      taskId: "task-2",
+      task: {
+        platform: "slack",
+        externalThreadId: claimed.externalThreadId,
+        platformContext: { channelId: "C999" },
+      },
+    });
+  });
+
+  it("keeps the parent campaign waiting while a sibling A2A continuation remains active", async () => {
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "waiting",
+    });
+    hasActiveA2AContinuationsForIntegrationTaskMock.mockResolvedValueOnce(true);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter()]]),
+    });
+
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith(claimed.id);
+    expect(completeIntegrationCampaignTaskAfterA2AMock).not.toHaveBeenCalled();
+    expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks durable scope immediately before claiming terminal delivery", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "processing",
+    });
+    durableDispatchEnabledMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationDeliveryMock).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
   });
 
   it("persists confirmed continuation delivery and stable artifact identity", async () => {
@@ -932,6 +1235,119 @@ describe("A2A continuation processor", () => {
       "The deck export failed",
     );
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("retries a terminal failure notification until delivery is confirmed", async () => {
+    const sendResponse = vi.fn(async () => {
+      throw new Error("Slack delivery unavailable");
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(rescheduleA2AContinuationMock).toHaveBeenCalledWith(
+      "cont-1",
+      20_000,
+    );
+    expect(dispatchPendingIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeIntegrationCampaignTaskAfterA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("releases parent custody when failure notification delivery exhausts its bound", async () => {
+    const exhausted = continuation({ attempts: 30 });
+    const sendResponse = vi.fn(async () => {
+      throw new Error("Slack delivery unavailable");
+    });
+    claimA2AContinuationMock.mockResolvedValueOnce(exhausted);
+    claimA2AContinuationDeliveryMock.mockResolvedValueOnce({
+      ...exhausted,
+      status: "delivering",
+    });
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: exhausted.integrationTaskId,
+      status: "waiting",
+    });
+    getTaskMock.mockResolvedValueOnce({
+      id: exhausted.a2aTaskId,
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(exhausted.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(failA2AContinuationMock).toHaveBeenCalledWith(
+      exhausted.id,
+      "The deck export failed",
+    );
+    expect(completeIntegrationCampaignTaskAfterA2AMock).toHaveBeenCalledWith(
+      exhausted.integrationTaskId,
+    );
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks durable scope before claiming a terminal failure notification", async () => {
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const claimed = continuation();
+    claimA2AContinuationMock.mockResolvedValueOnce(claimed);
+    getIntegrationCampaignForTaskMock.mockResolvedValue({
+      id: "campaign-1",
+      integrationTaskId: claimed.integrationTaskId,
+      status: "processing",
+    });
+    durableDispatchEnabledMock
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+    getTaskMock.mockResolvedValueOnce({
+      id: claimed.a2aTaskId,
+      status: {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "The deck export failed" }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById(claimed.id, {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(claimA2AContinuationDeliveryMock).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(failDisabledIntegrationCampaignTaskMock).toHaveBeenCalledWith(
+      claimed.integrationTaskId,
+      expect.stringContaining("disabled"),
+    );
   });
 
   it("includes a safe downstream error code and request ID in failure replies", async () => {

@@ -55,6 +55,15 @@ const messages = {
     profileSaveError: "Could not update profile",
     profileMenuItem: "Profile",
   },
+  secrets: {
+    scopeLabel: "Scope",
+    scopePersonal: "Personal",
+    scopeWorkspace: "Workspace",
+    scopePersonalDescription:
+      "Only your own signed-in sessions use this key. Integration, webhook, scheduled job, automation, and agent-to-agent runs sign in as their owner rather than as you, so they cannot read it.",
+    scopeWorkspaceDescription:
+      "Everyone in this workspace uses this key, including integration, webhook, scheduled job, automation, and agent-to-agent runs.",
+  },
   agentResources: {
     openDocs: "Open {{section}} documentation",
     backToResources: "Back to agent resources",
@@ -339,7 +348,6 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
-    connectionUnavailable: "Unable to check AI connection. Click to retry.",
     delegatedAgent: {
       asking: "Asking {{name}}...",
       asked: "Asked {{name}}",
@@ -745,6 +753,10 @@ const messages = {
     createOrgCardTitle: "Create an Organization",
     createOrgCardDescription:
       "Set up a team to collaborate with your colleagues.",
+    createOrgVaultNotice:
+      "Vault keys aren't shared between organizations. A new organization starts with an empty vault, so you'll need to add its own API keys and credentials before connected apps work.",
+    acceptInvitationOrgSwitchNotice:
+      "Joining makes {{name}} your active organization. Connected apps will switch to {{name}}'s vault keys, so anything using keys saved in your current organization may stop working until {{name}} has its own.",
     joinDomainOne:
       "An organization matching your email domain already exists. Join it to collaborate with your teammates.",
     joinDomainMany:
@@ -771,10 +783,20 @@ const messages = {
     remove: "Remove",
     save: "Save",
     loading: "Loading...",
+    dangerZone: "Danger zone",
+    deleteOrg: "Delete organization",
+    deleteOrgDescription:
+      "Permanently deletes this organization, its members, and its pending invitations. Data owned by the organization becomes inaccessible. This cannot be undone.",
+    deleteOrgConfirmPrompt: "Type {{name}} to confirm.",
+    deleteOrgConfirmPlaceholder: "Organization name",
+    deleteOrgConfirmCta: "Delete organization",
+    deleteOrgPending: "Deleting…",
   },
   integrations: {
     webhookUrl: "Webhook URL",
     copyWebhookUrl: "Copy webhook URL",
+    webhookUrlLocalOnly:
+      "{{platform}} can't call {{url}} — that address only exists on this machine. Deploy the app, or expose this server through an HTTPS tunnel, then open this page from the public address to get a webhook URL you can paste.",
     notConfigured:
       "Not configured. Set the required secrets to enable this integration.",
     enable: "Enable",

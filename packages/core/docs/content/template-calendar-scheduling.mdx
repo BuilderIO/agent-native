@@ -1,0 +1,128 @@
+---
+title: "Calendar: Events, Availability & Finding Time"
+description: "How to view your schedule across accounts, set your working hours, and let the agent find and book a shared free slot."
+---
+
+# Events, Availability & Finding Time
+
+This page is for anyone using Calendar day to day: viewing your schedule, telling the app when you're free, and finding time with other people. See [Calendar](/docs/template-calendar) for the overview and [Booking Links](/docs/template-calendar-booking-links) for public scheduling pages.
+
+## Viewing your schedule
+
+Switch between day, week, and month views from the toolbar. Every view reads your real, connected Google Calendar — nothing is cached or synthetic. If you connect more than one Google account (say, work and personal), both show in the same grid, color-coded so you can tell them apart.
+
+You can also subscribe to read-only calendar feeds by pasting an ICS or `webcal://` URL — useful for a company holidays calendar, a conference schedule, or a teammate's public calendar. Subscribed feeds get their own color and appear mixed into your regular view; you can't edit events that come from a feed.
+
+<Callout tone="warning">
+
+If part of your schedule fails to load — one account's token expired, or a feed URL times out — the app tells you which source failed instead of quietly showing an empty day. A blank calendar and a broken connection look different on purpose, so you never mistake "nothing loaded" for "nothing scheduled."
+
+</Callout>
+
+## Setting your availability
+
+Availability is a weekly schedule: which days you work and what hours you're open on each one, plus your timezone. On top of that you can set:
+
+- **Buffer time** between meetings, so back-to-back bookings don't happen
+- **Minimum notice**, so people can't book you five minutes from now
+- **How far ahead** people can book (advance window)
+- **Default slot length** for new booking links
+
+The agent reads the same schedule the UI edits, so "set my hours to 9-5 weekdays" and dragging the sliders in the Availability page produce the same result.
+
+## Finding a shared free slot
+
+Ask the agent to find time and it checks your availability, your real Google Calendar events, and — when you name other people — their free/busy status too, then proposes concrete slots. Once you pick one, the agent books it directly on Google Calendar.
+
+<Diagram id="doc-block-calendar3" title="From availability to a booked event" summary="The agent combines your availability rules, your existing events, and (when named) other attendees' free/busy before proposing slots.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Your availability<br /><small class="diagram-muted"
+        >weekly hours, buffer, notice</small
+      >
+    </div>
+    <div class="diagram-box">
+      Existing events<br /><small class="diagram-muted"
+        >Google Calendar, live</small
+      >
+    </div>
+    <div class="diagram-box">
+      Attendees' free/busy<br /><small class="diagram-muted"
+        >when you name people</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Find a time</span
+    ><small class="diagram-muted">candidate slots</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">You pick one</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Event created on Google Calendar</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Overlaying other people's calendars
+
+Beyond checking free/busy for one request, you can pin a person's calendar into your regular view — useful for a manager checking a direct report's schedule, or two people who plan a lot of time together. Each overlaid person gets their own color, and their events show up alongside yours in every view. Ask the agent: "Add Priya's calendar to my view" or manage the list from Settings.
+
+## Finding people
+
+When you're scheduling with someone new, search by name or email instead of typing an exact address. Calendar searches your Google Contacts plus your Workspace directory, so you can ask "who is Dana at Acme" or "find people named Priya" and get real matches to pick from.
+
+## Attendee timezones
+
+For guests in other timezones, the event detail can show each person's local start time. Calendar knows a guest's timezone when Google reports it; when it doesn't, you can save a per-guest override so their local time keeps showing correctly going forward.
+
+## Working locations and recurring events
+
+Google Calendar's native "working location" status (home, office, or another location) is supported as a real status, not a generic all-day event — it shows up as a working-location marker and never blocks your availability. Recurring events are supported end to end: create a recurring series, and edit either a single occurrence or the whole series going forward.
+
+### Useful prompts
+
+- "What's on my calendar today?"
+- "Am I free Thursday afternoon for 30 minutes?"
+- "Find a 1-hour slot next week with Sam and book 'Planning' on it."
+- "Block Friday afternoons on my availability."
+- "Add Priya's calendar to my view in blue."
+- "Who is jane at acme.com?"
+- "Show Alex's local time on this event." (when an event is selected)
+- "Set my working location to home for tomorrow."
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Booking Links**](/docs/template-calendar-booking-links) — turn your availability into a public scheduling page
+- [**Talking to the Agent**](/docs/template-calendar-agent) — how the agent sees your current view and when it escalates to the raw Google Calendar API
+- [**Developer Guide**](/docs/template-calendar-developers) — the actions and data behind all of this

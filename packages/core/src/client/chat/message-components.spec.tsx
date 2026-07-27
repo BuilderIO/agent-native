@@ -155,6 +155,19 @@ describe("shouldShowMissingFinalResponse", () => {
     ).toBe(false);
   });
 
+  it("stays hidden while the server still reports the run as running", () => {
+    // Local chatRunning dips at every chunk boundary; server truth wins.
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        serverRunActive: true,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
   it("does not flash after a tool completes while the current turn is still running", () => {
     expect(
       shouldShowMissingFinalResponse({

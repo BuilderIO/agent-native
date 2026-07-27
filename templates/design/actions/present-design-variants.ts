@@ -29,10 +29,13 @@ const MOBILE_HEIGHT = 844;
 const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
 const DESKTOP_WIDTH = 1440;
-const DESKTOP_HEIGHT = 1024;
-const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
+const DESKTOP_HEIGHT = 900;
+// Desktop-base default: the primary/base frame is Desktop (1440), so the
+// breakpoint set is Mobile only. The primary width is never included and no
+// tablet is auto-added, matching generate-design's device derivation.
+const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   id: `generated-${widthPx}`,
-  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
+  label: "Mobile",
   widthPx,
   prefix: widthToPrefix(widthPx),
 }));

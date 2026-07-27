@@ -277,10 +277,12 @@ export class A2AClient {
     throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
-  async getAgentCard(): Promise<AgentCard> {
+  async getAgentCard(options?: { timeoutMs?: number }): Promise<AgentCard> {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
-      {},
+      options?.timeoutMs
+        ? { signal: AbortSignal.timeout(options.timeoutMs) }
+        : {},
       { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {

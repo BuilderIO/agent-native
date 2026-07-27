@@ -1,7 +1,4 @@
-import {
-  agentNativePath,
-  appApiPath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogDialog } from "@agent-native/core/client/changelog";
 import { extensionPath } from "@agent-native/core/client/extensions";
 import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
@@ -288,11 +285,7 @@ async function fetchExtensions(): Promise<ExtensionSearchItem[]> {
 }
 
 function persistThemePreference(theme: "light" | "dark") {
-  fetch(appApiPath("/api/theme"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {});
+  callAction("set-theme", { theme }).catch(() => {});
 }
 
 export function CommandPalette() {

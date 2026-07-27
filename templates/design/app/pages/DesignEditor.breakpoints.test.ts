@@ -365,7 +365,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
 
   it("keeps the responsive scope control inline beside the breakpoints", () => {
     expect(source).toContain(
-      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto"',
+      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5"',
+    );
+    expect(source).toContain(
+      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto"',
     );
     expect(source).toContain(
       'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
