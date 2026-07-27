@@ -966,3 +966,105 @@ describe("generate-design: new screens never stack on existing frames", () => {
     expect(second.x).toBeGreaterThanOrEqual(1440);
   });
 });
+
+describe("generate-design: single-device regen clears stale breakpoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const responsiveData = () => ({
+    breakpointSet: {
+      id: "old",
+      breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+    },
+  });
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("removes an existing breakpointSet on an explicit single-device request", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it desktop only",
+      devices: ["desktop"],
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("keeps the breakpointSet when devices is not explicitly narrowed", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Tweak the copy",
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeDefined();
+  });
+});
+
+describe("generate-design: placement clears rotated existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a new screen clear of a rotated frame's real footprint", async () => {
+    // A wide-short frame at y=1000 rotated 90° becomes a tall band whose AABB
+    // is x∈[670,770], y∈[330,1770] — overlapping a new origin screen even
+    // though its UNROTATED rect (y∈[1000,1100]) does not. Requires
+    // rotation-aware collision to relocate the new screen.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": {
+          x: 0,
+          y: 1000,
+          width: 1440,
+          height: 100,
+          rotation: 90,
+          z: 0,
+        },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "b.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    // Without rotation awareness the new screen would stay at x:0 (its
+    // unrotated rect misses); rotation-aware collision bumps it past the band.
+    expect(placed.x).toBeGreaterThanOrEqual(770);
+  });
+});

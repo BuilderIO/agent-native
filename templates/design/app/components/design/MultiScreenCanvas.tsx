@@ -82,10 +82,7 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "./canvas-primitive-style";
-import {
-  CONTENT_SIZE_REPORT_MESSAGE_TYPE,
-  appendContentSizeReporter,
-} from "./design-canvas/content-size-report";
+import { CONTENT_SIZE_REPORT_MESSAGE_TYPE } from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
@@ -7409,7 +7406,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       canvasZoom,
     );
     const next = computeBoundedScreenCullState({
-      candidates: canvasFrames.map(({ screen, geometry }) => ({
+      candidates: canvasFrames.map(({ screen, metadata, geometry }) => ({
         id: screen.id,
         geometry: getResponsiveScreenCullGeometry(
           screen,
@@ -7417,7 +7414,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           (widthPx) =>
             measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
         ),
-        iframeCount: 1 + (screen.breakpointWidths?.length ?? 0),
+        // Count only the breakpoint frames actually mounted (the row filters
+        // duplicates of the device width) so the iframe budget isn't
+        // over-consumed, prematurely evicting visible frames.
+        iframeCount:
+          1 +
+          visibleBreakpointWidths(screen.breakpointWidths, metadata.width)
+            .length,
       })),
       viewport,
       protectedScreenIds: protectedLiveScreenIds,
@@ -9279,7 +9282,7 @@ const Screen = memo(function Screen({
   // Keyed only on screen.content; the hit-test script itself is constant.
   const srcdocWithHitTest = useMemo(() => {
     return injectSessionReplayIframeBootstrap(
-      appendContentSizeReporter(appendHitTestResponder(screen.content)),
+      appendHitTestResponder(screen.content),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
@@ -9938,7 +9941,8 @@ function BreakpointPreviewRow({
     : t("designEditor.modes.interact");
   const breakpointWidths = visibleBreakpointWidths(
     screen.breakpointWidths,
-    primaryGeometry.width,
+    // Immutable device width, not the resizable box width (see frame-geometry).
+    metadata.width ?? primaryGeometry.width,
   );
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;

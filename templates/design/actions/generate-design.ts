@@ -174,16 +174,6 @@ function hasBreakpointSet(value: unknown): boolean {
   return Array.isArray(breakpoints) && breakpoints.length > 0;
 }
 
-function nextGeneratedFrameX(
-  frames: ReturnType<typeof parseCanvasFrameGeometryById>,
-): number {
-  return Object.values(frames).reduce((furthestRight, frame) => {
-    const x = frame.x ?? 0;
-    const width = frame.width ?? 0;
-    return Math.max(furthestRight, x + width + GENERATED_FRAME_GAP);
-  }, 0);
-}
-
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -966,12 +956,31 @@ const generateDesignAction = defineAction({
           y?: number;
           width?: number;
           height?: number;
-        }) => ({
-          x: frame.x ?? 0,
-          y: frame.y ?? 0,
-          width: frame.width ?? 0,
-          height: frame.height ?? 0,
-        });
+          rotation?: number;
+        }) => {
+          const x = frame.x ?? 0;
+          const y = frame.y ?? 0;
+          const width = frame.width ?? 0;
+          const height = frame.height ?? 0;
+          const rotation = frame.rotation ?? 0;
+          if (!rotation || width <= 0 || height <= 0) {
+            return { x, y, width, height };
+          }
+          // Existing frames render rotated about their center; use the rotated
+          // rect's axis-aligned bounding box so a new screen isn't dropped over
+          // a rotated frame's real footprint.
+          const radians = (rotation * Math.PI) / 180;
+          const cos = Math.abs(Math.cos(radians));
+          const sin = Math.abs(Math.sin(radians));
+          const aabbWidth = width * cos + height * sin;
+          const aabbHeight = width * sin + height * cos;
+          return {
+            x: x + width / 2 - aabbWidth / 2,
+            y: y + height / 2 - aabbHeight / 2,
+            width: aabbWidth,
+            height: aabbHeight,
+          };
+        };
         const framesOverlap = (
           a: ReturnType<typeof rectOf>,
           b: ReturnType<typeof rectOf>,
@@ -999,7 +1008,12 @@ const generateDesignAction = defineAction({
         for (const placed of generationFrames) {
           occupiedRects.push(rectOf(placed.frame));
         }
-        let nextX = nextGeneratedFrameX(merged.canvasFrames);
+        // Relocate target: right of every occupied (rotation-aware) rect.
+        let nextX = occupiedRects.reduce(
+          (right, rect) =>
+            Math.max(right, rect.x + rect.width + GENERATED_FRAME_GAP),
+          0,
+        );
         for (const file of savedFiles) {
           const source = files.find(
             (candidate) => candidate.filename === file.filename,
@@ -1062,6 +1076,16 @@ const generateDesignAction = defineAction({
             id: "generated-responsive",
             breakpoints: generatedBreakpointSet,
           };
+          mergedData.breakpointSetUpdatedAt = updatedAt;
+        } else if (
+          devices &&
+          devices.length > 0 &&
+          generatedBreakpointSet.length === 0 &&
+          hasBreakpointSet(mergedData.breakpointSet)
+        ) {
+          // An explicit single-device request drops breakpoint frames a prior
+          // responsive generation left behind.
+          delete mergedData.breakpointSet;
           mergedData.breakpointSetUpdatedAt = updatedAt;
         }
         return mergedData;

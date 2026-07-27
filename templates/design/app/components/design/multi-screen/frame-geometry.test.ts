@@ -66,6 +66,21 @@ describe("content-fit frame height", () => {
     // (scaled by primary scale) so culling doesn't evict it while visible.
     expect(withMeasure.height).toBeGreaterThanOrEqual(3000 * (1440 / 1440) - 1);
   });
+
+  it("dedupes breakpoints against the device width, not the resized box width", () => {
+    // A desktop primary (device width 1440) resized down to a 390px box must
+    // NOT drop the distinct 390 mobile breakpoint as a "duplicate".
+    const screen = {
+      id: "s1",
+      metadata: { width: 1440, height: 900 },
+      breakpointWidths: [390],
+    };
+    const resizedBox = { x: 0, y: 0, width: 390, height: 900 };
+    // Width exceeds the base box only if the 390 breakpoint is still present.
+    expect(
+      getResponsiveScreenGroupSize(screen, resizedBox).width,
+    ).toBeGreaterThan(resizedBox.width);
+  });
 });
 
 describe("visibleBreakpointWidths", () => {

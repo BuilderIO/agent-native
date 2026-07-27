@@ -74,7 +74,9 @@ export function getResponsiveScreenGroupSize(
   const scale = baseWidth / sourceWidth;
   const breakpoints = visibleBreakpointWidths(
     screen.breakpointWidths,
-    primaryGeometry?.width,
+    // The immutable device width, not the resizable on-canvas box width — a
+    // primary resized to a breakpoint width must not hide that breakpoint.
+    screen.metadata?.width ?? primaryGeometry?.width,
   );
   const breakpointNaturalHeight = (width: number) => {
     const measured = resolveBreakpointHeightPx?.(width);
