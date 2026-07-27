@@ -1322,6 +1322,35 @@ describe("disposable runtime authority", () => {
     });
   });
 
+  it("settles every parallel runtime deletion before reporting a failure", async () => {
+    let releaseDelayed: (() => void) | undefined;
+    const delayed = new Promise<void>((resolve) => {
+      releaseDelayed = resolve;
+    });
+    const netlify = new NetlifyRuntime(async (input, init) => {
+      if (init?.method !== "DELETE") return new Response(null, { status: 404 });
+      if (input.includes("FIRST_KEY"))
+        throw new Error("injected deletion failure");
+      await delayed;
+      return new Response(null, { status: 204 });
+    }, "injected-management-token");
+    const removal = netlify.removeRuntime("account", "site", [
+      "FIRST_KEY",
+      "DELAYED_KEY",
+    ]);
+    let settled = false;
+    void removal
+      .finally(() => {
+        settled = true;
+      })
+      .catch(() => undefined);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(settled, false);
+    releaseDelayed?.();
+    await assert.rejects(removal, /injected deletion failure/);
+    assert.equal(settled, true);
+  });
+
   it("binds the declared acceptance origin to the exact Netlify site before mutation", async () => {
     const netlify = new NetlifyRuntime(async (input) => {
       if (input.endsWith("/sites/site"))

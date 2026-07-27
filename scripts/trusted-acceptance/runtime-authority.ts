@@ -561,7 +561,7 @@ export class NetlifyRuntime {
     siteId: string,
     keys: readonly string[],
   ): Promise<boolean> {
-    const removals = await Promise.all(
+    const removals = await Promise.allSettled(
       keys.map((key) =>
         this.fetch(this.envUrl(accountId, siteId, key), {
           method: "DELETE",
@@ -569,12 +569,19 @@ export class NetlifyRuntime {
         }),
       ),
     );
-    const failedRemoval = removals.find(
-      (response) => !response.ok && response.status !== 404,
+    const rejectedRemoval = removals.find(
+      (result) => result.status === "rejected",
     );
-    if (failedRemoval)
+    if (rejectedRemoval?.status === "rejected") throw rejectedRemoval.reason;
+    const failedRemoval = removals.find(
+      (result) =>
+        result.status === "fulfilled" &&
+        !result.value.ok &&
+        result.value.status !== 404,
+    );
+    if (failedRemoval?.status === "fulfilled")
       throw new Error(
-        `Netlify runtime variable removal failed: ${failedRemoval.status}`,
+        `Netlify runtime variable removal failed: ${failedRemoval.value.status}`,
       );
     const verification = await Promise.all(
       keys.map((key) =>
