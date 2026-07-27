@@ -191,6 +191,226 @@ function renderEmbedBlock(
   ].join("");
 }
 
+const LEGACY_CHART_PALETTE = [
+  "#6366f1",
+  "#22c55e",
+  "#f59e0b",
+  "#ef4444",
+  "#0ea5e9",
+  "#a855f7",
+];
+
+const SAFE_HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+
+function extractBalancedArray(text: string, fromIndex: number): string | null {
+  const start = text.indexOf("[", fromIndex);
+  if (start === -1) return null;
+  let depth = 0;
+  for (let idx = start; idx < text.length; idx++) {
+    const ch = text[idx];
+    if (ch === "[" || ch === "{") depth++;
+    else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, idx + 1);
+    }
+  }
+  return null;
+}
+
+interface LegacyChartShorthand {
+  type: "bar" | "line" | "area";
+  title: string;
+  labels: string[];
+  series: { label: string; data: number[]; color?: string }[];
+}
+
+function tryParseLegacyChartShorthand(
+  rawLine: string,
+): LegacyChartShorthand | null {
+  const trimmed = rawLine.trim();
+  if (!trimmed.startsWith("/chart")) return null;
+  if (!/\blabels=/.test(trimmed) || !/\bdata=/.test(trimmed)) return null;
+
+  const typeMatch = trimmed.match(/\btype=(bar|line|area)\b/i);
+  const chartType =
+    (typeMatch?.[1].toLowerCase() as LegacyChartShorthand["type"]) || "bar";
+
+  const titleMatch = trimmed.match(/\btitle=(?:"([^"]*)"|'([^']*)')/);
+  const chartTitle = titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? "") : "";
+
+  const labelsIdx = trimmed.search(/\blabels=/);
+  const labelsRaw =
+    labelsIdx >= 0 ? extractBalancedArray(trimmed, labelsIdx) : null;
+  const dataIdx = trimmed.search(/\bdata=/);
+  const dataRaw = dataIdx >= 0 ? extractBalancedArray(trimmed, dataIdx) : null;
+  if (!labelsRaw || !dataRaw) return null;
+
+  let parsedLabels: unknown;
+  let parsedData: unknown;
+  try {
+    parsedLabels = JSON.parse(labelsRaw);
+    parsedData = JSON.parse(dataRaw);
+  } catch {
+    return null;
+  }
+  if (
+    !Array.isArray(parsedLabels) ||
+    parsedLabels.length === 0 ||
+    parsedLabels.length > 60
+  ) {
+    return null;
+  }
+  const safeLabels = parsedLabels.map((l) => String(l)).slice(0, 60);
+
+  const colorMatch = trimmed.match(/(?:^|\s)color=(#[0-9a-fA-F]{3,8})\b/);
+  const topLevelColor =
+    colorMatch && SAFE_HEX_COLOR.test(colorMatch[1])
+      ? colorMatch[1]
+      : undefined;
+
+  let chartSeries: LegacyChartShorthand["series"];
+  if (
+    Array.isArray(parsedData) &&
+    parsedData.every((v) => typeof v === "number" && Number.isFinite(v))
+  ) {
+    chartSeries = [
+      {
+        label: chartTitle || "Value",
+        data: parsedData as number[],
+        color: topLevelColor,
+      },
+    ];
+  } else if (
+    Array.isArray(parsedData) &&
+    parsedData.every(
+      (d) =>
+        d &&
+        typeof d === "object" &&
+        Array.isArray((d as { data?: unknown }).data) &&
+        (d as { data: unknown[] }).data.every(
+          (v) => typeof v === "number" && Number.isFinite(v),
+        ),
+    )
+  ) {
+    chartSeries = (
+      parsedData as { label?: unknown; data: number[]; color?: unknown }[]
+    )
+      .slice(0, 6)
+      .map((d, idx) => ({
+        label: typeof d.label === "string" ? d.label : `Series ${idx + 1}`,
+        data: d.data,
+        color:
+          typeof d.color === "string" && SAFE_HEX_COLOR.test(d.color)
+            ? d.color
+            : undefined,
+      }));
+  } else {
+    return null;
+  }
+  if (chartSeries.length === 0) return null;
+  return {
+    type: chartType,
+    title: chartTitle,
+    labels: safeLabels,
+    series: chartSeries,
+  };
+}
+
+function renderLegacyChartShorthand(parsed: LegacyChartShorthand): string {
+  const { title, labels, series, type } = parsed;
+  const width = 640;
+  const height = 280;
+  const padding = { top: 16, right: 16, bottom: 44, left: 48 };
+  const innerW = width - padding.left - padding.right;
+  const innerH = height - padding.top - padding.bottom;
+  const maxVal = Math.max(1, ...series.flatMap((s) => s.data));
+  const groupW = innerW / labels.length;
+
+  let gridSvg = "";
+  const gridLines = 4;
+  for (let g = 0; g <= gridLines; g++) {
+    const y = padding.top + (innerH * g) / gridLines;
+    const val = Math.round(maxVal - (maxVal * g) / gridLines);
+    gridSvg += `<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="currentColor" stroke-opacity="0.1" />`;
+    gridSvg += `<text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" font-size="10" fill="currentColor" fill-opacity="0.6">${val}</text>`;
+  }
+
+  let seriesSvg = "";
+  if (type === "bar") {
+    const groupPad = groupW * 0.15;
+    const barsW = groupW - groupPad * 2;
+    const barW = barsW / series.length;
+    labels.forEach((_, li) => {
+      series.forEach((s, si) => {
+        const value = s.data[li] ?? 0;
+        const barH = (Math.max(0, value) / maxVal) * innerH;
+        const x = padding.left + li * groupW + groupPad + si * barW;
+        const y = padding.top + (innerH - barH);
+        const color =
+          s.color || LEGACY_CHART_PALETTE[si % LEGACY_CHART_PALETTE.length];
+        seriesSvg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, barW - 2).toFixed(1)}" height="${Math.max(0, barH).toFixed(1)}" fill="${escapeHtml(color)}" rx="2" />`;
+      });
+    });
+  } else {
+    series.forEach((s, si) => {
+      const color =
+        s.color || LEGACY_CHART_PALETTE[si % LEGACY_CHART_PALETTE.length];
+      const points = labels
+        .map((_, li) => {
+          const value = s.data[li] ?? 0;
+          const x = padding.left + groupW * li + groupW / 2;
+          const y =
+            padding.top + innerH - (Math.max(0, value) / maxVal) * innerH;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
+      if (type === "area") {
+        const baseY = padding.top + innerH;
+        const firstX = padding.left + groupW / 2;
+        const lastX = padding.left + groupW * (labels.length - 1) + groupW / 2;
+        seriesSvg += `<polygon points="${firstX.toFixed(1)},${baseY.toFixed(1)} ${points} ${lastX.toFixed(1)},${baseY.toFixed(1)}" fill="${escapeHtml(color)}" fill-opacity="0.15" />`;
+      }
+      seriesSvg += `<polyline points="${points}" fill="none" stroke="${escapeHtml(color)}" stroke-width="2" />`;
+    });
+  }
+
+  const labelsSvg = labels
+    .map((label, li) => {
+      const x = padding.left + groupW * li + groupW / 2;
+      const y = height - padding.bottom + 16;
+      const truncated = label.length > 12 ? `${label.slice(0, 11)}...` : label;
+      return `<text x="${x.toFixed(1)}" y="${y}" text-anchor="middle" font-size="10" fill="currentColor" fill-opacity="0.7">${escapeHtml(truncated)}</text>`;
+    })
+    .join("");
+
+  const legendHtml =
+    series.length > 1
+      ? `<div class="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">${series
+          .map((s, si) => {
+            const color =
+              s.color || LEGACY_CHART_PALETTE[si % LEGACY_CHART_PALETTE.length];
+            return `<span class="inline-flex items-center gap-1"><span class="inline-block h-2 w-2 rounded-full" style="background:${escapeHtml(color)}"></span>${escapeHtml(s.label)}</span>`;
+          })
+          .join("")}</div>`
+      : "";
+
+  const titleHtml = title
+    ? `<div class="mb-1 text-sm font-medium text-foreground">${escapeHtml(title)}</div>`
+    : "";
+
+  return [
+    '<div class="my-4 rounded-lg border border-border bg-muted/20 p-3">',
+    titleHtml,
+    `<svg viewBox="0 0 ${width} ${height}" class="w-full text-muted-foreground" role="img" aria-label="${escapeHtml(title || "Chart")}">`,
+    gridSvg,
+    seriesSvg,
+    labelsSvg,
+    "</svg>",
+    legendHtml,
+    "</div>",
+  ].join("");
+}
+
 function renderInline(text: string): string {
   // Escape the raw text before applying markdown replacements so any
   // HTML the agent emits is inert. Note: markdown tokens like `**` and
@@ -354,6 +574,18 @@ export function renderMarkdown(
         out.push("<ol>");
       }
       out.push(`<li>${renderInline(olMatch[2])}</li>`);
+      i++;
+      continue;
+    }
+
+    // Legacy hallucinated /chart shorthand: the model occasionally emits
+    // `/chart type=bar title=... labels=[...] data=[...]` instead of the
+    // documented embed fence, mirroring generate-chart's tool params. Parse
+    // it best-effort so a chart still renders even when the syntax is wrong.
+    const legacyChart = tryParseLegacyChartShorthand(line);
+    if (legacyChart) {
+      closeList();
+      out.push(renderLegacyChartShorthand(legacyChart));
       i++;
       continue;
     }
