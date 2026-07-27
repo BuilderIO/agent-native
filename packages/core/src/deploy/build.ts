@@ -110,11 +110,73 @@ export default {
 `;
 }
 
+export function patchCloudflareModuleNitroEntry(code: string): string {
+  const factoryMatch = code.match(
+    /function ([A-Za-z_$][\w$]*)\(e\)\{let ([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\),([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\);return\{async fetch\(([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*),([A-Za-z_$][\w$]*)\)\{/,
+  );
+  if (!factoryMatch) {
+    throw new Error(
+      "[deploy] Could not find Nitro's Cloudflare module handler factory",
+    );
+  }
+
+  const [
+    ,
+    factoryName,
+    handlerName,
+    handlerFactoryName,
+    hooksName,
+    hooksFactoryName,
+    requestName,
+    envName,
+    contextName,
+  ] = factoryMatch;
+  const eagerInitialization = `let ${handlerName}=${handlerFactoryName}(),${hooksName}=${hooksFactoryName}();`;
+  if (!code.includes(eagerInitialization)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler changed its initialization shape`,
+    );
+  }
+
+  const bindingInitialization = `globalThis.__env__=${envName},Ai(${requestName},{env:${envName},context:${contextName}});`;
+  if (!code.includes(bindingInitialization)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler does not initialize Cloudflare bindings as expected`,
+    );
+  }
+
+  let patched = code.replace(
+    eagerInitialization,
+    `let ${handlerName},${hooksName};`,
+  );
+  patched = patched.replace(
+    bindingInitialization,
+    `${bindingInitialization}${handlerName}??=${handlerFactoryName}();`,
+  );
+  const hookCall = `${hooksName}.callHook(`;
+  if (!patched.includes(hookCall)) {
+    throw new Error(
+      `[deploy] Nitro's ${factoryName} handler has no Cloudflare lifecycle hooks`,
+    );
+  }
+  patched = patched
+    .split(hookCall)
+    .join(`(${hooksName}??=${hooksFactoryName}()).callHook(`);
+
+  return patched;
+}
+
 export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   const configPath = path.join(serverDir, "wrangler.json");
   if (!fs.existsSync(configPath)) {
     throw new Error(
       `[deploy] Nitro did not generate ${configPath} for cloudflare_module`,
+    );
+  }
+  const nitroEntryPath = path.join(serverDir, "index.mjs");
+  if (!fs.existsSync(nitroEntryPath)) {
+    throw new Error(
+      `[deploy] Nitro did not generate ${nitroEntryPath} for cloudflare_module`,
     );
   }
 
@@ -124,6 +186,10 @@ export function configureCloudflareModuleWorkerOutput(serverDir: string): void {
   };
   config.main = CLOUDFLARE_MODULE_WORKER_ENTRY;
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  fs.writeFileSync(
+    nitroEntryPath,
+    patchCloudflareModuleNitroEntry(fs.readFileSync(nitroEntryPath, "utf8")),
+  );
   fs.writeFileSync(
     path.join(serverDir, CLOUDFLARE_MODULE_WORKER_ENTRY),
     generateCloudflareModuleWorkerEntry(),

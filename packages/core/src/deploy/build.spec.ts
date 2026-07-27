@@ -42,6 +42,7 @@ import {
   isIntegrationDurableDispatchDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
+  patchCloudflareModuleNitroEntry,
   resolveNitroBundledYjsEntry,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
@@ -80,6 +81,18 @@ describe("isCloudflareModulePreset", () => {
 });
 
 describe("Cloudflare module Worker entry", () => {
+  it("defers Nitro's handler and lifecycle initialization", () => {
+    const source =
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,Ai(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
+
+    const patched = patchCloudflareModuleNitroEntry(source);
+
+    expect(patched).toContain("let t,n;");
+    expect(patched).toContain("t??=Ei();");
+    expect(patched).toContain('(n??=Di()).callHook("scheduled",e)');
+    expect(patched).not.toContain("let t=Ei(),n=Di();");
+  });
+
   it("defers Nitro initialization until bindings are available", () => {
     const entry = generateCloudflareModuleWorkerEntry();
 
@@ -93,6 +106,10 @@ describe("Cloudflare module Worker entry", () => {
     fs.writeFileSync(
       path.join(serverDir, "wrangler.json"),
       JSON.stringify({ main: "index.mjs", assets: { binding: "ASSETS" } }),
+    );
+    fs.writeFileSync(
+      path.join(serverDir, "index.mjs"),
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,Ai(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
@@ -108,6 +125,9 @@ describe("Cloudflare module Worker entry", () => {
     expect(
       fs.readFileSync(path.join(serverDir, "worker.mjs"), "utf8"),
     ).toContain('await import("./index.mjs")');
+    expect(
+      fs.readFileSync(path.join(serverDir, "index.mjs"), "utf8"),
+    ).toContain("t??=Ei();");
   });
 });
 
