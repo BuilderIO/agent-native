@@ -12,7 +12,6 @@ import {
   IconDatabase,
   IconDots,
   IconFileText,
-  IconLoader2,
   IconPlus,
   IconStar,
   IconTrash,
@@ -44,6 +43,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -261,7 +261,6 @@ export function DatabaseSidebarView({
   hierarchyItems,
   hierarchyUniverseItems,
   scroll = true,
-  loadingLabel,
   noMatchesLabel,
   clearLabel,
   navigationLabel,
@@ -286,7 +285,6 @@ export function DatabaseSidebarView({
   hierarchyItems?: ContentDatabaseItem[];
   hierarchyUniverseItems?: ContentDatabaseItem[];
   scroll?: boolean;
-  loadingLabel: string;
   noMatchesLabel: string;
   clearLabel: string;
   navigationLabel: string;
@@ -367,9 +365,19 @@ export function DatabaseSidebarView({
 
   if (isLoading) {
     return (
-      <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-        <IconLoader2 className="size-4 animate-spin" />
-        {loadingLabel}
+      <div aria-hidden="true" className="grid gap-1 p-1">
+        {[70, 55, 85, 60, 45].map((width, index) => (
+          <div
+            key={`sidebar-skeleton-${index}`}
+            className="flex h-7 items-center gap-1.5 rounded px-1.5"
+          >
+            <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+            <Skeleton
+              className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
+              style={{ width: `${width}%` }}
+            />
+          </div>
+        ))}
       </div>
     );
   }

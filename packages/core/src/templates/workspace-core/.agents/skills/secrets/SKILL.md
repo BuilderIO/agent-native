@@ -151,6 +151,35 @@ Rules:
 - **Scope matches the registration.** `scope: "user"` → pass the user email.
   `scope: "workspace"` → pass the active `orgId` from
   `getOrgContext(event).orgId`.
+- **One resolver per key, and every runtime path goes through it.** Before
+  reading a credential, grep the app for the key name. If a resolver already
+  exists (`resolveXConfig`, a connector, a client factory), call it — do not
+  read `process.env` for that key a second time somewhere else.
+- **Identity comes from the caller, not the module.** A shared helper under
+  `server/lib/` takes the email as a parameter; only an entrypoint (action,
+  route, cron) decides whose identity it is. A library that resolves its own
+  identity from `process.env.AGENT_USER_EMAIL` authorizes the deployment rather
+  than the caller.
+
+The failure this prevents is not a leak — it is a split brain. When the config
+check reads the vault and the feature reads `process.env`, the settings UI and
+onboarding checklist report the integration as **configured** while every actual
+call fails with "env var is required". The credential is right there in the
+vault, so the error names the wrong cause and sends everyone hunting for a sync
+or redeploy problem that does not exist. This has now shipped four times in one
+app (BigQuery, Jira, Pylon, Academy).
+
+Before finishing any change that touches a credential, run the guard from the
+app directory — it finds this whether the app lives in `templates/` or in a
+workspace repo:
+
+```bash
+npx agent-native doctor --only no-env-credentials
+```
+
+Findings in files that already call `resolveCredential` are usually the
+sanctioned `resolveCredential(key, ctx) ?? process.env.KEY` fallback. The bugs
+are the files with **no** resolver at all.
 
 ## HTTP routes
 

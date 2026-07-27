@@ -8,6 +8,10 @@ import { fileURLToPath } from "url";
 
 import * as Sentry from "@sentry/node";
 
+import {
+  clearAgentNativeNitroPresetMarker,
+  resolveAgentNativeNitroPreset,
+} from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
@@ -696,6 +700,7 @@ switch (command) {
       }
 
       if (isReactRouterFramework()) {
+        clearAgentNativeNitroPresetMarker();
         validateReactRouterBuildDependencies();
         const rr = findReactRouterBin();
         console.log("Building (React Router framework mode)...");
@@ -709,15 +714,20 @@ switch (command) {
       // Post-build: framework-mode apps also need a Nitro server bundle for
       // `agent-native start` and for serverless presets.
       if (isReactRouterFramework()) {
+        const configuredNitroPreset = resolveAgentNativeNitroPreset();
+        const deployEnv = configuredNitroPreset
+          ? { ...process.env, NITRO_PRESET: configuredNitroPreset }
+          : process.env;
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
         const deployBuild = resolveDeployPostBuildInvocation({
           cliDir: __dirname,
+          env: deployEnv,
           findTsxBin,
         });
         if (deployBuild) {
           await runBuildStep(deployBuild.command, deployBuild.args, {
             label: "deploy-build",
-            env: process.env,
+            env: deployEnv,
           });
         } else {
           console.warn(

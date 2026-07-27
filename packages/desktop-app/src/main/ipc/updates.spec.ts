@@ -2,6 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const electronState = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
+  const notification = Object.assign(
+    vi.fn(function () {
+      return {
+        on: vi.fn(),
+        show: vi.fn(),
+      };
+    }),
+    {
+      isSupported: vi.fn(() => false),
+    },
+  );
   return {
     app: {
       isPackaged: true,
@@ -20,9 +31,7 @@ const electronState = vi.hoisted(() => {
         },
       ),
     },
-    notification: {
-      isSupported: vi.fn(() => false),
-    },
+    notification,
   };
 });
 
@@ -55,15 +64,48 @@ vi.mock("electron-updater", () => ({ autoUpdater: updaterState }));
 
 import { IPC } from "@shared/ipc-channels";
 
-import {
-  checkForAppUpdates,
-  getCurrentUpdateStatus,
-  registerUpdatesIpc,
-} from "./updates.js";
+let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
+let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
+let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    electronState.ipcMain.handlers.clear();
+    updaterState.handlers.clear();
+    updaterState.checkForUpdates.mockReset();
+    updaterState.downloadUpdate.mockReset();
+    electronState.notification.isSupported.mockReturnValue(false);
+    vi.resetModules();
+    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
+      await import("./updates.js"));
+  });
+
+  it("shows a clear result when a manual check finds no update", async () => {
+    updaterState.checkForUpdates.mockResolvedValue(undefined);
+    electronState.notification.isSupported.mockReturnValue(true);
+
+    const focusMainWindow = vi.fn();
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow,
+    });
+
+    const checkPromise = checkForAppUpdates({ notifyOnResult: true });
+    updaterState.handlers.get("update-not-available")?.({
+      version: "1.0.0",
+    });
+    await checkPromise;
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "not-available",
+      currentVersion: "1.0.0",
+    });
+    expect(electronState.notification).toHaveBeenCalledWith({
+      title: "Agent Native is up to date",
+      body: "You're running the latest version (1.0.0).",
+    });
+    expect(focusMainWindow).not.toHaveBeenCalled();
   });
 
   it("does not advertise a macOS update until native staging finishes", async () => {
