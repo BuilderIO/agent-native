@@ -16,6 +16,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import {
+  ASPECT_RATIOS,
+  DEFAULT_ASPECT_RATIO,
+  type AspectRatio,
+} from "../shared/aspect-ratios.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
@@ -297,6 +302,22 @@ export default defineAction({
   },
 });
 
+/** Closest configured deck aspect ratio to a source image's own dimensions. */
+function nearestAspectRatio(width: number, height: number): AspectRatio {
+  const target = width / height;
+  let best: AspectRatio = DEFAULT_ASPECT_RATIO;
+  let bestDiff = Infinity;
+  for (const key of Object.keys(ASPECT_RATIOS) as AspectRatio[]) {
+    const preset = ASPECT_RATIOS[key];
+    const diff = Math.abs(preset.width / preset.height - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = key;
+    }
+  }
+  return best;
+}
+
 async function importPdfPagesAsFullBleedSlides(args: {
   fileBuffer: Buffer;
   title: string;
@@ -343,22 +364,32 @@ async function importPdfPagesAsFullBleedSlides(args: {
     await pdf.destroy();
   }
 
+  // Source decks (e.g. Instagram carousel exports) are commonly portrait or
+  // square, not the deck editor's 16:9 default — match the canvas to the
+  // first embedded photo's own proportions instead of stretching/cropping it.
+  const firstImage = pages
+    .map((page) => imagesByPage.get(page.num))
+    .find((image): image is NonNullable<typeof image> => Boolean(image));
+  const aspectRatio = firstImage
+    ? nearestAspectRatio(firstImage.width, firstImage.height)
+    : undefined;
+
   const ownerEmail = getRequestUserEmail();
   const slides = await Promise.all(
     pages.map(async (page) => {
-      const heading = page.text
+      const lines = page.text
         .split(/\r?\n/)
-        .find((line) => line.trim())
-        ?.trim();
+        .map((line) => line.trim())
+        .filter(Boolean);
       const backgroundImage = imagesByPage.get(page.num);
 
       if (!backgroundImage) {
         const [content] = convertSectionsToSlides([
-          { heading: heading ?? `Page ${page.num}`, content: page.text },
+          { heading: lines[0] ?? `Page ${page.num}`, content: page.text },
         ]);
         return {
           id: newSlideId(),
-          content: content ?? `<div class="fmd-slide"></div>`,
+          content: content ?? '<div class="fmd-slide"></div>',
           layout: "content",
           notes: "",
         };
@@ -376,6 +407,10 @@ async function importPdfPagesAsFullBleedSlides(args: {
           "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
         );
       }
+      // Join every extracted line back into one heading — pdf-parse breaks
+      // wrapped title text across lines, and using only the first line was
+      // silently dropping the rest of the sentence from the overlay.
+      const heading = lines.length > 0 ? lines.join(" ") : undefined;
       return {
         id: newSlideId(),
         content: buildFullBleedImageSlideHtml(uploadResult.url, heading),
@@ -385,13 +420,20 @@ async function importPdfPagesAsFullBleedSlides(args: {
     }),
   );
 
-  await replaceDeckSlides(deckId, title, slides, "import-file:pdf");
+  await replaceDeckSlides(
+    deckId,
+    title,
+    slides,
+    "import-file:pdf",
+    aspectRatio,
+  );
 
   return {
     format: "pdf",
     title,
     pageCount: slides.length,
     slideCount: slides.length,
+    aspectRatio,
     deckId,
     imported: true,
   };
@@ -486,6 +528,7 @@ async function replaceDeckSlides(
     notes?: string;
   }>,
   source: string,
+  aspectRatio?: AspectRatio,
 ) {
   await assertAccess("deck", deckId, "editor");
 
@@ -506,6 +549,7 @@ async function replaceDeckSlides(
     ...previousData,
     title,
     slides,
+    ...(aspectRatio ? { aspectRatio } : {}),
     updatedAt: now,
   };
 
