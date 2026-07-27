@@ -49,6 +49,9 @@ const SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
 const SLACK_IDENTITY_CACHE_MAX_ENTRIES = 1_000;
 const SLACK_TOKEN_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
 const SLACK_TOKEN_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
+const SLACK_DELIVERY_RECONCILIATION_PAGE_LIMIT = 200;
+const SLACK_DELIVERY_RECONCILIATION_MAX_PAGES = 3;
+const SLACK_DELIVERY_MARKER_PREFIX = "agent_native_terminal_";
 
 type SlackTokenIdentity = {
   teamId: string | null;
@@ -458,10 +461,6 @@ export function slackAdapter(
         | unknown[]
         | undefined;
       const placeholderRef = opts?.placeholderRef;
-      const clientMessageId = (chunkIndex: number) =>
-        opts?.idempotencyKey
-          ? slackClientMessageId(opts.idempotencyKey, chunkIndex)
-          : undefined;
 
       // Block-rich path: split text into chunks but render the FIRST chunk as
       // blocks (so we keep the in-place edit + button) and any overflow as
@@ -477,6 +476,21 @@ export function slackAdapter(
       }
       const restChunks = chunks.slice(1);
       const messageRefs: string[] = [];
+      const freshChunkIndexes = [
+        ...(!placeholderRef ? [0] : []),
+        ...restChunks.map((_, index) => index + 1),
+      ];
+      const reconciledRefs =
+        opts?.idempotencyKey && freshChunkIndexes.length > 0
+          ? await reconcileSlackDeliveryChunks(
+              token,
+              channelId,
+              threadTs,
+              opts.idempotencyKey,
+              freshChunkIndexes,
+              opts.reconcileAfter,
+            )
+          : new Map<number, string>();
 
       const finalBlocks =
         blocks ??
@@ -520,22 +534,29 @@ export function slackAdapter(
               token,
               channelId,
               threadTs,
-              baseBody,
-              clientMessageId(0),
+              opts?.idempotencyKey
+                ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
+                : baseBody,
             );
             if (postedTs) messageRefs.push(postedTs);
           } else {
             messageRefs.push(data.ts || placeholderRef);
           }
         } else {
-          const postedTs = await postFresh(
-            token,
-            channelId,
-            threadTs,
-            baseBody,
-            clientMessageId(0),
-          );
-          if (postedTs) messageRefs.push(postedTs);
+          const reconciledRef = reconciledRefs.get(0);
+          if (reconciledRef) {
+            messageRefs.push(reconciledRef);
+          } else {
+            const postedTs = await postFresh(
+              token,
+              channelId,
+              threadTs,
+              opts?.idempotencyKey
+                ? withSlackDeliveryMarker(baseBody, opts.idempotencyKey, 0)
+                : baseBody,
+            );
+            if (postedTs) messageRefs.push(postedTs);
+          }
         }
 
         // Clear the AI-assistant "is thinking…" status now that we've
@@ -546,18 +567,30 @@ export function slackAdapter(
 
         // Overflow chunks (rare) — post as plain follow-ups in the same thread
         for (const [index, chunk] of restChunks.entries()) {
+          const chunkIndex = index + 1;
+          const reconciledRef = reconciledRefs.get(chunkIndex);
+          if (reconciledRef) {
+            messageRefs.push(reconciledRef);
+            continue;
+          }
+          const overflowBody: Record<string, unknown> = {
+            channel: channelId,
+            text: chunk,
+            unfurl_links: false,
+            unfurl_media: false,
+            mrkdwn: true,
+          };
           const postedTs = await postFresh(
             token,
             channelId,
             threadTs,
-            {
-              channel: channelId,
-              text: chunk,
-              unfurl_links: false,
-              unfurl_media: false,
-              mrkdwn: true,
-            },
-            clientMessageId(index + 1),
+            opts?.idempotencyKey
+              ? withSlackDeliveryMarker(
+                  overflowBody,
+                  opts.idempotencyKey,
+                  chunkIndex,
+                )
+              : overflowBody,
           );
           if (postedTs) messageRefs.push(postedTs);
         }
@@ -1111,7 +1144,6 @@ async function postFresh(
   channelId: string,
   threadTs: string | undefined,
   body: Record<string, unknown>,
-  clientMessageId?: string,
 ): Promise<string | undefined> {
   const hasBlocks =
     Array.isArray(body.blocks) && (body.blocks as unknown[]).length > 0;
@@ -1126,7 +1158,6 @@ async function postFresh(
   const payload: Record<string, unknown> = {
     ...body,
     channel: channelId,
-    ...(clientMessageId ? { client_msg_id: clientMessageId } : {}),
   };
   if (threadTs && !payload.thread_ts) payload.thread_ts = threadTs;
   const res = await slackApiFetch("https://slack.com/api/chat.postMessage", {
@@ -1149,17 +1180,113 @@ async function postFresh(
   return data.ts;
 }
 
-function slackClientMessageId(key: string, chunkIndex: number): string {
+function slackDeliveryMarker(key: string, chunkIndex: number): string {
   const digest = createHash("sha256")
     .update(`${key}:${chunkIndex}`)
-    .digest("hex");
-  return [
-    digest.slice(0, 8),
-    digest.slice(8, 12),
-    `5${digest.slice(13, 16)}`,
-    `a${digest.slice(17, 20)}`,
-    digest.slice(20, 32),
-  ].join("-");
+    .digest("hex")
+    .slice(0, 32);
+  return `${SLACK_DELIVERY_MARKER_PREFIX}${digest}`;
+}
+
+function withSlackDeliveryMarker(
+  body: Record<string, unknown>,
+  key: string,
+  chunkIndex: number,
+): Record<string, unknown> {
+  const marker = slackDeliveryMarker(key, chunkIndex);
+  const blocks = Array.isArray(body.blocks) ? body.blocks : [];
+  if (blocks.length > 0) {
+    const [first, ...rest] = blocks;
+    if (first && typeof first === "object" && !Array.isArray(first)) {
+      return {
+        ...body,
+        blocks: [
+          { ...(first as Record<string, unknown>), block_id: marker },
+          ...rest,
+        ],
+      };
+    }
+  }
+  return {
+    ...body,
+    blocks: [
+      {
+        type: "section",
+        block_id: marker,
+        text: { type: "mrkdwn", text: String(body.text ?? "") },
+      },
+    ],
+  };
+}
+
+async function reconcileSlackDeliveryChunks(
+  token: string,
+  channelId: string,
+  threadTs: string | undefined,
+  key: string,
+  chunkIndexes: number[],
+  reconcileAfter?: number,
+): Promise<Map<number, string>> {
+  if (!threadTs) {
+    throw new Error(
+      "Cannot reconcile an idempotent Slack delivery without a thread timestamp",
+    );
+  }
+  const refs = new Map<number, string>();
+  const expectedMarkers = new Map(
+    chunkIndexes.map((chunkIndex) => [
+      slackDeliveryMarker(key, chunkIndex),
+      chunkIndex,
+    ]),
+  );
+  let cursor = "";
+  for (
+    let page = 0;
+    page < SLACK_DELIVERY_RECONCILIATION_MAX_PAGES;
+    page += 1
+  ) {
+    const url = new URL("https://slack.com/api/conversations.replies");
+    url.searchParams.set("channel", channelId);
+    url.searchParams.set("ts", threadTs);
+    url.searchParams.set(
+      "limit",
+      String(SLACK_DELIVERY_RECONCILIATION_PAGE_LIMIT),
+    );
+    if (cursor) url.searchParams.set("cursor", cursor);
+    if (typeof reconcileAfter === "number" && reconcileAfter > 0) {
+      url.searchParams.set("oldest", String(Math.floor(reconcileAfter / 1000)));
+      url.searchParams.set("inclusive", "true");
+    }
+    const response = await slackApiFetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const body = (await response.json()) as {
+      ok: boolean;
+      error?: string;
+      messages?: Array<{
+        ts?: string;
+        blocks?: Array<{ block_id?: string }>;
+      }>;
+      response_metadata?: { next_cursor?: string };
+    };
+    if (!body.ok) {
+      throw new Error(body.error || "conversations.replies failed");
+    }
+    for (const message of body.messages ?? []) {
+      if (typeof message.ts !== "string") continue;
+      for (const block of message.blocks ?? []) {
+        if (typeof block.block_id !== "string") continue;
+        const chunkIndex = expectedMarkers.get(block.block_id);
+        if (chunkIndex !== undefined) refs.set(chunkIndex, message.ts);
+      }
+    }
+    if (refs.size === expectedMarkers.size) return refs;
+    cursor = body.response_metadata?.next_cursor?.trim() ?? "";
+    if (!cursor) return refs;
+  }
+  throw new Error(
+    "Slack delivery reconciliation exceeded the bounded thread scan",
+  );
 }
 
 async function slackApiFetch(

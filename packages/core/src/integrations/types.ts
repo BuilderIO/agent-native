@@ -137,8 +137,10 @@ export interface PlatformDeliveryReceipt {
 export interface PlatformDeliveryOptions {
   /** Provider-owned message reference that should be updated in place. */
   placeholderRef?: string;
-  /** Stable logical delivery key for provider-side retry deduplication. */
+  /** Stable logical delivery key for provider-side retry reconciliation. */
   idempotencyKey?: string;
+  /** Earliest provider timestamp (epoch ms) that can contain this delivery. */
+  reconcileAfter?: number;
   /** Do not fall back to a fresh post if the stable target cannot be updated. */
   strictTargetRef?: boolean;
 }

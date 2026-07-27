@@ -811,6 +811,7 @@ describe("A2A continuation processor", () => {
       expect.any(Object),
       {
         idempotencyKey: "a2a-continuation:cont-1",
+        reconcileAfter: expect.any(Number),
         placeholderRef: undefined,
         strictTargetRef: true,
       },
@@ -1401,6 +1402,7 @@ describe("A2A continuation processor", () => {
       expect.objectContaining({ platform: "slack" }),
       expect.objectContaining({
         idempotencyKey: "a2a-continuation:cont-1",
+        reconcileAfter: expect.any(Number),
         placeholderRef: "1719000000.000001",
         strictTargetRef: true,
       }),
@@ -1489,6 +1491,7 @@ describe("A2A continuation processor", () => {
       expect.objectContaining({ platform: "slack" }),
       expect.objectContaining({
         idempotencyKey: "a2a-continuation:cont-1",
+        reconcileAfter: expect.any(Number),
         placeholderRef: "1719000000.000001",
         strictTargetRef: true,
       }),

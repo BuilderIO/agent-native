@@ -873,6 +873,7 @@ async function deliverA2AContinuationResponse(
   }
   const receipt = await adapter.sendResponse(message, continuation.incoming, {
     idempotencyKey: `a2a-continuation:${continuation.id}`,
+    reconcileAfter: continuation.createdAt,
     placeholderRef:
       progress?.responseTargetRef ?? continuation.placeholderRef ?? undefined,
     strictTargetRef: true,
