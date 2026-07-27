@@ -13,6 +13,7 @@ import {
   CrmListError,
   crmActorFrom,
   indexAttributes,
+  initialCrmEntryValues,
   loadCrmListAttributes,
   requireCrmList,
   writeCrmListEntryValues,
@@ -31,7 +32,7 @@ export const listEntryValuesSchema = z
 
 export default defineAction({
   description:
-    "Add a record to a CRM list as a new entry, with optional starting values for the list's own entry attributes. A record may hold more than one entry in the same list — two open deals for one company are two entries — so this never de-duplicates; it returns existingEntryIds for the caller to decide. The record's objectType must match the list's parentObjectType. The entry is local-authoritative even when the record mirrors HubSpot or Salesforce.",
+    "Add a record to a CRM list as a new entry, with optional starting values for the list's own entry attributes. Any list attribute you do not supply is INITIALIZED from the record's own attribute of the same slug and type — a one-time copy at insert, reported in initialValues, so a new board is populated. It is a copy and not a link: the entry never re-reads the record and editing the entry never writes the record. A record may hold more than one entry in the same list — two open deals for one company are two entries — so this never de-duplicates; it returns existingEntryIds for the caller to decide. The record's objectType must match the list's parentObjectType. The entry is local-authoritative even when the record mirrors HubSpot or Salesforce.",
   schema: z.object({
     listId: z.string().trim().min(1).max(128),
     recordId: z.string().trim().min(1).max(128),
@@ -68,6 +69,7 @@ export default defineAction({
         id: schema.crmRecords.id,
         objectType: schema.crmRecords.objectType,
         displayName: schema.crmRecords.displayName,
+        connectionId: schema.crmRecords.connectionId,
       })
       .from(schema.crmRecords)
       .where(
@@ -118,6 +120,18 @@ export default defineAction({
       .orderBy(desc(schema.crmListEntries.position))
       .limit(1);
 
+    // The entry's first values, copied once from the record. A value the caller
+    // supplied is left alone — including an explicit null, which is the caller
+    // saying "start this one empty".
+    const initial = await initialCrmEntryValues({
+      db,
+      connectionId: record.connectionId,
+      record,
+      attributes,
+      supplied: new Set(Object.keys(args.values ?? {})),
+    });
+    const values = { ...initial.values, ...(args.values ?? {}) };
+
     const entryId = crypto.randomUUID();
     const actor = crmActorFrom(ctx);
     const now = new Date().toISOString();
@@ -141,7 +155,7 @@ export default defineAction({
         recordId: record.id,
         entryId,
         attributes,
-        values: args.values ?? {},
+        values,
         actor,
         ownership,
         now,
@@ -152,6 +166,13 @@ export default defineAction({
       entryId,
       listId: list.id,
       recordId: record.id,
+      /**
+       * What the entry's values were initialized from. An `applied: false` row
+       * is a value the record held that this list cannot represent — reported,
+       * never dropped silently, because an unexplained empty card is exactly
+       * how a board looks broken.
+       */
+      initialValues: initial.initialValues,
       /**
        * Entries this record already had in this list. Non-empty is normal, not
        * an error — the caller decides whether a second entry was intended.

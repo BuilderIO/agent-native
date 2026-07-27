@@ -7,7 +7,11 @@ import {
   attributeInputValue,
   currencyCodeOf,
   editorDraftFor,
+  editorInputType,
   parseAttributeValue,
+  referenceMembers,
+  referenceSearchKind,
+  toggleReferenceValue,
   valueTokens,
   type CrmValueShape,
 } from "./attribute-value";
@@ -131,6 +135,100 @@ describe("inline editor drafts", () => {
     expect(
       editorDraftFor(undefined, attributeInputValue(amount, 184000)),
     ).toEqual({ draft: "184000", seed: "184000" });
+  });
+});
+
+describe("editorInputType", () => {
+  // The regression, reproduced in a browser and confirmed in SQL: the record
+  // panel rendered `amount` as <input type="number">. Mid-typing "91e" the
+  // control reports value "" with validity.badInput, the parser read "" as
+  // "cleared", and Enter stored amount = NULL for a value the user had typed.
+  it("never renders a numeric attribute as type=number", () => {
+    for (const attributeType of ["number", "currency", "rating"] as const) {
+      expect(editorInputType(attribute({ attributeType }))).toEqual({
+        type: "text",
+        inputMode: "decimal",
+      });
+    }
+  });
+
+  it("keeps the native control for dates and typed text", () => {
+    expect(editorInputType(attribute({ attributeType: "date" }))).toEqual({
+      type: "date",
+    });
+    expect(
+      editorInputType(attribute({ attributeType: "email-address" })),
+    ).toEqual({ type: "email" });
+  });
+
+  it("falls back to text for a multi value, which is a comma-separated list", () => {
+    expect(
+      editorInputType(attribute({ attributeType: "date", multi: true })),
+    ).toEqual({ type: "text" });
+  });
+});
+
+describe("reference values", () => {
+  const reference = attribute({ attributeType: "record-reference" });
+
+  it("narrows the picker only when exactly one known object type is declared", () => {
+    expect(referenceSearchKind(reference)).toBeNull();
+    expect(
+      referenceSearchKind(
+        attribute({
+          attributeType: "record-reference",
+          config: { reference: { allowedObjectTypes: ["accounts"] } },
+        }),
+      ),
+    ).toBe("account");
+    // Two allowed types cannot be expressed as one `kind`; narrowing to the
+    // first would hide exactly the record the user is searching for.
+    expect(
+      referenceSearchKind(
+        attribute({
+          attributeType: "record-reference",
+          config: {
+            reference: { allowedObjectTypes: ["accounts", "people"] },
+          },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      referenceSearchKind(
+        attribute({
+          attributeType: "record-reference",
+          config: { reference: { allowedObjectTypes: ["widgets"] } },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("replaces a single reference and toggles a multi one", () => {
+    expect(toggleReferenceValue("Acme Freight", "Cedarline", false)).toBe(
+      "Cedarline",
+    );
+    expect(toggleReferenceValue(null, "Acme Freight", true)).toEqual([
+      "Acme Freight",
+    ]);
+    expect(toggleReferenceValue(["Acme Freight"], "Cedarline", true)).toEqual([
+      "Acme Freight",
+      "Cedarline",
+    ]);
+    expect(
+      toggleReferenceValue(["Acme Freight", "Cedarline"], "Cedarline", true),
+    ).toEqual(["Acme Freight"]);
+  });
+
+  it("clears to null, never to an empty array", () => {
+    expect(toggleReferenceValue(["Acme Freight"], "Acme Freight", true)).toBe(
+      null,
+    );
+  });
+
+  it("reads members off both shapes and drops non-string debris", () => {
+    expect(referenceMembers(undefined)).toEqual([]);
+    expect(referenceMembers("Acme Freight")).toEqual(["Acme Freight"]);
+    expect(referenceMembers(["Acme Freight", "", 7])).toEqual(["Acme Freight"]);
   });
 });
 

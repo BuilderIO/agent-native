@@ -48,6 +48,7 @@ import {
   ATTRIBUTE_TYPE_SPECS,
   storageColumnFor,
   type CrmAttributeStorageColumn,
+  type CrmAttributeType,
 } from "../shared/crm-attributes.js";
 import type {
   CrmActorType,
@@ -333,6 +334,183 @@ export function indexAttributes(
   attributes: CrmListAttribute[],
 ): Map<string, CrmListAttribute> {
   return new Map(attributes.map((attribute) => [attribute.apiSlug, attribute]));
+}
+
+// ---------------------------------------------------------------------------
+// Seeding a list from its parent object, and the one-time copy that gives a
+// new entry its first values.
+//
+// A list attribute is the list's OWN field: it is seeded from a record
+// attribute and each entry's first value is copied from the record once, at
+// insert. Nothing re-reads the record afterwards and nothing writes back — that
+// separation is what lets a pipeline run over a HubSpot or Salesforce mirror
+// without a provider write.
+// ---------------------------------------------------------------------------
+
+/** A parent-object attribute a list can seed from. Single-valued only: a
+ * list's stage, amount, and date are single by construction, and a multi
+ * source would not fit the seeded attribute's storage column. */
+export interface CrmObjectAttribute {
+  id: string;
+  apiSlug: string;
+  label: string;
+  attributeType: CrmAttributeType;
+  /** Raw `config_json`, copied verbatim so a currency keeps its code. */
+  configJson: string;
+  position: number;
+}
+
+export async function loadCrmObjectAttributes(
+  db: CrmDb,
+  connectionId: string,
+  objectType: string,
+): Promise<CrmObjectAttribute[]> {
+  const rows = await db
+    .select({
+      id: schema.crmFieldPolicies.id,
+      apiSlug: schema.crmFieldPolicies.apiSlug,
+      fieldName: schema.crmFieldPolicies.fieldName,
+      label: schema.crmFieldPolicies.label,
+      attributeType: schema.crmFieldPolicies.attributeType,
+      configJson: schema.crmFieldPolicies.configJson,
+      position: schema.crmFieldPolicies.position,
+    })
+    .from(schema.crmFieldPolicies)
+    .where(
+      and(
+        eq(schema.crmFieldPolicies.target, "object"),
+        eq(schema.crmFieldPolicies.objectType, objectType),
+        eq(schema.crmFieldPolicies.connectionId, connectionId),
+        eq(schema.crmFieldPolicies.archived, false),
+        eq(schema.crmFieldPolicies.multi, false),
+        accessFilter(schema.crmFieldPolicies, schema.crmFieldPolicyShares),
+      ),
+    )
+    .limit(MAX_LIST_ATTRIBUTES);
+
+  return rows
+    .map((row) => ({
+      id: row.id,
+      // `api_slug` is null on rows written by the adapters, which predate the
+      // typed surface; `field_name` is what their values are keyed by.
+      apiSlug: row.apiSlug ?? row.fieldName,
+      label: row.label,
+      attributeType: row.attributeType,
+      configJson: row.configJson,
+      position: row.position,
+    }))
+    .sort(
+      (a, b) => a.position - b.position || a.apiSlug.localeCompare(b.apiSlug),
+    );
+}
+
+/** What one attribute's initial value did, per entry. `applied: false` is
+ * reported rather than dropped: "the record had no value" and "the record's
+ * value does not fit this list" are different facts about an empty card. */
+export interface CrmEntryInitialValue {
+  attribute: string;
+  /** The record attribute the value was read from. */
+  from: string;
+  applied: boolean;
+  reason?: string;
+}
+
+/**
+ * The values a BRAND-NEW entry starts with, copied once from the record's own
+ * attributes that share the list attribute's slug and type.
+ *
+ * This is a snapshot at insert, not a binding. Nothing reads the record again,
+ * and `update-crm-list-entry` never writes it back, so an entry and its record
+ * diverge from here on — deliberately, because the record may be provider-owned
+ * and a pipeline must never need a provider write.
+ */
+export async function initialCrmEntryValues(input: {
+  db: CrmDb;
+  connectionId: string;
+  record: { id: string; objectType: string };
+  attributes: Map<string, CrmListAttribute>;
+  /** Slugs the caller set explicitly. Neither copied nor reported: a value the
+   * caller chose was not initialized from anything. */
+  supplied?: ReadonlySet<string>;
+}): Promise<{
+  values: Record<string, CrmValue>;
+  initialValues: CrmEntryInitialValue[];
+}> {
+  if (input.attributes.size === 0) return { values: {}, initialValues: [] };
+
+  const sources = (
+    await loadCrmObjectAttributes(
+      input.db,
+      input.connectionId,
+      input.record.objectType,
+    )
+  ).filter((source) => {
+    if (input.supplied?.has(source.apiSlug)) return false;
+    const attribute = input.attributes.get(source.apiSlug);
+    // Same slug is not enough: a text `amount` on the object must not be copied
+    // into a currency `amount` on the list.
+    return (
+      !!attribute &&
+      !attribute.multi &&
+      attribute.attributeType === source.attributeType
+    );
+  });
+  if (sources.length === 0) return { values: {}, initialValues: [] };
+
+  const rows = await input.db
+    .select({
+      fieldName: schema.crmRecordFields.fieldName,
+      stringValue: schema.crmRecordFields.stringValue,
+      numberValue: schema.crmRecordFields.numberValue,
+      booleanValue: schema.crmRecordFields.booleanValue,
+      jsonValue: schema.crmRecordFields.jsonValue,
+    })
+    .from(schema.crmRecordFields)
+    .where(
+      and(
+        eq(schema.crmRecordFields.recordId, input.record.id),
+        // `entry_id IS NULL` is the record-vs-entry discriminator: another
+        // entry's value must never seed this one.
+        isNull(schema.crmRecordFields.entryId),
+        isNull(schema.crmRecordFields.activeUntil),
+        inArray(
+          schema.crmRecordFields.fieldName,
+          sources.map((source) => source.apiSlug),
+        ),
+        accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
+      ),
+    );
+
+  const values: Record<string, CrmValue> = {};
+  const initialValues: CrmEntryInitialValue[] = [];
+  for (const row of rows) {
+    const attribute = input.attributes.get(row.fieldName);
+    if (!attribute) continue;
+    const value = decodeCrmAttributeValue(attribute, row);
+    // Nothing to copy is not a failure and is not reported as one.
+    if (value === null) continue;
+    if (ATTRIBUTE_TYPE_SPECS[attribute.attributeType].usesOptions) {
+      const enterable = attribute.options.some(
+        (option) => !option.archived && option.value === value,
+      );
+      if (!enterable) {
+        initialValues.push({
+          attribute: attribute.apiSlug,
+          from: row.fieldName,
+          applied: false,
+          reason: `The record's "${String(value)}" is not a live option of this list's "${attribute.label}". Add the option, or set the entry's value explicitly.`,
+        });
+        continue;
+      }
+    }
+    values[attribute.apiSlug] = value;
+    initialValues.push({
+      attribute: attribute.apiSlug,
+      from: row.fieldName,
+      applied: true,
+    });
+  }
+  return { values, initialValues };
 }
 
 // ---------------------------------------------------------------------------

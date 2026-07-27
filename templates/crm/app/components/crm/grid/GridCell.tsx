@@ -1,13 +1,28 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  IconAbc,
   IconAlertTriangle,
+  IconCalendar,
   IconCheck,
+  IconClock,
   IconClockExclamation,
   IconCopy,
+  IconCurrencyDollar,
   IconExternalLink,
+  IconId,
+  IconLink,
+  IconMail,
+  IconMapPin,
+  IconMessage,
+  IconNumbers,
+  IconPhone,
+  IconProgressCheck,
+  IconSelector,
+  IconSquareCheck,
   IconStar,
   IconStarFilled,
+  IconUser,
+  IconWorld,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -25,16 +40,20 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+import type { CrmAttributeType } from "../../../../shared/crm-attributes";
 import {
   activeOptions,
   attributeInputValue,
+  editorInputType,
   RATING_MAX,
+  referenceMembers,
+  referenceSearchKind,
   valueTokens,
+  type CrmValueToken,
 } from "../shared/attribute-value";
-import {
-  AttributeOptionChip,
-  AttributeRating,
-} from "../shared/AttributeValueParts";
+import { AttributeRating } from "../shared/AttributeValueParts";
+import { RecordReferencePicker } from "../shared/RecordReferencePicker";
+import { overlayProps } from "../shared/ui-tokens";
 import {
   cellSpecFor,
   formatCell,
@@ -48,6 +67,86 @@ import { resolveGridKey, type GridDirection } from "./navigation";
 type Translate = ReturnType<typeof useT>;
 
 const EMPTY = "—";
+
+// ---------------------------------------------------------------------------
+// Header affordances
+// ---------------------------------------------------------------------------
+
+/** The leading glyph on a column header: the attribute's type, not its name. */
+const TYPE_ICONS: Record<
+  CrmAttributeType,
+  React.ComponentType<{ className?: string }>
+> = {
+  text: IconAbc,
+  number: IconNumbers,
+  checkbox: IconSquareCheck,
+  currency: IconCurrencyDollar,
+  date: IconCalendar,
+  timestamp: IconClock,
+  rating: IconStar,
+  status: IconProgressCheck,
+  select: IconSelector,
+  "record-reference": IconLink,
+  "actor-reference": IconUser,
+  location: IconMapPin,
+  domain: IconWorld,
+  "email-address": IconMail,
+  "phone-number": IconPhone,
+  interaction: IconMessage,
+  "personal-name": IconId,
+};
+
+export function AttributeTypeIcon({
+  type,
+  className,
+}: {
+  type: CrmAttributeType;
+  className?: string;
+}) {
+  const Icon = TYPE_ICONS[type] ?? IconAbc;
+  return <Icon className={className} />;
+}
+
+// ---------------------------------------------------------------------------
+// Avatars
+// ---------------------------------------------------------------------------
+
+export type CrmAvatarShape = "person" | "company";
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  const first = words[0]?.[0] ?? "";
+  const second = words.length > 1 ? (words[words.length - 1]?.[0] ?? "") : "";
+  return `${first}${second}`;
+}
+
+/**
+ * A record's avatar. Shape carries the object type — a round avatar is a
+ * person, a squircle is an organisation — so the two never have to be labelled.
+ */
+export function RecordAvatar({
+  name,
+  shape,
+  className,
+}: {
+  name: string;
+  shape: CrmAvatarShape;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex size-5 shrink-0 items-center justify-center bg-muted text-[10px] font-medium uppercase leading-none text-content-secondary ring-1 ring-inset ring-hairline",
+        shape === "person" ? "rounded-full" : "rounded-avatar-company",
+        className,
+      )}
+    >
+      {initials(name)}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Provenance
@@ -166,39 +265,122 @@ function copyToClipboard(text: string, t: Translate) {
     .catch(() => toast.error(t("grid.copyFailed")));
 }
 
+/**
+ * A record reference. Hover tint rides the shared overlay rather than a
+ * background swap so it composites over a tinted row exactly like every other
+ * hover in the app.
+ */
 function Chip({
   children,
+  avatar,
   onCopy,
   href,
 }: {
   children: React.ReactNode;
+  avatar?: React.ReactNode;
   onCopy?: () => void;
   href?: string;
 }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/70 bg-muted/40 py-0.5 pl-1.5 pr-2 text-xs">
-      <span className="truncate">{children}</span>
+    <span
+      {...overlayProps({
+        className:
+          "inline-flex max-w-full items-center gap-1.5 self-start rounded-chip py-0.5 pl-1 pr-1.5 text-sm before:duration-[var(--motion-breezy)]",
+      })}
+    >
+      {avatar}
+      <span className="min-w-0 truncate">{children}</span>
       {href ? (
         <a
           href={href}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 text-muted-foreground hover:text-foreground"
+          className="shrink-0 text-content-ghost hover:text-foreground"
           onClick={(event) => event.stopPropagation()}
         >
-          <IconExternalLink className="size-3" />
+          <IconExternalLink className="size-3.5" />
         </a>
       ) : null}
       {onCopy ? (
         <button
           type="button"
-          className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+          className="shrink-0 cursor-pointer text-content-ghost hover:text-foreground"
           onClick={(event) => {
             event.stopPropagation();
             onCopy();
           }}
         >
-          <IconCopy className="size-3" />
+          <IconCopy className="size-3.5" />
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * An option renders as a *tint* of its own colour, never a saturated fill: a
+ * grid of filled chips reads as decoration, and the colour stops carrying
+ * information. `color-mix` rather than an appended hex alpha — an option colour
+ * may be any CSS colour, and `#0a0` + "22" is not a colour at all.
+ */
+function OptionPill({ token }: { token: CrmValueToken }) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center rounded-badge bg-foreground/[0.06] px-1.5 py-0.5 text-xs font-medium text-content-secondary"
+      style={
+        token.color
+          ? {
+              backgroundColor: `color-mix(in srgb, ${token.color} 14%, transparent)`,
+              color: token.color,
+            }
+          : undefined
+      }
+    >
+      <span className="min-w-0 truncate">{token.label}</span>
+    </span>
+  );
+}
+
+/** A value that is a destination: underlined, with a decoration soft enough
+ *  that a column of them does not read as a stack of rules. */
+function LinkValue({
+  text,
+  href,
+  onCopy,
+}: {
+  text: string;
+  href?: string;
+  onCopy?: () => void;
+}) {
+  const underline =
+    "min-w-0 truncate underline decoration-content-ghost underline-offset-[0.14em] hover:decoration-content-secondary";
+  return (
+    <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+      {href ? (
+        <a
+          href={href}
+          // A `mailto:` opened in a new tab leaves an empty one behind.
+          {...(href.startsWith("http")
+            ? { target: "_blank", rel: "noreferrer" }
+            : {})}
+          className={underline}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {text}
+        </a>
+      ) : (
+        <span className={underline}>{text}</span>
+      )}
+      {onCopy ? (
+        <button
+          type="button"
+          className="shrink-0 cursor-pointer text-content-ghost opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCopy();
+          }}
+        >
+          <IconCopy className="size-3.5" />
         </button>
       ) : null}
     </span>
@@ -218,10 +400,10 @@ function StatusPill({
   const token = valueTokens(attribute, value)[0];
   // A status whose option was deleted still shows its stored value: "—" would
   // claim the record has no stage at all.
-  if (!token) return <span className="text-muted-foreground">{EMPTY}</span>;
+  if (!token) return <span className="text-content-ghost">{EMPTY}</span>;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <AttributeOptionChip token={token} />
+      <OptionPill token={token} />
       {overrun !== null ? (
         <IconClockExclamation
           className="size-3.5 shrink-0 text-amber-600 dark:text-amber-500"
@@ -274,12 +456,12 @@ export function CellDisplay({
   if (type === "select") {
     const tokens = valueTokens(attribute, value);
     if (!tokens.length) {
-      return <span className="text-muted-foreground">{EMPTY}</span>;
+      return <span className="text-content-ghost">{EMPTY}</span>;
     }
     return (
-      <span className="flex flex-wrap items-center gap-1">
+      <span className="flex items-center gap-1 overflow-hidden">
         {tokens.map((token, index) => (
-          <AttributeOptionChip key={`${token.label}:${index}`} token={token} />
+          <OptionPill key={`${token.label}:${index}`} token={token} />
         ))}
       </span>
     );
@@ -287,22 +469,25 @@ export function CellDisplay({
   if (type === "email-address" || type === "domain") {
     const values = Array.isArray(value) ? value : value === null ? [] : [value];
     if (!values.length) {
-      return <span className="text-muted-foreground">{EMPTY}</span>;
+      return <span className="text-content-ghost">{EMPTY}</span>;
     }
     return (
-      <span className="flex flex-wrap items-center gap-1">
+      <span className="flex items-center gap-2 overflow-hidden">
         {values.map((entry) => {
           const text = String(entry);
           return (
-            <Chip
+            <LinkValue
               key={text}
+              text={text}
               onCopy={() => copyToClipboard(text, t)}
-              {...(type === "domain"
-                ? { href: text.startsWith("http") ? text : `https://${text}` }
-                : {})}
-            >
-              {text}
-            </Chip>
+              href={
+                type === "domain"
+                  ? text.startsWith("http")
+                    ? text
+                    : `https://${text}`
+                  : `mailto:${text}`
+              }
+            />
           );
         })}
       </span>
@@ -310,13 +495,27 @@ export function CellDisplay({
   }
   if (type === "record-reference" || type === "actor-reference") {
     const text = formatCell(attribute, value);
-    if (!text) return <span className="text-muted-foreground">{EMPTY}</span>;
-    return <Chip>{text}</Chip>;
+    if (!text) return <span className="text-content-ghost">{EMPTY}</span>;
+    return (
+      <Chip
+        avatar={
+          <RecordAvatar
+            name={text}
+            // A reference carries no object type, so only an actor — always a
+            // person — can claim the round shape.
+            shape={type === "actor-reference" ? "person" : "company"}
+            className="size-4 text-[9px]"
+          />
+        }
+      >
+        {text}
+      </Chip>
+    );
   }
 
   const text = formatCell(attribute, value);
-  if (!text) return <span className="text-muted-foreground">{EMPTY}</span>;
-  return <span className="block truncate">{text}</span>;
+  if (!text) return <span className="text-content-ghost">{EMPTY}</span>;
+  return <span className="block min-w-0 truncate">{text}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +523,7 @@ export function CellDisplay({
 // ---------------------------------------------------------------------------
 
 const INPUT_CLASS =
-  "h-full w-full border-0 bg-transparent px-2 text-sm outline-none ring-0 placeholder:text-muted-foreground/60";
+  "h-full w-full border-0 bg-transparent px-3 text-sm outline-none ring-0 placeholder:text-content-ghost";
 
 function useAutoFocus<T extends HTMLElement>() {
   const ref = useRef<T>(null);
@@ -333,76 +532,6 @@ function useAutoFocus<T extends HTMLElement>() {
     if (ref.current instanceof HTMLInputElement) ref.current.select();
   }, []);
   return ref;
-}
-
-function ReferencePicker({
-  attribute,
-  onPick,
-  onCancel,
-}: {
-  attribute: CrmGridAttribute;
-  onPick: (value: string) => void;
-  onCancel: () => void;
-}) {
-  const t = useT();
-  const [search, setSearch] = useState("");
-  const inputRef = useAutoFocus<HTMLInputElement>();
-  const results = useActionQuery<{
-    records?: Array<{ id: string; displayName: string; subtitle?: string }>;
-  }>(
-    "list-crm-records" as never,
-    { query: search.trim() || undefined, limit: 8 } as never,
-    { enabled: search.trim().length > 1 } as never,
-  );
-  const records = results.data?.records ?? [];
-  return (
-    <div className="w-64">
-      <input
-        ref={inputRef}
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
-        }}
-        placeholder={t("grid.searchRecords")}
-        className="w-full border-b border-border/70 bg-transparent px-3 py-2 text-sm outline-none"
-      />
-      <div className="max-h-56 overflow-y-auto py-1">
-        {search.trim().length <= 1 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
-            {t("grid.searchToLink")}
-          </p>
-        ) : results.isError ? (
-          <p className="px-3 py-2 text-xs text-destructive">
-            {t("grid.searchFailed")}
-          </p>
-        ) : records.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-muted-foreground">
-            {results.isLoading ? t("grid.searching") : t("grid.noMatches")}
-          </p>
-        ) : (
-          records.map((record) => (
-            <button
-              key={record.id}
-              type="button"
-              className="flex w-full cursor-pointer flex-col items-start px-3 py-1.5 text-left text-sm hover:bg-muted"
-              onClick={() => onPick(record.displayName)}
-            >
-              <span className="truncate font-medium">{record.displayName}</span>
-              {record.subtitle ? (
-                <span className="truncate text-xs text-muted-foreground">
-                  {record.subtitle}
-                </span>
-              ) : null}
-            </button>
-          ))
-        )}
-      </div>
-      <p className="border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
-        {t("grid.referenceHint", { attribute: attribute.label })}
-      </p>
-    </div>
-  );
 }
 
 function OptionPicker({
@@ -446,10 +575,13 @@ function OptionPicker({
           onClick={() => toggle(option.value)}
         >
           <span
-            className="size-2 shrink-0 rounded-full"
-            style={{
-              backgroundColor: option.color ?? "var(--muted-foreground)",
-            }}
+            className={cn(
+              "size-3 shrink-0 rounded-full",
+              // An uncolored option is a ring, not a grey dot: a filled grey
+              // reads as "colored grey" next to real option colours.
+              option.color ? "" : "ring-1 ring-inset ring-hairline",
+            )}
+            style={option.color ? { backgroundColor: option.color } : undefined}
           />
           <span className="flex-1 truncate">{option.title}</span>
           {selected.has(option.value) ? (
@@ -495,7 +627,7 @@ export function CellEditor({
 
   if (spec.editor === "checkbox") {
     return (
-      <span className="flex h-full items-center justify-center">
+      <span className="flex h-full items-start justify-center pt-2">
         <Checkbox
           autoFocus
           checked={value === true}
@@ -509,23 +641,25 @@ export function CellEditor({
   if (spec.editor === "rating") {
     const current = typeof value === "number" ? value : 0;
     return (
-      <span className="flex h-full items-center gap-0.5 px-2">
-        {Array.from({ length: RATING_MAX }, (_, index) => index + 1).map(
-          (step) => (
-            <button
-              key={step}
-              type="button"
-              className="cursor-pointer"
-              onClick={() => onCommit(step === current ? null : step, false)}
-            >
-              {step <= current ? (
-                <IconStarFilled className="size-4 text-amber-500" />
-              ) : (
-                <IconStar className="size-4 text-muted-foreground/50 hover:text-amber-500" />
-              )}
-            </button>
-          ),
-        )}
+      <span className="flex h-full items-start px-3 pt-2">
+        <span className="flex items-center gap-0.5 rounded-lg px-1.5 py-0.5 ring-1 ring-inset ring-transparent transition-[box-shadow] duration-[var(--motion-comfortable)] hover:ring-hairline">
+          {Array.from({ length: RATING_MAX }, (_, index) => index + 1).map(
+            (step) => (
+              <button
+                key={step}
+                type="button"
+                className="cursor-pointer"
+                onClick={() => onCommit(step === current ? null : step, false)}
+              >
+                {step <= current ? (
+                  <IconStarFilled className="size-3.5 text-amber-500" />
+                ) : (
+                  <IconStar className="size-3.5 text-content-ghost hover:text-amber-500" />
+                )}
+              </button>
+            ),
+          )}
+        </span>
       </span>
     );
   }
@@ -539,7 +673,7 @@ export function CellEditor({
         }}
       >
         <PopoverTrigger asChild>
-          <span className="flex h-full items-center px-2 text-sm">
+          <span className="flex h-full items-start px-3 pt-2 text-sm">
             <CellDisplay attribute={attribute} value={value} />
           </span>
         </PopoverTrigger>
@@ -563,13 +697,15 @@ export function CellEditor({
         }}
       >
         <PopoverTrigger asChild>
-          <span className="flex h-full items-center px-2 text-sm">
+          <span className="flex h-full items-start px-3 pt-2 text-sm">
             <CellDisplay attribute={attribute} value={value} />
           </span>
         </PopoverTrigger>
         <PopoverContent align="start" className="p-0">
-          <ReferencePicker
-            attribute={attribute}
+          <RecordReferencePicker
+            label={attribute.label}
+            kind={referenceSearchKind(attribute)}
+            selected={referenceMembers(value)}
             onPick={(next) => onCommit(next, true)}
             onCancel={onCancel}
           />
@@ -578,16 +714,14 @@ export function CellEditor({
     );
   }
 
-  // The grid overrides the registry's `number` input type: spinner arrows in a
-  // 34px cell steal the scroll wheel while the sheet is being scrolled.
-  const inputType = spec.inputType === "number" ? "text" : spec.inputType;
+  const input = editorInputType(attribute);
 
   return (
     <input
       ref={inputRef}
-      type={inputType}
+      type={input.type}
       defaultValue={text}
-      inputMode={spec.editor === "number" ? "decimal" : undefined}
+      {...(input.inputMode ? { inputMode: input.inputMode } : {})}
       onChange={(event) => setText(event.target.value)}
       onKeyDown={(event) => {
         const intent = resolveGridKey(event, { editing: true });

@@ -354,6 +354,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "تغيير حجم اللوحة",
     loadFailedTitle: "تعذر تحميل هذا السجل",
     loadFailedDescription:
       "لم يتمكن CRM من قراءة هذا السجل. قد يكون خارج نطاق وصولك.",
