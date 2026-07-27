@@ -88,7 +88,7 @@ describe("remix-workspace-template action", () => {
         template: "calendar",
         description: "A private scheduling workflow.",
         prompt: expect.stringContaining(
-          "private workspace remix of a curated first-party template",
+          "private workspace app from a curated first-party template",
         ),
       }),
     );
