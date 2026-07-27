@@ -145,6 +145,28 @@ export function titleMatchConfirmsSave(args: {
   );
 }
 
+export function refreshUnchangedContentSaveWatermark(args: {
+  serverContent: string;
+  serverUpdatedAt: string | null;
+  lastSaved: ContentSaveWatermark;
+}): ContentSaveWatermark {
+  if (
+    args.serverContent !== args.lastSaved.content ||
+    !args.serverUpdatedAt ||
+    (args.lastSaved.updatedAt &&
+      args.serverUpdatedAt <= args.lastSaved.updatedAt)
+  ) {
+    return args.lastSaved;
+  }
+
+  // documents.updatedAt versions the whole row, not just the body. If the
+  // fetched body still byte-matches our saved baseline, a newer timestamp can
+  // only describe a title/icon/metadata update. Advance the content CAS base so
+  // a local rich-text tail is not silently preflight-dropped. A concurrent body
+  // edit still differs here and remains protected by the server CAS.
+  return { ...args.lastSaved, updatedAt: args.serverUpdatedAt };
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -219,7 +241,13 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: queriedDocument, isError } = useDocument(documentId);
+  const documentQuery = useDocument(documentId);
+  const {
+    data: queriedDocument,
+    isError,
+    isFetchedAfterMount,
+    isFetching,
+  } = documentQuery;
   const navigate = useNavigate();
   const document =
     queriedDocument?.id === documentId ? queriedDocument : undefined;
@@ -230,11 +258,30 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
 
   // If we have a doc (real or optimistic from create) render the editor —
   // an `isError` blip during a just-fired create shouldn't flash "not found".
-  if (!document) {
+  // A database/list snapshot can optimistically seed the document cache with a
+  // body that predates the latest collaborative save. Mounting ProseMirror from
+  // that snapshot lets reconcile briefly insert the stale tail beside the
+  // already-current Y.Doc. Wait only for this mount's first dedicated
+  // get-document response; later poll/SSE refetches remain live and reconcile
+  // without replacing the editor.
+  if (
+    !document ||
+    shouldAwaitAuthoritativeDocument({ isFetching, isFetchedAfterMount })
+  ) {
     return <DocumentEditorSkeleton />;
   }
 
   return <DocumentEditorBody documentId={documentId} document={document} />;
+}
+
+export function shouldAwaitAuthoritativeDocument({
+  isFetching,
+  isFetchedAfterMount,
+}: {
+  isFetching: boolean;
+  isFetchedAfterMount: boolean;
+}) {
+  return isFetching && !isFetchedAfterMount;
 }
 
 interface DocumentEditorBodyProps {
@@ -261,6 +308,23 @@ type DocumentSaveOptions = {
 type DocumentSaveResult = {
   contentPersisted: boolean;
 };
+
+export function enqueueDocumentSave<T>(
+  queueRef: MutableRefObject<Promise<void>>,
+  save: () => Promise<T>,
+): Promise<T> {
+  // Content CAS assumes each local save starts from the result of the previous
+  // local save. Debounced typing and structural "save now" operations can
+  // otherwise overlap with the same baseUpdatedAt: the shorter request wins,
+  // and the later, fuller document is rejected as a conflict. Keep the safety
+  // guard and serialize this editor's writes instead of weakening CAS.
+  const queued = queueRef.current.then(save, save);
+  queueRef.current = queued.then(
+    () => undefined,
+    () => undefined,
+  );
+  return queued;
+}
 
 function useMinViewportWidth(minWidth: number) {
   const [matches, setMatches] = useState(false);
@@ -543,6 +607,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
@@ -563,6 +628,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const documentContentRef = useRef(document.content);
+  documentContentRef.current = document.content;
   const handleBackgroundSaveError = useCallback(
     (error: unknown) => {
       toast.error(t("empty.genericError"), {
@@ -651,7 +718,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const {
     ydoc,
     awareness,
-    isLoading: collabLoading,
     isSynced: collabSynced,
     activeUsers,
     agentActive,
@@ -663,12 +729,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
-    canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+    canEdit && !bodyHydrationPending && (isLocalFileDocument || collabSynced);
   // Bind an editor's stable Y.Doc on its first mount, even while the initial
-  // state is loading. Editability remains gated by `editorCanEdit`, and the
-  // reconcile hook remains gated by `collabSynced`; keeping the Y.Doc binding
-  // stable avoids a snapshot -> collab remount that can seed the same SQL body
-  // beside freshly projected persisted CRDT content.
+  // state is loading. Editability and the reconcile hook share the exact
+  // `collabSynced` boundary; "not loading" can precede persisted Y.Doc
+  // projection and briefly expose duplicated blocks. Keeping the Y.Doc binding
+  // stable avoids a snapshot -> collab remount while the read-only editor waits.
   const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
   canEditRef.current = editorCanEdit;
 
@@ -912,6 +978,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       content: string,
       options: DocumentSaveOptions = {},
     ): Promise<DocumentSaveResult> => {
+      lastSavedContentRef.current = refreshUnchangedContentSaveWatermark({
+        serverContent: documentContentRef.current,
+        serverUpdatedAt: documentUpdatedAtRef.current,
+        lastSaved: lastSavedContentRef.current,
+      });
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.
@@ -1001,6 +1072,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
+  const queueDocumentSave = useCallback(
+    (title: string, content: string, options: DocumentSaveOptions = {}) =>
+      enqueueDocumentSave(documentSaveQueueRef, () =>
+        saveDocumentImmediately(title, content, options),
+      ),
+    [saveDocumentImmediately],
+  );
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
       if (!pending.canEditWhenQueued) return;
@@ -1019,7 +1097,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       const pending: PendingDocumentSave = {
         title,
         content,
-        save: saveDocumentImmediately,
+        save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -1032,7 +1110,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [flushPendingDocumentSave, saveDocumentImmediately],
+    [flushPendingDocumentSave, queueDocumentSave],
   );
 
   useEffect(() => {
@@ -1328,13 +1406,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await saveDocumentImmediately(
-        localTitleRef.current,
-        newContent,
-      );
+      const result = await queueDocumentSave(localTitleRef.current, newContent);
       return result.contentPersisted;
     },
-    [editorCanEdit, saveDocumentImmediately],
+    [editorCanEdit, queueDocumentSave],
   );
 
   // Comments state — pending comment from text selection
@@ -1909,7 +1984,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     {!bodyHydrationPending &&
                     !isLocalFileDocument &&
                     canEdit &&
-                    collabLoading ? (
+                    !collabSynced ? (
                       <div
                         className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                         role="status"
