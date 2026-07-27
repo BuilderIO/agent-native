@@ -1,5 +1,20 @@
 # @agent-native/core
 
+## 0.124.3
+
+### Patch Changes
+
+- c385fed: Keep emoji and other multi-code-point grapheme clusters intact while streaming text. The incremental segmentation cache re-segmented from a fixed character offset, so a cluster straddling that offset was cut in half and characters were silently dropped from the smoothed output. The re-segmentation window now starts on a grapheme boundary.
+
+## 0.124.2
+
+### Patch Changes
+
+- 7568c67: Fix system email sending failing on serverless (ENOENT reading the branding
+  favicon). The inline email logo is now bundled as a base64 TS module instead of
+  read from disk at send time, so verification/invite/reset emails work in
+  production where raw assets aren't traced into the deploy bundle.
+
 ## 0.124.1
 
 ### Patch Changes

@@ -2,6 +2,7 @@ import path from "path";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -15,6 +16,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import {
+  ASPECT_RATIOS,
+  DEFAULT_ASPECT_RATIO,
+  type AspectRatio,
+} from "../shared/aspect-ratios.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
@@ -213,6 +219,25 @@ export default defineAction({
 
     if (detectedFormat === "pdf") {
       const { PDFParse, canvasFactory } = await setupPdfParse();
+      const title = titleFromPath(filename);
+
+      // Designed slide PDFs (photo backgrounds, gradients, custom
+      // typography) bake their visuals into vector/image page content with
+      // no reliable text/shape structure to reconstruct, so importing into a
+      // deck rasterizes each page instead of flattening it to generic bullet
+      // text. Falls through to the text-only path below when the optional
+      // canvas renderer isn't available in this runtime.
+      if (importIntoDeck && canvasFactory) {
+        if (!deckId) throw new Error("deckId is required to import into deck");
+        return importPdfPagesAsFullBleedSlides({
+          fileBuffer,
+          title,
+          deckId,
+          PDFParse,
+          canvasFactory,
+        });
+      }
+
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
       const pdf = new PDFParse({
@@ -222,7 +247,6 @@ export default defineAction({
       const result = await pdf.getText().finally(() => pdf.destroy());
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
-      const title = titleFromPath(filename);
 
       if (textPages.length === 0) {
         throw new Error(
@@ -277,6 +301,152 @@ export default defineAction({
     throw new Error(`Unsupported format: ${detectedFormat}`);
   },
 });
+
+/** Closest configured deck aspect ratio to a source image's own dimensions. */
+function nearestAspectRatio(width: number, height: number): AspectRatio {
+  const target = width / height;
+  let best: AspectRatio = DEFAULT_ASPECT_RATIO;
+  let bestDiff = Infinity;
+  for (const key of Object.keys(ASPECT_RATIOS) as AspectRatio[]) {
+    const preset = ASPECT_RATIOS[key];
+    const diff = Math.abs(preset.width / preset.height - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = key;
+    }
+  }
+  return best;
+}
+
+async function importPdfPagesAsFullBleedSlides(args: {
+  fileBuffer: Buffer;
+  title: string;
+  deckId: string;
+  PDFParse: Awaited<ReturnType<typeof setupPdfParse>>["PDFParse"];
+  canvasFactory: object;
+}) {
+  const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
+  const { buildFullBleedImageSlideHtml, convertSectionsToSlides } =
+    await import("../server/handlers/import/html-converter.js");
+
+  const pdf = new PDFParse({
+    data: new Uint8Array(fileBuffer),
+    CanvasFactory: canvasFactory,
+  });
+  let pages: { num: number; text: string }[];
+  let imagesByPage: Map<
+    number,
+    { data: Uint8Array; width: number; height: number }
+  >;
+  try {
+    pages = normalizePdfPages(await pdf.getText());
+    // Reuse the page's own embedded photo rather than rasterizing the whole
+    // page: headless canvas text rendering depends on the PDF's embedded
+    // fonts resolving in this runtime, which is unreliable, so real
+    // extracted text is drawn as HTML below instead of trusting the render.
+    const imageResult = await pdf.getImage({
+      imageBuffer: true,
+      imageDataUrl: false,
+    });
+    imagesByPage = new Map();
+    for (const page of imageResult.pages) {
+      const largest = page.images.reduce<
+        { data: Uint8Array; width: number; height: number } | undefined
+      >((best, image) => {
+        if (!best || image.width * image.height > best.width * best.height) {
+          return { data: image.data, width: image.width, height: image.height };
+        }
+        return best;
+      }, undefined);
+      if (largest) imagesByPage.set(page.pageNumber, largest);
+    }
+  } finally {
+    await pdf.destroy();
+  }
+
+  // Source decks (e.g. Instagram carousel exports) are commonly portrait or
+  // square, not the deck editor's 16:9 default — match the canvas to the
+  // first embedded photo's own proportions instead of stretching/cropping it.
+  const firstImage = pages
+    .map((page) => imagesByPage.get(page.num))
+    .find((image): image is NonNullable<typeof image> => Boolean(image));
+  const aspectRatio = firstImage
+    ? nearestAspectRatio(firstImage.width, firstImage.height)
+    : undefined;
+
+  const ownerEmail = getRequestUserEmail();
+  const slides = await Promise.all(
+    pages.map(async (page) => {
+      const lines = page.text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const backgroundImage = imagesByPage.get(page.num);
+
+      if (!backgroundImage) {
+        const [content] = convertSectionsToSlides([
+          { heading: lines[0] ?? `Page ${page.num}`, content: page.text },
+        ]);
+        return {
+          id: newSlideId(),
+          content: content ?? '<div class="fmd-slide"></div>',
+          layout: "content",
+          notes: "",
+        };
+      }
+
+      const uploadResult = await uploadFile({
+        data: Buffer.from(backgroundImage.data),
+        filename: `slide-import-${Date.now()}-p${page.num}.png`,
+        mimeType: "image/png",
+        ownerEmail: ownerEmail ?? undefined,
+        recordAsset: false,
+      });
+      if (!uploadResult?.url) {
+        throw new Error(
+          "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
+        );
+      }
+      // pdf-parse breaks wrapped text across lines with no way to tell a
+      // wrapped title from a heading followed by a body paragraph. Treat a
+      // couple of short lines as one wrapped title (join them so the
+      // sentence isn't cut off); three or more lines as a heading plus body
+      // text, rendered with distinct sizes so they don't collapse into one
+      // flat paragraph.
+      const heading =
+        lines.length > 2 ? lines[0] : lines.join(" ") || undefined;
+      const subtitle = lines.length > 2 ? lines.slice(1).join(" ") : undefined;
+      return {
+        id: newSlideId(),
+        content: buildFullBleedImageSlideHtml(
+          uploadResult.url,
+          heading,
+          subtitle,
+        ),
+        layout: "full-image",
+        notes: page.text,
+      };
+    }),
+  );
+
+  await replaceDeckSlides(
+    deckId,
+    title,
+    slides,
+    "import-file:pdf",
+    aspectRatio,
+  );
+
+  return {
+    format: "pdf",
+    title,
+    pageCount: slides.length,
+    slideCount: slides.length,
+    aspectRatio,
+    deckId,
+    imported: true,
+  };
+}
 
 function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -367,6 +537,7 @@ async function replaceDeckSlides(
     notes?: string;
   }>,
   source: string,
+  aspectRatio?: AspectRatio,
 ) {
   await assertAccess("deck", deckId, "editor");
 
@@ -387,6 +558,7 @@ async function replaceDeckSlides(
     ...previousData,
     title,
     slides,
+    ...(aspectRatio ? { aspectRatio } : {}),
     updatedAt: now,
   };
 

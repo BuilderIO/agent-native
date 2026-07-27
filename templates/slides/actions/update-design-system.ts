@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { missingDesignSystemDataFields } from "../shared/design-system-validation.js";
 
 export default defineAction({
   description:
@@ -29,12 +30,22 @@ export default defineAction({
       ),
   }),
   run: async ({ id, title, description, data, assets, customInstructions }) => {
-    // Validate that data/assets are valid JSON when provided
+    // Validate that data/assets are valid JSON, and that data has the shape
+    // the Design Systems page and slide renderers read unconditionally
+    // (data.colors.*, data.typography.*) — see create-design-system.ts.
     if (data !== undefined) {
+      let parsedData: unknown;
       try {
-        JSON.parse(data);
+        parsedData = JSON.parse(data);
       } catch {
         throw new Error("data must be a valid JSON string");
+      }
+      const missingFields = missingDesignSystemDataFields(parsedData);
+      if (missingFields.length > 0) {
+        throw new Error(
+          "data is missing required design system field(s): " +
+            missingFields.join(", "),
+        );
       }
     }
     if (assets !== undefined) {
