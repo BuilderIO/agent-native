@@ -18,6 +18,9 @@ const deDE = {
     searchPlaceholder: "Docs suchen...",
     askAssistant: "KI-Assistenten fragen",
     toggleNavigation: "Navigationsmenü umschalten",
+    copyLogoSvg: "Logo-SVG kopieren",
+    copyWordmark: "Wortmarke kopieren",
+    brandAssets: "Markenmaterial",
   },
   footer: {
     download: "Herunterladen",

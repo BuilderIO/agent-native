@@ -18,6 +18,9 @@ const ptBR = {
     searchPlaceholder: "Pesquisar docs...",
     askAssistant: "Perguntar ao assistente de IA",
     toggleNavigation: "Alternar menu de navegação",
+    copyLogoSvg: "Copiar SVG do logotipo",
+    copyWordmark: "Copiar logotipo textual",
+    brandAssets: "Recursos da marca",
   },
   footer: {
     download: "Baixar",

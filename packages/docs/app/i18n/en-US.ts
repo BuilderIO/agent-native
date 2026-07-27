@@ -16,6 +16,9 @@ const enUS = {
     searchPlaceholder: "Search docs...",
     askAssistant: "Ask the AI assistant",
     toggleNavigation: "Toggle navigation menu",
+    copyLogoSvg: "Copy Logo SVG",
+    copyWordmark: "Copy Wordmark",
+    brandAssets: "Brand Assets",
   },
   footer: {
     download: "Download",

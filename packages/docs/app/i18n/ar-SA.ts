@@ -18,6 +18,9 @@ const arSA = {
     searchPlaceholder: "ابحث في الوثائق...",
     askAssistant: "اسأل مساعد الذكاء الاصطناعي",
     toggleNavigation: "تبديل قائمة التنقل",
+    copyLogoSvg: "نسخ شعار SVG",
+    copyWordmark: "نسخ الاسم التجاري",
+    brandAssets: "أصول العلامة التجارية",
   },
   footer: {
     download: "تنزيل",
