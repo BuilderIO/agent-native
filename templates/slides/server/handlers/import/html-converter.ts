@@ -85,17 +85,27 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
   return paragraphs;
 }
 
-/** Determine slide layout and generate HTML. */
-export function convertToSlideHtml(slide: ParsedSlide): string {
+/**
+ * Determine slide layout and generate HTML. `imageUrl` is the hosted URL
+ * for the slide's first embedded image (already uploaded by the caller) —
+ * pass undefined when the slide has no image or the upload failed, and the
+ * builders fall back to a text placeholder instead of a broken `<img>`.
+ */
+export function convertToSlideHtml(
+  slide: ParsedSlide,
+  imageUrl?: string,
+): string {
   const paragraphs = groupIntoParagraphs(slide.texts);
 
-  // Determine layout
-  if (slide.layoutHint === "title" || paragraphs.length <= 2) {
-    return buildTitleSlide(paragraphs, slide);
+  // An embedded image always wins the layout choice — a forced title slide
+  // has no room to show it, which is how imports used to silently drop
+  // photos from otherwise short/title-shaped slides.
+  if (slide.images.length > 0) {
+    return buildImageSlide(paragraphs, slide, imageUrl);
   }
 
-  if (slide.images.length > 0) {
-    return buildImageSlide(paragraphs, slide);
+  if (slide.layoutHint === "title" || paragraphs.length <= 2) {
+    return buildTitleSlide(paragraphs, slide);
   }
 
   return buildContentSlide(paragraphs, slide);
@@ -111,13 +121,8 @@ function buildTitleSlide(
   const titleText = titlePara.map(formatRun).join(" ") || "Untitled Slide";
   const subtitleText = subtitlePara.map(formatRun).join(" ");
 
-  let imageHtml = "";
-  if (slide.images.length > 0) {
-    imageHtml = `\n    <div class="fmd-img-placeholder" style="width: 100%; height: 200px; border-radius: 12px; margin-top: 32px;">Imported image: ${esc(slide.images[0].name)}</div>`;
-  }
-
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
-    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}${imageHtml}
+    <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}
 </div>`;
 }
 
@@ -148,20 +153,28 @@ ${bulletItems}
     </div>`;
   }
 
-  let imageHtml = "";
-  if (slide.images.length > 0) {
-    imageHtml = `\n    <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px; margin-top: 24px;">Imported image: ${esc(slide.images[0].name)}</div>`;
-  }
-
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
     <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
-    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml}${imageHtml}
+    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml}
 </div>`;
+}
+
+/** Render the slide's embedded image, or a text placeholder if it couldn't be uploaded. */
+function imageOrPlaceholder(
+  imageUrl: string | undefined,
+  imageName: string,
+  style: string,
+): string {
+  if (imageUrl) {
+    return `<img src="${esc(imageUrl)}" alt="" style="${style} object-fit: cover;" />`;
+  }
+  return `<div class="fmd-img-placeholder" style="${style}">Imported image: ${esc(imageName)}</div>`;
 }
 
 function buildImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
+  imageUrl?: string,
 ): string {
   const headingPara = paragraphs[0] ?? [];
   const headingText = headingPara.map(formatRun).join(" ") || "Slide";
@@ -172,11 +185,16 @@ function buildImageSlide(
     .join(" ");
 
   const imageName = slide.images[0]?.name ?? "image";
+  const imageHtml = imageOrPlaceholder(
+    imageUrl,
+    imageName,
+    "width: 100%; height: 300px; border-radius: 12px;",
+  );
 
   return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
     <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
     <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 32px 0;">${headingText}</h2>
-    <div class="fmd-img-placeholder" style="width: 100%; height: 300px; border-radius: 12px;">Imported image: ${esc(imageName)}</div>${captionText ? `\n    <p style="font-size: 18px; color: rgba(255,255,255,0.55); margin: 24px 0 0 0;">${captionText}</p>` : ""}
+    ${imageHtml}${captionText ? `\n    <p style="font-size: 18px; color: rgba(255,255,255,0.55); margin: 24px 0 0 0;">${captionText}</p>` : ""}
 </div>`;
 }
 

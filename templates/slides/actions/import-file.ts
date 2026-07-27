@@ -127,19 +127,17 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const { convertToSlideHtml } =
-        await import("../server/handlers/import/html-converter.js");
       const presentation = await parsePptx(fileBuffer);
       const title = presentation.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        const slides = presentation.slides.map((slide) => ({
-          id: newSlideId(),
-          content: convertToSlideHtml(slide),
-          layout: slide.layoutHint ?? "content",
-          notes: slide.notes,
-        }));
+        const pptxOwnerEmail = getRequestUserEmail();
+        const slides = await Promise.all(
+          presentation.slides.map((slide, i) =>
+            buildPptxSlide(slide, i, pptxOwnerEmail),
+          ),
+        );
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
         return {
           format: "pptx",
@@ -450,6 +448,40 @@ async function importPdfPagesAsFullBleedSlides(args: {
 
 function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+async function buildPptxSlide(
+  slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
+  slideIndex: number,
+  ownerEmail: string | undefined,
+): Promise<{
+  id: string;
+  content: string;
+  layout: string;
+  notes?: string;
+}> {
+  const { convertToSlideHtml } = await import(
+    "../server/handlers/import/html-converter.js"
+  );
+  const image = slide.images[0];
+  const imageUrl = image
+    ? (
+        await uploadFile({
+          data: Buffer.from(image.data),
+          filename:
+            "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name,
+          mimeType: image.mimeType,
+          ownerEmail: ownerEmail ?? undefined,
+          recordAsset: false,
+        })
+      )?.url
+    : undefined;
+  return {
+    id: newSlideId(),
+    content: convertToSlideHtml(slide, imageUrl),
+    layout: slide.layoutHint ?? "content",
+    notes: slide.notes,
+  };
 }
 
 function titleFromPath(filePath: string): string {

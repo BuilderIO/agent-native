@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -11,9 +12,31 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
-import { parsePptx } from "../server/handlers/import/pptx-parser.js";
+import {
+  parsePptx,
+  type ParsedSlide,
+} from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
 import { readUserUploadedFile } from "./_uploaded-files.js";
+
+async function uploadFirstSlideImage(
+  slide: ParsedSlide,
+  slideIndex: number,
+  ownerEmail: string | undefined,
+): Promise<string | undefined> {
+  const image = slide.images[0];
+  if (!image) return undefined;
+  const filename =
+    "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name;
+  const result = await uploadFile({
+    data: Buffer.from(image.data),
+    filename,
+    mimeType: image.mimeType,
+    ownerEmail: ownerEmail ?? undefined,
+    recordAsset: false,
+  });
+  return result?.url;
+}
 
 export default defineAction({
   description:
@@ -43,17 +66,27 @@ export default defineAction({
     const presentation = await parsePptx(fileBuffer);
 
     const deckTitle = title || presentation.title || "Imported Presentation";
+    const ownerEmail = getRequestUserEmail();
 
-    // Convert each parsed slide to our HTML format
-    const slides = presentation.slides.map((parsedSlide, i) => {
-      const html = convertToSlideHtml(parsedSlide);
-      return {
-        id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        content: html,
-        layout: parsedSlide.layoutHint ?? "content",
-        notes: parsedSlide.notes,
-      };
-    });
+    // Convert each parsed slide to our HTML format, uploading the first
+    // embedded image (if any) so it renders as a real image instead of a
+    // text placeholder.
+    const slides = await Promise.all(
+      presentation.slides.map(async (parsedSlide, i) => {
+        const imageUrl = await uploadFirstSlideImage(
+          parsedSlide,
+          i,
+          ownerEmail,
+        );
+        const html = convertToSlideHtml(parsedSlide, imageUrl);
+        return {
+          id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          content: html,
+          layout: parsedSlide.layoutHint ?? "content",
+          notes: parsedSlide.notes,
+        };
+      }),
+    );
 
     const db = getDb();
     const now = new Date().toISOString();
@@ -100,9 +133,8 @@ export default defineAction({
       title: deckTitle,
       data: JSON.stringify(data),
       ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
+        if (!ownerEmail) throw new Error("no authenticated user");
+        return ownerEmail;
       })(),
       orgId: getRequestOrgId(),
       createdAt: now,
