@@ -11,7 +11,6 @@ export default defineConfig({
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({
-      nitro: { preset: "cloudflare_module" },
       // shiki only runs in AssistantChat's useEffect — keep it out of the
       // CF Pages Functions bundle (25 MiB limit).
       ssrStubs: ["shiki"],
