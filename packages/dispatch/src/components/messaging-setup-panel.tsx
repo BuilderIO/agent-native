@@ -483,7 +483,7 @@ export function MessagingSetupPanel() {
       <Accordion
         type="single"
         collapsible
-        className="overflow-hidden rounded-2xl border bg-card"
+        className="overflow-hidden rounded-2xl bg-card"
       >
         {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);

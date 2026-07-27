@@ -73,7 +73,11 @@ vi.mock("../extensions/url-safety.js", () => ({
   ssrfSafeFetch: (...args: any[]) => mockSsrfSafeFetch(...args),
 }));
 
-import { syncA2ASecretHandler } from "./handlers.js";
+import {
+  getMyOrgHandler,
+  revealA2ASecretHandler,
+  syncA2ASecretHandler,
+} from "./handlers.js";
 
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
@@ -163,5 +167,93 @@ describe("syncA2ASecretHandler", () => {
       ],
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("getMyOrgHandler", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "owner",
+    });
+    mockExecute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("a2a_secret")
+        ? {
+            rows: [
+              {
+                allowed_domain: "example.test",
+                a2a_secret: "example-stored-secret",
+              },
+            ],
+          }
+        : { rows: [] },
+    );
+  });
+
+  it("reports that a secret exists without serializing its value", async () => {
+    const result = (await getMyOrgHandler({} as any)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.a2aSecretSet).toBe(true);
+    expect(Object.keys(result)).not.toContain("a2aSecret");
+    expect(JSON.stringify(result)).not.toContain("example-stored-secret");
+  });
+
+  it("omits the indicator entirely for plain members", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "member",
+    });
+
+    const result = (await getMyOrgHandler({} as any)) as Record<
+      string,
+      unknown
+    >;
+
+    expect(result.a2aSecretSet).toBeUndefined();
+  });
+});
+
+describe("revealA2ASecretHandler", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetOrgContext.mockResolvedValue({
+      email: "owner@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "owner",
+    });
+    mockExecute.mockResolvedValue({
+      rows: [{ a2a_secret: "example-stored-secret" }],
+    });
+  });
+
+  it("returns the secret for an owner that explicitly asks for it", async () => {
+    const result = (await revealA2ASecretHandler({} as any)) as {
+      a2aSecret: string | null;
+    };
+
+    expect(result.a2aSecret).toBe("example-stored-secret");
+  });
+
+  it("rejects members who are not owners or admins", async () => {
+    mockGetOrgContext.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "org_1",
+      orgName: "Example",
+      role: "member",
+    });
+
+    await expect(revealA2ASecretHandler({} as any)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });

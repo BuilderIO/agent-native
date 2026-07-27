@@ -6,6 +6,7 @@ import {
   hasChartSizeChanged,
   safeDashboardLinkHref,
   sessionReplayHref,
+  shouldDisableChartAnimation,
   shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
@@ -28,6 +29,39 @@ describe("chart resize animation policy", () => {
         { width: 520, height: 250 },
       ),
     ).toBe(true);
+  });
+
+  // Disabling the animation while it is still running freezes the line's
+  // stroke-dasharray partway, so the series never becomes visible. Lazy-loaded
+  // panels always reflow just after mounting, which used to trip exactly this.
+  it("ignores a resize that lands before the entry animation has settled", () => {
+    expect(
+      shouldDisableChartAnimation(
+        false,
+        { width: 640, height: 250 },
+        { width: 520, height: 250 },
+      ),
+    ).toBe(false);
+  });
+
+  it("disables the animation for a resize after the entry animation settles", () => {
+    expect(
+      shouldDisableChartAnimation(
+        true,
+        { width: 640, height: 250 },
+        { width: 520, height: 250 },
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps animating when a settled resize reports the same size", () => {
+    expect(
+      shouldDisableChartAnimation(
+        true,
+        { width: 640, height: 250 },
+        { width: 640, height: 250 },
+      ),
+    ).toBe(false);
   });
 });
 

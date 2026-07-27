@@ -478,6 +478,13 @@ describe("database row batch actions", () => {
     expect(results).toHaveLength(concurrentAdds);
     const createdItemIds = results.map((result) => result.createdItemId);
     expect(new Set(createdItemIds).size).toBe(concurrentAdds);
+    for (const result of results) {
+      const [createdDocument] = await getDb()
+        .select({ updatedAt: schema.documents.updatedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, result.createdDocumentId));
+      expect(result.createdDocumentUpdatedAt).toBe(createdDocument.updatedAt);
+    }
 
     const rows = await orderedRows(databaseId);
     expect(rows).toHaveLength(concurrentAdds);

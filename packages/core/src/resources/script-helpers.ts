@@ -7,6 +7,7 @@
  */
 
 import {
+  getAmbientUserEmail,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
@@ -34,7 +35,7 @@ function getOwnerForScope(scope?: ResourceHelperScope): string {
   if (scope === "workspace") return WORKSPACE_OWNER;
   const userEmail = getRequestUserEmail();
   if (userEmail) return userEmail;
-  const cliEmail = process.env.AGENT_USER_EMAIL;
+  const cliEmail = getAmbientUserEmail();
   if (cliEmail) return cliEmail;
   throw new Error(
     "Resource access requires an authenticated request context or AGENT_USER_EMAIL env var",

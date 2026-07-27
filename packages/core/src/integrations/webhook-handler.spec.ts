@@ -10,6 +10,7 @@ import {
 
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const isDuplicateEventErrorMock = vi.hoisted(() => vi.fn(() => false));
+const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
@@ -19,6 +20,7 @@ const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 vi.mock("./pending-tasks-store.js", () => ({
   insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: isDuplicateEventErrorMock,
+  recordPendingTaskDispatchAttempt: recordDispatchAttemptMock,
 }));
 
 vi.mock("../org/context.js", () => ({
@@ -38,6 +40,10 @@ vi.mock("../agent/production-agent.js", async () => {
     filterInitialEngineTools: actual.filterInitialEngineTools,
   };
 });
+
+vi.mock("../agent/run-loop-with-resume.js", () => ({
+  runAgentLoopDirectWithSoftTimeout: vi.fn(),
+}));
 
 vi.mock("../server/credential-provider.js", () => ({
   canUseDeployCredentialFallbackForRequest:

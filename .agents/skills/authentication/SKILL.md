@@ -71,6 +71,34 @@ The auto-create path skips users with pending invites or a matching
 `AUTO_CREATE_DEFAULT_ORG=0` only for deployments that intentionally want manual
 org creation.
 
+### Stop And Confirm Before Creating Or Switching Organizations
+
+Vault credentials are scoped per organization and are **not** shared between
+them. A second organization therefore orphans every key synced under the first,
+and the only symptom is a missing-credential error somewhere else entirely,
+naming the key rather than the org change that caused it.
+
+So: **do not create an organization, repoint anyone's `active-org-id`, or
+migrate a user/roster/identity list into a new organization on your own
+initiative.** Stop, say plainly that it will orphan the existing organization's
+credentials, and get an explicit yes first — even when the user asked for
+something that seems to imply it ("use the real org user list", "align this to
+the Settings team view", "migrate my users").
+
+The intended pattern is **one organization per workspace**, with every app
+sharing it. When a request needs real org members, add them to the existing
+organization; never provision a parallel one per app. `createOrganization()`
+logs a loud warning when it creates an additional org for an account that
+already belongs to one, and `setActiveOrgId()` logs one whenever it moves an
+account from one org to another, naming both orgs and the orphaned credentials.
+Treat either warning as a bug report against your own change, not as noise.
+
+Write `active-org-id` only through `setActiveOrgId(email, orgId, reason)` from
+`@agent-native/core` (`src/org/active-org.ts`). Calling `putUserSetting(email,
+"active-org-id", ...)` directly is how a roster migration silently repointed 21
+accounts with nothing in the logs; the helper exists so that cannot happen
+again.
+
 Do not wrap normal app shells in `<RequireActiveOrg>` just to force setup. Use
 non-blocking org UI such as `InvitationBanner`, `OrgSwitcher`, and a `/team`
 route so users can accept invites, join domain-matched teams, or switch orgs

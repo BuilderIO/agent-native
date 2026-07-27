@@ -123,6 +123,7 @@ const messages = {
     uploadAttachedFailed: "Impossible d’envoyer le fichier joint.",
     uploadFailed: "Échec de l’envoi",
     doubleClickEdit: "Double-cliquez sur un texte pour le modifier",
+    dragToMove: "Faites glisser pour déplacer",
     aiEditing: "IA en édition",
     startTypingCommands:
       "Commencez à écrire… ou appuyez sur / pour les commandes",
@@ -218,6 +219,7 @@ const messages = {
     elementAnimations: "Animations d’éléments",
     tweaks: "Réglages",
     drawOnSlide: "Dessiner sur la diapositive",
+    addTextBox: "Ajouter une zone de texte",
     pinComments: "Épingler des commentaires",
     pinCommentsDescription:
       "Cliquez sur des zones de la diapositive pour préparer plusieurs modifications, puis envoyez-les ensemble.",

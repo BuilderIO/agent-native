@@ -1,0 +1,328 @@
+---
+title: "Messaging Internals"
+description: "The technical internals behind Messaging: the inbound webhook lifecycle, the integrations plugin, threading and identity, per-platform security, proactive sends, writing a custom adapter, and reliability via Dispatch + A2A."
+search: "messaging internals webhook lifecycle integrations plugin custom adapter proactive send threading identity security pitfalls"
+---
+
+# Messaging Internals
+
+**This page: how the messaging pipeline works under the hood.** Read it when you're customizing the integrations plugin, writing a new platform adapter, or debugging why a webhook isn't reaching the agent. If you just want to connect Slack, Teams, Discord, Telegram, email, or WhatsApp, see [Messaging](/docs/messaging) instead — you don't need anything on this page for that.
+
+<Callout tone="info">
+
+**Developer page.** This page is for developers extending or debugging the messaging integration layer itself. For connecting a chat platform through the settings UI, see [Messaging](/docs/messaging) instead.
+
+</Callout>
+
+## How it works {#how-it-works}
+
+Inbound platform webhooks use a cross-platform SQL-queue pattern so they work on every serverless host (Netlify, Vercel, Cloudflare Workers, Fly, Render, Node) without relying on platform-specific background-execution APIs.
+
+1. The platform `POST`s to `/_agent-native/integrations/<platform>/webhook`. The handler verifies the signature, parses the payload into an `IncomingMessage`, and **inserts a row into `integration_pending_tasks`** with `status='pending'`.
+2. The handler fires a fire-and-forget `POST /_agent-native/integrations/process-task` and returns `200` immediately, well inside Slack's 3-second SLA.
+3. The processor endpoint runs in a **fresh function execution** with its own full timeout budget. It atomically claims the task (`pending` → `processing` via `claimPendingTask`), runs the agent loop, posts the reply through the adapter, and marks the task `completed`.
+4. A recurring retry job (`startPendingTasksRetryJob`, every 60s) sweeps tasks stuck in `pending` >90s or `processing` >75s on serverless hosts (Netlify, AWS Lambda, Vercel, Cloudflare) — or >5min on non-serverless hosts — and re-fires the processor. Capped at 3 attempts, then marked `failed`. A separate 16-minute window applies to durable-background-acknowledged tasks.
+
+<Diagram id="doc-block-msgint1" title="Inbound webhook lifecycle" summary={"The webhook only verifies, enqueues, and returns 200. A fresh function execution drains the queue and runs the agent loop, with a 60s retry job as the safety net."}>
+
+```html
+<div class="msg-flow">
+  <div class="msg-row">
+    <div class="diagram-node">
+      Platform<br /><small class="diagram-muted">Slack · email · etc.</small>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/webhook</strong><br /><small class="diagram-muted"
+        >verify signature + parse</small
+      ><br /><span class="diagram-pill">INSERT pending task</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">return 200</div>
+  </div>
+  <div class="msg-fire">
+    <span class="diagram-muted">fire-and-forget</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</span>
+  </div>
+  <div class="msg-row">
+    <div class="diagram-box" data-rough>
+      <strong>/process-task</strong><br /><small class="diagram-muted"
+        >fresh execution · own timeout</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">claim</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">agent loop</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">adapter.sendResponse</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+  <div class="diagram-panel msg-retry" data-rough>
+    <span class="diagram-pill warn">every 60s</span>
+    <span class="diagram-muted"
+      >retry job sweeps stuck tasks (pending &gt;90s · processing &gt;75s
+      serverless / &gt;5min elsewhere) and re-fires /process-task &mdash; capped
+      at 3 attempts, then <strong>failed</strong></span
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-flow .msg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.msg-flow .msg-fire {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline-start: 12px;
+}
+.msg-flow .msg-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+```
+
+</Diagram>
+
+Inbound and outbound conversations live in the same SQL thread, so you can continue a Slack DM from the web UI or vice versa.
+
+<Endpoint id="doc-block-msgint2" method="POST" path="/_agent-native/integrations/slack/webhook" summary="Slack Events API inbound webhook" auth={"HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`."} params={[
+  {
+    "name": "X-Slack-Signature",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "Slack request signature, verified before any processing."
+  },
+  {
+    "name": "X-Slack-Request-Timestamp",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "Timestamp used in the signature base string."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"type\": \"event_callback\",\n  \"team_id\": \"T0123\",\n  \"api_app_id\": \"A0123\",\n  \"event\": {\n    \"type\": \"message\",\n    \"channel_type\": \"im\",\n    \"user\": \"U0123\",\n    \"text\": \"summarize last week's signups\"\n  }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Acknowledged immediately. The agent loop runs in the separate /process-task execution. The first time a Request URL is saved, Slack POSTs a `url_verification` challenge and the adapter replies with the `challenge` value automatically.",
+    "example": "{ \"ok\": true }"
+  },
+  {
+    "status": "401",
+    "description": "Signature verification failed, or the team/app id is not in the production allowlist."
+  }
+]}>
+
+Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.
+
+</Endpoint>
+
+### Why this pattern (and not the platform-native shortcuts) {#why-this-pattern}
+
+Serverless functions freeze the moment the response is sent. Anything still running — including a fire-and-forget Promise, a deferred LLM call, or an in-flight tool — gets killed mid-execution. The only way to keep an agent loop alive is to start a **new** function execution for it, which is what the self-fired `/process-task` POST does.
+
+Do NOT use any of these alternatives:
+
+- **Netlify Background Functions** — Netlify-only, requires a `-background.ts` filename suffix, breaks on every other host.
+- **Cloudflare `event.waitUntil()`** — CF Workers only, not portable.
+- **Vercel `after()` / Fluid** — Vercel-only, gated behind specific runtimes.
+- **Naked fire-and-forget Promises after `return`** — silently killed when the function freezes; no error in the logs, the user just never gets a reply.
+
+The SQL-queue + self-webhook + retry-job combination is the only thing that works identically on every supported host. The retry job is the safety net — never assume the initial dispatch flushed before the function froze.
+
+## The integrations plugin {#plugin}
+
+The plugin auto-mounts when no custom version exists. To customize, create:
+
+```ts
+// server/plugins/integrations.ts
+import { createIntegrationsPlugin } from "@agent-native/core/server";
+import { scriptRegistry } from "../../agent.config";
+
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+});
+```
+
+Which platforms are active depends on which env vars are set. The plugin registers webhook routes for each one under `/_agent-native/integrations/`.
+
+## Threading and identity {#threading-and-identity}
+
+Each external conversation maps to a persistent thread in the agent-native database:
+
+- **Slack DM** → one thread per Slack user.
+- **Slack channel @mention** → one thread per channel.
+- **Microsoft Teams** → tenant + team/channel + Bot Framework conversation.
+- **Discord interaction** → application + guild/DM + channel.
+- **Telegram chat** → one thread per chat and `message_thread_id` topic.
+- **WhatsApp conversation** → business phone-number ID + sender number.
+- **Email** → threading derived from `Message-ID` / `In-Reply-To` / `References` headers.
+
+External threads appear in the web UI alongside web-originated threads, tagged with their source platform. Identity resolution: when a Slack/email user matches a registered user (typically by email), they're linked to that account.
+
+## Security {#security}
+
+Every incoming webhook is signature-verified before processing:
+
+- **Slack** — HMAC-SHA256 of the body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. The first time you save a Request URL in Slack's Event Subscriptions panel, Slack POSTs a `url_verification` challenge to it; the framework's adapter detects this and replies with the `challenge` value automatically, so the URL flips green in Slack without any extra work on your end.
+- **Microsoft Teams** — Microsoft Bot Framework JWT verification, including signing keys, issuer, app audience, service URL claim, channel endorsement, and tenant allowlist.
+- **Discord** — Ed25519 verification over the timestamp plus exact raw body. Invalid PING probes return 401.
+- **Telegram** — secret token set when registering the webhook.
+- **WhatsApp** — Meta's verification challenge (using `WHATSAPP_VERIFY_TOKEN`) plus payload signature.
+- **Email** — Svix-style signature verification when `EMAIL_INBOUND_WEBHOOK_SECRET` is set (Resend and SendGrid both use this format). If the secret is unset, the webhook is accepted but a warning is logged.
+
+The email adapter also enforces:
+
+- **Allowed domains** — optional `allowedDomains` array in the integration's `integration_configs` row; senders outside the list are dropped.
+- **Rate limit** — SQL-queue-backed rate limit of 20 inbound messages per sender per hour.
+
+## Proactive sends {#proactive-sends}
+
+The agent can send messages on its own initiative through the Dispatch `send-platform-message` action for `"slack"`, `"telegram"`, or `"email"`. Microsoft Teams requires a saved Bot Framework conversation reference, Discord interaction tokens expire, and the WhatsApp adapter does not implement template-message proactive sends, so those three are reply-only.
+
+## Custom adapters {#custom-adapters}
+
+To add a new messaging platform, implement the `PlatformAdapter` interface:
+
+```ts
+import type { H3Event } from "h3";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  OutgoingMessage,
+} from "@agent-native/core/server";
+import type { EnvKeyConfig } from "@agent-native/core/server";
+
+const myAdapter: PlatformAdapter = {
+  platform: "my-chat",
+  label: "My Chat",
+  capabilities: {
+    replyText: true,
+    proactiveMessages: false,
+    nativeThreads: true,
+    contextualReplies: true,
+    deferredWebhookResponse: false,
+  },
+
+  // Env keys this adapter needs (rendered in the settings UI)
+  getRequiredEnvKeys(): EnvKeyConfig[] {
+    return [
+      { key: "MY_CHAT_BOT_TOKEN", label: "My Chat Bot Token", required: true },
+    ];
+  },
+
+  // Handle platform-specific verification challenges (e.g. Slack's
+  // url_verification). Return { handled: true, response } to short-circuit.
+  async handleVerification(event: H3Event) {
+    return { handled: false };
+  },
+
+  // Validate the webhook request signature
+  async verifyWebhook(event: H3Event): Promise<boolean> {
+    // Implement the provider's documented signature/JWT verification here.
+    // Fail closed; never ship `return true` as a placeholder.
+    throw new Error("Webhook verification is not implemented");
+  },
+
+  // Parse the webhook payload into a normalized IncomingMessage.
+  // Return null to silently ignore the event (bot messages, edits, etc.).
+  async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
+    return {
+      platform: "my-chat",
+      externalThreadId: "channel-or-thread-id",
+      text: "the user's message",
+      senderId: "my-chat-user-id",
+      threadRef: "provider-thread-id",
+      replyRef: "provider-message-id",
+      platformContext: { channelId: "channel-id" },
+      timestamp: Date.now(),
+    };
+  },
+
+  // Format plain agent text into a platform-appropriate OutgoingMessage.
+  // opts.threadDeepLinkUrl, when provided, is a URL back to the originating
+  // thread in the dispatch UI — render it as a button (Slack) or inline link.
+  formatAgentResponse(
+    text: string,
+    opts?: { threadDeepLinkUrl?: string },
+  ): OutgoingMessage {
+    return { text, platformContext: {} };
+  },
+
+  // Post the agent's response back to the platform
+  async sendResponse(
+    message: OutgoingMessage,
+    context: IncomingMessage,
+  ): Promise<void> {
+    // Call the platform's API, using context.platformContext for routing
+  },
+
+  // Return current connection/configuration status for the settings UI.
+  // baseUrl is the app's public URL, used for status checks that need it.
+  async getStatus(baseUrl?: string) {
+    return {
+      platform: "my-chat",
+      label: "My Chat",
+      enabled: true,
+      configured: !!process.env.MY_CHAT_BOT_TOKEN,
+    };
+  },
+};
+```
+
+If the provider requires an immediate response, implement
+`getImmediateWebhookResponse(incoming)`. Keep short-lived delivery credentials
+in `incoming.responseContext`, not `platformContext`; terminal queue rows erase
+the active payload. The response is returned only after verification and a
+durable queue insert.
+
+Register it in your integrations plugin:
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+  adapters: [myAdapter],
+});
+```
+
+Reference implementations live in `packages/core/src/integrations/adapters/`. See `microsoft-teams.ts` for official JWT validation and token caching, `discord.ts` for signed deferred interactions, and `telegram.ts` or `whatsapp.ts` for native reply references.
+
+## Reliability via Dispatch + A2A continuations {#reliability}
+
+When [Dispatch](/docs/dispatch) delegates a request to another app over [A2A](/docs/a2a-protocol#continuations), the continuation-recovery flow guarantees the user gets a Slack/email reply even if the downstream agent crashes mid-execution. The original webhook task stays in `processing` until the continuation either resolves or the retry sweep marks it stuck; either way, the platform thread gets a final reply rather than going silent.
+
+This means a multi-app workspace fronted by Dispatch is more resilient than a single template wired to messaging directly — failures in any one downstream app degrade to a graceful error message instead of a dropped reply. See [A2A continuations](/docs/a2a-protocol#continuations) for the full delivery-guarantee story.
+
+## Common pitfalls {#pitfalls}
+
+- **Don't double-read the request body.** h3 v2's body stream is consume-once: if you call `readBody(event)` after the framework has already parsed `event.node.req.body` (or vice versa), the second read hangs the request indefinitely. This shows up most often with Resend and SendGrid — both stream the inbound payload and the dangling read never resolves, the platform times out, and the webhook gets retried until it dedups. If you wrap the framework's webhook handler in your own middleware, pass the already-parsed `IncomingMessage` via the `incoming` option rather than letting the handler re-parse.
+- **Don't run agent loops inside the webhook handler.** The handler must enqueue and return — the agent loop runs in the processor's fresh execution. Putting it inline guarantees serverless freeze kills the run. Furthermore, public-facing gateway integrations (such as Netlify or Vercel) enforce strict HTTP timeout limits (e.g., Netlify's 10-second request limit). Because agent runs and tools often take longer than this window, trying to run the loop synchronously within the webhook request will cause the gateway to terminate the connection, resulting in aborted execution and dropped replies. The HMAC-signed self-webhook `/process-task` queue pattern is the only way to satisfy gateway limits while executing the full agent loop safely.
+- **Don't rely on dedup memory across cold starts.** The dedup key lives in the SQL `(platform, external_event_key)` unique index, not an in-process Map. If you replace the queue, keep the SQL-level dedup or duplicate Slack retries will trigger duplicate agent runs.
+- **Keep the self-webhook URL reachable.** The processor URL is built from `APP_URL` / `URL` / `DEPLOY_URL` / `BETTER_AUTH_URL`, falling back to the inbound request headers. On preview deploys with rewritten hostnames, set one of these explicitly or the dispatch will hit a 404.
+
+## What's next {#whats-next}
+
+- [Messaging](/docs/messaging) — per-platform connection setup, webhook URLs, and the environment variable reference
+- [Messaging Recipes](/docs/messaging-recipes) — the @mention-in-Slack-to-Notion-row worked example built on this pipeline
+- [Dispatch](/docs/dispatch) — concept overview for using a central inbox across apps
+- [A2A Protocol](/docs/a2a-protocol) — continuation recovery for delegated work
+- [Security](/docs/security) — credential scoping and the webhook signature-verification model

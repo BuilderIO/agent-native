@@ -324,7 +324,7 @@ L'identité de l'utilisateur est dérivée de l'e-mail de session. Le framework 
 Les modèles peuvent ajouter un système de commentaires avec des discussions en fil de discussion sur les documents. Le système de commentaires du modèle de contenu comprend une implémentation complète avec :
 
 - Tableau `document_comments` SQL (threads, réponses, statut résolu)
-- Les routes REST du modèle de contenu pour la mise à jour/suppression à `/api/comments/:id` ; créer et lister l'exécution via le `add-comment` / `list-comments` actions. Les modèles personnalisés implémentent leurs propres points de terminaison équivalents sur la route principale `POST /_agent-native/collab/:docId/search-replace`.
+- La mise à jour et la suppression passent par les actions `update-comment` / `delete-comment` ; créer et lister l'exécution via le `add-comment` / `list-comments` actions. Les modèles personnalisés implémentent leurs propres points de terminaison équivalents sur la route principale `POST /_agent-native/collab/:docId/search-replace`.
 - Barre latérale des commentaires avec vue en fil de discussion et réponse UI
 - Résoudre/annuler la résolution des threads
 - Bouton **Envoyer à AI** : envoie le contexte du fil de commentaires au chat de l'agent via `sendToAgentChat()`

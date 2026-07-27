@@ -10,6 +10,7 @@ import type { DatabaseToolsMode } from "../../scripts/db/tool-mode.js";
 import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import { captureCliOutput } from "../cli-capture.js";
 import {
+  getAmbientUserEmail,
   getRequestOrgId,
   getRequestRunContext,
   getRequestUserEmail,
@@ -480,7 +481,7 @@ export async function createResourceScriptEntries(): Promise<
                 ? store.sharedResourceOwner(getRequestOrgId())
                 : (getRequestRunContext()?.owner ??
                   getRequestUserEmail() ??
-                  process.env.AGENT_USER_EMAIL);
+                  getAmbientUserEmail());
             if (!owner) {
               return "Error: promote requires an authenticated user";
             }
@@ -782,15 +783,27 @@ export async function createAgentLoopSettingsScriptEntries(): Promise<
 export async function createCallAgentScriptEntry(
   selfAppId?: string,
 ): Promise<Record<string, ActionEntry>> {
+  const entries: Record<string, ActionEntry> = {};
+
   try {
     const mod = await import("../../scripts/call-agent.js");
-    return {
-      "call-agent": {
-        tool: mod.tool,
-        run: (args, context) => mod.run(args, context, selfAppId),
-      },
+    entries["call-agent"] = {
+      tool: mod.tool,
+      run: (args, context) => mod.run(args, context, selfAppId),
     };
   } catch {
-    return {};
+    // A missing built-in leaves the rest of the toolset usable.
   }
+
+  try {
+    const mod = await import("../../scripts/describe-workspace-apps.js");
+    entries["describe-workspace-apps"] = {
+      tool: mod.tool,
+      run: (args, context) => mod.run(args, context, selfAppId),
+    };
+  } catch {
+    // A missing built-in leaves the rest of the toolset usable.
+  }
+
+  return entries;
 }

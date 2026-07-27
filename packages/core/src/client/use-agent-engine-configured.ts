@@ -5,7 +5,13 @@ import { agentNativePath } from "./api-path.js";
 
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
-/** `unknown` until the first check resolves, so callers don't flash the gate. */
+/**
+ * Three distinct situations, never collapsed:
+ * - `configured` / `missing` are authoritative answers from the status routes.
+ * - `unknown` (first check in flight) and `unavailable` (the check failed, a
+ *   retry is scheduled) both mean *we do not know*. Neither is evidence that
+ *   no provider is configured, so neither may gate the composer.
+ */
 export type AgentEngineConfiguredState =
   | "unknown"
   | "configured"
@@ -33,7 +39,14 @@ export interface UseAgentEngineConfiguredOptions {
   threadId?: string | null;
 }
 
-const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 2500;
+// Abort ceiling for a hung request, NOT a deadline the probes race against.
+// `/agent-engine/status` resolves session, org context, a scoped secret and a
+// settings row — several DB round-trips that measured ~4.7s on a warm local
+// dev server, so any budget short enough to "feel fast" just manufactures a
+// fake answer. Losing this ceiling is treated as "don't know", never "missing".
+const DEFAULT_STATUS_CHECK_TIMEOUT_MS = 15000;
+const RETRY_BASE_MS = 2000;
+const RETRY_MAX_MS = 30000;
 
 async function fetchStatusJson(
   path: string,
@@ -148,8 +161,8 @@ export async function fetchAgentEngineConfiguredState(
  * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
  * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
  * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * to short-circuit to configured; unavailable checks can be retried by firing
- * `agent-engine:configured-changed`.
+ * to short-circuit to configured. A check that cannot reach an authoritative
+ * answer retries on a backoff until it does, so the gate can never latch.
  */
 export function useAgentEngineConfigured(
   enabled = true,
@@ -164,11 +177,29 @@ export function useAgentEngineConfigured(
     // resolve out of order; only the latest call may write state, or a slow
     // stale "missing" response would overwrite the fresh "configured" one.
     let requestSeq = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryAttempt = 0;
     const check = async (options?: { missingFallback?: boolean }) => {
       const seq = ++requestSeq;
+      if (retryTimer !== undefined) {
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+      }
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
       setState(nextState === "unknown" ? "unavailable" : nextState);
+      if (nextState === "configured" || nextState === "missing") {
+        retryAttempt = 0;
+        return;
+      }
+      // No authoritative answer yet. Keep asking: a failed probe that latched
+      // permanently is what left users staring at a dead composer with no way
+      // back short of a reload.
+      const delay = Math.min(RETRY_BASE_MS * 2 ** retryAttempt, RETRY_MAX_MS);
+      retryAttempt += 1;
+      retryTimer = setTimeout(() => {
+        void check();
+      }, delay);
     };
     const onConfiguredChanged = () => {
       void check();
@@ -192,6 +223,7 @@ export function useAgentEngineConfigured(
     window.addEventListener("agent-chat:missing-api-key", onMissing);
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
       window.removeEventListener(
         "agent-engine:configured-changed",
         onConfiguredChanged,

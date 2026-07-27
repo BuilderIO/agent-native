@@ -9054,6 +9054,49 @@ function refreshApplicationMenu() {
   installApplicationMenu();
 }
 
+const MAC_SCREEN_RECORDING_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+
+let screenCapturePromptOpen = false;
+
+/**
+ * Recovery path for a capture request macOS refused. An app that has never
+ * asked for screen recording is absent from System Settings entirely, so users
+ * hunt for an entry they cannot find — `getSources` forces the request that
+ * registers this app in the list before we point them at it.
+ */
+async function handleBlockedScreenCapture() {
+  if (process.platform !== "darwin" || screenCapturePromptOpen) return;
+  screenCapturePromptOpen = true;
+  try {
+    const status = systemPreferences.getMediaAccessStatus("screen");
+    console.warn("[display-capture] screen access status", { status });
+    if (status !== "granted") {
+      await desktopCapturer
+        .getSources({
+          types: ["screen"],
+          thumbnailSize: { width: 1, height: 1 },
+        })
+        .catch(() => []);
+    }
+    const appName = app.getName();
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      title: "Screen recording is blocked",
+      message: `macOS is blocking screen recording for ${appName}.`,
+      detail: `Open System Settings > Privacy & Security > Screen & System Audio Recording and turn on ${appName}, then quit and reopen ${appName} and start the recording again.\n\nLook for ${appName} in that list — individual apps like Clips are never listed separately.`,
+      buttons: ["Open System Settings", "Not now"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) openExternalUrl(MAC_SCREEN_RECORDING_SETTINGS_URL);
+  } catch (err) {
+    console.error("[display-capture] permission recovery failed:", err);
+  } finally {
+    screenCapturePromptOpen = false;
+  }
+}
+
 function configurePermissionHandlers(
   sess: Electron.Session,
   targetAppId: string | null,
@@ -9097,6 +9140,7 @@ function configurePermissionHandlers(
           "[display-capture] system picker did not engage — denying capture request",
         );
         callback({});
+        void handleBlockedScreenCapture();
       },
       {
         // Uses the OS-native screen picker (macOS 15+ / ScreenCaptureKit).

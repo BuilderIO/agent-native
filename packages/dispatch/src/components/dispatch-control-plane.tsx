@@ -38,7 +38,15 @@ function SectionHeader({
 
 function CommandPanel() {
   const t = useT();
-  const { selectedModel } = useChatModels();
+  const {
+    availableModels,
+    isLoading: modelListLoading,
+    onEffortChange,
+    onModelChange,
+    selectedEffort,
+    selectedEngine,
+    selectedModel,
+  } = useChatModels({ storageKey: "dispatch" });
   const navigate = useNavigate();
   const promptSuggestions = [
     t("dispatch.pages.suggestionWorkspaceHealth", {
@@ -67,6 +75,8 @@ function CommandPanel() {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           message: trimmed,
           selectedModel,
+          selectedEngine,
+          selectedEffort,
         },
       },
     });
@@ -89,9 +99,16 @@ function CommandPanel() {
           </p>
         </div>
         <PromptComposer
+          availableModels={availableModels}
+          modelListLoading={modelListLoading}
           placeholder={t("dispatch.pages.overviewPromptPlaceholder", {
             defaultValue: "Ask Dispatch anything...",
           })}
+          selectedEffort={selectedEffort}
+          selectedEngine={selectedEngine}
+          selectedModel={selectedModel}
+          onEffortChange={onEffortChange}
+          onModelChange={onModelChange}
           onSubmit={(text) => send(text)}
         />
         <div className="mt-3 flex flex-wrap justify-center gap-2">
@@ -137,10 +154,7 @@ function AppsPanel({
       {showSkeletons ? (
         <div className="grid gap-3 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-xl border border-border/60 bg-card/40 p-4"
-            >
+            <div key={index} className="rounded-xl bg-card/40 p-4">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="mt-3 h-3 w-24" />
               <Skeleton className="mt-3 h-3 w-full" />

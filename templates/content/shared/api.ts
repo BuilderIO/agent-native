@@ -749,6 +749,7 @@ export interface ContentDatabaseResponse {
   };
   createdItemId?: string;
   createdDocumentId?: string;
+  createdDocumentUpdatedAt?: string;
   duplicatedItemId?: string;
   duplicatedDocumentId?: string;
   duplicatedItemIds?: string[];
@@ -956,6 +957,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  expectedBuilderContinuationOffset?: number;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {

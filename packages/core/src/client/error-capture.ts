@@ -383,7 +383,7 @@ function shouldIgnoreAutoCapturedError(normalized: {
     /\binjectScriptAdjust\.js\b/i.test(stack);
   if (
     hasExtensionFrame &&
-    /^(?:TypeError:\s*)?Failed to fetch$/i.test(message)
+    /^(?:TypeError:\s*)?Failed to fetch(?:\s*\([^)]*\))?$/i.test(message)
   ) {
     return true;
   }
@@ -614,6 +614,10 @@ export function installErrorCapture(
   if (runtime.config.captureGlobalErrors) {
     const onError = (event: ErrorEvent) => {
       try {
+        // Route-chunk recovery and other host listeners may intentionally
+        // prevent a browser error after handling it. Respect that decision so
+        // the same transient failure is not stored as an application issue.
+        if (event.defaultPrevented) return;
         const normalized = normalizeGlobalErrorEvent(event);
         if (shouldIgnoreAutoCapturedError(normalized)) return;
         // Global errors are already logged by the session replay recorder, so
@@ -639,6 +643,7 @@ export function installErrorCapture(
   if (runtime.config.captureUnhandledRejections) {
     const onRejection = (event: PromiseRejectionEvent) => {
       try {
+        if (event.defaultPrevented) return;
         const reason = event?.reason;
         const normalized = normalizeCapturedError(reason);
         if (!normalized.type || normalized.type === "Error") {

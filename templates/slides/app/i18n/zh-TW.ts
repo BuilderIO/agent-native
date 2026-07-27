@@ -116,6 +116,7 @@ const messages = {
     uploadAttachedFailed: "無法上傳附件。",
     uploadFailed: "上傳失敗",
     doubleClickEdit: "按兩下文字以編輯",
+    dragToMove: "拖曳以移動",
     aiEditing: "AI 正在編輯",
     startTypingCommands: "開始輸入…或輸入 / 使用命令",
     pinDropHint: "點選任意位置以新增評論圖釘",
@@ -201,6 +202,7 @@ const messages = {
     elementAnimations: "元素動畫",
     tweaks: "微調",
     drawOnSlide: "在幻燈片上繪製",
+    addTextBox: "新增文字方塊",
     pinComments: "固定評論",
     pinCommentsDescription:
       "點選幻燈片上的位置來排隊多個編輯，然後一次性傳送。",

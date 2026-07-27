@@ -1,11 +1,17 @@
 // @vitest-environment happy-dom
 
-import { act, type ComponentProps } from "react";
+import { act, forwardRef, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ToolkitProvider } from "../provider.js";
 import { Button } from "../ui/button.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu.js";
 import { ActionButton } from "./components.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
 import { defineDesignSystem } from "./definition.js";
@@ -156,6 +162,98 @@ describe("design-system contract", () => {
       "Save",
     );
   });
+
+  it.each(["pointer", "Enter", "Space", "ArrowDown"])(
+    "preserves Radix menu trigger behavior through a legacy Button override with %s activation",
+    async (activation) => {
+      const onOpenChange = vi.fn();
+      let buttonRef: HTMLButtonElement | null = null;
+      const LegacyButton = forwardRef<
+        HTMLButtonElement,
+        ComponentProps<typeof Button>
+      >(
+        (
+          {
+            asChild: _asChild,
+            emphasis: _emphasis,
+            intent: _intent,
+            size: _size,
+            variant: _variant,
+            ...props
+          },
+          ref,
+        ) => <button {...props} ref={ref} data-adapter="legacy" />,
+      );
+
+      await act(async () => {
+        root.render(
+          <ToolkitProvider
+            components={{ Button: LegacyButton }}
+            designSystem={{}}
+          >
+            <DropdownMenu onOpenChange={onOpenChange}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  ref={(node) => {
+                    buttonRef = node;
+                  }}
+                >
+                  Open menu
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem>First item</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ToolkitProvider>,
+        );
+      });
+
+      const trigger = container.querySelector<HTMLButtonElement>("button");
+      expect(trigger).not.toBeNull();
+      expect(buttonRef).toBe(trigger);
+      expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      expect(trigger?.dataset.state).toBe("closed");
+
+      await act(async () => {
+        trigger?.focus();
+        if (activation === "pointer") {
+          trigger?.dispatchEvent(
+            new PointerEvent("pointerdown", {
+              bubbles: true,
+              button: 0,
+              pointerType: "mouse",
+            }),
+          );
+        } else {
+          const key = activation === "Space" ? " " : activation;
+          trigger?.dispatchEvent(
+            new KeyboardEvent("keydown", { bubbles: true, key }),
+          );
+        }
+        await Promise.resolve();
+      });
+
+      expect(onOpenChange).toHaveBeenCalledTimes(1);
+      expect(onOpenChange).toHaveBeenLastCalledWith(true);
+      expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+      expect(trigger?.dataset.state).toBe("open");
+      expect(document.querySelector("[role=menu]")).not.toBeNull();
+
+      await act(async () => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+        );
+        await Promise.resolve();
+      });
+
+      expect(onOpenChange).toHaveBeenCalledTimes(2);
+      expect(onOpenChange).toHaveBeenLastCalledWith(false);
+      expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+      expect(trigger?.dataset.state).toBe("closed");
+    },
+  );
 
   it("isolates a broken customer component and renders the default control", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});

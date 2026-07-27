@@ -33,6 +33,15 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "expo-web-browser",
       "expo-secure-store",
       "@bacons/apple-targets",
@@ -75,7 +84,8 @@
       "./plugins/with-mobile-companion",
       "./plugins/with-ios-app-intents",
       "./plugins/with-ios-companion",
-      "./plugins/with-android-capture-tile"
+      "./plugins/with-android-capture-tile",
+      "./plugins/with-android-oauth-deeplink"
     ],
     "extra": {
       "router": {},

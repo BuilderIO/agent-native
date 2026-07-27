@@ -329,6 +329,41 @@ export default defineConfig({
 });
 ```
 
+## SSR-Caching {#ssr-caching}
+
+Jede SSR-HTML-Antwort und jede React-Router-`.data`-Antwort ist eine einzige unpersönliche Shell: `createH3SSRHandler` entfernt Cookies vor dem Rendern, sodass dieselben Bytes für jeden Besucher korrekt sind und die gesamte Personalisierung clientseitig nach dem Laden erfolgt. Deshalb ist es sicher, diesen Antworten standardmäßig eine einzige Hard-Cache-Richtlinie aufzuprägen:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+Derselbe Wert wird auf `cdn-cache-control` und `netlify-cdn-cache-control` gespiegelt. Ein einziger gemeinsamer CDN-Eintrag bedient dann die gesamte Site anstelle eines Renderings pro Anfrage – der größte Hebel für die Latenz der ersten Antwort. Lassen Sie es aktiviert, sofern nicht einer der folgenden Fälle auf Ihre Bereitstellung zutrifft.
+
+### Überschreiben mit `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
+
+Legen Sie `AGENT_NATIVE_SSR_CACHE` in der Bereitstellungsumgebung fest, um die Richtlinie für die gesamte Bereitstellung zu ändern:
+
+| Wert                                                | Ergebnis                                                                             |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| nicht gesetzt, `on`, `default`, `true`, `1`         | Die oben genannte Standardrichtlinie, unverändert. Empfohlen – beste Performance.    |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` bei `cache-control`, `cdn-cache-control` und `netlify-cdn-cache-control`. |
+| Eine Dauer: `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`.              |
+
+Bloße Zahlen sind Sekunden. `stale-while-revalidate` spiegelt bei einer benutzerdefinierten Dauer bewusst `max-age`: Ein kurzes Frische-Fenster gepaart mit dem standardmäßigen siebentägigen Stale-Fenster würde genau die Veraltung zurückgeben, die Sie eigentlich abgewählt haben. Ein nicht erkannter Wert protokolliert eine Warnung und fällt auf den Standard zurück, sodass ein Tippfehler das CDN niemals stillschweigend deaktivieren kann.
+
+Reduzieren oder deaktivieren Sie es, wenn eine der folgenden Bedingungen zutrifft:
+
+1. **Ihr Host leert sein CDN beim Deployment nicht.** Netlify und Vercel tun dies; manche selbstverwalteten Setups nicht. Ohne eine Leerung kann ein ausgelieferter Build für `max-age` plus `stale-while-revalidate` weiterhin die vorherige Shell ausliefern.
+2. **Ihre Loader geben veränderliche öffentliche Daten zurück.** Nach einer erfolgreichen Mutation kann ein erneuter Abruf durch `useRevalidator()` oder eine Weiterleitung nach einer Aktion die zwischengespeicherte `.data`-Kopie des Browsers statt frischer Loader-Ausgaben lesen.
+
+Die Einstellung gilt für jede öffentliche Shell-Oberfläche: React-Router-SSR-HTML und `.data`, die Anmelde-HTML-Shell, die Route `/_agent-native/speculation-rules.json`, die Docs-Site und das öffentliche Formular-SSR im Forms-Template. Der generierte Cloudflare-Worker löst sie zur Build-Zeit auf, legen Sie sie also vor dem Build in der Bereitstellungsumgebung fest.
+
+Drei Dinge sind zu beachten:
+
+- **Das Deaktivieren des Caching personalisiert das SSR nicht.** Cookies werden weiterhin vor dem Rendern entfernt, und die SSR-Loader sehen weiterhin den anonymen Zweig. Benutzerspezifische Daten müssen weiterhin clientseitig aufgelöst werden. Diese Variable steuert ausschließlich die Cache-_Dauer_.
+- **Sie gilt bereitstellungsweit, nicht pro Route – das ist Absicht.** Eine Cache-Überschreibung pro Route oder pro Anfrage ist der Weg, auf dem die Nutzdaten eines Besuchers im gemeinsamen CDN-Eintrag eines anderen Besuchers landen. Deshalb bietet das Framework keine an – `guard:ssr-cache-shell` erzwingt dies.
+- **Bevorzugen Sie für mutationsfrische Daten Actions statt den Cache zu deaktivieren.** App-Daten gehören in [Actions](/docs/actions), werden clientseitig mit `useActionQuery` / `useActionMutation` gelesen und durch `useDbSync()`-Polling aktuell gehalten – nichts davon durchläuft den SSR-Shell-Cache. Lassen Sie SSR-Loader weiterhin die öffentliche Shell rendern und greifen Sie nur dann zu dieser Variable, wenn Sie wirklich frischere Loader-Daten wünschen.
+
 ## Umgebungsvariablen {#environment-variables}
 
 ### Build/Laufzeit {#env-runtime}
@@ -339,6 +374,7 @@ export default defineConfig({
 | `NITRO_PRESET`                              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `APP_BASE_PATH`                             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen.                                                                                                                                                                                                                                                                                                                                            |
 | `AGENT_PROD_CODE_EXECUTION`                 | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_SSR_CACHE`                    | Bereitstellungsweite Cache-Richtlinie für die SSR-Shell: nicht gesetzt/`on` behält den standardmäßigen Hard-Cache bei, `off` sendet `no-store`, oder eine Dauer wie `30s` / `5m` setzt ein kürzeres Frische-Fenster. Siehe [SSR-Caching](#ssr-caching).                                                                                                                                                                                                                                                     |
 | `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam verwendetes HMAC-Geheimnis mit mindestens 32 Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert in der genehmigten Unternehmens-Callback-Bereitstellung und in Preview-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Preview-Datenbank gespeichert werden muss.                                                                                                                                                    |
 | `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakt übereinstimmender, vertrauenswürdiger Preview-Origins (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur in der Unternehmens-Callback-Bereitstellung fest. Netlify-Origins müssen einen unveränderlichen, bereitstellungsspezifischen Permalink mit einer 24-stelligen Hex-ID verwenden; veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
 

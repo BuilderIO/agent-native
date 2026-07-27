@@ -6,6 +6,12 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 # Data Programs
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers who want to understand or extend how the agent turns an ad-hoc analysis into a live dashboard panel. End users just ask the agent for a live view and see the resulting chart or table — no code required.
+
+</Callout>
+
 A **data program** is a named, stored, agent-authored JS script that fetches, joins, filters, or aggregates data — provider APIs via `providerFetch` / `providerFetchAll` / `providerSearchAll`, app data via `appAction`, or Resources-backed workspace files — and calls `emit(rows, schema)` exactly once with the result. The result is cached in SQL and any chart/table component can render it, refreshed on a policy you choose instead of on every page view.
 
 It ships automatically wherever [`run-code`](/docs/actions) is available — there is nothing to mount or configure per app. If your app already has run-code enabled, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, and `delete-data-program` are already registered actions.

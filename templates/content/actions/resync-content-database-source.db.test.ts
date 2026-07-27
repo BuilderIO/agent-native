@@ -63,6 +63,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       }
       if (model === "collection-mapped-fields") {
         return [
+          { name: "blurb", type: "string", required: false },
           { name: "topics", type: "list", required: false },
           { name: "tags", type: "list", required: false },
           { name: "customModelField", type: "string", required: false },
@@ -227,6 +228,25 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           };
         }
+        if (model === "collection-read-error-continuation") {
+          const startOffset = offset ?? 500;
+          return {
+            state: "error",
+            entries: [],
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: "Builder CMS read failed with HTTP 503.",
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset,
+              nextOffset: startOffset,
+              fetchedEntryCount: startOffset,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-large-597") {
           const allEntries = Array.from({ length: 597 }, (_, index) => ({
             id: `entry-large-${index + 1}`,
@@ -273,6 +293,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               updatedAt: "2026-02-01T00:00:00.000Z",
               sourceValues: {
                 "data.title": "Mapped fields",
+                "data.blurb": "Remote Builder blurb",
                 "data.topics": ["AI", "CMS"],
                 "data.tags": ["Agents", "Content"],
                 "data.customModelField": "Arbitrary value",
@@ -551,6 +572,11 @@ let seedSourceRows: typeof import("./_database-source-utils.js").seedMockSourceR
 let materializeSourceFields: typeof import("./_database-source-utils.js").materializeSourceFieldPropertyValues;
 let getSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotById;
 let getWriteSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
+let claimSourceRefresh: typeof import("./_database-source-utils.js").claimBuilderCmsSourceRefresh;
+let releaseSourceRefreshClaim: typeof import("./_database-source-utils.js").releaseBuilderCmsSourceRefreshClaim;
+let renewSourceRefreshClaim: typeof import("./_database-source-utils.js").renewBuilderCmsSourceRefreshClaim;
+let updateSourceReadMetadata: typeof import("./_database-source-utils.js").updateBuilderCmsSourceReadMetadata;
+let mutateSourceMetadata: typeof import("./_database-source-utils.js").mutateContentDatabaseSourceMetadata;
 let hydrateQueuedBodies: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 let withBuilderBodyValues: typeof import("./_database-source-utils.js").withBuilderBodySourceValues;
 let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
@@ -607,6 +633,16 @@ beforeAll(async () => {
     .getContentDatabaseSourceSnapshotById;
   getWriteSnapshot = (await import("./_database-source-utils.js"))
     .getContentDatabaseSourceSnapshotForWrite;
+  claimSourceRefresh = (await import("./_database-source-utils.js"))
+    .claimBuilderCmsSourceRefresh;
+  releaseSourceRefreshClaim = (await import("./_database-source-utils.js"))
+    .releaseBuilderCmsSourceRefreshClaim;
+  renewSourceRefreshClaim = (await import("./_database-source-utils.js"))
+    .renewBuilderCmsSourceRefreshClaim;
+  updateSourceReadMetadata = (await import("./_database-source-utils.js"))
+    .updateBuilderCmsSourceReadMetadata;
+  mutateSourceMetadata = (await import("./_database-source-utils.js"))
+    .mutateContentDatabaseSourceMetadata;
   hydrateQueuedBodies = (await import("./_database-source-utils.js"))
     .processBuilderBodyHydrationQueue;
   withBuilderBodyValues = (await import("./_database-source-utils.js"))
@@ -626,6 +662,317 @@ afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
   }
+});
+
+it("atomically grants one Builder continuation claim per persisted offset", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const metadataJson = JSON.stringify({
+    sourceFetchState: "fetching",
+    lastReadHasMore: true,
+    lastReadNextOffset: 400,
+    activeReadSourceRowIds: ["entry-1"],
+  });
+  await db.insert(schema.documents).values({
+    id: "doc-continuation-claim",
+    ownerEmail: OWNER,
+    title: "Continuation claim",
+    content: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-continuation-claim",
+    ownerEmail: OWNER,
+    documentId: "doc-continuation-claim",
+    title: "Continuation claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-continuation-claim",
+    ownerEmail: OWNER,
+    databaseId: "db-continuation-claim",
+    sourceType: "builder-cms",
+    sourceName: "Continuation claim",
+    sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    syncState: "refreshing",
+    freshness: "stale",
+    metadataJson,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-claim"));
+
+  const claims = await Promise.all([
+    claimSourceRefresh({ source, expectedOffset: 400, now }),
+    claimSourceRefresh({ source, expectedOffset: 400, now }),
+  ]);
+  const granted = claims.filter((claim) => claim !== null);
+  expect(granted).toHaveLength(1);
+  expect(
+    JSON.parse(granted[0]!.source.metadataJson!).builderContinuationClaimOffset,
+  ).toBe(400);
+
+  const claimedMetadata = JSON.parse(granted[0]!.source.metadataJson!);
+  claimedMetadata.writeMode = "publish_updates";
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(claimedMetadata) })
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: granted[0]!.claimId,
+  });
+  const [released] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const releasedMetadata = JSON.parse(released.metadataJson!);
+  expect(releasedMetadata.writeMode).toBe("publish_updates");
+  expect(releasedMetadata).not.toHaveProperty("builderContinuationClaimId");
+
+  const orphanedMetadataJson = JSON.stringify({
+    ...releasedMetadata,
+    builderContinuationClaimId: "orphaned-claim",
+    builderContinuationClaimOffset: 400,
+    builderContinuationClaimedAt: "2026-01-01T00:00:00.000Z",
+  });
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: orphanedMetadataJson })
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const [orphanedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const recovered = await claimSourceRefresh({
+    source: orphanedSource,
+    expectedOffset: 400,
+    now: "2026-01-01T00:31:00.000Z",
+  });
+  expect(recovered?.claimId).toBeTruthy();
+  expect(recovered?.claimId).not.toBe("orphaned-claim");
+  expect(
+    await renewSourceRefreshClaim({
+      sourceId: source.id,
+      claimId: "orphaned-claim",
+      now: "2026-01-01T00:31:30.000Z",
+    }),
+  ).toBe(false);
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: recovered!.claimId,
+  });
+
+  const [readySource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const fenced = await claimSourceRefresh({
+    source: readySource,
+    expectedOffset: 400,
+    now: "2026-01-01T00:12:00.000Z",
+  });
+  await expect(
+    updateSourceReadMetadata({
+      sourceId: source.id,
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      readState: "live",
+      entryCount: 580,
+      matchedRowCount: 580,
+      fetchedAt: "2026-01-01T00:12:30.000Z",
+      now: "2026-01-01T00:12:30.000Z",
+      message: null,
+      refreshClaimId: "not-the-owner",
+    }),
+  ).rejects.toThrow("refresh claim was lost");
+  const [stillFenced] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  expect(JSON.parse(stillFenced.metadataJson!).builderContinuationClaimId).toBe(
+    fenced!.claimId,
+  );
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: fenced!.claimId,
+  });
+});
+
+it("retries stale metadata writers without erasing a concurrent Builder refresh claim", async () => {
+  const db = getDb();
+  const now = "2026-07-26T21:00:00.000Z";
+  await db.insert(schema.documents).values({
+    id: "doc-metadata-cas",
+    ownerEmail: OWNER,
+    title: "Metadata CAS",
+    content: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-metadata-cas",
+    ownerEmail: OWNER,
+    documentId: "doc-metadata-cas",
+    title: "Metadata CAS",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-metadata-cas",
+    ownerEmail: OWNER,
+    databaseId: "db-metadata-cas",
+    sourceType: "builder-cms",
+    sourceName: "Metadata CAS",
+    sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    metadataJson: JSON.stringify({ writeMode: "stage_only" }),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  let insertedConcurrentClaim = false;
+  await mutateSourceMetadata({
+    sourceId: "source-metadata-cas",
+    now,
+    buildPatch: async (current) => {
+      const metadata = JSON.parse(current.metadataJson ?? "{}");
+      if (!insertedConcurrentClaim) {
+        insertedConcurrentClaim = true;
+        await db
+          .update(schema.contentDatabaseSources)
+          .set({
+            metadataJson: JSON.stringify({
+              ...metadata,
+              builderContinuationClaimId: "concurrent-claim",
+              builderContinuationClaimOffset: 400,
+              builderContinuationClaimedAt: now,
+            }),
+          })
+          .where(eq(schema.contentDatabaseSources.id, "source-metadata-cas"));
+      }
+      return {
+        metadataJson: JSON.stringify({
+          ...metadata,
+          federation: { role: "primary" },
+        }),
+      };
+    },
+  });
+
+  const [persisted] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-metadata-cas"));
+  expect(JSON.parse(persisted.metadataJson)).toMatchObject({
+    writeMode: "stage_only",
+    builderContinuationClaimId: "concurrent-claim",
+    builderContinuationClaimOffset: 400,
+    federation: { role: "primary" },
+  });
+});
+
+it("preserves a partial Builder snapshot when a continuation read fails", async () => {
+  const db = getDb();
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const metadataJson = JSON.stringify({
+    sourceFetchState: "fetching",
+    lastReadHasMore: true,
+    lastReadNextOffset: 500,
+    lastReadFetchedEntryCount: 500,
+    activeReadSourceRowIds: ["entry-preserved"],
+  });
+  await db.insert(schema.documents).values([
+    {
+      id: "doc-read-error-db",
+      ownerEmail: OWNER,
+      title: "Read error DB",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-read-error-row",
+      ownerEmail: OWNER,
+      parentId: "doc-read-error-db",
+      title: "Preserved row",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: "db-read-error",
+    ownerEmail: OWNER,
+    documentId: "doc-read-error-db",
+    title: "Read error DB",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item-read-error-row",
+    ownerEmail: OWNER,
+    databaseId: "db-read-error",
+    documentId: "doc-read-error-row",
+    position: 0,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-read-error",
+    ownerEmail: OWNER,
+    databaseId: "db-read-error",
+    sourceType: "builder-cms",
+    sourceName: "Read error source",
+    sourceTable: "collection-read-error-continuation",
+    syncState: "refreshing",
+    freshness: "stale",
+    metadataJson,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "source-row-read-error",
+    ownerEmail: OWNER,
+    sourceId: "source-read-error",
+    databaseItemId: "item-read-error-row",
+    documentId: "doc-read-error-row",
+    sourceRowId: "entry-preserved",
+    sourceQualifiedId:
+      "builder-cms://collection-read-error-continuation/entry-preserved",
+    sourceDisplayKey: "Preserved row",
+    sourceValuesJson: JSON.stringify({ "data.title": "Preserved row" }),
+    provenance: "Builder CMS read adapter",
+    freshness: "fresh",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-read-error"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-read-error"));
+
+  await expect(
+    resync({ database, source, now: "2026-02-01T00:00:00.000Z" }),
+  ).rejects.toThrow("HTTP 503");
+
+  const rows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+  const [preservedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.sourceRowId).toBe("entry-preserved");
+  expect(preservedSource.metadataJson).toBe(metadataJson);
+  expect(preservedSource.syncState).toBe("refreshing");
 });
 
 it("preserves an established source snapshot when Builder unexpectedly returns zero entries", async () => {
@@ -1019,6 +1366,24 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
   });
   await db.insert(schema.documentPropertyDefinitions).values([
     {
+      id: "prop-local-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-builder-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
       id: "prop-topics",
       ownerEmail: OWNER,
       databaseId: "db-mapped-fields",
@@ -1087,6 +1452,36 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     updatedAt: now,
   });
   await db.insert(schema.contentDatabaseSourceFields).values([
+    {
+      id: "field-local-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-local-blurb",
+      localFieldKey: "prop-local-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "source field",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-builder-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-builder-blurb",
+      localFieldKey: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "Builder model field",
+      createdAt: now,
+      updatedAt: now,
+    },
     {
       id: "field-topics",
       ownerEmail: OWNER,
@@ -1174,6 +1569,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
   expect(JSON.parse(sourceRow.sourceValuesJson)).toMatchObject({
+    "data.blurb": "Remote Builder blurb",
     "data.topics": ["AI", "CMS"],
     "data.tags": ["Agents", "Content"],
     "data.customModelField": "Arbitrary value",
@@ -1196,6 +1592,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       ]),
     ),
   ).toMatchObject({
+    "prop-builder-blurb": "Remote Builder blurb",
     "prop-topics": ["ai", "cms"],
     "prop-tags": ["agents", "content"],
     "prop-custom": "Arbitrary value",
@@ -1262,6 +1659,18 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       id: "field-status-upper",
       propertyId: "prop-status-upper",
       sourceFieldKey: "data.Status",
+    },
+  ]);
+  expect(
+    statusFieldMappings.filter(
+      (field: { sourceFieldKey: string }) =>
+        field.sourceFieldKey === "data.blurb",
+    ),
+  ).toEqual([
+    {
+      id: "field-builder-blurb",
+      propertyId: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
     },
   ]);
   const readCall = builderReadMock.calls.find(
@@ -2005,6 +2414,154 @@ it("full Builder refresh reads every page in one resync call", async () => {
       offset,
     })),
   ).toEqual([{ model: "collection-a", maxPages: undefined, offset: 0 }]);
+});
+
+it("unlocks synthetic Builder fixture bodies without weakening remote hydration", async () => {
+  const db = getDb();
+  const now = "2026-07-24T12:00:00.000Z";
+  const databaseId = "db-builder-fixture-hydration";
+  const databaseDocumentId = "doc-builder-fixture-hydration";
+  const sourceId = "source-builder-fixture-hydration";
+  const localDocumentId = "doc-builder-fixture-local";
+  const remoteDocumentId = "doc-builder-fixture-remote";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocumentId,
+      ownerEmail: OWNER,
+      title: "Builder fixture hydration database",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: localDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Local fixture",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: remoteDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Preserved remote row",
+      content: "",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocumentId,
+    title: "Builder fixture hydration database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values([
+    {
+      id: "item-builder-fixture-local",
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: localDocumentId,
+      position: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "item-builder-fixture-remote",
+      ownerEmail: OWNER,
+      databaseId,
+      documentId: remoteDocumentId,
+      position: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  const items = [
+    {
+      id: "item-builder-fixture-local",
+      databaseId,
+      document: {
+        id: localDocumentId,
+        title: "Local fixture",
+        content: "",
+      },
+      position: 0,
+      properties: [],
+    },
+    {
+      id: "item-builder-fixture-remote",
+      databaseId,
+      document: {
+        id: remoteDocumentId,
+        title: "Preserved remote row",
+        content: "",
+      },
+      position: 1,
+      properties: [],
+    },
+  ];
+  await seedSourceRows({
+    sourceId,
+    ownerEmail: OWNER,
+    sourceType: "builder-cms",
+    sourceTable: "safe-model",
+    items,
+    now,
+    existingBuilderRows: new Map([
+      [
+        remoteDocumentId,
+        {
+          documentId: remoteDocumentId,
+          sourceRowId: "remote-entry-1",
+          sourceQualifiedId: "builder-cms://safe-model/remote-entry-1",
+          sourceDisplayKey: "Preserved remote row",
+          provenance: "Builder CMS read adapter",
+          lastSourceUpdatedAt: now,
+          sourceValuesJson: JSON.stringify({
+            "data.title": "Preserved remote row",
+          }),
+        },
+      ],
+    ]),
+  });
+
+  const hydrationRows = await db
+    .select({
+      documentId: schema.contentDatabaseItems.documentId,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(
+    new Map(hydrationRows.map((row: any) => [row.documentId, row.status])),
+  ).toEqual(
+    new Map([
+      [localDocumentId, "unavailable"],
+      [remoteDocumentId, "hydrated"],
+    ]),
+  );
+
+  const sourceRows = await db
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      provenance: schema.contentDatabaseSourceRows.provenance,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+  expect(
+    new Map(sourceRows.map((row: any) => [row.documentId, row.provenance])),
+  ).toEqual(
+    new Map([
+      [localDocumentId, "Builder CMS fixture adapter"],
+      [remoteDocumentId, "Builder CMS read adapter"],
+    ]),
+  );
 });
 
 it("keeps a materialized required Builder reference dispatchable after full refresh", async () => {

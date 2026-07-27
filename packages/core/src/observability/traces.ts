@@ -247,6 +247,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
     providerOptions?: any;
     runId?: string;
   }) => Promise<AgentLoopUsage>;
@@ -259,6 +260,7 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
     providerOptions?: any;
     runId?: string;
   };

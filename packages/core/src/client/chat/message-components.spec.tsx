@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   assistantMessageHasCompletedCustomUi,
@@ -16,6 +16,7 @@ import {
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowMissingFinalResponse,
+  useSettledFlag,
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
@@ -118,6 +119,7 @@ describe("shouldShowMissingFinalResponse", () => {
   it("backs up terminal tool-only messages with visible text", () => {
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
@@ -128,6 +130,7 @@ describe("shouldShowMissingFinalResponse", () => {
   it("stays hidden while a tool is unresolved or final text exists", () => {
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: true,
@@ -135,6 +138,7 @@ describe("shouldShowMissingFinalResponse", () => {
     ).toBe(false);
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: true,
         hasUnresolvedTool: false,
@@ -142,12 +146,110 @@ describe("shouldShowMissingFinalResponse", () => {
     ).toBe(false);
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
         hasCompletedCustomUi: true,
       }),
     ).toBe(false);
+  });
+
+  it("stays hidden while the server still reports the run as running", () => {
+    // Local chatRunning dips at every chunk boundary; server truth wins.
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        serverRunActive: true,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not flash after a tool completes while the current turn is still running", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: true,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("useSettledFlag", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function Probe({ active, delayMs }: { active: boolean; delayMs: number }) {
+    return <span>{useSettledFlag(active, delayMs) ? "shown" : "hidden"}</span>;
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.useRealTimers();
+  });
+
+  it("holds the flag back until the condition has lasted the delay", () => {
+    act(() => {
+      root.render(<Probe active delayMs={3000} />);
+    });
+    expect(container.textContent).toBe("hidden");
+
+    act(() => {
+      vi.advanceTimersByTime(2999);
+    });
+    expect(container.textContent).toBe("hidden");
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(container.textContent).toBe("shown");
+  });
+
+  it("never shows when the condition clears inside the delay, and re-arms after", () => {
+    act(() => {
+      root.render(<Probe active delayMs={3000} />);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.render(<Probe active={false} delayMs={3000} />);
+    });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(container.textContent).toBe("hidden");
+
+    act(() => {
+      root.render(<Probe active delayMs={3000} />);
+    });
+    expect(container.textContent).toBe("hidden");
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(container.textContent).toBe("shown");
+  });
+
+  it("shows immediately with no delay, so settled history does not pop in", () => {
+    act(() => {
+      root.render(<Probe active delayMs={0} />);
+    });
+    expect(container.textContent).toBe("shown");
   });
 });
 

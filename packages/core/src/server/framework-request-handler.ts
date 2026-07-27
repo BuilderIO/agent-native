@@ -23,6 +23,11 @@ import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
 } from "./http-response-telemetry.js";
+import {
+  hasRequestContext,
+  markRequestBoundaryInstalled,
+  runWithRequestContext,
+} from "./request-context.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -36,6 +41,7 @@ const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
+const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
 interface PluginReadyEntry {
   promise: Promise<void>;
@@ -196,6 +202,10 @@ export function getH3App(nitroApp: any): H3AppShim {
     // first.
     registerMiddleware(nitroApp, "", createCsrfMiddleware());
 
+    // Registered last so it lands at index 0 — ahead of the readiness gates
+    // and CSRF, both of which were unshifted/pushed above.
+    registerRequestContextBoundary(nitroApp);
+
     // Primary gate: Nitro bridges this `request` hook to h3's `config.onRequest`,
     // which h3 awaits BEFORE `handler()` snapshots middleware and resolves the
     // route. The middleware gate above runs too late on production dispatchers —
@@ -220,6 +230,39 @@ export function getH3App(nitroApp: any): H3AppShim {
   }
 
   return shim;
+}
+
+/**
+ * Establish a `RequestContext` for every inbound request, so no HTTP handler
+ * ever asks a request-scoped question with no request in scope.
+ *
+ * Hand-written `/api/*` routes have no ALS store of their own, and
+ * `getRequestUserEmail()` used to answer those with `AGENT_USER_EMAIL` — a
+ * process-wide ambient identity standing in for the caller, which fails open
+ * toward more privilege (an admin gate reading it admits whoever the deploy env
+ * names). This store is deliberately identity-free: resolving the session here
+ * would mean reading cookies on the SSR path, which must stay one impersonal
+ * cached shell. Handlers that do know the caller still nest their own
+ * `runWithRequestContext`, which shadows this one.
+ *
+ * h3 v2 hands middleware a `next()` that returns the result of the rest of the
+ * chain (route handler included), so wrapping `next()` puts the whole request
+ * inside the ALS scope. It must be `~middleware[0]`; going through
+ * `registerMiddleware` is not an option because that adapter hides `next`.
+ */
+function registerRequestContextBoundary(nitroApp: any): void {
+  const h3 = nitroApp?.h3;
+  if (!h3 || !Array.isArray(h3["~middleware"])) return;
+  if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
+
+  const middleware = (_event: H3Event, next: () => unknown) => {
+    if (hasRequestContext()) return next();
+    return runWithRequestContext({}, () => next());
+  };
+
+  h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;
+  h3["~middleware"].unshift(middleware);
+  markRequestBoundaryInstalled();
 }
 
 /**
@@ -602,33 +645,24 @@ function registerMiddleware(
         status,
         error: err,
       });
-      // Forward 5xx to server-side Sentry — Nitro's own `error` hook may not
-      // fire here because we convert the throw into a normal JSON response,
-      // and a console.error alone is invisible in deployed environments.
-      // 4xx are user-input errors (validation, auth) and aren't worth
-      // alerting on. Lazy-loaded so the framework-request-handler module
-      // doesn't pull @sentry/node into bundles that don't need it.
+      // Forward 5xx to the configured server error providers — Nitro's own
+      // `error` hook may not fire here because we convert the throw into a
+      // normal JSON response, and a console.error alone is invisible in
+      // deployed environments. 4xx are user-input errors (validation, auth)
+      // and aren't worth alerting on.
       if (status >= 500) {
-        // Static `import` would create a cycle (sentry.ts imports auth.ts
-        // which imports… eventually, framework-request-handler.ts).
-        import("./sentry.js")
-          .then(({ captureRouteError, isServerSentryEnabled }) => {
-            if (!isServerSentryEnabled()) return;
-            captureRouteError(err, {
-              route: reqPath,
-              method: event.method,
-              userAgent: (() => {
-                try {
-                  return event.headers?.get("user-agent") ?? undefined;
-                } catch {
-                  return undefined;
-                }
-              })(),
-            });
-          })
-          .catch(() => {
-            // Sentry is observability — never let it break a response path.
-          });
+        captureError(err, {
+          route: reqPath,
+          method: event.method,
+          tags: { status_code: String(status) },
+          userAgent: (() => {
+            try {
+              return event.headers?.get("user-agent") ?? undefined;
+            } catch {
+              return undefined;
+            }
+          })(),
+        });
       }
       try {
         setResponseStatus(event, status);

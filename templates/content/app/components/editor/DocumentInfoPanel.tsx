@@ -32,7 +32,11 @@ export function DocumentInfoPanel({
         onSave={onSaveDescription}
       />
       {document.databaseMembership && !isLocalFileDocument ? (
-        <DocumentProperties documentId={document.id} canEdit={canEdit} />
+        <DocumentProperties
+          documentId={document.id}
+          databaseDocumentId={document.databaseMembership.databaseDocumentId}
+          canEdit={canEdit}
+        />
       ) : null}
     </div>
   );

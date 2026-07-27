@@ -124,6 +124,7 @@ const messages = {
       "Die angehängte Datei konnte nicht hochgeladen werden.",
     uploadFailed: "Upload fehlgeschlagen",
     doubleClickEdit: "Doppelklicke auf Text zum Bearbeiten",
+    dragToMove: "Ziehen zum Verschieben",
     aiEditing: "KI bearbeitet",
     startTypingCommands: "Beginne zu tippen… oder drücke / für Befehle",
     pinDropHint: "Klicke irgendwo, um eine Kommentar-Pin zu setzen",
@@ -214,6 +215,7 @@ const messages = {
     elementAnimations: "Elementanimationen",
     tweaks: "Feinabstimmung",
     drawOnSlide: "Auf Folie zeichnen",
+    addTextBox: "Textfeld hinzufügen",
     pinComments: "Kommentare anheften",
     pinCommentsDescription:
       "Klicke auf Stellen auf der Folie, um mehrere Änderungen vorzubereiten und sie dann gesammelt zu senden.",

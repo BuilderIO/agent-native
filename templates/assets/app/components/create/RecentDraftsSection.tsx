@@ -5,8 +5,10 @@ import {
   IconArrowUpRight,
   IconPhoto,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { Link } from "react-router";
 
+import { AssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -32,6 +34,7 @@ export function RecentDraftsSection() {
     },
   );
   const drafts = ((data as any)?.assets ?? []) as DraftAsset[];
+  const [previewAsset, setPreviewAsset] = useState<DraftAsset | null>(null);
 
   if (isError) {
     return (
@@ -74,18 +77,25 @@ export function RecentDraftsSection() {
               <Skeleton key={index} className="aspect-square rounded-lg" />
             ))
           : drafts.map((draft) => (
-              <Link
+              <button
                 key={draft.id}
-                to={`/asset/${encodeURIComponent(draft.id)}`}
+                type="button"
+                onClick={() => setPreviewAsset(draft)}
                 title={draft.title || draft.prompt || t("library.draftAsset")}
-                className="group block overflow-hidden rounded-lg border border-border bg-card shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group block overflow-hidden rounded-lg border border-border bg-card text-left shadow-sm transition hover:border-primary/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="aspect-square bg-muted">
                   <DraftThumbnail draft={draft} />
                 </div>
-              </Link>
+              </button>
             ))}
       </div>
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={drafts}
+        onAssetChange={(next) => setPreviewAsset(next as DraftAsset | null)}
+      />
     </section>
   );
 }

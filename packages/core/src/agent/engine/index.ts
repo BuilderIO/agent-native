@@ -25,6 +25,8 @@ export {
   getConfiguredEngineNameForRequest,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  resolveEnginePreservesCustomModels,
+  type NormalizeModelOptions,
   detectEngineFromEnv,
   detectEngineFromEnvForRequest,
   detectEngineFromUserSecrets,

@@ -12,6 +12,7 @@ const guards = [
   "guard:db-tool-scoping",
   "guard:template-list",
   "guard:netlify-private-env",
+  "guard:trusted-acceptance",
   "guard:workspace-skills",
   "guard:template-standard",
   "guard:public-packages",
@@ -34,6 +35,8 @@ const guards = [
   "guard:agent-chat-context",
   "guard:request-storms",
   "guard:ssr-cache-shell",
+  "guard:route-chunk-recovery",
+  "guard:one-sign-in",
 ] as const;
 
 type GuardName = (typeof guards)[number];

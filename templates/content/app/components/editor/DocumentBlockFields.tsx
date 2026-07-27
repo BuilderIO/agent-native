@@ -38,6 +38,7 @@ const BLOCK_FIELD_DRAG_THRESHOLD = 6;
 
 interface DocumentBlockFieldsProps {
   documentId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   /**
    * The fully-wired collaborative body editor for the primary "Content" field.
@@ -238,6 +239,7 @@ export function blockFieldsRenderState(args: {
  */
 export function DocumentBlockFields({
   documentId,
+  databaseDocumentId,
   canEdit,
   primaryEditor,
 }: DocumentBlockFieldsProps) {
@@ -303,6 +305,7 @@ export function DocumentBlockFields({
               // field while SAVING to another across an identity change.
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
               property={state.field}
               canEdit={canEdit}
             />
@@ -318,6 +321,7 @@ export function DocumentBlockFields({
       return (
         <MultiBlockFields
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           canEdit={canEdit}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
@@ -329,12 +333,14 @@ export function DocumentBlockFields({
 
 function MultiBlockFields({
   documentId,
+  databaseDocumentId,
   canEdit,
   blockFields,
   primaryEditor,
   t,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
@@ -504,6 +510,7 @@ function MultiBlockFields({
                   // doc's edits to the old field's closure.
                   key={`${documentId}:${property.definition.id}`}
                   documentId={documentId}
+                  databaseDocumentId={databaseDocumentId}
                   property={property}
                   canEdit={canEdit}
                 />
@@ -789,14 +796,16 @@ export function useBlockFieldEditor({
  */
 function AdditionalBlockEditor({
   documentId,
+  databaseDocumentId,
   property,
   canEdit,
 }: {
   documentId: string;
+  databaseDocumentId: string;
   property: DocumentProperty;
   canEdit: boolean;
 }) {
-  const setProperty = useSetDocumentProperty(documentId);
+  const setProperty = useSetDocumentProperty(documentId, databaseDocumentId);
   const propertyId = property.definition.id;
   const initialContent =
     typeof property.value === "string" ? property.value : "";

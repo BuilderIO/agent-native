@@ -16,7 +16,7 @@ jobs:
   standalone-chat:
     name: Generate + run standalone Chat
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     env:
       AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
@@ -66,3 +66,10 @@ jobs:
         # Covers the public Chat CLI path and the Vite dev SSR/browser runtime
         # that production builds do not exercise.
         run: pnpm qa:standalone-chat-dev
+
+      - name: Cross-surface sign-in matrix
+        # Boots the Chat template at the root base path and again under
+        # /chatapp, and drives the real login document. A matrix nobody runs
+        # stops nothing — the request-level half of this matrix ships as a
+        # vitest spec, but the browser half only exists if it runs here.
+        run: pnpm qa:sign-in

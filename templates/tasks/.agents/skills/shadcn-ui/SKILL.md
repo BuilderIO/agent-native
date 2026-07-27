@@ -1,11 +1,15 @@
 ---
 name: shadcn-ui
 description: >-
-  Use when adding, updating, debugging, styling, or composing shadcn/ui
-  components, forms, dialogs, menus, charts, sidebars, themes, registries, or
-  any project with a components.json file.
+  The shadcn CLI, component composition, theming, and registry workflow. Use
+  when adding, replacing, upgrading, or debugging a shadcn/ui primitive itself,
+  or when changing a theme or registry. Do not load it for ordinary edits to a
+  file that happens to import a shadcn component.
 scope: dev
 source: https://ui.shadcn.com/docs/skills
+local-changes: >-
+  Description narrowed deliberately; an upstream sync must not restore the
+  "any project with a components.json file" trigger.
 metadata:
   internal: true
 ---

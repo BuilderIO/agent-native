@@ -1,3 +1,5 @@
+import { buildRecordingShareUrl } from "@shared/recording-link";
+
 import {
   restartUploadModeFromResponse,
   restartUploadResetBody,
@@ -1080,10 +1082,24 @@ function sendOffscreenMessage<T>(message: Record<string, unknown>): Promise<T> {
   });
 }
 
+// The author's own dashboard. Fine to OPEN for the person who just recorded;
+// never the thing to hand someone else — see recordingShareUrl below.
 function recordingUrl(
   recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
 ): string {
   return `${recording.clipsBaseUrl}/r/${encodeURIComponent(recording.recordingId)}`;
+}
+
+// The extension only stores the signed-in user's token and email; email is PII
+// and must never become the `via` attribution param, so share URLs go out
+// without an owner id.
+function recordingShareUrl(
+  recording: Pick<NativeRecording, "clipsBaseUrl" | "recordingId">,
+): string {
+  return buildRecordingShareUrl({
+    recordingId: recording.recordingId,
+    origin: recording.clipsBaseUrl,
+  });
 }
 
 async function copyRecordingUrlToClipboard(
@@ -1093,7 +1109,7 @@ async function copyRecordingUrlToClipboard(
     await ensureOffscreenDocument();
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_COPY_TEXT",
-      text: recording.recordingUrl,
+      text: recordingShareUrl(recording),
     });
   } catch (err) {
     console.warn("[clips-bg] could not copy recording URL", err);

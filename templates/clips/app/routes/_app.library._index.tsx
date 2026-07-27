@@ -6,7 +6,7 @@ import { LibraryGrid } from "@/components/library/library-grid";
 import { usePageHeaderLayout } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
 
-const SEO_TITLE = "Agent-Native Clips - Open Source screen recorder";
+const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 

@@ -62,6 +62,12 @@ const {
   writeAgentLoopSettings,
   resetAgentLoopSettings,
   canUpdateAgentLoopSettings,
+  DEFAULT_AGENT_MAX_RUN_INPUT_TOKENS,
+  MIN_AGENT_MAX_RUN_INPUT_TOKENS,
+  MAX_AGENT_MAX_RUN_INPUT_TOKENS,
+  normalizeMaxRunInputTokens,
+  validateMaxRunInputTokensInput,
+  getDefaultMaxRunInputTokens,
 } = await import("./loop-settings.js");
 
 beforeEach(() => {
@@ -311,5 +317,47 @@ describe("canUpdateAgentLoopSettings", () => {
   it("denies (fails closed) when the role query throws", async () => {
     roleQueryThrows = true;
     expect(await canUpdateAgentLoopSettings("a@b.com", "org1")).toBe(false);
+  });
+});
+
+describe("maxRunInputTokens — the per-turn spend ceiling", () => {
+  it("clamps out-of-range values and passes valid ones through", () => {
+    expect(normalizeMaxRunInputTokens(1)).toBe(MIN_AGENT_MAX_RUN_INPUT_TOKENS);
+    expect(normalizeMaxRunInputTokens(1e12)).toBe(
+      MAX_AGENT_MAX_RUN_INPUT_TOKENS,
+    );
+    expect(normalizeMaxRunInputTokens(500_000)).toBe(500_000);
+    expect(normalizeMaxRunInputTokens(undefined)).toBe(
+      DEFAULT_AGENT_MAX_RUN_INPUT_TOKENS,
+    );
+  });
+
+  it("rejects non-integer and out-of-range input", () => {
+    expect(validateMaxRunInputTokensInput("nope").ok).toBe(false);
+    expect(validateMaxRunInputTokensInput(1).ok).toBe(false);
+    expect(validateMaxRunInputTokensInput(500_000)).toEqual({
+      ok: true,
+      value: 500_000,
+    });
+  });
+
+  it("reads an env override", () => {
+    vi.stubEnv("AGENT_MAX_RUN_INPUT_TOKENS", "750000");
+    expect(getDefaultMaxRunInputTokens()).toBe(750_000);
+  });
+
+  it("round-trips through org settings alongside maxIterations", async () => {
+    const ctx = { orgId: "org1", userEmail: "a@b.com" };
+    await writeAgentLoopSettings(ctx, 50, 500_000);
+    const settings = await readAgentLoopSettings(ctx);
+    expect(settings.maxIterations).toBe(50);
+    expect(settings.maxRunInputTokens).toBe(500_000);
+  });
+
+  it("falls back to the default when only maxIterations was stored", async () => {
+    const ctx = { orgId: "org1", userEmail: "a@b.com" };
+    await writeAgentLoopSettings(ctx, 50);
+    const settings = await readAgentLoopSettings(ctx);
+    expect(settings.maxRunInputTokens).toBe(DEFAULT_AGENT_MAX_RUN_INPUT_TOKENS);
   });
 });

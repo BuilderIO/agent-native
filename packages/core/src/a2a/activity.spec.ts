@@ -65,6 +65,40 @@ describe("Agent Native A2A activity", () => {
     expect(snapshot.responseText!.length).toBeLessThanOrEqual(32_768);
   });
 
+  it("keeps response text emitted before a tool call instead of clearing it", () => {
+    let state = createA2AAgentActivityState(1_000);
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "text", text: "Checking the numbers first." },
+      1_100,
+    );
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "tool_start", tool: "search", id: "call-1", input: {} },
+      1_200,
+    );
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "tool_done", tool: "search", id: "call-1", result: "done" },
+      1_300,
+    );
+    state = applyA2AAgentActivityEvent(
+      state,
+      { type: "text", text: "Revenue grew **12%**." },
+      1_400,
+    );
+
+    const snapshot = buildA2AAgentActivitySnapshot(state);
+    expect(snapshot.response).toEqual([
+      "Checking the numbers first.",
+      "Revenue grew **12%**.",
+    ]);
+    expect(snapshot.responseText).toBe("Revenue grew **12%**.");
+    expect(parseA2AAgentActivityPart({ type: "data", data: snapshot })).toEqual(
+      snapshot,
+    );
+  });
+
   it("round-trips only a strict activity data part", () => {
     let state = createA2AAgentActivityState(1_000);
     state = applyA2AAgentActivityEvent(

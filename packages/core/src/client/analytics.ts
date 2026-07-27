@@ -14,6 +14,7 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
@@ -677,6 +678,18 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
   const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
   const isDocsPage = isAgentNativeDocsUrl(requestUrl);
+  // React Router's stale-chunk recovery handles these failures by reloading
+  // the page. Keep the external Sentry stream aligned with first-party
+  // capture, which already drops the prevented browser event.
+  if (
+    exceptionValues.some((value) =>
+      isDynamicImportFailureMessage(
+        `${value.type ?? ""}: ${value.value ?? ""}`,
+      ),
+    )
+  ) {
+    return true;
+  }
   // A server-owned run can emit an expected run_timeout while handing off to
   // its continuation. AssistantChat retries these transitions automatically;
   // only locally timed-out or ultimately unrecoverable runs should create a
