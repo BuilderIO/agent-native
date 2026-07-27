@@ -19,11 +19,13 @@ import {
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
+  CLOUDFLARE_MODULE_STUB_MODULES,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
   cloudflareWorkerStubAliasArgs,
   copyDir,
+  createCloudflareModuleStubPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
@@ -61,7 +63,21 @@ describe("nitroNoExternalsForPreset", () => {
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
+    expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("Cloudflare module preset stubs", () => {
+  it("intercepts only the edge-incompatible package roots", async () => {
+    const plugin = createCloudflareModuleStubPlugin();
+    const sentryStub = plugin.resolveId("@sentry/node");
+
+    expect(CLOUDFLARE_MODULE_STUB_MODULES).toContain("@sentry/node");
+    expect(sentryStub).toMatch(/^\0agent-native-cloudflare-module-stub:/);
+    expect(plugin.load(sentryStub as string)).toContain("captureException");
+    expect(plugin.resolveId("@sentry/node/internals")).toBeNull();
+    expect(plugin.resolveId("@anthropic-ai/sdk")).toBeNull();
   });
 });
 

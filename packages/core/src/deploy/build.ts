@@ -3602,6 +3602,53 @@ const BROWSER_ONLY_SERVER_LIBS = [
 ];
 
 /**
+ * Packages that Nitro can discover through the shared server graph but that
+ * cannot be evaluated in a Cloudflare Worker. Keep the network-capable SDKs
+ * real; these are limited to Node/native/browser-runtime packages whose
+ * server-side paths already fail closed when the capability is unavailable.
+ */
+export const CLOUDFLARE_MODULE_STUB_MODULES = [
+  "@napi-rs/canvas",
+  "@resvg/resvg-js",
+  "@sentry/node",
+  "@sparticuz/chromium-min",
+  "better-sqlite3",
+  "chartjs-node-canvas",
+  "chokidar",
+  "fsevents",
+  "node-pty",
+  "playwright",
+  "playwright-core",
+] as const;
+
+/**
+ * Mirror the fail-closed package stubs used by the Pages bundler in Nitro's
+ * Rolldown graph. Without this, the native module preset emits a valid module
+ * graph that still crashes at Worker cold start when a Node-only optional
+ * dependency is evaluated.
+ */
+export function createCloudflareModuleStubPlugin() {
+  const stubbed = new Set<string>(CLOUDFLARE_MODULE_STUB_MODULES);
+  const stubIdPrefix = "\0agent-native-cloudflare-module-stub:";
+
+  return {
+    name: "agent-native-cloudflare-module-stub",
+    resolveId(id: string) {
+      const packageName = id.startsWith("@")
+        ? id.split("/").slice(0, 2).join("/")
+        : id.split("/")[0];
+      if (!stubbed.has(packageName) || id !== packageName) return null;
+      return `${stubIdPrefix}${packageName}`;
+    },
+    load(id: string) {
+      if (!id.startsWith(stubIdPrefix)) return null;
+      const packageName = id.slice(stubIdPrefix.length);
+      return CLOUDFLARE_WORKER_STUB_MODULES[packageName] ?? null;
+    },
+  };
+}
+
+/**
  * Dependencies Nitro itself must bundle outside the controlled serverless
  * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
  * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
@@ -3811,7 +3858,12 @@ export default bundle;
       ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
         ? { external: ["yjs"] }
         : {}),
-      plugins: [createBrowserOnlyServerStubPlugin()],
+      plugins: [
+        ...(preset.startsWith("cloudflare")
+          ? [createCloudflareModuleStubPlugin()]
+          : []),
+        createBrowserOnlyServerStubPlugin(),
+      ],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
@@ -3951,6 +4003,14 @@ export default bundle;
       fs.mkdirSync(libsDir, { recursive: true });
       for (const mod of bareImports) {
         const outFile = path.join(libsDir, `${mod.replace(/[/@]/g, "_")}.mjs`);
+        // Nitro may already have emitted a correctly minified module wrapper
+        // for this dependency. Replacing that wrapper with an esbuild CJS
+        // adapter loses its public export aliases and makes otherwise valid
+        // sibling chunks fail during Worker module linking.
+        if (fs.existsSync(outFile)) {
+          console.log(`[deploy] Retaining Nitro external: ${mod}`);
+          continue;
+        }
         try {
           // Resolve the module — check workspace node_modules and pnpm store
           let resolvedMod = mod;

@@ -275,7 +275,7 @@ describe("route chunk recovery", () => {
     expect(originalReload).not.toHaveBeenCalled();
   });
 
-  it("suppresses stale route chunk auto-reloads inside Agent Native desktop", () => {
+  it("recovers the intended route inside Agent Native desktop", () => {
     const { fakeWindow, fakeLocation, originalReload, dispatchDocument } =
       createFakeWindow("https://example.com/dispatch/apps", {
         userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7",
@@ -305,9 +305,11 @@ describe("route chunk recovery", () => {
     );
     fakeLocation.reload();
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/new-app",
+    );
     expect(originalReload).not.toHaveBeenCalled();
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/apps");
+    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
   });
 
   it("recovers unhandled dynamic import rejections using the intended target", () => {
@@ -392,7 +394,7 @@ describe("route chunk recovery", () => {
     expect(preventDefault).toHaveBeenCalled();
   });
 
-  it("suppresses unhandled dynamic import navigation inside Agent Native desktop", () => {
+  it("recovers unhandled dynamic import navigation inside Agent Native desktop", () => {
     const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
       createFakeWindow("https://example.com/dispatch/apps", {
         userAgent: "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.7",
@@ -425,8 +427,10 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as PromiseRejectionEvent);
 
-    expect(fakeLocation.assign).not.toHaveBeenCalled();
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/apps");
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/new-app",
+    );
+    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
     expect(preventDefault).toHaveBeenCalled();
   });
 

@@ -193,9 +193,13 @@ function recoverToIntendedNavigation(
   if (!target) return false;
   state.recovering = true;
   state.recoveryHref = target;
-  // Desktop webviews stay open across many deploys; a forced navigation here
-  // reads as a random tab reload. Leave the current view alive instead.
-  if (isAgentNativeDesktop(win)) return true;
+  // Keep the desktop shell mounted, but replace only the route that failed to
+  // load. A current-page reload remains suppressed below when there is no
+  // intended cross-route destination to recover.
+  if (isAgentNativeDesktop(win)) {
+    hardNavigate(win, target);
+    return true;
+  }
   try {
     win.history.replaceState(win.history.state, "", target);
   } catch {}
