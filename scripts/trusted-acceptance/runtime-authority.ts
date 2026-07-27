@@ -1328,13 +1328,17 @@ export class DisposableRuntimeAuthority {
       const fixture = this.config.directoryFixture;
       const durableFixture = lease.directoryFixture;
       if (durableFixture.runtimeOwned || durableFixture.runtimeWriteAttempted) {
-        const stillOwned = await this.providers.netlify.ownsLease(
-          fixture.netlifyAccountId,
-          fixture.netlifySiteId,
-          lease.id,
-          lease.expiresAt,
-        );
-        if (!stillOwned) {
+        let stillOwned = false;
+        let ownershipVerified = true;
+        try {
+          stillOwned = await this.providers.netlify.ownsLease(
+            fixture.netlifyAccountId,
+            fixture.netlifySiteId,
+            lease.id,
+            lease.expiresAt,
+          );
+        } catch {
+          ownershipVerified = false;
           runtimeVariablesAbsent = false;
           tombstoneActive = false;
           await this.record(
@@ -1344,6 +1348,18 @@ export class DisposableRuntimeAuthority {
             "failed",
             fixture.netlifySiteId,
           );
+        }
+        if (!stillOwned) {
+          runtimeVariablesAbsent = false;
+          tombstoneActive = false;
+          if (ownershipVerified)
+            await this.record(
+              lease,
+              "verification",
+              "verify-directory-lease-owner",
+              "failed",
+              fixture.netlifySiteId,
+            );
         } else {
           const absent = await this.cleanup(
             lease,

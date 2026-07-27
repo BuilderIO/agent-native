@@ -139,6 +139,20 @@ describe("trusted acceptance workflow boundary", () => {
     );
   });
 
+  it("requires isolation targets to resolve independently of A2A harnesses", () => {
+    const unsafe = workflow.replace(
+      "declaredPlan.isolation.otherAcceptanceMemberId",
+      "declaredPlan.harness.targetMemberId",
+    );
+    const result = validateTrustedAcceptanceWorkflow(unsafe);
+    assert.equal(result.ok, false);
+    assert(
+      result.issues.some((issue) =>
+        issue.includes("independently of harness kind"),
+      ),
+    );
+  });
+
   it("requires Playwright installation before protected credentials enter", () => {
     const unsafe = workflow.replace(
       "          pnpm exec playwright install --with-deps chromium\n",

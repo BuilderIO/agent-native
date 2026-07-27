@@ -417,9 +417,10 @@ jobs:
             ? declaredPlan.members.find(({template}) => template === declaredPlan.harness.callerMemberId)
             : declaredPlan.members.find(({template}) => template === declaredPlan.harness.memberId);
           if (!selected) throw new Error("Configured harness member is missing from the trusted plan");
-          const target = declaredPlan.harness.kind === "a2a-directory-withdrawal"
-            ? declaredPlan.members.find(({template}) => template === declaredPlan.harness.targetMemberId)
+          const isolationTarget = declaredPlan.isolation
+            ? declaredPlan.members.find(({template}) => template === declaredPlan.isolation.otherAcceptanceMemberId)
             : undefined;
+          if (declaredPlan.isolation && !isolationTarget) throw new Error("Configured isolation member is missing from the trusted plan");
           const hostedPlan = {
             version: 1,
             workspace: profile.workspace,
@@ -443,7 +444,7 @@ jobs:
                 : {kind: "mcp-read-only-tool", tool: declaredPlan.harness.tool, arguments: declaredPlan.harness.arguments},
               ...(declaredPlan.isolation ? {
                 productionMcpUrl: new URL(selected.paths.mcp, declaredPlan.isolation.productionOrigin).toString(),
-                otherAcceptanceMcpUrl: new URL(target.paths.mcp, target.origin).toString(),
+                otherAcceptanceMcpUrl: new URL(isolationTarget.paths.mcp, isolationTarget.origin).toString(),
               } : {}),
             }],
           };

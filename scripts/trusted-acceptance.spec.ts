@@ -338,6 +338,30 @@ describe("trusted acceptance configuration", () => {
     }
   });
 
+  it("rejects an A2A harness that delegates to its caller", () => {
+    const fixture = config();
+    const harness = fixture.workspaces[0]!.harness;
+    assert.equal(harness.kind, "a2a-directory-withdrawal");
+    if (harness.kind === "a2a-directory-withdrawal") {
+      harness.targetMemberId = harness.callerMemberId;
+      fixture.workspaces[0]!.directoryFixture!.withdrawnMemberId =
+        harness.callerMemberId;
+    }
+    const result = validateTrustedAcceptanceConfig(fixture, [
+      "calendar",
+      "content",
+    ]);
+    assert.equal(result.ok, false);
+    if (!result.ok)
+      assert(
+        result.issues.some(
+          ({ path, message }) =>
+            path.endsWith("targetMemberId") &&
+            message.includes("cross-app delegation"),
+        ),
+      );
+  });
+
   it("rejects reusable runtime authority configuration", () => {
     const fixture = config();
     (

@@ -392,6 +392,14 @@ export function validateTrustedAcceptanceConfig(
         });
       }
       if (
+        workspace.harness.callerMemberId === workspace.harness.targetMemberId
+      ) {
+        issues.push({
+          path: `${harnessPath}.targetMemberId`,
+          message: "must differ from the caller to prove cross-app delegation",
+        });
+      }
+      if (
         !templates.has(workspace.harness.targetMemberId) ||
         workspace.harness.targetMemberId !==
           workspace.directoryFixture?.withdrawnMemberId

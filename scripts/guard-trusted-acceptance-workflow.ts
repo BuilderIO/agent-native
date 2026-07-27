@@ -167,6 +167,15 @@ export function validateTrustedAcceptanceWorkflow(
         "trusted directory artifact must be staged and digest-bound before credentials enter",
       );
     if (
+      !deploy.includes("declaredPlan.isolation.otherAcceptanceMemberId") ||
+      !deploy.includes(
+        "Configured isolation member is missing from the trusted plan",
+      )
+    )
+      issues.push(
+        "hosted isolation must resolve its member independently of harness kind",
+      );
+    if (
       !deploy.includes(
         "working-directory: ${{ runner.temp }}/trusted-acceptance-deploy",
       ) ||

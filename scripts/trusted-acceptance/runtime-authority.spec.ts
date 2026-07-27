@@ -323,6 +323,51 @@ describe("disposable runtime authority", () => {
     );
   });
 
+  it("persists a failed directory ownership verification for retryable cleanup", async () => {
+    const log: string[] = [];
+    const fake = providers(log);
+    const authority = new DisposableRuntimeAuthority(
+      config({
+        directoryFixture: {
+          origin: "https://directory.acceptance.example.test",
+          netlifyAccountId: "directory-account",
+          netlifySiteId: "directory-site",
+          orgDomain: "acceptance.example.test",
+          withdrawnMemberId: "content",
+          members: [
+            {
+              id: "content",
+              name: "Content",
+              url: "https://content.acceptance.example.test",
+              a2aUrl: "https://content.acceptance.example.test",
+            },
+          ],
+        },
+      }),
+      fake,
+      fixedNow,
+    );
+    const { lease } = await authority.acquire(60_000);
+    fake.netlify.ownsLease = async (_accountId, siteId) => {
+      if (siteId === "directory-site")
+        throw new Error("transient directory ownership read failure");
+      return true;
+    };
+    await authority.revoke(lease);
+    assert.equal(lease.state, "revoking");
+    assert.equal(
+      lease.journal.some(
+        ({ operation, outcome, handle }) =>
+          operation === "verify-directory-lease-owner" &&
+          outcome === "failed" &&
+          handle === "directory-site",
+      ),
+      true,
+    );
+    assert.equal(log.includes("netlify:remove:directory-site"), false);
+    assert.equal(log.includes("netlify:tombstone:directory-site"), false);
+  });
+
   it("journals partial acquire and compensates through the same revoke path", async () => {
     const log: string[] = [];
     const authority = new DisposableRuntimeAuthority(
