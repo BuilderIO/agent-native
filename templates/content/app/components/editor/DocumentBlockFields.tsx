@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import type { DocumentProperty } from "@shared/api";
+import type { DocumentPropertiesResponse, DocumentProperty } from "@shared/api";
 import {
   blocksRenderMode,
   blocksStorageTarget,
@@ -204,7 +204,7 @@ export type BlockFieldsRenderState =
 export function isLoadedForDocument(
   documentId: string,
   databaseId: string,
-  data: { documentId: string; databaseId: string | null } | undefined,
+  data: DocumentPropertiesResponse | undefined,
 ): boolean {
   return documentPropertiesResponseMatchesScope(documentId, databaseId, data);
 }

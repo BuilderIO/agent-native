@@ -24,6 +24,7 @@ describe("documentPropertiesResponseMatchesScope", () => {
       documentPropertiesResponseMatchesScope("row-1", "database-2", {
         documentId: "row-1",
         databaseId: "database-1",
+        properties: [],
       }),
     ).toBe(false);
   });
@@ -33,6 +34,7 @@ describe("documentPropertiesResponseMatchesScope", () => {
       documentPropertiesResponseMatchesScope("row-1", "database-1", {
         documentId: "row-1",
         databaseId: "database-1",
+        properties: [],
       }),
     ).toBe(true);
   });

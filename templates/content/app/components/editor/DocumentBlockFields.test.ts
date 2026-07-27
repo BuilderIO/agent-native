@@ -148,6 +148,7 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
       isLoadedForDocument("doc-new", "db-new", {
         documentId: "doc-old",
         databaseId: "db-new",
+        properties: [],
       }),
     ).toBe(false);
   });
@@ -157,6 +158,7 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
       isLoadedForDocument("doc-new", "db-new", {
         documentId: "doc-new",
         databaseId: "db-old",
+        properties: [],
       }),
     ).toBe(false);
   });
@@ -166,6 +168,7 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
       isLoadedForDocument("doc-new", "db-new", {
         documentId: "doc-new",
         databaseId: "db-new",
+        properties: [],
       }),
     ).toBe(true);
   });
@@ -185,6 +188,7 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
     const loaded = isLoadedForDocument("doc-new", "db-new", {
       documentId: "doc-old",
       databaseId: "db-new",
+      properties: [],
     });
     const state = blockFieldsRenderState({
       loaded,
@@ -205,6 +209,7 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
     const loaded = isLoadedForDocument("doc-new", "db-new", {
       documentId: "doc-new",
       databaseId: "db-new",
+      properties: [],
     });
     const state = blockFieldsRenderState({
       loaded,

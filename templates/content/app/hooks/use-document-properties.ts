@@ -28,10 +28,8 @@ type DatabaseScopedRequest = { databaseId: string };
 export function documentPropertiesResponseMatchesScope(
   documentId: string,
   databaseId: string,
-  data:
-    | Pick<DocumentPropertiesResponse, "documentId" | "databaseId">
-    | undefined,
-): boolean {
+  data: DocumentPropertiesResponse | undefined,
+): data is DocumentPropertiesResponse {
   return data?.documentId === documentId && data.databaseId === databaseId;
 }
 
