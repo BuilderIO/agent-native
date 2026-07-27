@@ -32,6 +32,14 @@ export interface SendEmailArgs {
   from?: string;
   cc?: string | string[];
   replyTo?: string;
+  /**
+   * Per-app branding for first-party agent-native.com deployments. Applied
+   * only when the configured EMAIL_FROM is already on agent-native.com, so a
+   * self-hosted deployment keeps its own verified sender and support mailbox
+   * instead of sending as an unverified address a provider would reject.
+   * An explicit `from` / `replyTo` always wins.
+   */
+  appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
@@ -123,6 +131,27 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
+const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
+
+/**
+ * Resolve per-app sender branding, but only for deployments whose configured
+ * sender is already on agent-native.com. Any other (or missing) EMAIL_FROM
+ * means we cannot prove the branded address is a verified sender, so the
+ * deployment's own configuration is left untouched.
+ */
+function resolveAppSender(
+  configuredFrom: string | undefined,
+  appSender: SendEmailArgs["appSender"],
+): { from: string; replyTo?: string } | undefined {
+  if (!configuredFrom || !appSender) return undefined;
+  const address = parseSendGridFrom(configuredFrom).email.toLowerCase();
+  if (!address.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) return undefined;
+  return {
+    from: `${appSender.name} <${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}>`,
+    replyTo: appSender.replyTo,
+  };
+}
+
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
@@ -130,7 +159,9 @@ async function sendEmailWithSignal(
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
-  const from = getFromAddress(config, args.from);
+  const branded = resolveAppSender(config.from, args.appSender);
+  const from = getFromAddress(config, args.from ?? branded?.from);
+  const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
@@ -142,7 +173,7 @@ async function sendEmailWithSignal(
       text: args.text,
     };
     if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
-    if (args.replyTo) payload.reply_to = args.replyTo;
+    if (replyTo) payload.reply_to = replyTo;
     if (attachments?.length) {
       payload.attachments = attachments.map((a) => ({
         filename: a.filename,
@@ -193,7 +224,7 @@ async function sendEmailWithSignal(
         { type: "text/html", value: args.html },
       ],
     };
-    if (args.replyTo) sgPayload.reply_to = parseSendGridFrom(args.replyTo);
+    if (replyTo) sgPayload.reply_to = parseSendGridFrom(replyTo);
     const sgHeaders: Record<string, string> = {};
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;

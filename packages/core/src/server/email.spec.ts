@@ -9,6 +9,53 @@ describe("sendEmail", () => {
     vi.unstubAllGlobals();
   });
 
+  it("applies per-app sender branding on agent-native.com deployments", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({
+      name: "Agent-Native Clips",
+      email: "clips@agent-native.com",
+    });
+    expect(body.reply_to).toEqual({ email: "hello@agent-native.com" });
+  });
+
+  it("keeps a self-hosted verified sender and reply-to untouched", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Acme <noreply@acme.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "hello@agent-native.com",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toEqual({ name: "Acme", email: "noreply@acme.com" });
+    expect(body.reply_to).toBeUndefined();
+  });
+
   it("maps inline CID attachments for SendGrid", async () => {
     vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");

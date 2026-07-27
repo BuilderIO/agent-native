@@ -21,10 +21,12 @@ export interface RenderedEmailMessage {
   subject: string;
   html: string;
   text: string;
-  /** Optional sender override ("Name <addr>") for per-app branding. */
-  from?: string;
-  /** Optional reply-to address. */
-  replyTo?: string;
+  /**
+   * Per-app sender branding, applied by `sendEmail` only on first-party
+   * agent-native.com deployments. Self-hosted deployments keep the sender and
+   * reply-to they configured via EMAIL_FROM.
+   */
+  appSender?: { name: string; slug: string; replyTo?: string };
 }
 
 /**
@@ -149,8 +151,9 @@ export function renderVerifySignupEmail(
     subject: `Verify your email for ${brand}`,
     html,
     text,
-    from: slug ? `${brand} <${slug}@agent-native.com>` : undefined,
-    replyTo: AGENT_NATIVE_REPLY_TO,
+    appSender: slug
+      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+      : undefined,
   };
 }
 
@@ -191,7 +194,8 @@ export function renderResetPasswordEmail(
     subject: `Reset your ${brand} password`,
     html,
     text,
-    from: slug ? `${brand} <${slug}@agent-native.com>` : undefined,
-    replyTo: AGENT_NATIVE_REPLY_TO,
+    appSender: slug
+      ? { name: brand, slug, replyTo: AGENT_NATIVE_REPLY_TO }
+      : undefined,
   };
 }
