@@ -22,6 +22,7 @@ import {
   databaseBulkMultiSelectValueAfterOperation,
   builderSourceContinuationKey,
   builderSourceContinuationFetchedCountDetail,
+  builderSourceContinuationFailureDecision,
   builderSourceContinuationWatchdogDelay,
   builderSourceContinuationProgressPercent,
   builderSourceContinuationWatchdogDecision,
@@ -386,6 +387,12 @@ describe("Builder source continuation state", () => {
     expect(builderSourceContinuationWatchdogDelay(2)).toBe(20_000);
     expect(builderSourceContinuationWatchdogDelay(3)).toBe(30_000);
     expect(builderSourceContinuationWatchdogDelay(20)).toBe(30_000);
+  });
+
+  it("retries one transient continuation failure before surfacing an error", () => {
+    expect(builderSourceContinuationFailureDecision(1)).toBe("retry");
+    expect(builderSourceContinuationFailureDecision(2)).toBe("error");
+    expect(builderSourceContinuationFailureDecision(20)).toBe("error");
   });
 
   it("keeps a direct retry attempted until the watchdog backoff retries it", () => {

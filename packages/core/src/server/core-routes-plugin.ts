@@ -129,6 +129,8 @@ import {
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
@@ -2225,7 +2227,8 @@ export function createCoreRoutesPlugin(
             try {
               relay = signBuilderPreviewRelayState({
                 ownerEmail,
-                targetOrigin: previewOrigin,
+                targetOrigin:
+                  resolveBuilderPreviewRelayTargetOrigin(previewOrigin),
                 basePath: getAppBasePath(),
               });
             } catch (err) {
@@ -2598,6 +2601,13 @@ export function createCoreRoutesPlugin(
               );
             }
 
+            const relayOpenerOrigin =
+              requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
+            const relayParentOrigin = resolveBuilderPreviewRelayParentOrigin({
+              openerOrigin: relayOpenerOrigin,
+              targetOrigin: relayPayload.targetOrigin,
+            });
+
             const privateKey = requestUrl.searchParams.get("p-key");
             const publicKey = requestUrl.searchParams.get("api-key");
             if (!privateKey || !publicKey) {
@@ -2609,7 +2619,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayPayload.targetOrigin },
+                { parentOrigin: relayParentOrigin },
               );
             }
 
@@ -2665,7 +2675,7 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayPayload.targetOrigin,
+                parentOrigin: relayParentOrigin,
               });
             }
 
@@ -2675,8 +2685,8 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackPage(
-              `${relayPayload.targetOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayPayload.targetOrigin },
+              `${relayParentOrigin}${relayPayload.basePath || "/"}`,
+              { parentOrigin: relayParentOrigin },
             );
           }
 

@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.123.2
+
+### Patch Changes
+
+- 14818b6: Route Builder authorization callbacks for Netlify previews through the immutable deployment URL while returning popup status to the visible preview.
+- Updated dependencies [14818b6]
+  - @agent-native/toolkit@0.10.8
+
 ## 0.123.1
 
 ### Patch Changes
