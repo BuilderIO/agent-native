@@ -10,7 +10,7 @@ metadata:
 # Ship
 
 Ship the current branch end-to-end: commit and push all local work, open a
-ready PR, run `/babysit-pr`, merge when the babysit merge gates are satisfied,
+ready PR, run `/auto-fix-pr`, merge when the auto-fix merge gates are satisfied,
 then run `/new-branch` after the merge lands.
 
 ## Non-Negotiable Shipping Invariant
@@ -47,7 +47,7 @@ code/config fix and ship that follow-up until production is live.
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Run `pnpm run prep` when it is practical. If prep is slow,
    flaky, or contaminated by concurrent in-flight edits, do not stall shipment:
-   push and let GitHub Actions be the validation gate that `/babysit-pr`
+   push and let GitHub Actions be the validation gate that `/auto-fix-pr`
    monitors.
 
 4. **Stage and commit**: stage all changed/untracked files except `learnings.md`
@@ -62,8 +62,8 @@ code/config fix and ship that follow-up until production is live.
    review by default, not drafts. Do not put `codex`, `[codex]`, or similar
    agent labels in the title/body.
 
-7. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
-   tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
+7. **Auto-fix immediately**: run `/auto-fix-pr <number>` and follow that skill’s
+   tick loop exactly. Treat `auto-fix-pr` as the source of truth for how to watch
    the PR; do not duplicate, shorten, or invent a lighter monitoring loop. Its
    Step 0 is authoritative: every tick starts by committing and pushing all local
    files and any unpushed commits, then checking mergeability, every unaddressed
@@ -71,7 +71,7 @@ code/config fix and ship that follow-up until production is live.
    merged/closed or the user explicitly tells you to stop.
 
 8. **Merge when allowed**: because `/ship` includes merge authorization, merge
-   with `gh pr merge <number> --squash --admin` only after `/babysit-pr`’s merge
+   with `gh pr merge <number> --squash --admin` only after `/auto-fix-pr`’s merge
    requirements are simultaneously true for 10 consecutive minutes:
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
@@ -107,9 +107,9 @@ code/config fix and ship that follow-up until production is live.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.
-- Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
+- Treat `/auto-fix-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
-  `babysit-pr` first if the watcher behavior changes.
+  `auto-fix-pr` first if the watcher behavior changes.
 - Treat production deploy/publish verification as part of `/ship` whenever
   templates or publishable packages changed. A green PR is not enough if the
   affected template build or package publish later fails.
