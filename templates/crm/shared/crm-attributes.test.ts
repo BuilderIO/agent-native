@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ATTRIBUTE_TYPE_SPECS,
   CRM_ATTRIBUTE_TYPES,
+  legacyValueTypeFor,
   parseEmail,
   parsePersonalName,
   parsePhone,
@@ -36,6 +37,40 @@ describe("CRM attribute registry", () => {
       (type) => ATTRIBUTE_TYPE_SPECS[type].usesOptions,
     );
     expect(withOptions).toEqual(["status", "select"]);
+  });
+});
+
+describe("legacy value type mapping", () => {
+  it("gives every attribute type a NOT NULL legacy value_type", () => {
+    for (const type of CRM_ATTRIBUTE_TYPES) {
+      expect(legacyValueTypeFor(type, false)).toBeTruthy();
+    }
+  });
+
+  it("maps every attribute type to its closest legacy value_type", () => {
+    expect(legacyValueTypeFor("text", false)).toBe("string");
+    expect(legacyValueTypeFor("number", false)).toBe("number");
+    expect(legacyValueTypeFor("checkbox", false)).toBe("boolean");
+    expect(legacyValueTypeFor("currency", false)).toBe("currency");
+    expect(legacyValueTypeFor("date", false)).toBe("date");
+    expect(legacyValueTypeFor("timestamp", false)).toBe("datetime");
+    expect(legacyValueTypeFor("rating", false)).toBe("number");
+    expect(legacyValueTypeFor("status", false)).toBe("enum");
+    expect(legacyValueTypeFor("select", false)).toBe("enum");
+    expect(legacyValueTypeFor("record-reference", false)).toBe("reference");
+    expect(legacyValueTypeFor("actor-reference", false)).toBe("reference");
+    expect(legacyValueTypeFor("location", false)).toBe("json");
+    expect(legacyValueTypeFor("domain", false)).toBe("string");
+    expect(legacyValueTypeFor("email-address", false)).toBe("string");
+    expect(legacyValueTypeFor("phone-number", false)).toBe("string");
+    expect(legacyValueTypeFor("interaction", false)).toBe("json");
+    expect(legacyValueTypeFor("personal-name", false)).toBe("string");
+  });
+
+  it("only widens an enum base to multi-enum when multi is set", () => {
+    expect(legacyValueTypeFor("select", true)).toBe("multi-enum");
+    // record-reference's base isn't "enum", so multi leaves it alone.
+    expect(legacyValueTypeFor("record-reference", true)).toBe("reference");
   });
 });
 

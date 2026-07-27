@@ -9,11 +9,13 @@ import {
   fieldInputValue,
   formatFieldValue,
   historyTransitions,
+  isSuppressedDuplicateAttribute,
   parseFieldInput,
   resolveActivityState,
   rollbackEntryValue,
   rollbackFieldValue,
   splitHighlights,
+  withoutSuppressedDuplicates,
   type CrmRecordPage,
 } from "./record-data";
 
@@ -203,7 +205,7 @@ describe("fieldInputValue", () => {
 });
 
 describe("splitHighlights", () => {
-  it("pins the first six attributes by position", () => {
+  it("pins the first six attributes by position when no kind is curated", () => {
     const attributes = Array.from({ length: 9 }, (_, index) =>
       attribute({ id: `a${index}`, position: 9 - index }),
     );
@@ -211,6 +213,154 @@ describe("splitHighlights", () => {
     expect(highlights).toHaveLength(6);
     expect(rest).toHaveLength(3);
     expect(highlights[0]!.position).toBe(1);
+  });
+
+  it("falls back to position order for a custom kind", () => {
+    const attributes = [
+      attribute({ id: "a1", apiSlug: "one", position: 2 }),
+      attribute({ id: "a2", apiSlug: "two", position: 0 }),
+      attribute({ id: "a3", apiSlug: "three", position: 1 }),
+    ];
+    const { highlights } = splitHighlights(attributes, { kind: "custom" });
+    expect(highlights.map((a) => a.apiSlug)).toEqual(["two", "three", "one"]);
+  });
+
+  it("curates a per-kind order, skipping an attribute the schema lacks", () => {
+    const attributes = [
+      attribute({ id: "a_name", apiSlug: "name", position: 0 }),
+      attribute({ id: "a_domain", apiSlug: "domain", position: 1 }),
+      attribute({ id: "a_industry", apiSlug: "industry", position: 2 }),
+      attribute({ id: "a_owner", apiSlug: "ownerName", position: 3 }),
+      // No `nextContactAt` attribute on this schema.
+      attribute({ id: "a_extra", apiSlug: "desiredCadenceDays", position: 4 }),
+    ];
+    const { highlights, rest } = splitHighlights(attributes, {
+      kind: "account",
+    });
+    expect(highlights.map((a) => a.apiSlug)).toEqual([
+      "name",
+      "domain",
+      "industry",
+      "ownerName",
+      "desiredCadenceDays",
+    ]);
+    expect(rest).toHaveLength(0);
+  });
+
+  it("falls back to first+last name for a person schema with no name attribute", () => {
+    const attributes = [
+      attribute({ id: "p1", apiSlug: "firstName", position: 0 }),
+      attribute({ id: "p2", apiSlug: "lastName", position: 1 }),
+      attribute({ id: "p3", apiSlug: "email", position: 2 }),
+      attribute({ id: "p4", apiSlug: "title", position: 3 }),
+      attribute({ id: "p5", apiSlug: "accountId", position: 4 }),
+      attribute({ id: "p6", apiSlug: "ownerName", position: 5 }),
+    ];
+    const { highlights, rest } = splitHighlights(attributes, {
+      kind: "person",
+    });
+    expect(highlights.map((a) => a.apiSlug)).toEqual([
+      "firstName",
+      "lastName",
+      "email",
+      "title",
+      "accountId",
+      "ownerName",
+    ]);
+    expect(rest).toHaveLength(0);
+  });
+
+  it("backfills a short curated set with a valued attribute over an empty one", () => {
+    const attributes = [
+      attribute({ id: "a_name", apiSlug: "name", position: 0 }),
+      attribute({ id: "a_amount", apiSlug: "amount", position: 1 }),
+      attribute({ id: "a_stage", apiSlug: "stage", position: 2 }),
+      attribute({ id: "a_close", apiSlug: "closeDate", position: 3 }),
+      attribute({ id: "a_owner", apiSlug: "ownerName", position: 4 }),
+      attribute({ id: "a_empty", apiSlug: "region", position: 5 }),
+      attribute({ id: "a_filled", apiSlug: "sourceChannel", position: 6 }),
+    ];
+    const { highlights } = splitHighlights(attributes, {
+      kind: "opportunity",
+      values: { sourceChannel: "referral" }, // `region` has no value
+    });
+    expect(highlights.map((a) => a.apiSlug)).toEqual([
+      "name",
+      "amount",
+      "stage",
+      "closeDate",
+      "ownerName",
+      "sourceChannel",
+    ]);
+  });
+});
+
+describe("isSuppressedDuplicateAttribute", () => {
+  it("suppresses displayName when it matches an existing name value", () => {
+    expect(
+      isSuppressedDuplicateAttribute("displayName", {
+        name: "Acme",
+        displayName: "Acme",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps displayName visible when name is absent", () => {
+    expect(
+      isSuppressedDuplicateAttribute("displayName", { displayName: "Acme" }),
+    ).toBe(false);
+  });
+
+  it("keeps displayName visible when name was explicitly cleared", () => {
+    expect(
+      isSuppressedDuplicateAttribute("displayName", {
+        name: null,
+        displayName: "Acme",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps displayName visible when it diverges from name", () => {
+    expect(
+      isSuppressedDuplicateAttribute("displayName", {
+        name: "Acme",
+        displayName: "Acme Corp",
+      }),
+    ).toBe(false);
+  });
+
+  it("never suppresses an attribute other than displayName", () => {
+    expect(
+      isSuppressedDuplicateAttribute("name", {
+        name: "Acme",
+        displayName: "Acme",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("withoutSuppressedDuplicates", () => {
+  it("drops only the duplicate displayName row", () => {
+    const attributes = [
+      attribute({ id: "a1", apiSlug: "name" }),
+      attribute({ id: "a2", apiSlug: "displayName" }),
+    ];
+    const kept = withoutSuppressedDuplicates(attributes, {
+      name: "Acme",
+      displayName: "Acme",
+    });
+    expect(kept.map((a) => a.apiSlug)).toEqual(["name"]);
+  });
+
+  it("keeps both rows when name is absent", () => {
+    const attributes = [
+      attribute({ id: "a1", apiSlug: "name" }),
+      attribute({ id: "a2", apiSlug: "displayName" }),
+    ];
+    const kept = withoutSuppressedDuplicates(attributes, {
+      displayName: "Acme",
+    });
+    expect(kept.map((a) => a.apiSlug)).toEqual(["name", "displayName"]);
   });
 });
 

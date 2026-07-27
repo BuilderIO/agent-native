@@ -59,6 +59,7 @@ import {
   cellSpecFor,
   copyCell,
   isCellEditable,
+  isSuppressedDisplayNameCell,
   parseCell,
   type CrmCellValue,
   type CrmGridAttribute,
@@ -738,7 +739,17 @@ export function CrmGrid(props: CrmGridProps) {
                           <>
                             <CellDisplay
                               attribute={attribute}
-                              value={row.values[attribute.apiSlug] ?? null}
+                              // A displayName that only duplicates this row's
+                              // name is hidden here, not dropped from the row:
+                              // an absent name must still show its own value.
+                              value={
+                                isSuppressedDisplayNameCell(
+                                  attribute.apiSlug,
+                                  row.values,
+                                )
+                                  ? null
+                                  : (row.values[attribute.apiSlug] ?? null)
+                              }
                               {...(row.valuesSince?.[attribute.apiSlug]
                                 ? { since: row.valuesSince[attribute.apiSlug] }
                                 : {})}

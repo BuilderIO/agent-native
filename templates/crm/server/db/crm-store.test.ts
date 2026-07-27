@@ -17,6 +17,26 @@ describe("CRM proposal previews", () => {
       }),
     );
 
-    expect(values).toEqual({ dealname: "Renewal" });
+    expect(values).toEqual({ present: true, values: { dealname: "Renewal" } });
+  });
+
+  // `before_json`/`after_json` on an update hold `{ remoteRevision }`. Reading
+  // that as a field map invented a `remoteRevision` field and made the field
+  // the user actually changed render as "Empty → Empty".
+  it("reports revision metadata as carrying no field map at all", () => {
+    expect(safeProposalValues(JSON.stringify({ remoteRevision: "3" }))).toEqual(
+      {
+        present: false,
+      },
+    );
+    expect(safeProposalValues("{}")).toEqual({ present: false });
+    expect(safeProposalValues("not json")).toEqual({ present: false });
+  });
+
+  it("keeps a recorded empty field map distinct from an absent one", () => {
+    expect(safeProposalValues(JSON.stringify({ fields: {} }))).toEqual({
+      present: true,
+      values: {},
+    });
   });
 });

@@ -11,6 +11,7 @@ import type {
   CrmValue,
 } from "../../shared/crm-contract.js";
 import { getDb, schema } from "../db/index.js";
+import { crmAttributeColumnsFor } from "./field-policy-attributes.js";
 
 export const CORE_HUBSPOT_OBJECTS = ["companies", "contacts", "deals"] as const;
 export const CORE_SALESFORCE_OBJECTS = [
@@ -54,6 +55,7 @@ const CADENCE_FIELDS: CrmFieldDefinition[] = [
     name: "desiredCadenceDays",
     label: "Desired cadence days",
     valueType: "number",
+    attributeType: "number",
     storagePolicy: "local-authoritative",
     sensitive: false,
     readable: true,
@@ -65,6 +67,7 @@ const CADENCE_FIELDS: CrmFieldDefinition[] = [
     name: "lastMeaningfulInteractionAt",
     label: "Last meaningful interaction",
     valueType: "datetime",
+    attributeType: "timestamp",
     storagePolicy: "derived-local",
     sensitive: false,
     readable: true,
@@ -76,6 +79,7 @@ const CADENCE_FIELDS: CrmFieldDefinition[] = [
     name: "nextContactAt",
     label: "Next contact",
     valueType: "datetime",
+    attributeType: "timestamp",
     storagePolicy: "derived-local",
     sensitive: false,
     readable: true,
@@ -368,6 +372,12 @@ async function persistSchema(input: {
         options: field.options,
         referencedObjectType: field.referencedObjectType,
       }).slice(0, 8_000),
+      // `authority` is derived from `storagePolicy` above, not discovered
+      // separately, so a local-authoritative override survives the same way
+      // storagePolicy's own override does. Fields without a declared
+      // `attributeType` (every provider-discovered field HubSpot/Salesforce
+      // don't map yet) fall back to `text`, matching the column default.
+      ...crmAttributeColumnsFor(field, storagePolicy),
       updatedAt: now,
     };
     if (existing) {

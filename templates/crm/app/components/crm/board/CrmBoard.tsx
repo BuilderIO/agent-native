@@ -17,7 +17,7 @@ import {
   IconGripVertical,
 } from "@tabler/icons-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -33,18 +33,34 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { ProvenanceMarker } from "../grid/GridCell";
+import type { CrmCellProvenance } from "../grid/model";
+import {
+  currencyCodeOf,
+  formatAttributeValue,
+  valueTokens,
+  type CrmAttributeValue,
+  type CrmValueShape,
+} from "../shared/attribute-value";
+import {
+  AttributeOptionChip,
+  AttributeRating,
+} from "../shared/AttributeValueParts";
 import {
   BOARD_UNGROUPED,
   boardCardSla,
   boardColumns,
   boardColumnTotals,
   boardOverruns,
+  cardAmountFor,
   moveBoardCard,
   moveValueForColumn,
   objectBoardMoveArgs,
+  pickCardAttributes,
   pickCurrencyAttribute,
   type BoardActorType,
   type BoardCard,
+  type BoardCardAttribute,
   type BoardColumn,
   type BoardOption,
 } from "./board-model";
@@ -91,8 +107,6 @@ interface EntriesResponse {
       primaryEmail: string | null;
       domain: string | null;
       ownerName: string | null;
-      amount: number | null;
-      currencyCode: string | null;
     };
     values: Record<string, unknown>;
     valuesSince: Record<string, string>;
@@ -112,7 +126,6 @@ interface RecordsResponse {
 }
 
 const PAGE_LIMIT = 100;
-const CARD_ATTRIBUTE_LIMIT = 3;
 
 export interface CrmBoardTarget {
   kind: "list" | "object";
@@ -188,17 +201,6 @@ function pickGroupAttribute(
   );
 }
 
-function currencyCodeOf(attribute: BoardAttribute | null): string | null {
-  const currency = attribute?.config?.currency;
-  if (!currency || typeof currency !== "object") return null;
-  const code = (currency as { code?: unknown }).code;
-  return typeof code === "string" && code ? code : null;
-}
-
-function numberOr(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 const ACTOR_TYPES: readonly BoardActorType[] = [
   "user",
   "agent",
@@ -218,26 +220,6 @@ function statusAttributesOf(
   attributes: readonly BoardAttribute[],
 ): BoardAttribute[] {
   return attributes.filter((attribute) => attribute.attributeType === "status");
-}
-
-function cardAttributes(
-  attributes: readonly BoardAttribute[],
-  excludeIds: ReadonlySet<string>,
-  preferredIds: readonly string[],
-): BoardAttribute[] {
-  const eligible = attributes.filter(
-    (attribute) =>
-      !excludeIds.has(attribute.id) &&
-      attribute.attributeType !== "interaction",
-  );
-  const preferred = preferredIds.flatMap((id) => {
-    const match = eligible.find(
-      (attribute) => attribute.id === id || attribute.apiSlug === id,
-    );
-    return match ? [match] : [];
-  });
-  const rest = eligible.filter((attribute) => !preferred.includes(attribute));
-  return [...preferred, ...rest].slice(0, CARD_ATTRIBUTE_LIMIT);
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +275,7 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
       (id): id is string => typeof id === "string",
     ),
   );
-  const shown = cardAttributes(
+  const shown = pickCardAttributes(
     attributes,
     excluded,
     props.columnAttributeIds ?? [],
@@ -316,15 +298,20 @@ function useListBoard(props: CrmBoardProps, enabled: boolean): BoardData {
         remoteRevision: null,
         groupValue: typeof raw === "string" && raw ? raw : BOARD_UNGROUPED,
         groupSince: entry.valuesSince[groupSlug] ?? null,
-        amount: currencyAttribute
-          ? numberOr(entry.values[currencyAttribute.apiSlug])
-          : numberOr(entry.record.amount),
+        // Only a typed currency attribute counts here, never the legacy
+        // mirrored `crmRecords.amount` column: that field predates the
+        // attribute system and is not what a view's own columns name.
+        amount: cardAmountFor(currencyAttribute, entry.values),
         currencyCode: currencyAttribute
-          ? currencyCodeOf(currencyAttribute)
-          : entry.record.currencyCode,
+          ? currencyCodeOf(currencyAttribute.config)
+          : null,
         attributes: shown.map((attribute) => ({
           slug: attribute.apiSlug,
           label: attribute.label,
+          attributeType: attribute.attributeType,
+          multi: attribute.multi,
+          options: toBoardOptions(attribute),
+          config: attribute.config,
           value: entry.values[attribute.apiSlug] ?? null,
         })),
         actorType: toActorType(entry.createdByActorType),
@@ -731,9 +718,17 @@ function BoardCardView({
   const t = useT();
   const sla = boardCardSla(card, option, now);
   const shown = card.attributes.flatMap((attribute) => {
-    const text = formatValue(attribute.value, t);
-    return text === null ? [] : [{ ...attribute, text }];
+    const node = cardAttributeNode(attribute, t);
+    return node === null
+      ? []
+      : [{ slug: attribute.slug, label: attribute.label, node }];
   });
+  // The record/entry has no per-field provenance at this data layer, only who
+  // created it — so this is coarser than the grid's per-cell marker, but the
+  // same "quiet unless non-human" idiom applies.
+  const provenance: CrmCellProvenance | undefined = card.actorType
+    ? { actorType: card.actorType, readable: true }
+    : undefined;
 
   return (
     <article
@@ -754,8 +749,15 @@ function BoardCardView({
           onMove(event.key === "ArrowLeft" ? -1 : 1);
         }
       }}
-      className="group cursor-grab rounded-md border border-border/70 bg-card p-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+      className="group relative cursor-grab rounded-md border border-border/70 bg-card p-2.5 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
     >
+      {/* A zero-size anchor: `ProvenanceMarker`'s own wedge is absolutely
+          positioned at its containing block's bottom-right corner, so this is
+          what moves it to the card's top-right instead of the SLA badge's
+          corner in the footer. */}
+      <span className="absolute right-1.5 top-1.5 size-0">
+        <ProvenanceMarker provenance={provenance} attributeLabel={card.title} />
+      </span>
       <div className="flex items-start gap-1.5">
         <IconGripVertical className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/50" />
         <div className="min-w-0 flex-1">
@@ -770,6 +772,11 @@ function BoardCardView({
               {card.subtitle}
             </p>
           ) : null}
+          {card.amount !== null ? (
+            <p className="mt-0.5 text-xs font-medium tabular-nums text-foreground">
+              {formatMoney(card.amount, card.currencyCode)}
+            </p>
+          ) : null}
         </div>
       </div>
       {shown.length ? (
@@ -780,7 +787,7 @@ function BoardCardView({
                 {attribute.label}
               </dt>
               <dd className="min-w-0 flex-1 truncate text-xs">
-                {attribute.text}
+                {attribute.node}
               </dd>
             </div>
           ))}
@@ -802,17 +809,49 @@ function BoardCardView({
             </>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {card.actorType === "agent" || card.actorType === "automation" ? (
-            <Badge variant="outline" className="font-normal">
-              {t(`board.addedBy.${card.actorType}`)}
-            </Badge>
-          ) : null}
-          <SlaBadge sla={sla} />
-        </div>
+        <SlaBadge sla={sla} />
       </footer>
     </article>
   );
+}
+
+/**
+ * One card row's value, through the same per-type registry the grid and
+ * record panel use — never a second ad hoc formatter. `null` means the value
+ * is genuinely empty, so the row is omitted instead of showing a blank dash.
+ */
+function cardAttributeNode(
+  attribute: BoardCardAttribute,
+  t: Translate,
+): ReactNode | null {
+  // `BoardCardAttribute.attributeType` stays a plain string so board-model.ts
+  // does not have to import the app's attribute-type union; the registry
+  // itself is the source of truth for which strings are valid.
+  const shape = attribute as unknown as CrmValueShape;
+  const value = attribute.value as CrmAttributeValue;
+  if (attribute.attributeType === "rating") {
+    return typeof value === "number" ? <AttributeRating value={value} /> : null;
+  }
+  if (
+    attribute.attributeType === "status" ||
+    attribute.attributeType === "select"
+  ) {
+    const tokens = valueTokens(shape, value);
+    if (!tokens.length) return null;
+    return (
+      <span className="flex flex-wrap items-center gap-1">
+        {tokens.map((token, index) => (
+          <AttributeOptionChip key={`${token.label}:${index}`} token={token} />
+        ))}
+      </span>
+    );
+  }
+  if (attribute.attributeType === "checkbox") {
+    if (value !== true && value !== false) return null;
+    return value ? t("board.value.yes") : t("board.value.no");
+  }
+  const text = formatAttributeValue(shape, value);
+  return text || null;
 }
 
 function SlaBadge({ sla }: { sla: ReturnType<typeof boardCardSla> }) {
@@ -927,35 +966,16 @@ function columnTitle(column: BoardColumn, t: Translate): string {
     : title;
 }
 
-function formatValue(value: unknown, t: Translate): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "boolean") {
-    return value ? t("board.value.yes") : t("board.value.no");
-  }
-  if (typeof value === "number") return value.toLocaleString();
-  if (typeof value === "string") return value.trim() || null;
-  if (Array.isArray(value)) {
-    const parts = value.flatMap((entry) => {
-      const formatted = formatValue(entry, t);
-      return formatted ? [formatted] : [];
-    });
-    return parts.length ? parts.join(", ") : null;
-  }
-  return null;
-}
-
+/** Delegates to the one currency formatter in the shared registry. */
 function formatMoney(amount: number, currencyCode: string | null): string {
-  if (!currencyCode) return amount.toLocaleString();
-  try {
-    return amount.toLocaleString(undefined, {
-      style: "currency",
-      currency: currencyCode,
-      maximumFractionDigits: 0,
-    });
-  } catch {
-    // An unknown ISO code is a data problem, not a reason to hide the number.
-    return `${amount.toLocaleString()} ${currencyCode}`;
-  }
+  return formatAttributeValue(
+    {
+      attributeType: "currency",
+      multi: false,
+      ...(currencyCode ? { config: { currency: { code: currencyCode } } } : {}),
+    },
+    amount,
+  );
 }
 
 function initials(name: string): string {

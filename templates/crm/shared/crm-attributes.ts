@@ -213,6 +213,56 @@ export function storageColumnFor(
   return multi ? "jsonValue" : ATTRIBUTE_TYPE_SPECS[type].storageColumn;
 }
 
+/** The pre-typed `CrmFieldDefinition.valueType` / `crm_field_policies.value_type`
+ * union. Kept here (not `crm-contract.ts`) so `legacyValueTypeFor` has no
+ * import cycle back to the module that re-exports this file's types. */
+export type CrmLegacyValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "date"
+  | "datetime"
+  | "currency"
+  | "percent"
+  | "enum"
+  | "multi-enum"
+  | "reference"
+  | "json";
+
+/**
+ * The legacy `value_type` column is still NOT NULL and is what the pre-typed
+ * read paths (crm-store, mirror, update-crm-record) branch on, so every typed
+ * attribute must also carry the closest legacy value type. This is the inverse
+ * of the migration's `value_type -> attribute_type` backfill.
+ */
+const LEGACY_VALUE_TYPES: Record<CrmAttributeType, CrmLegacyValueType> = {
+  text: "string",
+  number: "number",
+  checkbox: "boolean",
+  currency: "currency",
+  date: "date",
+  timestamp: "datetime",
+  rating: "number",
+  status: "enum",
+  select: "enum",
+  "record-reference": "reference",
+  "actor-reference": "reference",
+  location: "json",
+  domain: "string",
+  "email-address": "string",
+  "phone-number": "string",
+  interaction: "json",
+  "personal-name": "string",
+};
+
+export function legacyValueTypeFor(
+  type: CrmAttributeType,
+  multi: boolean,
+): CrmLegacyValueType {
+  const base = LEGACY_VALUE_TYPES[type];
+  return multi && base === "enum" ? "multi-enum" : base;
+}
+
 // ---------------------------------------------------------------------------
 // Composite value parsers.
 //

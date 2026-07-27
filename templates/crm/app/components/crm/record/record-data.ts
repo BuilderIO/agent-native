@@ -288,17 +288,132 @@ export function entryAttributeAsEditable(
 // ---------------------------------------------------------------------------
 
 /**
- * ponytail: highlights are the first `MAX_HIGHLIGHTS` attributes by `position`.
- * There is no pinned column on `crm_field_policies`, and inventing one here
- * would be a schema change in a table another slice owns — reordering the
- * attribute is how a user pins one today.
+ * Curated highlight order per object `kind`. An attribute this app's schema
+ * does not declare for that kind (e.g. `people` has no `name`) is simply
+ * skipped by `splitHighlights`, which is how "name, or firstName+lastName
+ * when there is no name" falls out of one flat list instead of a branch.
  */
-export function splitHighlights<T extends { position: number }>(
+const HIGHLIGHT_ORDER: Record<string, readonly string[]> = {
+  account: ["name", "domain", "industry", "ownerName", "nextContactAt"],
+  person: [
+    "name",
+    "firstName",
+    "lastName",
+    "email",
+    "title",
+    "accountId",
+    "ownerName",
+  ],
+  opportunity: ["name", "amount", "stage", "closeDate", "ownerName"],
+};
+
+function hasHighlightValue(value: CrmValue | undefined): boolean {
+  if (value === undefined || value === null || value === "") return false;
+  return !Array.isArray(value) || value.length > 0;
+}
+
+/**
+ * Highlights are a curated order for `account`/`person`/`opportunity`, and the
+ * plain position order for `custom` or any other kind. There is no pinned
+ * column on `crm_field_policies`, and inventing one here would be a schema
+ * change in a table another slice owns — reordering the attribute is how a
+ * user pins one today.
+ *
+ * A curated slot the schema does not declare is skipped, and leftover slots
+ * backfill from position order, preferring an attribute that already carries
+ * a value — otherwise a schema with a short curated list would fill its
+ * remaining slots with guaranteed-empty attributes, reproducing the "mostly
+ * Empty" bug this replaces.
+ */
+export function splitHighlights<
+  T extends { apiSlug: string; position: number },
+>(
   attributes: T[],
-  max = MAX_HIGHLIGHTS,
+  options: {
+    kind?: string;
+    values?: Record<string, CrmValue>;
+    max?: number;
+  } = {},
 ): { highlights: T[]; rest: T[] } {
+  const { kind = "custom", values = {}, max = MAX_HIGHLIGHTS } = options;
   const ordered = [...attributes].sort((a, b) => a.position - b.position);
-  return { highlights: ordered.slice(0, max), rest: ordered.slice(max) };
+  const curated = HIGHLIGHT_ORDER[kind];
+  if (!curated) {
+    return { highlights: ordered.slice(0, max), rest: ordered.slice(max) };
+  }
+
+  const byApiSlug = new Map(
+    ordered.map((attribute) => [attribute.apiSlug, attribute]),
+  );
+  const picked: T[] = [];
+  const pickedSlugs = new Set<string>();
+  for (const slug of curated) {
+    if (picked.length >= max) break;
+    const attribute = byApiSlug.get(slug);
+    if (!attribute) continue;
+    picked.push(attribute);
+    pickedSlugs.add(slug);
+  }
+  if (picked.length < max) {
+    const filler = ordered
+      .filter((attribute) => !pickedSlugs.has(attribute.apiSlug))
+      .sort((a, b) => {
+        const byValue =
+          Number(hasHighlightValue(values[b.apiSlug])) -
+          Number(hasHighlightValue(values[a.apiSlug]));
+        return byValue !== 0 ? byValue : a.position - b.position;
+      });
+    for (const attribute of filler) {
+      if (picked.length >= max) break;
+      picked.push(attribute);
+      pickedSlugs.add(attribute.apiSlug);
+    }
+  }
+  return {
+    highlights: picked,
+    rest: ordered.filter((attribute) => !pickedSlugs.has(attribute.apiSlug)),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate attributes
+// ---------------------------------------------------------------------------
+
+function sameCrmValue(a: CrmValue, b: CrmValue | undefined): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || b === undefined) return false;
+  if (typeof a === "object" || typeof b === "object") {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+}
+
+/**
+ * `displayName` duplicates `name` when the native adapter minted both from
+ * the same write (`server/crm/native-adapter.ts` has stopped minting
+ * `displayName` going forward, but existing rows still carry both). Suppress
+ * only when `name` has a real value equal to `displayName` — an absent or
+ * cleared `name` must not read the same as a suppressed duplicate, so
+ * `displayName` keeps showing.
+ */
+export function isSuppressedDuplicateAttribute(
+  apiSlug: string,
+  values: Record<string, CrmValue>,
+): boolean {
+  if (apiSlug !== "displayName") return false;
+  const name = values.name;
+  if (!name) return false;
+  return sameCrmValue(name, values.displayName);
+}
+
+/** Drop attributes the panel should not render twice — see above. */
+export function withoutSuppressedDuplicates<T extends { apiSlug: string }>(
+  attributes: T[],
+  values: Record<string, CrmValue>,
+): T[] {
+  return attributes.filter(
+    (attribute) => !isSuppressedDuplicateAttribute(attribute.apiSlug, values),
+  );
 }
 
 // ---------------------------------------------------------------------------

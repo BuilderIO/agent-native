@@ -3,7 +3,10 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { and, eq } from "drizzle-orm";
 
+import { DEFAULT_OPPORTUNITY_STAGE_OPTIONS } from "../crm/native-adapter.js";
+import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
 
 function ownableTable(name: string, columns: string): string {
@@ -591,6 +594,28 @@ const enrichmentSchema = [
   `CREATE INDEX IF NOT EXISTS crm_enrichment_run_shares_principal_idx ON crm_enrichment_run_shares (resource_id, principal_type, principal_id)`,
 ].join(";\n");
 
+// Backfill for a boundary bug: `ensureNativeObject` (native-adapter.ts) and
+// `persistSchema` (crm-mirror.ts) never set `attribute_type`/`authority` on
+// insert OR update, so every native field kept the column defaults
+// (`text`/`provider`) forever, no matter its real type. Scoped to NATIVE
+// connections only — a HubSpot/Salesforce field legitimately still defaults
+// to `text`/`provider` until it has its own discovered typing, and this
+// backfill has no way to know a mirrored field's true type retroactively.
+const nativeAttributeTypeBackfill = [
+  `UPDATE crm_field_policies SET authority = 'local-authoritative' WHERE connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'domain' WHERE object_type = 'accounts' AND field_name = 'domain' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'email-address' WHERE object_type = 'people' AND field_name = 'email' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'record-reference' WHERE field_name = 'accountId' AND object_type IN ('people', 'opportunities') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'currency', config_json = '{"currency":{"code":"USD"}}' WHERE object_type = 'opportunities' AND field_name = 'amount' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  // `stage` is the one field whose legacy `value_type` was also wrong ('string'
+  // instead of 'enum') — every other field's legacy column was already correct.
+  `UPDATE crm_field_policies SET attribute_type = 'status', value_type = 'enum' WHERE object_type = 'opportunities' AND field_name = 'stage' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'date' WHERE object_type = 'opportunities' AND field_name = 'closeDate' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'number' WHERE field_name = 'desiredCadenceDays' AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'timestamp' WHERE field_name IN ('lastMeaningfulInteractionAt', 'nextContactAt') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+  `UPDATE crm_field_policies SET attribute_type = 'text' WHERE field_name IN ('name', 'industry', 'ownerName', 'firstName', 'lastName', 'title') AND connection_id IN (SELECT id FROM crm_connections WHERE provider = 'native')`,
+].join(";\n");
+
 const runCrmMigrations = runMigrations(
   [
     { version: 1, name: "crm-initial-thin-mirror-schema", sql: initialSchema },
@@ -605,6 +630,11 @@ const runCrmMigrations = runMigrations(
       version: 5,
       name: "crm-gated-enrichment-runs",
       sql: enrichmentSchema,
+    },
+    {
+      version: 6,
+      name: "crm-native-field-attribute-backfill",
+      sql: nativeAttributeTypeBackfill,
     },
   ],
   { table: "crm_migrations" },
@@ -622,6 +652,62 @@ function isDrizzleTable(value: unknown): value is object {
 
 const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
+/**
+ * The `nativeAttributeTypeBackfill` SQL above can retype the opportunities
+ * `stage` policy to `status`, but a status attribute with zero managed
+ * options 422s on the very next write (`assertKnownOptions` in
+ * `server/lib/record-fields.ts`). A raw-SQL migration can't mint the option
+ * rows' ids portably across dialects, so this runs as a plain query instead —
+ * idempotent the same way: only ever inserts when an attribute has none.
+ */
+async function backfillNativeStageOptions(): Promise<void> {
+  const db = getDb();
+  const stagePolicies = await db
+    .select({
+      id: schema.crmFieldPolicies.id,
+      ownerEmail: schema.crmFieldPolicies.ownerEmail,
+      orgId: schema.crmFieldPolicies.orgId,
+      visibility: schema.crmFieldPolicies.visibility,
+    })
+    .from(schema.crmFieldPolicies)
+    .innerJoin(
+      schema.crmConnections,
+      eq(schema.crmFieldPolicies.connectionId, schema.crmConnections.id),
+    )
+    .where(
+      and(
+        eq(schema.crmConnections.provider, "native"),
+        eq(schema.crmFieldPolicies.objectType, "opportunities"),
+        eq(schema.crmFieldPolicies.fieldName, "stage"),
+      ),
+    );
+  for (const policy of stagePolicies) {
+    const [existingOption] = await db
+      .select({ id: schema.crmAttributeOptions.id })
+      .from(schema.crmAttributeOptions)
+      .where(eq(schema.crmAttributeOptions.attributeId, policy.id))
+      .limit(1);
+    if (existingOption) continue;
+    const now = new Date().toISOString();
+    await db.insert(schema.crmAttributeOptions).values(
+      DEFAULT_OPPORTUNITY_STAGE_OPTIONS.map((option, index) => ({
+        id: crypto.randomUUID(),
+        attributeId: policy.id,
+        value: option.value,
+        title: option.label,
+        position: index,
+        archived: false,
+        celebrate: false,
+        ownerEmail: policy.ownerEmail,
+        orgId: policy.orgId,
+        visibility: policy.visibility,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+  }
+}
+
 export default async (nitroApp: unknown): Promise<void> => {
   await runCrmMigrations(nitroApp);
   try {
@@ -638,6 +724,14 @@ export default async (nitroApp: unknown): Promise<void> => {
   } catch (error) {
     console.warn(
       "[crm/db] additive schema check failed",
+      error instanceof Error ? error.message : error,
+    );
+  }
+  try {
+    await backfillNativeStageOptions();
+  } catch (error) {
+    console.warn(
+      "[crm/db] native stage option backfill failed",
       error instanceof Error ? error.message : error,
     );
   }

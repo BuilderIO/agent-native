@@ -26,7 +26,11 @@ import type {
   CrmAttributeDefinition,
   CrmValue,
 } from "../../../../shared/crm-contract";
-import { activeOptions, valueSpecFor } from "../shared/attribute-value";
+import {
+  activeOptions,
+  editorDraftFor,
+  valueSpecFor,
+} from "../shared/attribute-value";
 import {
   AttributeOptionChip,
   AttributeRating,
@@ -126,16 +130,26 @@ export function FieldEditor({
   onDone?: () => void;
 }) {
   const t = useT();
-  const [draft, setDraft] = useState(() => fieldInputValue(attribute, value));
+  const seed = fieldInputValue(attribute, value);
+  const [state, setState] = useState(() => editorDraftFor(undefined, seed));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setDraft(fieldInputValue(attribute, value));
-  }, [attribute, value]);
+  // Re-seeded during render, not from an effect: an effect re-seed lands after
+  // the browser has already applied the keystroke it is about to overwrite.
+  const current = editorDraftFor(state, seed);
+  if (current !== state) setState(current);
+  const draft = current.draft;
 
   useEffect(() => {
-    if (autoFocus) inputRef.current?.focus();
+    if (!autoFocus) return;
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    // Select, not just focus — the grid does the same. A bare focus leaves the
+    // caret inside the existing text, so the first thing typed is inserted into
+    // the old value rather than replacing it.
+    input.select();
   }, [autoFocus]);
 
   function commit(raw: string | boolean) {
@@ -208,7 +222,9 @@ export function FieldEditor({
         aria-label={attribute.apiSlug}
         placeholder={attribute.multi ? t("record.multiValueHint") : undefined}
         maxLength={4_000}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) =>
+          setState({ ...current, draft: event.target.value })
+        }
         onBlur={() => commit(draft)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
@@ -217,7 +233,7 @@ export function FieldEditor({
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            setDraft(fieldInputValue(attribute, value));
+            setState(editorDraftFor(undefined, seed));
             setError(null);
             onDone?.();
           }

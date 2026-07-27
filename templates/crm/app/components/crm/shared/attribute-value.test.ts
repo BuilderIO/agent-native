@@ -6,6 +6,7 @@ import {
   ATTRIBUTE_VALUE_SPECS,
   attributeInputValue,
   currencyCodeOf,
+  editorDraftFor,
   parseAttributeValue,
   valueTokens,
   type CrmValueShape,
@@ -81,6 +82,55 @@ describe("managed options", () => {
 
   it("keeps an unknown value visible rather than blanking it", () => {
     expect(valueTokens(status, "mystery")).toEqual([{ label: "mystery" }]);
+  });
+});
+
+describe("inline editor drafts", () => {
+  // The regression: the record panel re-seeded its draft from the `attribute`
+  // object, which its callers rebuild on every render. The reset landed
+  // mid-edit, the browser dropped the selection, and a select-all-and-retype
+  // of "Won" over "Negotiation" stored the literal value "WonNegotiation".
+  it("replaces a selected value rather than interleaving with it", () => {
+    const stage = attribute();
+    let state = editorDraftFor(
+      undefined,
+      attributeInputValue(stage, "Negotiation"),
+    );
+    expect(state.draft).toBe("Negotiation");
+
+    // Select all, retype.
+    state = { ...state, draft: "Won" };
+
+    // A re-render with a brand new attribute object and the same committed
+    // value must leave the in-progress draft alone.
+    state = editorDraftFor(
+      state,
+      attributeInputValue(attribute(), "Negotiation"),
+    );
+    expect(state.draft).toBe("Won");
+
+    expect(parseAttributeValue(stage, state.draft)).toEqual({
+      ok: true,
+      value: "Won",
+    });
+  });
+
+  it("re-seeds when the committed value itself changes", () => {
+    const stage = attribute();
+    const typed = { ...editorDraftFor(undefined, "Negotiation"), draft: "Won" };
+    expect(
+      editorDraftFor(typed, attributeInputValue(stage, "Closed Lost")).draft,
+    ).toBe("Closed Lost");
+  });
+
+  it("seeds from the raw value, not the formatted one", () => {
+    const amount = attribute({
+      attributeType: "currency",
+      config: { currency: { code: "usd" } },
+    });
+    expect(
+      editorDraftFor(undefined, attributeInputValue(amount, 184000)),
+    ).toEqual({ draft: "184000", seed: "184000" });
   });
 });
 

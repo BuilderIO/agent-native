@@ -131,8 +131,15 @@ function ListCard({
                   key={attribute.id}
                   className="group grid grid-cols-[minmax(5rem,0.7fr)_minmax(0,1.3fr)] items-center gap-2"
                 >
-                  <div className="flex min-w-0 items-center gap-1">
-                    <span className="truncate text-xs text-muted-foreground">
+                  <div className="flex min-w-0 items-start gap-1">
+                    {/* An entry attribute is the list's own workflow value, not
+                        the record's — an opportunity's `Stage` and a pipeline's
+                        `Stage` are different fields, and moving one does not
+                        move the other. This label still reads identically to
+                        the object attribute in the left panel; qualifying it
+                        needs a new i18n key, which is reported rather than
+                        added here. */}
+                    <span className="min-w-0 text-xs text-muted-foreground">
                       {attribute.label}
                     </span>
                     <FieldHistoryButton

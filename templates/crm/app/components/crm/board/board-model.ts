@@ -13,6 +13,9 @@
 /** Column key for cards with no value for the grouping attribute. */
 export const BOARD_UNGROUPED = "__ungrouped__";
 
+/** A card shows at most this many configured attributes as plain rows. */
+export const CARD_ATTRIBUTE_LIMIT = 3;
+
 /** `crm_record_fields.actor_type`, restated locally so this module stays leaf. */
 export type BoardActorType =
   | "user"
@@ -36,7 +39,11 @@ export interface BoardOption {
 export interface BoardCardAttribute {
   slug: string;
   label: string;
-  /** Raw decoded value; the renderer localizes it. */
+  attributeType: string;
+  multi: boolean;
+  options?: BoardOption[];
+  config?: Record<string, unknown>;
+  /** Raw decoded value; the renderer localizes it through the shared registry. */
   value: unknown;
 }
 
@@ -339,4 +346,54 @@ export function pickCurrencyAttribute<
       preferredIds.includes(attribute.apiSlug),
   );
   return preferred ?? currency[0] ?? null;
+}
+
+/**
+ * Up to `CARD_ATTRIBUTE_LIMIT` attributes a card shows as plain rows. The
+ * grouping and currency attributes get their own dedicated place on the card,
+ * so excluding them here keeps a value from appearing twice. Prefers the
+ * view's own column order; whatever is left is filled in by `position`.
+ */
+export function pickCardAttributes<
+  T extends {
+    id: string;
+    apiSlug: string;
+    attributeType: string;
+    position: number;
+  },
+>(
+  attributes: readonly T[],
+  excludeIds: ReadonlySet<string>,
+  preferredIds: readonly string[] = [],
+): T[] {
+  const eligible = attributes.filter(
+    (attribute) =>
+      !excludeIds.has(attribute.id) &&
+      attribute.attributeType !== "interaction",
+  );
+  const preferred = preferredIds.flatMap((id) => {
+    const match = eligible.find(
+      (attribute) => attribute.id === id || attribute.apiSlug === id,
+    );
+    return match ? [match] : [];
+  });
+  const rest = eligible
+    .filter((attribute) => !preferred.includes(attribute))
+    .sort((a, b) => a.position - b.position);
+  return [...preferred, ...rest].slice(0, CARD_ATTRIBUTE_LIMIT);
+}
+
+/**
+ * A card's summable amount, read only from the view's currency attribute.
+ * `null` covers "this view has no currency attribute" and "the value under it
+ * is missing or unreadable" alike — a column total must not fold either into
+ * a silent zero, and this must never fall back to an untyped/legacy field.
+ */
+export function cardAmountFor(
+  currencyAttribute: { apiSlug: string } | null,
+  values: Readonly<Record<string, unknown>>,
+): number | null {
+  if (!currencyAttribute) return null;
+  const value = values[currencyAttribute.apiSlug];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

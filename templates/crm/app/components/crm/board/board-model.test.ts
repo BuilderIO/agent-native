@@ -7,9 +7,11 @@ import {
   boardColumns,
   boardColumnTotals,
   boardOverruns,
+  cardAmountFor,
   moveBoardCard,
   moveValueForColumn,
   objectBoardMoveArgs,
+  pickCardAttributes,
   pickCurrencyAttribute,
   type BoardCard,
   type BoardOption,
@@ -128,6 +130,30 @@ describe("boardColumnTotals", () => {
     ]);
     expect(totals.sum).toBeNull();
     expect(totals.mixedCurrency).toBe(true);
+  });
+
+  it("shows count only, never a fake zero, when no card has a currency value", () => {
+    const totals = boardColumnTotals([card("a"), card("b")]);
+    expect(totals).toMatchObject({ count: 2, sum: null, withoutAmount: 2 });
+  });
+});
+
+describe("cardAmountFor", () => {
+  it("is null when the view has no currency attribute, never a fake zero", () => {
+    expect(cardAmountFor(null, { amount: 500 })).toBeNull();
+  });
+
+  it("is null when the currency attribute's value is missing or unreadable", () => {
+    const attribute = { apiSlug: "deal_value" };
+    expect(cardAmountFor(attribute, {})).toBeNull();
+    expect(cardAmountFor(attribute, { deal_value: "not-a-number" })).toBeNull();
+    expect(cardAmountFor(attribute, { deal_value: null })).toBeNull();
+  });
+
+  it("reads the numeric value stored under the currency attribute's slug", () => {
+    expect(cardAmountFor({ apiSlug: "deal_value" }, { deal_value: 4200 })).toBe(
+      4200,
+    );
   });
 });
 
@@ -322,5 +348,51 @@ describe("column helpers", () => {
     expect(pickCurrencyAttribute(attributes, ["a2"])?.id).toBe("a2");
     expect(pickCurrencyAttribute(attributes)?.id).toBe("a1");
     expect(pickCurrencyAttribute([attributes[2]!])).toBeNull();
+  });
+});
+
+describe("pickCardAttributes", () => {
+  it("shows the view's own column order first, then fills the rest by position", () => {
+    const attributes = [
+      { id: "a1", apiSlug: "priority", attributeType: "select", position: 5 },
+      { id: "a2", apiSlug: "next_step", attributeType: "text", position: 1 },
+      { id: "a3", apiSlug: "source", attributeType: "text", position: 2 },
+      { id: "a4", apiSlug: "notes", attributeType: "text", position: 0 },
+    ];
+    expect(
+      pickCardAttributes(attributes, new Set(), ["a2", "a1"]).map((a) => a.id),
+    ).toEqual(["a2", "a1", "a4"]);
+  });
+
+  it("falls back to position order and caps at three when the view names none", () => {
+    const attributes = [
+      { id: "a1", apiSlug: "x", attributeType: "text", position: 3 },
+      { id: "a2", apiSlug: "y", attributeType: "text", position: 1 },
+      { id: "a3", apiSlug: "z", attributeType: "text", position: 2 },
+      { id: "a4", apiSlug: "w", attributeType: "text", position: 0 },
+    ];
+    expect(
+      pickCardAttributes(attributes, new Set(), []).map((a) => a.id),
+    ).toEqual(["a4", "a2", "a3"]);
+  });
+
+  it("excludes the grouping and currency attributes plus system-only interaction rows", () => {
+    const attributes = [
+      { id: "stage", apiSlug: "stage", attributeType: "status", position: 0 },
+      {
+        id: "amount",
+        apiSlug: "amount",
+        attributeType: "currency",
+        position: 1,
+      },
+      { id: "log", apiSlug: "log", attributeType: "interaction", position: 2 },
+      { id: "notes", apiSlug: "notes", attributeType: "text", position: 3 },
+    ];
+    const shown = pickCardAttributes(
+      attributes,
+      new Set(["stage", "amount"]),
+      [],
+    );
+    expect(shown.map((a) => a.id)).toEqual(["notes"]);
   });
 });

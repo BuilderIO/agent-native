@@ -1,6 +1,11 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, gt, inArray, isNull, like, or } from "drizzle-orm";
 
+import {
+  ATTRIBUTE_TYPE_SPECS,
+  legacyValueTypeFor,
+  type CrmAttributeType,
+} from "../../shared/crm-attributes.js";
 import type {
   CrmAccessScope,
   CrmAdapter,
@@ -23,6 +28,7 @@ import {
   isBoundedCrmValue,
   isSafeCrmMutationFieldName,
 } from "./crm-field-firewall.js";
+import { crmAttributeColumnsFor } from "./field-policy-attributes.js";
 
 const MAX_PAGE_SIZE = 100;
 const MAX_FIELDS = 80;
@@ -67,23 +73,50 @@ function labelForObject(objectType: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+/** Default managed options seeded for the native opportunities `stage`
+ * attribute — see `server/lib/record-fields.ts`: a status write against an
+ * attribute with no options is a 422, not a silent auto-create. Kept separate
+ * from `create-crm-list.ts`'s `DEFAULT_STAGE_OPTIONS` (a list's workflow
+ * stage is a different vocabulary from an opportunity's sales stage, even
+ * though today's starter values happen to read the same). */
+export const DEFAULT_OPPORTUNITY_STAGE_OPTIONS: NonNullable<
+  CrmFieldDefinition["options"]
+> = [
+  { value: "new", label: "New" },
+  { value: "in-progress", label: "In Progress" },
+  { value: "won", label: "Won" },
+  { value: "lost", label: "Lost" },
+];
+
 function nativeField(
   name: string,
-  valueType: CrmFieldDefinition["valueType"],
-  required = false,
+  attributeType: CrmAttributeType,
+  options: {
+    required?: boolean;
+    multi?: boolean;
+    config?: Record<string, unknown>;
+    fieldOptions?: CrmFieldDefinition["options"];
+  } = {},
 ): CrmFieldDefinition {
+  const multi = options.multi ?? false;
   return {
     name,
     label: name
       .replace(/([A-Z])/g, " $1")
       .replace(/^./, (character) => character.toUpperCase()),
-    valueType,
+    // Derived, not hand-kept in sync: the legacy column exists only for
+    // pre-typed read paths that still branch on it.
+    valueType: legacyValueTypeFor(attributeType, multi),
+    attributeType,
+    ...(multi ? { multi } : {}),
+    ...(options.config ? { config: options.config } : {}),
+    ...(options.fieldOptions ? { options: options.fieldOptions } : {}),
     storagePolicy: "local-authoritative",
     sensitive: false,
     readable: true,
     createable: true,
     updateable: true,
-    required,
+    required: options.required ?? false,
   };
 }
 
@@ -91,36 +124,40 @@ export function nativeObjectTemplate(objectType: string): CrmObjectDefinition {
   const objectFields =
     objectType === "accounts"
       ? [
-          nativeField("name", "string", true),
-          nativeField("domain", "string"),
-          nativeField("industry", "string"),
-          nativeField("ownerName", "string"),
+          nativeField("name", "text", { required: true }),
+          nativeField("domain", "domain"),
+          nativeField("industry", "text"),
+          nativeField("ownerName", "text"),
         ]
       : objectType === "people"
         ? [
-            nativeField("firstName", "string"),
-            nativeField("lastName", "string"),
-            nativeField("email", "string"),
-            nativeField("title", "string"),
-            nativeField("accountId", "reference"),
-            nativeField("ownerName", "string"),
+            nativeField("firstName", "text"),
+            nativeField("lastName", "text"),
+            nativeField("email", "email-address"),
+            nativeField("title", "text"),
+            nativeField("accountId", "record-reference"),
+            nativeField("ownerName", "text"),
           ]
         : objectType === "opportunities"
           ? [
-              nativeField("name", "string", true),
-              nativeField("amount", "currency"),
-              nativeField("stage", "string"),
+              nativeField("name", "text", { required: true }),
+              nativeField("amount", "currency", {
+                config: { currency: { code: "USD" } },
+              }),
+              nativeField("stage", "status", {
+                fieldOptions: DEFAULT_OPPORTUNITY_STAGE_OPTIONS,
+              }),
               nativeField("closeDate", "date"),
-              nativeField("accountId", "reference"),
-              nativeField("ownerName", "string"),
+              nativeField("accountId", "record-reference"),
+              nativeField("ownerName", "text"),
             ]
           : [];
   const fields = objectFields.length
     ? [
         ...objectFields,
         nativeField("desiredCadenceDays", "number"),
-        nativeField("lastMeaningfulInteractionAt", "datetime"),
-        nativeField("nextContactAt", "datetime"),
+        nativeField("lastMeaningfulInteractionAt", "timestamp"),
+        nativeField("nextContactAt", "timestamp"),
       ]
     : [];
   const label = labelForObject(objectType);
@@ -148,6 +185,20 @@ function valueType(value: CrmValue): CrmFieldDefinition["valueType"] {
   if (typeof value === "number") return "number";
   if (Array.isArray(value) || typeof value === "object") return "json";
   return "string";
+}
+
+/**
+ * Best-effort attribute type for a field a mutation introduces that the
+ * object template does not already declare (an ad hoc custom field). A
+ * template-declared field always wins over this inference — see the merge
+ * order in `ensureNativeObject`.
+ */
+function attributeTypeForValue(value: CrmValue): CrmAttributeType {
+  if (typeof value === "boolean") return "checkbox";
+  if (typeof value === "number") return "number";
+  if (Array.isArray(value) || (typeof value === "object" && value !== null))
+    return "location";
+  return "text";
 }
 
 function fieldColumns(value: CrmValue) {
@@ -430,8 +481,13 @@ async function ensureNativeObject(input: {
       createdAt: now,
     });
   }
+  // `input.fields` is rebuilt from the raw values of every mutation — including
+  // template fields, since a create/update passes its whole `fields` payload
+  // through. Template definitions go LAST so their genuine types (currency,
+  // status, …) always win; putting them first would let every write silently
+  // downgrade the field back to the value-shape guess in `attributeTypeForValue`.
   const known = new Map<string, CrmFieldDefinition>();
-  for (const field of [...template.fields, ...input.fields])
+  for (const field of [...input.fields, ...template.fields])
     known.set(field.name, field);
   const existingPolicies = await db
     .select({
@@ -451,6 +507,10 @@ async function ensureNativeObject(input: {
   );
   for (const field of known.values()) {
     const existingPolicy = policyByName.get(field.name);
+    const attributeColumns = crmAttributeColumnsFor(
+      field,
+      "local-authoritative",
+    );
     const values = {
       label: field.label,
       valueType: field.valueType,
@@ -461,6 +521,7 @@ async function ensureNativeObject(input: {
       updateable: true,
       required: field.required,
       metadataJson: "{}",
+      ...attributeColumns,
       updatedAt: now,
     };
     if (existingPolicy) {
@@ -479,18 +540,45 @@ async function ensureNativeObject(input: {
             ),
           ),
         );
-    } else {
-      await db.insert(schema.crmFieldPolicies).values({
-        id: crypto.randomUUID(),
-        connectionId: input.connection.id,
-        objectType: input.objectType,
-        fieldName: field.name,
-        ...values,
-        ownerEmail: input.connection.ownerEmail,
-        orgId: input.connection.orgId,
-        visibility: input.connection.visibility,
-        createdAt: now,
-      });
+      continue;
+    }
+    const policyId = crypto.randomUUID();
+    await db.insert(schema.crmFieldPolicies).values({
+      id: policyId,
+      connectionId: input.connection.id,
+      objectType: input.objectType,
+      fieldName: field.name,
+      ...values,
+      ownerEmail: input.connection.ownerEmail,
+      orgId: input.connection.orgId,
+      visibility: input.connection.visibility,
+      createdAt: now,
+    });
+    // Seeded only at creation: a status field needs at least one managed
+    // option before any write to it (see `assertKnownOptions` in
+    // `server/lib/record-fields.ts`), and re-checking on every later mutation
+    // would cost a query per status field per write for no benefit — the
+    // backfill migration handles pre-existing rows this never ran for.
+    if (
+      ATTRIBUTE_TYPE_SPECS[attributeColumns.attributeType].usesOptions &&
+      field.options?.length
+    ) {
+      await db.insert(schema.crmAttributeOptions).values(
+        field.options.map((option, index) => ({
+          id: crypto.randomUUID(),
+          attributeId: policyId,
+          value: option.value,
+          title: option.label,
+          position: index,
+          archived: false,
+          celebrate: false,
+          ownerEmail: input.connection.ownerEmail,
+          orgId: input.connection.orgId,
+          visibility: input.connection.visibility,
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
     }
   }
 }
@@ -1080,7 +1168,7 @@ export class NativeCrmAdapter implements CrmAdapter {
       connection: this.#nativeConnection,
       objectType,
       fields: Object.entries(fields).map(([name, value]) =>
-        nativeField(name, valueType(value)),
+        nativeField(name, attributeTypeForValue(value)),
       ),
     });
     const patchJson = json({ fields });
@@ -1208,7 +1296,7 @@ export class NativeCrmAdapter implements CrmAdapter {
       connection: this.#nativeConnection,
       objectType: mutation.record.objectType,
       fields: Object.entries(fields).map(([name, value]) =>
-        nativeField(name, valueType(value)),
+        nativeField(name, attributeTypeForValue(value)),
       ),
     });
     const patchJson = json({ fields });
@@ -1709,7 +1797,14 @@ export async function createNativeCrmRecord(input: {
       kind: input.kind,
       remoteId: `native-${crypto.randomUUID()}`,
     },
-    fields: { ...input.fields, displayName: input.displayName },
+    // `summaryColumns` derives the record's display name from `name` first —
+    // accounts and opportunities already carry a `name` attribute, so only
+    // people (which have no `name` field) need a separate stored `displayName`
+    // attribute. Minting both would leave two attributes for one value.
+    fields:
+      input.kind === "person"
+        ? { ...input.fields, displayName: input.displayName }
+        : { ...input.fields, name: input.displayName },
     idempotencyKey: input.idempotencyKey ?? crypto.randomUUID(),
   });
 }

@@ -18,7 +18,6 @@ import {
 import type {
   CrmAttributeDefinition,
   CrmAttributeOption,
-  CrmFieldDefinition,
 } from "../shared/crm-contract.js";
 
 export type CrmAttributeRow = typeof schema.crmFieldPolicies.$inferSelect;
@@ -28,42 +27,10 @@ export type CrmAttributeOptionRow =
 /** Longest attribute slug we will mint; the column is untyped TEXT. */
 const MAX_API_SLUG_LENGTH = 64;
 
-/**
- * The legacy `value_type` column is still NOT NULL and is what the pre-typed
- * read paths (crm-store, mirror, update-crm-record) branch on, so every typed
- * attribute must also carry the closest legacy value type. This is the inverse
- * of the migration's `value_type -> attribute_type` backfill.
- */
-const LEGACY_VALUE_TYPES: Record<
-  CrmAttributeType,
-  CrmFieldDefinition["valueType"]
-> = {
-  text: "string",
-  number: "number",
-  checkbox: "boolean",
-  currency: "currency",
-  date: "date",
-  timestamp: "datetime",
-  rating: "number",
-  status: "enum",
-  select: "enum",
-  "record-reference": "reference",
-  "actor-reference": "reference",
-  location: "json",
-  domain: "string",
-  "email-address": "string",
-  "phone-number": "string",
-  interaction: "json",
-  "personal-name": "string",
-};
-
-export function legacyValueTypeFor(
-  type: CrmAttributeType,
-  multi: boolean,
-): CrmFieldDefinition["valueType"] {
-  const base = LEGACY_VALUE_TYPES[type];
-  return multi && base === "enum" ? "multi-enum" : base;
-}
+// The single `attributeType -> value_type` mapping lives in
+// `shared/crm-attributes.ts` so server-side writers (native adapter, mirror)
+// can use it too without an actions/ -> server/ import.
+export { legacyValueTypeFor } from "../shared/crm-attributes.js";
 
 /**
  * Immutable snake_case slug for a title. Minted once at create time: the slug

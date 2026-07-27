@@ -103,6 +103,16 @@ export interface CrmFieldDefinition {
   required: boolean;
   options?: Array<{ value: string; label: string; active?: boolean }>;
   referencedObjectType?: string;
+  /**
+   * The typed-attribute surface a field-policy writer should stamp onto
+   * `crm_field_policies`. Optional: providers that only discover the legacy
+   * `valueType` (HubSpot, Salesforce) leave this unset and the writer falls
+   * back to `text`, matching the column's own default.
+   */
+  attributeType?: CrmAttributeType;
+  multi?: boolean;
+  /** `{ currency: { code } }`, `{ reference: { allowedObjectTypes } }`, … */
+  config?: Record<string, unknown>;
 }
 
 export const CRM_ATTRIBUTE_AUTHORITIES = [

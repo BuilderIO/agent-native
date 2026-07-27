@@ -17,6 +17,7 @@ import { FieldHistoryButton } from "./FieldHistory";
 import {
   fieldEditability,
   splitHighlights,
+  withoutSuppressedDuplicates,
   type CrmRecordPage,
   type CrmRecordPageValueMeta,
 } from "./record-data";
@@ -30,7 +31,11 @@ export function AttributePanel({
 }) {
   const t = useT();
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
-  const { highlights, rest } = splitHighlights(page.attributes);
+  const attributes = withoutSuppressedDuplicates(page.attributes, page.values);
+  const { highlights, rest } = splitHighlights(attributes, {
+    kind: page.record.kind,
+    values: page.values,
+  });
 
   return (
     <aside className="flex min-h-full w-full flex-col gap-6 border-border/70 p-5 lg:w-[22rem] lg:shrink-0 lg:border-r">
@@ -136,9 +141,13 @@ function AttributeRow({
 
   return (
     <div className="group grid grid-cols-[minmax(6.5rem,0.8fr)_minmax(0,1.2fr)] items-start gap-3 rounded-md px-2 py-1.5 hover:bg-muted/50">
-      <div className="flex min-w-0 items-center gap-1 pt-1">
+      <div className="flex min-w-0 items-start gap-1 pt-1">
+        {/* Wrapped, not truncated: a label column this narrow truncates long
+            attribute names (e.g. "Desired Cadence Days") past readability, and
+            a hover-only tooltip would hide the same text at rest. Wrapping
+            keeps the two-column grid and just grows the row. */}
         <span
-          className="truncate text-sm text-muted-foreground"
+          className="text-sm text-muted-foreground"
           title={attribute.description ?? attribute.label}
         >
           {attribute.label}

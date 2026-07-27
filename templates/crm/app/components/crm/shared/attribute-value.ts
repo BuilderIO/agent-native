@@ -538,6 +538,34 @@ export function attributeInputValue(
   return String(value);
 }
 
+// ---------------------------------------------------------------------------
+// Inline editor drafts
+// ---------------------------------------------------------------------------
+
+/** What an inline editor shows, plus the committed text it was seeded from. */
+export interface CrmEditorDraft {
+  draft: string;
+  seed: string;
+}
+
+/**
+ * The draft an inline editor should hold for `seed`, returning `state` itself
+ * when the committed text has not moved.
+ *
+ * Re-seed only on the committed text. Keying it on anything looser — the
+ * attribute object, which the record panel rebuilds on every render — rewrites
+ * the input's value out from under the caret mid-edit. The browser drops the
+ * selection when that happens, so a select-all and retype interleaves with the
+ * value being replaced instead of replacing it.
+ */
+export function editorDraftFor(
+  state: CrmEditorDraft | undefined,
+  seed: string,
+): CrmEditorDraft {
+  if (!state) return { draft: seed, seed };
+  return state.seed === seed ? state : { draft: seed, seed };
+}
+
 /**
  * Days a value has sat past its status option's `targetDays`. `null` when the
  * attribute is not a status, has no SLA, or has no known `activeFrom` — an

@@ -909,24 +909,50 @@ export async function listCrmSignals(input: {
     .limit(Math.min(Math.max(input.limit, 1), 100));
 }
 
-export function safeProposalValues(value: string): Record<string, Primitive> {
-  const parsed = parseJsonObject(value);
-  const fields = parsed?.fields;
-  const source =
-    fields && typeof fields === "object" && !Array.isArray(fields)
-      ? (fields as Record<string, unknown>)
-      : (parsed ?? {});
-  return Object.fromEntries(
-    Object.entries(source)
-      .filter(
-        ([fieldName, fieldValue]) =>
-          fieldName.length <= 120 &&
-          isSafeCrmMutationFieldName(fieldName) &&
-          isBoundedCrmValue(fieldValue) &&
-          parsePrimitive(fieldValue),
-      )
-      .slice(0, 20),
-  ) as Record<string, Primitive>;
+/**
+ * The field map a stored mutation payload carries, or `present: false` when it
+ * carries none.
+ *
+ * Only a payload wrapping its values in `fields` holds field values.
+ * `before_json` and `after_json` hold revision metadata (`{ remoteRevision }`)
+ * or a merge summary, so reading them as a field map invented a
+ * `remoteRevision` "field" and — worse — made a real change render as
+ * "Empty → Empty". A payload that never recorded a value is not a payload that
+ * recorded an empty one.
+ */
+export type CrmProposalValues =
+  | { present: false }
+  | { present: true; values: Record<string, Primitive> };
+
+export function safeProposalValues(value: string): CrmProposalValues {
+  const fields = parseJsonObject(value)?.fields;
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+    return { present: false };
+  }
+  return {
+    present: true,
+    values: Object.fromEntries(
+      Object.entries(fields as Record<string, unknown>)
+        .filter(
+          ([fieldName, fieldValue]) =>
+            fieldName.length <= 120 &&
+            isSafeCrmMutationFieldName(fieldName) &&
+            isBoundedCrmValue(fieldValue) &&
+            parsePrimitive(fieldValue),
+        )
+        .slice(0, 20),
+    ) as Record<string, Primitive>,
+  };
+}
+
+function proposalValueOf(
+  source: CrmProposalValues,
+  name: string,
+): { known: false } | { known: true; value: Primitive } {
+  if (!source.present) return { known: false };
+  return Object.prototype.hasOwnProperty.call(source.values, name)
+    ? { known: true, value: source.values[name] as Primitive }
+    : { known: false };
 }
 
 export async function listCrmProposals(input: {
@@ -1007,11 +1033,11 @@ export async function listCrmProposals(input: {
       const before = safeProposalValues(proposal.beforeJson);
       const after = safeProposalValues(proposal.afterJson);
       const fieldNames = Array.from(
-        new Set([
-          ...Object.keys(before),
-          ...Object.keys(after),
-          ...Object.keys(patch),
-        ]),
+        new Set(
+          [before, after, patch].flatMap((source) =>
+            source.present ? Object.keys(source.values) : [],
+          ),
+        ),
       ).slice(0, 20);
       return {
         id: proposal.id,
@@ -1031,18 +1057,22 @@ export async function listCrmProposals(input: {
         expectedRemoteRevision: proposal.expectedRemoteRevision,
         createdAt: proposal.createdAt,
         appliedAt: proposal.appliedAt,
-        fields: fieldNames.map((name) => ({
-          name,
-          ...(Object.prototype.hasOwnProperty.call(before, name)
-            ? { before: before[name] }
-            : {}),
-          ...(Object.prototype.hasOwnProperty.call(
-            Object.keys(after).length ? after : patch,
+        // Resolved per field name, never per payload: picking `after_json`
+        // wholesale whenever it held any key dropped the change `patch_json`
+        // carries, which is what rendered a real edit as "Empty → Empty".
+        fields: fieldNames.map((name) => {
+          const beforeValue = proposalValueOf(before, name);
+          const afterValue = proposalValueOf(after, name);
+          const resolved = afterValue.known
+            ? afterValue
+            : proposalValueOf(patch, name);
+          return {
             name,
-          )
-            ? { after: (Object.keys(after).length ? after : patch)[name] }
-            : {}),
-        })),
+            beforeKnown: beforeValue.known,
+            ...(beforeValue.known ? { before: beforeValue.value } : {}),
+            ...(resolved.known ? { after: resolved.value } : {}),
+          };
+        }),
       };
     }),
     nextCursor: result.nextCursor ? String(offset + limit) : undefined,

@@ -202,6 +202,36 @@ export function parseCell(
 }
 
 // ---------------------------------------------------------------------------
+// Duplicate attributes
+// ---------------------------------------------------------------------------
+
+function sameCellValue(a: CrmCellValue, b: CrmCellValue | undefined): boolean {
+  if (a === b) return true;
+  if (a === null || b === null || b === undefined) return false;
+  if (typeof a === "object" || typeof b === "object") {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  return false;
+}
+
+/**
+ * `displayName` duplicates `name` when the native adapter minted both from
+ * the same write — see `record-data.ts`'s `isSuppressedDuplicateAttribute`
+ * for the record-page equivalent of this same rule. Suppress only when
+ * `name` has a real value equal to `displayName`, so a row missing `name`
+ * still shows its `displayName` cell.
+ */
+export function isSuppressedDisplayNameCell(
+  apiSlug: string,
+  rowValues: Record<string, CrmCellValue>,
+): boolean {
+  if (apiSlug !== "displayName") return false;
+  const name = rowValues.name;
+  if (!name) return false;
+  return sameCellValue(name, rowValues.displayName);
+}
+
+// ---------------------------------------------------------------------------
 // Provenance
 // ---------------------------------------------------------------------------
 

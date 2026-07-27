@@ -69,6 +69,63 @@ describe("native CRM contract", () => {
     });
   });
 
+  it("gives every seeded native field a genuine attribute type, not the text default", () => {
+    const accounts = nativeObjectTemplate("accounts");
+    const people = nativeObjectTemplate("people");
+    const opportunities = nativeObjectTemplate("opportunities");
+    const attributeTypeOf = (fields: typeof accounts.fields, name: string) =>
+      fields.find((field) => field.name === name)?.attributeType;
+
+    expect(attributeTypeOf(accounts.fields, "name")).toBe("text");
+    expect(attributeTypeOf(accounts.fields, "domain")).toBe("domain");
+    expect(attributeTypeOf(accounts.fields, "industry")).toBe("text");
+    expect(attributeTypeOf(accounts.fields, "ownerName")).toBe("text");
+
+    expect(attributeTypeOf(people.fields, "firstName")).toBe("text");
+    expect(attributeTypeOf(people.fields, "lastName")).toBe("text");
+    expect(attributeTypeOf(people.fields, "email")).toBe("email-address");
+    expect(attributeTypeOf(people.fields, "title")).toBe("text");
+    expect(attributeTypeOf(people.fields, "accountId")).toBe(
+      "record-reference",
+    );
+
+    expect(attributeTypeOf(opportunities.fields, "name")).toBe("text");
+    expect(attributeTypeOf(opportunities.fields, "amount")).toBe("currency");
+    expect(attributeTypeOf(opportunities.fields, "stage")).toBe("status");
+    expect(attributeTypeOf(opportunities.fields, "closeDate")).toBe("date");
+    expect(attributeTypeOf(opportunities.fields, "accountId")).toBe(
+      "record-reference",
+    );
+
+    for (const fields of [
+      accounts.fields,
+      people.fields,
+      opportunities.fields,
+    ]) {
+      expect(attributeTypeOf(fields, "desiredCadenceDays")).toBe("number");
+      expect(attributeTypeOf(fields, "lastMeaningfulInteractionAt")).toBe(
+        "timestamp",
+      );
+      expect(attributeTypeOf(fields, "nextContactAt")).toBe("timestamp");
+    }
+  });
+
+  it("gives the opportunity amount field a USD currency config and stage its default options", () => {
+    const opportunities = nativeObjectTemplate("opportunities");
+    const amount = opportunities.fields.find(
+      (field) => field.name === "amount",
+    );
+    expect(amount?.config).toEqual({ currency: { code: "USD" } });
+
+    const stage = opportunities.fields.find((field) => field.name === "stage");
+    expect(stage?.options?.map((option) => option.value)).toEqual([
+      "new",
+      "in-progress",
+      "won",
+      "lost",
+    ]);
+  });
+
   it("uses monotonically increasing portable revisions", () => {
     expect(nextNativeRevision(undefined)).toBe("1");
     expect(nextNativeRevision("41")).toBe("42");
@@ -392,5 +449,232 @@ describe("native CRM connection access tiers", () => {
         ).rejects.toThrow();
       },
     );
+  });
+});
+
+describe("native CRM typed-attribute boundary", () => {
+  const OWNER = "owner@example.test";
+
+  function testConnection(connectionId: string) {
+    return {
+      id: connectionId,
+      accountId: null,
+      accessScopeKey: `native:${connectionId}`,
+      accessScopeJson: JSON.stringify({
+        key: `native:${connectionId}`,
+        mode: "native",
+        recordVisibility: "actor",
+      }),
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private" as const,
+    };
+  }
+
+  async function fieldPolicy(
+    connectionId: string,
+    objectType: string,
+    fieldName: string,
+  ) {
+    const [policy] = await getDb()
+      .select()
+      .from(schema.crmFieldPolicies)
+      .where(
+        and(
+          eq(schema.crmFieldPolicies.connectionId, connectionId),
+          eq(schema.crmFieldPolicies.objectType, objectType),
+          eq(schema.crmFieldPolicies.fieldName, fieldName),
+        ),
+      )
+      .limit(1);
+    return policy;
+  }
+
+  it("writes local-authoritative authority and the genuine attribute type on create", async () => {
+    const connectionId = `native-typed-create-${crypto.randomUUID()}`;
+    const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
+    const remoteId = `opp-${crypto.randomUUID()}`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "create",
+        record: {
+          connectionId,
+          provider: "native",
+          objectType: "opportunities",
+          kind: "opportunity",
+          remoteId,
+        },
+        fields: { name: "Acme deal", amount: 184000, stage: "new" },
+        idempotencyKey: `create-${remoteId}`,
+      }),
+    );
+
+    const amountPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(amountPolicy).toMatchObject({
+      attributeType: "currency",
+      authority: "local-authoritative",
+    });
+    expect(JSON.parse(amountPolicy!.configJson)).toEqual({
+      currency: { code: "USD" },
+    });
+
+    const stagePolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "stage",
+    );
+    expect(stagePolicy).toMatchObject({
+      attributeType: "status",
+      authority: "local-authoritative",
+    });
+  });
+
+  it("keeps the amount field typed currency after a later update writes it again", async () => {
+    // Regression test for the merge-order bug behind the boundary fix:
+    // `ensureNativeObject` rebuilds an ad hoc field definition from every
+    // written field on every mutation, and before the fix that ad hoc
+    // definition (inferred from the raw JS value as generic "number")
+    // overwrote the template's "currency" definition on every single write —
+    // so the type only looked fixed until the next update.
+    const connectionId = `native-typed-update-${crypto.randomUUID()}`;
+    const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
+    const remoteId = `opp-${crypto.randomUUID()}`;
+    const record = {
+      connectionId,
+      provider: "native" as const,
+      objectType: "opportunities",
+      kind: "opportunity" as const,
+      remoteId,
+    };
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "create",
+        record,
+        fields: { name: "Acme deal", amount: 184000 },
+        idempotencyKey: `create-${remoteId}`,
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "update",
+        record,
+        fields: { amount: 200000 },
+        idempotencyKey: `update-${remoteId}`,
+      }),
+    );
+
+    const amountPolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "amount",
+    );
+    expect(amountPolicy?.attributeType).toBe("currency");
+  });
+
+  it("seeds managed options for the stage attribute so a status write does not 422", async () => {
+    const connectionId = `native-typed-stage-options-${crypto.randomUUID()}`;
+    const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
+    const remoteId = `opp-${crypto.randomUUID()}`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      adapter.applyMutation({
+        operation: "create",
+        record: {
+          connectionId,
+          provider: "native",
+          objectType: "opportunities",
+          kind: "opportunity",
+          remoteId,
+        },
+        fields: { name: "Acme deal", stage: "new" },
+        idempotencyKey: `create-${remoteId}`,
+      }),
+    );
+
+    const stagePolicy = await fieldPolicy(
+      connectionId,
+      "opportunities",
+      "stage",
+    );
+    const options = await getDb()
+      .select({ value: schema.crmAttributeOptions.value })
+      .from(schema.crmAttributeOptions)
+      .where(eq(schema.crmAttributeOptions.attributeId, stagePolicy!.id));
+    expect(
+      options.map((option: { value: string }) => option.value).sort(),
+    ).toEqual(["in-progress", "lost", "new", "won"].sort());
+  });
+
+  it("does not mint a separate displayName attribute for an account, but still does for a person", async () => {
+    const connectionId = `native-typed-displayname-${crypto.randomUUID()}`;
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const db = getDb();
+      const now = new Date().toISOString();
+      await db.insert(schema.crmConnections).values({
+        id: connectionId,
+        provider: "native",
+        label: "Native SQL",
+        mode: "native",
+        status: "connected",
+        selectedPipelinesJson: "[]",
+        selectedObjectTypesJson: "[]",
+        accessScopeKey: `native:${connectionId}`,
+        accessScopeJson: JSON.stringify({
+          key: `native:${connectionId}`,
+          mode: "native",
+          actorId: OWNER,
+          recordVisibility: "actor",
+        }),
+        ownerEmail: OWNER,
+        orgId: null,
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const account = await createNativeCrmRecord({
+        connectionId,
+        kind: "account",
+        displayName: "Acme",
+        fields: {},
+        idempotencyKey: `create-account-${connectionId}`,
+      });
+      if (account.status !== "applied" || !account.record?.ref.localId) {
+        throw new Error("expected the account to be created");
+      }
+      expect(account.record.displayName).toBe("Acme");
+      const accountFieldNames = await db
+        .select({ fieldName: schema.crmRecordFields.fieldName })
+        .from(schema.crmRecordFields)
+        .where(eq(schema.crmRecordFields.recordId, account.record.ref.localId));
+      expect(
+        accountFieldNames.map((f: { fieldName: string }) => f.fieldName),
+      ).not.toContain("displayName");
+      expect(
+        accountFieldNames.map((f: { fieldName: string }) => f.fieldName),
+      ).toContain("name");
+
+      const person = await createNativeCrmRecord({
+        connectionId,
+        kind: "person",
+        displayName: "Ada Lovelace",
+        fields: {},
+        idempotencyKey: `create-person-${connectionId}`,
+      });
+      if (person.status !== "applied" || !person.record?.ref.localId) {
+        throw new Error("expected the person to be created");
+      }
+      expect(person.record.displayName).toBe("Ada Lovelace");
+      const personFieldNames = await db
+        .select({ fieldName: schema.crmRecordFields.fieldName })
+        .from(schema.crmRecordFields)
+        .where(eq(schema.crmRecordFields.recordId, person.record.ref.localId));
+      expect(
+        personFieldNames.map((f: { fieldName: string }) => f.fieldName),
+      ).toContain("displayName");
+    });
   });
 });

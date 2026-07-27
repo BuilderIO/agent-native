@@ -8,6 +8,7 @@ import {
   copyCell,
   formatCell,
   isCellEditable,
+  isSuppressedDisplayNameCell,
   parseCell,
   parseCellProvenance,
   statusOverrunDays,
@@ -250,5 +251,40 @@ describe("provenance", () => {
       parseCellProvenance({ actorType: "martian", provenanceJson: null })
         .actorType,
     ).toBe("system");
+  });
+});
+
+describe("isSuppressedDisplayNameCell", () => {
+  it("suppresses displayName when it matches the row's name", () => {
+    expect(
+      isSuppressedDisplayNameCell("displayName", {
+        name: "Acme",
+        displayName: "Acme",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps displayName visible when the row has no name", () => {
+    expect(
+      isSuppressedDisplayNameCell("displayName", { displayName: "Acme" }),
+    ).toBe(false);
+  });
+
+  it("keeps displayName visible when the values diverge", () => {
+    expect(
+      isSuppressedDisplayNameCell("displayName", {
+        name: "Acme",
+        displayName: "Acme, Inc.",
+      }),
+    ).toBe(false);
+  });
+
+  it("only applies to the displayName slug", () => {
+    expect(
+      isSuppressedDisplayNameCell("name", {
+        name: "Acme",
+        displayName: "Acme",
+      }),
+    ).toBe(false);
   });
 });
