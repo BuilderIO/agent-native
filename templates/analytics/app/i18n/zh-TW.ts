@@ -626,6 +626,10 @@ const messages = {
     historyRestoreQuestion: "要還原此儀表板版本嗎？",
     historyRestoreWarning:
       "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+    undo: "復原",
+    undoSuccess: "已復原儀表板變更",
+    undoFailed: "無法復原儀表板變更",
+    undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
     panelSettings: "面板設定",
     revenueOverTime: "一段時間內的收入",
     recentSales: "最近銷售",

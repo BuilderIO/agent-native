@@ -46,6 +46,10 @@ const enUS = {
     historyRestoreQuestion: "Restore this dashboard version?",
     historyRestoreWarning:
       "This replaces the current dashboard layout and saves the current state in history.",
+    undo: "Undo",
+    undoSuccess: "Dashboard change undone",
+    undoFailed: "Couldn't undo dashboard change",
+    undoFailedWithMessage: "Couldn't undo dashboard change: {{message}}",
     panelSettings: "Panel settings",
     revenueOverTime: "Revenue over time",
     recentSales: "Recent Sales",
@@ -11772,6 +11776,10 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要還原此儀表板版本嗎？",
       historyRestoreWarning:
         "這會取代目前的儀表板版面，並將目前狀態保存到歷史記錄。",
+      undo: "復原",
+      undoSuccess: "已復原儀表板變更",
+      undoFailed: "無法復原儀表板變更",
+      undoFailedWithMessage: "無法復原儀表板變更：{{message}}",
     },
     analyses: {
       historyTitle: "分析歷史記錄",
@@ -11801,6 +11809,10 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "要还原此仪表板版本吗？",
       historyRestoreWarning:
         "这会替换当前仪表板布局，并把当前状态保存到历史记录。",
+      undo: "撤销",
+      undoSuccess: "已撤销仪表板更改",
+      undoFailed: "无法撤销仪表板更改",
+      undoFailedWithMessage: "无法撤销仪表板更改：{{message}}",
     },
     analyses: {
       historyTitle: "分析历史记录",
@@ -11832,6 +11844,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "¿Restaurar esta versión del panel?",
       historyRestoreWarning:
         "Esto reemplaza el diseño actual del panel y guarda el estado actual en el historial.",
+      undo: "Deshacer",
+      undoSuccess: "Cambio del panel deshecho",
+      undoFailed: "No se pudo deshacer el cambio del panel",
+      undoFailedWithMessage:
+        "No se pudo deshacer el cambio del panel: {{message}}",
     },
     analyses: {
       historyTitle: "Historial del análisis",
@@ -11865,6 +11882,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurer cette version du tableau de bord ?",
       historyRestoreWarning:
         "Cela remplace la mise en page actuelle du tableau de bord et enregistre l'état actuel dans l'historique.",
+      undo: "Annuler",
+      undoSuccess: "Modification du tableau de bord annulée",
+      undoFailed: "Impossible d'annuler la modification du tableau de bord",
+      undoFailedWithMessage:
+        "Impossible d'annuler la modification du tableau de bord : {{message}}",
     },
     analyses: {
       historyTitle: "Historique de l'analyse",
@@ -11898,6 +11920,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Diese Dashboard-Version wiederherstellen?",
       historyRestoreWarning:
         "Dies ersetzt das aktuelle Dashboard-Layout und speichert den aktuellen Stand im Verlauf.",
+      undo: "Rückgängig",
+      undoSuccess: "Dashboard-Änderung rückgängig gemacht",
+      undoFailed: "Dashboard-Änderung konnte nicht rückgängig gemacht werden",
+      undoFailedWithMessage:
+        "Dashboard-Änderung konnte nicht rückgängig gemacht werden: {{message}}",
     },
     analyses: {
       historyTitle: "Analyseverlauf",
@@ -11931,6 +11958,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "このダッシュボード版を復元しますか？",
       historyRestoreWarning:
         "現在のダッシュボードレイアウトを置き換え、現在の状態を履歴に保存します。",
+      undo: "元に戻す",
+      undoSuccess: "ダッシュボードの変更を元に戻しました",
+      undoFailed: "ダッシュボードの変更を元に戻せませんでした",
+      undoFailedWithMessage:
+        "ダッシュボードの変更を元に戻せませんでした：{{message}}",
     },
     analyses: {
       historyTitle: "分析履歴",
@@ -11964,6 +11996,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "이 대시보드 버전을 복원할까요?",
       historyRestoreWarning:
         "현재 대시보드 레이아웃을 대체하고 현재 상태를 기록에 저장합니다.",
+      undo: "실행 취소",
+      undoSuccess: "대시보드 변경을 실행 취소했습니다",
+      undoFailed: "대시보드 변경을 실행 취소할 수 없습니다",
+      undoFailedWithMessage:
+        "대시보드 변경을 실행 취소할 수 없습니다: {{message}}",
     },
     analyses: {
       historyTitle: "분석 기록",
@@ -11997,6 +12034,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "Restaurar esta versão do painel?",
       historyRestoreWarning:
         "Isso substitui o layout atual do painel e salva o estado atual no histórico.",
+      undo: "Desfazer",
+      undoSuccess: "Alteração do painel desfeita",
+      undoFailed: "Não foi possível desfazer a alteração do painel",
+      undoFailedWithMessage:
+        "Não foi possível desfazer a alteração do painel: {{message}}",
     },
     analyses: {
       historyTitle: "Histórico da análise",
@@ -12030,6 +12072,10 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "इस डैशबोर्ड संस्करण को पुनर्स्थापित करें?",
       historyRestoreWarning:
         "यह वर्तमान डैशबोर्ड layout को बदल देगा और वर्तमान स्थिति को इतिहास में सहेजेगा।",
+      undo: "पूर्ववत करें",
+      undoSuccess: "डैशबोर्ड बदलाव पूर्ववत किया गया",
+      undoFailed: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका",
+      undoFailedWithMessage: "डैशबोर्ड बदलाव पूर्ववत नहीं किया जा सका: {{message}}",
     },
     analyses: {
       historyTitle: "विश्लेषण इतिहास",
@@ -12063,6 +12109,11 @@ const translatedHistoryTranslations = {
       historyRestoreQuestion: "هل تريد استعادة هذا الإصدار من لوحة المعلومات؟",
       historyRestoreWarning:
         "سيستبدل هذا تخطيط لوحة المعلومات الحالي ويحفظ الحالة الحالية في السجل.",
+      undo: "تراجع",
+      undoSuccess: "تم التراجع عن تغيير لوحة المعلومات",
+      undoFailed: "تعذر التراجع عن تغيير لوحة المعلومات",
+      undoFailedWithMessage:
+        "تعذر التراجع عن تغيير لوحة المعلومات: {{message}}",
     },
     analyses: {
       historyTitle: "سجل التحليل",

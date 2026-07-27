@@ -47,6 +47,7 @@ interface DashboardHistoryPanelProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   canRestore?: boolean;
+  onRestored?: () => void;
 }
 
 export function DashboardHistoryPanel({
@@ -54,6 +55,7 @@ export function DashboardHistoryPanel({
   open,
   onOpenChange,
   canRestore = true,
+  onRestored,
 }: DashboardHistoryPanelProps) {
   const t = useT();
   const { data: revisions, isLoading } = useDashboardRevisions(
@@ -70,6 +72,7 @@ export function DashboardHistoryPanel({
         revisionId: revision.id,
       });
       toast.success(t("dashboard.historyRestored"));
+      onRestored?.();
       setPendingRestore(null);
       onOpenChange(false);
     } catch {
