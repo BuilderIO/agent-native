@@ -310,7 +310,21 @@ function collectPictureShapes(
   }
 }
 
-/** A group's `chExt` is the coordinate space its children are authored in; `ext` is how large the group actually renders — the ratio between them is the extra scale nested children need on top of their own declared size. */
+/** Whether an `a:xfrm` `rot` value (60,000ths of a degree) is an odd multiple of 90° — a 90/270 turn that swaps effective width and height. */
+function isOddQuarterTurn(rot: number): boolean {
+  if (!Number.isFinite(rot)) return false;
+  const quarterTurns = Math.round(rot / 60000 / 90);
+  return ((quarterTurns % 2) + 2) % 2 === 1;
+}
+
+/**
+ * A group's `chExt` is the coordinate space its children are authored in;
+ * `ext` is how large the group actually renders — the ratio between them is
+ * the extra scale nested children need on top of their own declared size.
+ * When the group itself is rotated a 90/270-degree turn, that ratio applies
+ * to the perpendicular axis on the slide, so the X/Y scale factors need
+ * swapping the same way a rotated picture's own width/height do.
+ */
 function groupChildScale(
   groupNode: Record<string, unknown> | null,
   parentScaleX: number,
@@ -323,14 +337,17 @@ function groupChildScale(
   const extCy = Number(ext?.["@_cy"]);
   const chExtCx = Number(chExt?.["@_cx"]);
   const chExtCy = Number(chExt?.["@_cy"]);
-  const groupScaleX =
+  let groupScaleX =
     Number.isFinite(extCx) && Number.isFinite(chExtCx) && chExtCx > 0
       ? extCx / chExtCx
       : 1;
-  const groupScaleY =
+  let groupScaleY =
     Number.isFinite(extCy) && Number.isFinite(chExtCy) && chExtCy > 0
       ? extCy / chExtCy
       : 1;
+  if (isOddQuarterTurn(Number(xfrm?.["@_rot"]))) {
+    [groupScaleX, groupScaleY] = [groupScaleY, groupScaleX];
+  }
   return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
 }
 
@@ -353,10 +370,9 @@ function extFromSpPr(shapeNode: Record<string, unknown> | null): {
   if (!Number.isFinite(cx) || cx <= 0 || !Number.isFinite(cy) || cy <= 0) {
     return { cx: undefined, cy: undefined };
   }
-  const rot = Number(xfrm?.["@_rot"]);
-  const quarterTurns = Number.isFinite(rot) ? Math.round(rot / 60000 / 90) : 0;
-  const isOddQuarterTurn = ((quarterTurns % 2) + 2) % 2 === 1;
-  return isOddQuarterTurn ? { cx: cy, cy: cx } : { cx, cy };
+  return isOddQuarterTurn(Number(xfrm?.["@_rot"]))
+    ? { cx: cy, cy: cx }
+    : { cx, cy };
 }
 
 function scaledShape(
@@ -385,17 +401,35 @@ function scaledShape(
  */
 function reorderByDocumentPosition(shapes: PictureShape[], xml: string): void {
   const order: string[] = [];
-  const blipPattern = /<a:blip\b[^>]*\br:embed="([^"]+)"/g;
+  const blipPattern = /<a:blip\b[^>]*\br:embed=(?:"([^"]+)"|'([^']+)')/g;
   let match: RegExpExecArray | null;
-  while ((match = blipPattern.exec(xml))) order.push(match[1]);
-  const indexOf = (embedId: string | undefined) =>
-    embedId ? order.indexOf(embedId) : -1;
-  shapes.sort((a, b) => indexOf(a.embedId) - indexOf(b.embedId));
+  while ((match = blipPattern.exec(xml))) order.push(match[1] ?? match[2]);
+
+  // The same relationship id can legitimately be reused across multiple
+  // placements (e.g. a repeated icon), so looking up a single fixed index
+  // per id would assign every reused shape the position of its first XML
+  // occurrence. Instead give each id a queue of its occurrence positions
+  // and consume one per shape, in the order shapes were collected.
+  const occurrences = new Map<string, number[]>();
+  order.forEach((embedId, index) => {
+    const queue = occurrences.get(embedId);
+    if (queue) queue.push(index);
+    else occurrences.set(embedId, [index]);
+  });
+  const positions = shapes.map((shape) => {
+    const queue = shape.embedId ? occurrences.get(shape.embedId) : undefined;
+    return queue && queue.length > 0 ? queue.shift()! : -1;
+  });
+  const sortedIndices = shapes.map((_, i) => i);
+  sortedIndices.sort((a, b) => positions[a] - positions[b]);
+  const sorted = sortedIndices.map((i) => shapes[i]);
+  shapes.splice(0, shapes.length, ...sorted);
 }
 
 /** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
 function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
-  const cSld = record(record(slide)?.["p:cSld"]);
+  const root = record(slide);
+  const cSld = record(record(root?.["p:sld"])?.["p:cSld"] ?? root?.["p:cSld"]);
   const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
   const blip = record(record(bgPr?.["a:blipFill"])?.["a:blip"]);
   return stringValue(blip?.["@_r:embed"]);

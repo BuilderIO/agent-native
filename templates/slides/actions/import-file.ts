@@ -492,21 +492,24 @@ async function buildPptxSlide(
       ? image
       : undefined;
   const imageUrl = uploadable
-    ? (
-        await uploadFile({
-          data: Buffer.from(uploadable.data),
-          filename:
-            "pptx-import-" +
-            Date.now() +
-            "-s" +
-            slideIndex +
-            "-" +
-            uploadable.name,
-          mimeType: uploadable.mimeType,
-          ownerEmail,
-          recordAsset: false,
-        })
-      )?.url
+    ? await uploadFile({
+        data: Buffer.from(uploadable.data),
+        filename:
+          "pptx-import-" +
+          Date.now() +
+          "-s" +
+          slideIndex +
+          "-" +
+          uploadable.name,
+        mimeType: uploadable.mimeType,
+        ownerEmail,
+        recordAsset: false,
+      })
+        .then((result) => result?.url)
+        // A single slide's upload failing (network/API/rate-limit)
+        // shouldn't abort the whole deck replacement — fall back to a
+        // placeholder like an unsupported format would.
+        .catch(() => undefined)
     : undefined;
   return {
     slide: {

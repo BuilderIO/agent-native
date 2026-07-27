@@ -43,14 +43,21 @@ async function uploadFirstSlideImage(
   }
   const filename =
     "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name;
-  const result = await uploadFile({
-    data: Buffer.from(image.data),
-    filename,
-    mimeType: image.mimeType,
-    ownerEmail,
-    recordAsset: false,
-  });
-  return result?.url;
+  try {
+    const result = await uploadFile({
+      data: Buffer.from(image.data),
+      filename,
+      mimeType: image.mimeType,
+      ownerEmail,
+      recordAsset: false,
+    });
+    return result?.url;
+  } catch {
+    // A single slide's upload failing (network/API/rate-limit) shouldn't
+    // abort the whole deck import — that slide's text still imports fine,
+    // it just falls back to a placeholder like an unsupported format would.
+    return undefined;
+  }
 }
 
 export default defineAction({
