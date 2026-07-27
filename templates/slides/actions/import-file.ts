@@ -305,7 +305,7 @@ async function importPdfPagesAsFullBleedSlides(args: {
   canvasFactory: object;
 }) {
   const { fileBuffer, title, deckId, PDFParse, canvasFactory } = args;
-  const { buildFullBleedImageSlideHtml } =
+  const { buildFullBleedImageSlideHtml, convertSectionsToSlides } =
     await import("../server/handlers/import/html-converter.js");
 
   const pdf = new PDFParse({
@@ -313,25 +313,60 @@ async function importPdfPagesAsFullBleedSlides(args: {
     CanvasFactory: canvasFactory,
   });
   let pages: { num: number; text: string }[];
-  let screenshotPages: { pageNumber: number; data: Uint8Array }[];
+  let imagesByPage: Map<
+    number,
+    { data: Uint8Array; width: number; height: number }
+  >;
   try {
     pages = normalizePdfPages(await pdf.getText());
-    const screenshots = await pdf.getScreenshot({
-      desiredWidth: 1600,
+    // Reuse the page's own embedded photo rather than rasterizing the whole
+    // page: headless canvas text rendering depends on the PDF's embedded
+    // fonts resolving in this runtime, which is unreliable, so real
+    // extracted text is drawn as HTML below instead of trusting the render.
+    const imageResult = await pdf.getImage({
       imageBuffer: true,
       imageDataUrl: false,
     });
-    screenshotPages = screenshots.pages;
+    imagesByPage = new Map();
+    for (const page of imageResult.pages) {
+      const largest = page.images.reduce<
+        { data: Uint8Array; width: number; height: number } | undefined
+      >((best, image) => {
+        if (!best || image.width * image.height > best.width * best.height) {
+          return { data: image.data, width: image.width, height: image.height };
+        }
+        return best;
+      }, undefined);
+      if (largest) imagesByPage.set(page.pageNumber, largest);
+    }
   } finally {
     await pdf.destroy();
   }
 
   const ownerEmail = getRequestUserEmail();
   const slides = await Promise.all(
-    screenshotPages.map(async (page) => {
+    pages.map(async (page) => {
+      const heading = page.text
+        .split(/\r?\n/)
+        .find((line) => line.trim())
+        ?.trim();
+      const backgroundImage = imagesByPage.get(page.num);
+
+      if (!backgroundImage) {
+        const [content] = convertSectionsToSlides([
+          { heading: heading ?? `Page ${page.num}`, content: page.text },
+        ]);
+        return {
+          id: newSlideId(),
+          content: content ?? `<div class="fmd-slide"></div>`,
+          layout: "content",
+          notes: "",
+        };
+      }
+
       const uploadResult = await uploadFile({
-        data: Buffer.from(page.data),
-        filename: `slide-import-${Date.now()}-p${page.pageNumber}.png`,
+        data: Buffer.from(backgroundImage.data),
+        filename: `slide-import-${Date.now()}-p${page.num}.png`,
         mimeType: "image/png",
         ownerEmail: ownerEmail ?? undefined,
         recordAsset: false,
@@ -341,12 +376,11 @@ async function importPdfPagesAsFullBleedSlides(args: {
           "File storage is not configured. Connect Builder.io or another upload provider before importing PDF slides.",
         );
       }
-      const pageText = pages.find((p) => p.num === page.pageNumber)?.text ?? "";
       return {
         id: newSlideId(),
-        content: buildFullBleedImageSlideHtml(uploadResult.url),
+        content: buildFullBleedImageSlideHtml(uploadResult.url, heading),
         layout: "full-image",
-        notes: pageText,
+        notes: page.text,
       };
     }),
   );

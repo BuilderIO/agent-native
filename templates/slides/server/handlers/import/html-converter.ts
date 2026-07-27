@@ -10,14 +10,26 @@ function esc(text: string): string {
 }
 
 /**
- * Render a page image as the full-bleed slide background. Designed PDF pages
- * (photo backgrounds, gradients, custom typography baked into vector/image
- * content) have no reliable text/shape structure to reconstruct, so a
- * rasterized page image is the only faithful conversion.
+ * Render a page's embedded photo as the full-bleed slide background with the
+ * page's extracted heading text overlaid on a bottom gradient. Designed PDF
+ * pages (photo backgrounds, gradients, custom typography) have no reliable
+ * shape structure to reconstruct, so the embedded image is reused directly —
+ * but the vector/glyph text on the page is not something we can rasterize
+ * reliably headless, so the extracted text is drawn as real HTML on top
+ * instead of relying on the page's own (font-dependent) rendering.
  */
-export function buildFullBleedImageSlideHtml(imageUrl: string): string {
+export function buildFullBleedImageSlideHtml(
+  imageUrl: string,
+  headingText?: string,
+): string {
+  const overlay = headingText
+    ? `\n    <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.15) 45%, rgba(0,0,0,0) 65%);"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 60px 70px; font-family: 'Poppins', sans-serif;">
+      <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0;">${esc(headingText)}</h2>
+    </div>`
+    : "";
   return `<div class="fmd-slide" style="position: relative; width: 100%; height: 100%; overflow: hidden;">
-    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />
+    <img src="${esc(imageUrl)}" alt="" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;" />${overlay}
 </div>`;
 }
 
