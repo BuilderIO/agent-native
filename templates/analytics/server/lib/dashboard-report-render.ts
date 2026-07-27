@@ -931,7 +931,9 @@ async function renderChartBlock(args: {
   }
   const subtitle = subtitleParts.join(" · ");
 
-  const alt = `${panel.title}: ${chartType} chart of ${input.series
+  // The card heading directly above already names the panel; repeating it here
+  // would read twice in a client that blocks images.
+  const alt = `${chartType} chart of ${input.series
     .map((series) => series.label)
     .join(", ")}`;
 
