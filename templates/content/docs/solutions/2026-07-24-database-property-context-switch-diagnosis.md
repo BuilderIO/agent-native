@@ -20,25 +20,22 @@ bug and not a continuation of the draft-conflict banner fixed by PR #2303.
 
 ## Evidence
 
-### Slack report
+### Reported behavior
 
-The scoped thread begins at
-[Tim's July 24 reply](https://builder-internal.slack.com/archives/C0ATH3CCZT4/p1784905437991239?thread_ts=1784658820.437679&cid=C0ATH3CCZT4).
-From that reply downward:
+The supplied report and comparison screenshots establish that:
 
 - The original page-body interruption appears resolved.
 - In the database sidebar preview, choosing a colored Select value can replace
   the database's fields with unclickable `Kind`, `Parent`, and `Source`.
 - `+ Add property` remains visible.
 - Opening the full page shows no fields above the body.
-- Tim correctly suspected his recent Select-color work because selecting a
+- The reporter reasonably suspected the recent Select-color work because selecting a
   colored value triggers the transition, but the evidence below excludes the
   palette code as the cause.
 
-The two exact Slack screenshots were later recovered through the signed-in
-Slack desktop app and visually inspected. The preview image shows the page
+The preview screenshot shows a page
 `Agencies` with only `Kind`, `Parent`, and `Source`, each empty, followed by an
-enabled-looking `+ Add property` control. The full-page image shows the same
+enabled-looking `+ Add property` control. The comparison screenshot shows the same
 title and body with no properties above the body. Together they corroborate the
 reported schema replacement and distinguish it from the intentional full-page
 Info-rail presentation. They do not show the click sequence, so the disposable
@@ -47,10 +44,7 @@ dual-membership reproduction remains the causal proof.
 ### Executed database reproduction
 
 A disposable SQLite fixture was migrated and run through Content's real
-Drizzle property resolvers under Node 24 in the dependency-equipped canonical
-checkout at `a57951438`. The cache-seeding and ambiguous membership-resolver
-contract exercised there is unchanged in the inspected current source at
-`cd30194b2`. The fixture created:
+Drizzle property resolvers under Node 24. The fixture created:
 
 - one row page;
 - a Files membership whose properties were `Kind`, `Parent`, and `Source`; and
@@ -112,15 +106,14 @@ the active database must be explicit.
 
 ### Data-integrity edge
 
-Tim was right not to click `+ Add property`. The control is rendered from the
+Avoiding `+ Add property` was the safe choice. The control is rendered from the
 refetched database response, but it passes only `documentId`
 ([DocumentProperties.tsx](../../app/components/editor/DocumentProperties.tsx#L848)).
 `configure-document-property` resolves a database from that ambiguous page id
 before inserting the definition
 ([configure-document-property.ts](../../actions/configure-document-property.ts#L91)).
 In the reproduced state, a new property can therefore target Files rather than
-the database the user is looking at. There is no evidence Tim clicked it or that
-production data was changed.
+the database the user is looking at.
 
 ### Full-page behavior
 
@@ -145,9 +138,8 @@ database context through the route/application state and into the Info rail.
 
 ## Uncertainties
 
-- A signed-in Builder workspace browser session was not available in this task,
-  so production UI acceptance is not claimed.
-- The exact membership insertion order on Tim's page was not inspected. It is
+- Production UI acceptance was not available during diagnosis.
+- The exact membership insertion order on the reported page was not inspected. It is
   unnecessary to establish the defect because the API is under-specified for
   any multi-membership page, but it would explain why this particular page
   resolves to Files after refetch.
@@ -189,10 +181,10 @@ Given a page that belongs to Files and at least one user database:
 7. Real-interface coverage exercises the sidebar preview and full-page Info rail
    in the Builder workspace after deployment.
 
-Visual baseline for steps 1 and 4: the preview must not regress to the recovered
+Visual baseline for steps 1 and 4: the preview must not regress to the supplied
 `Agencies` screenshot's `Kind` / `Parent` / `Source` schema when opened from the
 user database. The full page may continue to omit properties above the body, as
-shown in the recovered comparison, but opening Info must reveal the originating
+shown in the comparison screenshot, but opening Info must reveal the originating
 database's exact fields.
 
 ## Shaped implementation boundary
@@ -205,10 +197,10 @@ database's exact fields.
   integration branch through an ordinary reviewed pull request and later merge.
 - **Governing architecture:** actions remain the source of truth; database
   context is explicit, validated, and carried in action/query/navigation state.
-- **Public product boundary:** any source-blind Content developer can reproduce
-  this with the public SQL schema and a local dual-membership page; it needs no
-  Alice-specific vault, machine state, credentials, or private orchestration,
-  so the fix belongs in the public template.
+- **Public product boundary:** any Content developer can reproduce this with the
+  public SQL schema and a local dual-membership page; it needs no private source
+  material, machine state, credentials, or orchestration, so the fix belongs in
+  the public template.
 - **Risk strategy:** system-ready, with a fail-closed authorization regression
   and deployed Builder workspace acceptance before calling it shipped; no
   feature flag is necessary for the bounded fix.
@@ -242,28 +234,16 @@ A root-run local real-interface pass used the same deterministic membership
 shape. It confirmed that `Status` survives green `Active` and orange `Paused`
 Select saves and their refetches; `QA Context Note` created from the user
 preview appears only in that database; `Open page` preserves
-`databaseId=XNtrWT5z3RqJ&databaseDocumentId=Bo14RJXMy0ab`; Info shows the user
+both database query parameters; Info shows the user
 fields; Files shows its own `Parent` and `Source` fields without either user
 field; and returning to the user database restores both user fields. No console
-errors occurred during that pass. The screenshots are stored with the task's
-QA artifacts.
+errors occurred during that pass.
 
-Independent real-interface acceptance remains blocked before H1: the tester's
-Chrome profile reaches the local sign-in form, while the authenticated
-`dev@local.test` session exists only in the root task's in-app browser, which
-the independent tester role cannot access. Deployed Builder workspace
-acceptance therefore remains open; the root-run evidence is not relabeled as
-independent or deployed proof.
+Exact-head deployed interface acceptance remains required before this work can
+be called shipped; local interface evidence is supporting evidence only.
 
 ## Sources
 
-- Slack thread: channel `C0ATH3CCZT4`, parent `1784658820.437679`, scoped reply
-  `1784905437.991239` and descendants.
-- Recovered and visually inspected Slack images:
-  `tim-colored-select-schema-switch-slack.png` and
-  `tim-full-page-fields-slack.png`.
-- Current local source at `cd30194b2` (`origin/main`).
-- Local reproduction on 2026-07-24 using a disposable migrated SQLite database
-  at `a57951438`, cross-checked against the same relevant current-source
-  contract at `cd30194b2`.
-- Historical comparison: PR #2303 and PR #2344 commits in local Git history.
+- Supplied, visually inspected preview and full-page comparison screenshots.
+- Current repository source and the disposable migrated SQLite reproduction.
+- Historical comparison: PR #2303 and PR #2344 in repository history.
