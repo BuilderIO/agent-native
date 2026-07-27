@@ -24,6 +24,8 @@
  * Route: POST /api/uploads/:recordingId/reset-chunks
  */
 
+import { randomUUID } from "node:crypto";
+
 import {
   writeAppState,
   deleteAppStateByPrefix,
@@ -101,6 +103,7 @@ export default defineEventHandler(async (event: H3Event) => {
     requestStreaming?: boolean;
     mimeType?: string;
     attemptId?: string;
+    uploadGenerationId?: string;
   } | null;
   const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
     userEmail: ownerEmail,
@@ -130,6 +133,7 @@ export default defineEventHandler(async (event: H3Event) => {
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -156,10 +160,24 @@ export default defineEventHandler(async (event: H3Event) => {
         ? body.attemptId
         : null;
     const existingAttemptId = existing.uploadAttemptId ?? null;
+    const existingGenerationId = existing.uploadGenerationId ?? null;
     if (recoveryEnabled && existingAttemptId !== requestedAttemptId) {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+    const requestedGenerationId =
+      typeof body?.uploadGenerationId === "string" &&
+      body.uploadGenerationId.length > 0 &&
+      body.uploadGenerationId.length <= 128
+        ? body.uploadGenerationId
+        : null;
+    if (recoveryEnabled && existingGenerationId !== requestedGenerationId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload generation is already active.",
         staleAttempt: true,
       };
     }
@@ -174,16 +192,22 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 409);
       return { error: "Recording is still being verified" };
     }
+    if (existing.status !== "uploading" && existing.status !== "failed") {
+      setResponseStatus(event, 409);
+      return { error: "Recording upload is no longer resettable" };
+    }
 
     // Fence this reset before deleting any provider or buffered state. A
     // retry that lost the token race must not tear down the winner's session.
     const now = new Date().toISOString();
+    const nextGenerationId = recoveryEnabled ? randomUUID() : null;
     const reset = await db
       .update(schema.recordings)
       .set({
         status: "uploading",
         failureReason: null,
         uploadProgress: 0,
+        uploadGenerationId: nextGenerationId,
         ...(!recoveryEnabled ? { uploadAttemptId: null } : {}),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
@@ -192,9 +216,13 @@ export default defineEventHandler(async (event: H3Event) => {
         and(
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.status, existing.status),
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
         ),
       )
       .returning({ id: schema.recordings.id });
@@ -208,11 +236,15 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const cleared = await deleteAppStateByPrefix(
-      `recording-chunks-${recordingId}-`,
+      `recording-chunks-${recordingId}${
+        existingGenerationId ? `-${existingGenerationId}` : ""
+      }-`,
     );
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
-    await deleteResumableSession(recordingId).catch(() => {});
+    await deleteResumableSession(recordingId, existingGenerationId).catch(
+      () => {},
+    );
 
     let uploadMode: UploadMode = "buffered";
     if (body?.requestStreaming === true) {
@@ -240,17 +272,21 @@ export default defineEventHandler(async (event: H3Event) => {
             mimeType,
             MAX_RECORDING_UPLOAD_BYTES,
           );
-          await setResumableSession(recordingId, {
-            providerId: uploadProvider.id,
-            sessionId: session.sessionId,
-            meta: {
-              ...session.meta,
-              stableUrl: true,
-              recordAsset: false,
+          await setResumableSession(
+            recordingId,
+            {
+              providerId: uploadProvider.id,
+              sessionId: session.sessionId,
+              meta: {
+                ...session.meta,
+                stableUrl: true,
+                recordAsset: false,
+              },
+              bytesUploaded: 0,
+              lastCommittedIndex: -1,
             },
-            bytesUploaded: 0,
-            lastCommittedIndex: -1,
-          });
+            nextGenerationId,
+          );
           uploadMode = "streaming";
         } catch (err) {
           if (!bufferedFallbackAvailable) {
@@ -284,6 +320,7 @@ export default defineEventHandler(async (event: H3Event) => {
       progress: 0,
       chunksReceived: 0,
       bytesReceived: 0,
+      uploadGenerationId: nextGenerationId,
       maxBytes: MAX_RECORDING_UPLOAD_BYTES,
       updatedAt: now,
     });
@@ -306,6 +343,7 @@ export default defineEventHandler(async (event: H3Event) => {
       chunksCleared: cleared,
       compressionRecorded: !!compression,
       uploadMode,
+      uploadGenerationId: nextGenerationId,
     };
   });
 });

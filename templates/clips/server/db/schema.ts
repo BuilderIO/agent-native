@@ -171,6 +171,10 @@ export const recordings = table("recordings", {
   // Fences resumed writers: every recovery claim rotates this token so stale
   // chunks and delayed interruption callbacks cannot mutate the new attempt.
   uploadAttemptId: text("upload_attempt_id"),
+  // Every destructive restart receives a new generation. Unlike the attempt
+  // id (which is deliberately stable across a lost response), this fences the
+  // provider handle and buffered scratch that the restart replaces.
+  uploadGenerationId: text("upload_generation_id"),
   failureReason: text("failure_reason"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),

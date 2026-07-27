@@ -67,6 +67,7 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
         .select({
           ownerEmail: schema.recordings.ownerEmail,
           orgId: schema.recordings.orgId,
+          uploadGenerationId: schema.recordings.uploadGenerationId,
         })
         .from(schema.recordings)
         .where(
@@ -92,6 +93,9 @@ export async function runMediaVerificationSweepOnce(): Promise<void> {
               MAX_ATTEMPTS,
               marker.completedAttempts + 1,
             ),
+            ...(recording.uploadGenerationId
+              ? { uploadGenerationId: recording.uploadGenerationId }
+              : {}),
           });
         },
       );

@@ -6,6 +6,7 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
+const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
@@ -20,6 +21,7 @@ const mockDb = vi.hoisted(() => ({
           ownerEmail: "owner@example.test",
           orgId: "org-1",
           status: "processing",
+          uploadGenerationId: "generation-1",
         },
       ]),
     };
@@ -54,7 +56,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../../../../actions/finalize-recording.js", () => ({
-  default: { run: vi.fn() },
+  default: { run: (...args: unknown[]) => mockFinalizeRun(...args) },
 }));
 
 vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
@@ -73,6 +75,7 @@ vi.mock("../../../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       status: "recordings.status",
+      uploadGenerationId: "recordings.uploadGenerationId",
       loomImportClaimId: "recordings.loomImportClaimId",
       loomImportClaimedAt: "recordings.loomImportClaimedAt",
     },
@@ -112,6 +115,7 @@ describe("post-finalize worker", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mockDispatchPostFinalizeJob.mockResolvedValue({ accepted: true });
+    mockFinalizeRun.mockResolvedValue({ status: "processing" });
   });
 
   afterEach(() => {
@@ -154,6 +158,24 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       ownerEmail: "owner@example.test",
       claimId: expect.any(String),
+    });
+  });
+
+  it("re-enters finalization with the processing row generation", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "media-ready",
+      token: "valid-token",
+      retryAttempt: 2,
+    });
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "media-ready",
+    });
+    expect(mockFinalizeRun).toHaveBeenCalledWith({
+      id: "rec-1",
+      mediaVerificationRetryAttempt: 2,
+      uploadGenerationId: "generation-1",
     });
   });
 

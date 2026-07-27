@@ -181,12 +181,16 @@ struct NativeStreamingResume {
     bytes_received: u64,
     next_chunk_index: usize,
     attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 enum NativeRetryUploadPlan {
     Resume(NativeStreamingResume),
-    Restart { attempt_id: Option<String> },
+    Restart {
+        attempt_id: Option<String>,
+        upload_generation_id: Option<String>,
+    },
     Reconcile,
 }
 
@@ -201,6 +205,20 @@ struct NativeUploadResumeResponse {
     bytes_received: Option<u64>,
     next_chunk_index: Option<u64>,
     attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeUploadResetResponse {
+    upload_mode: Option<String>,
+    upload_generation_id: Option<String>,
+}
+
+impl NativeUploadResetResponse {
+    fn mode(&self) -> NativeUploadMode {
+        NativeUploadMode::from_option(self.upload_mode.clone())
+    }
 }
 
 impl NativeUploadMode {
@@ -218,6 +236,7 @@ impl NativeUploadMode {
         }
     }
 
+    #[cfg(test)]
     fn from_reset_response(body: &str) -> Self {
         let value = serde_json::from_str::<serde_json::Value>(body).ok();
         let upload_mode = value
@@ -557,6 +576,7 @@ impl SharedClipSink {
                 &server_url,
                 &recording_id,
                 MP4_RECORDING_MIME_TYPE,
+                None,
                 None,
                 &auth_token,
                 &cookie,
@@ -1906,6 +1926,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
             &recording_id,
             session.mime_type,
             None,
+            None,
             &auth_token,
             &cookie,
         )
@@ -3035,6 +3056,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                     &saved.recording_id,
                     &err,
                     Some(&claimed_attempt_id),
+                    None,
                     &auth_token,
                     &cookie,
                 )
@@ -3046,7 +3068,15 @@ pub async fn native_fullscreen_recording_retry_upload(
 
         let active_attempt_id = match &retry_plan {
             NativeRetryUploadPlan::Resume(resume) => resume.attempt_id.clone(),
-            NativeRetryUploadPlan::Restart { attempt_id } => attempt_id.clone(),
+            NativeRetryUploadPlan::Restart { attempt_id, .. } => attempt_id.clone(),
+            NativeRetryUploadPlan::Reconcile => None,
+        };
+        let active_upload_generation_id = match &retry_plan {
+            NativeRetryUploadPlan::Resume(resume) => resume.upload_generation_id.clone(),
+            NativeRetryUploadPlan::Restart {
+                upload_generation_id,
+                ..
+            } => upload_generation_id.clone(),
             NativeRetryUploadPlan::Reconcile => None,
         };
 
@@ -3064,7 +3094,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             });
         }
 
-        let (upload_mode, streaming_resume) = match retry_plan {
+        let (upload_mode, streaming_resume, upload_generation_id) = match retry_plan {
             NativeRetryUploadPlan::Resume(resume) => {
                 emit_native_upload_progress(
                     &app,
@@ -3073,9 +3103,17 @@ pub async fn native_fullscreen_recording_retry_upload(
                     None,
                     Some(resume.bytes_received as f32 / prepared.bytes as f32),
                 );
-                (NativeUploadMode::Streaming, Some(resume))
+                let upload_generation_id = resume.upload_generation_id.clone();
+                (
+                    NativeUploadMode::Streaming,
+                    Some(resume),
+                    upload_generation_id,
+                )
             }
-            NativeRetryUploadPlan::Restart { attempt_id } => {
+            NativeRetryUploadPlan::Restart {
+                attempt_id,
+                upload_generation_id,
+            } => {
                 emit_native_upload_progress(
                     &app,
                     "uploading",
@@ -3083,23 +3121,25 @@ pub async fn native_fullscreen_recording_retry_upload(
                     None,
                     Some(0.0),
                 );
-                let upload_mode = match reset_upload_chunks(
+                let reset = match reset_upload_chunks(
                     &saved.server_url,
                     &saved.recording_id,
                     &prepared.mime_type,
                     attempt_id.as_deref(),
+                    upload_generation_id.as_deref(),
                     &auth_token,
                     &cookie,
                 )
                 .await
                 {
-                    Ok(upload_mode) => upload_mode,
+                    Ok(reset) => reset,
                     Err(err) => {
                         interrupt_native_retry_upload(
                             &saved.server_url,
                             &saved.recording_id,
                             &err,
                             active_attempt_id.as_deref(),
+                            active_upload_generation_id.as_deref(),
                             &auth_token,
                             &cookie,
                         )
@@ -3107,7 +3147,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                         return Err(err);
                     }
                 };
-                (upload_mode, None)
+                (reset.mode(), None, reset.upload_generation_id)
             }
             NativeRetryUploadPlan::Reconcile => unreachable!("handled above"),
         };
@@ -3126,6 +3166,7 @@ pub async fn native_fullscreen_recording_retry_upload(
             saved.has_audio,
             saved.has_camera,
             active_attempt_id.clone(),
+            upload_generation_id.clone(),
             streaming_resume,
         )
         .await;
@@ -3133,6 +3174,10 @@ pub async fn native_fullscreen_recording_retry_upload(
             &upload_result,
             active_attempt_id.as_deref(),
         );
+        let replay_upload_generation_id = replay_attempt_id
+            .as_ref()
+            .and_then(|_| upload_generation_id.clone());
+        let mut interruption_upload_generation_id = upload_generation_id.clone();
         let upload_result = if native_upload_restart_required(&upload_result) {
             eprintln!(
                 "[clips-tray] native retry replaying from byte zero after the provider requested a restart"
@@ -3142,12 +3187,14 @@ pub async fn native_fullscreen_recording_retry_upload(
                 &saved.recording_id,
                 &prepared.mime_type,
                 replay_attempt_id.as_deref(),
+                replay_upload_generation_id.as_deref(),
                 &auth_token,
                 &cookie,
             )
             .await
             {
-                Ok(replay_mode) => {
+                Ok(reset) => {
+                    interruption_upload_generation_id = reset.upload_generation_id.clone();
                     upload_prepared_recording_file(
                         &app,
                         &prepared,
@@ -3155,13 +3202,14 @@ pub async fn native_fullscreen_recording_retry_upload(
                         saved.recording_id.clone(),
                         auth_token.clone(),
                         cookie.clone(),
-                        replay_mode,
+                        reset.mode(),
                         saved.duration_ms,
                         saved.width,
                         saved.height,
                         saved.has_audio,
                         saved.has_camera,
                         replay_attempt_id.clone(),
+                        reset.upload_generation_id,
                         None,
                     )
                     .await
@@ -3177,6 +3225,7 @@ pub async fn native_fullscreen_recording_retry_upload(
                 &saved.recording_id,
                 err,
                 replay_attempt_id.as_deref(),
+                interruption_upload_generation_id.as_deref(),
                 &auth_token,
                 &cookie,
             )
@@ -4417,6 +4466,7 @@ pub(crate) async fn upload_finalized_native_artifact(
         has_camera,
         None,
         None,
+        None,
     )
     .await;
     if prepared.temporary {
@@ -4574,6 +4624,7 @@ async fn upload_prepared_recording_file(
     has_audio: bool,
     has_camera: bool,
     upload_attempt_id: Option<String>,
+    upload_generation_id: Option<String>,
     streaming_resume: Option<NativeStreamingResume>,
 ) -> Result<NativeFullscreenUploadResult, String> {
     #[cfg(target_os = "macos")]
@@ -4627,6 +4678,7 @@ async fn upload_prepared_recording_file(
         File::open(&prepared.path).map_err(|e| format!("native recording open failed: {e}"))?;
     let verification_pending;
     let upload_attempt_id = upload_attempt_id.as_deref();
+    let upload_generation_id = upload_generation_id.as_deref();
 
     if upload_mode == NativeUploadMode::Streaming {
         // Resumable providers require every non-final body to be aligned. The
@@ -4636,6 +4688,7 @@ async fn upload_prepared_recording_file(
             bytes_received: 0,
             next_chunk_index: 0,
             attempt_id: None,
+            upload_generation_id: None,
         });
         file.seek(SeekFrom::Start(resume.bytes_received))
             .map_err(|e| format!("native recording seek failed: {e}"))?;
@@ -4662,6 +4715,7 @@ async fn upload_prepared_recording_file(
                 false,
                 None,
                 upload_attempt_id,
+                upload_generation_id,
                 buffer,
             )
             .await?;
@@ -4706,6 +4760,7 @@ async fn upload_prepared_recording_file(
             prepared.locally_transcoded,
             Some(total_bytes),
             upload_attempt_id,
+            upload_generation_id,
             final_body,
         )
         .await?;
@@ -4738,6 +4793,7 @@ async fn upload_prepared_recording_file(
                 false,
                 None,
                 upload_attempt_id,
+                upload_generation_id,
                 buffer,
             )
             .await?;
@@ -4776,6 +4832,7 @@ async fn upload_prepared_recording_file(
             prepared.locally_transcoded,
             Some(total_bytes),
             upload_attempt_id,
+            upload_generation_id,
             Vec::new(),
         )
         .await?;
@@ -4908,7 +4965,10 @@ fn plan_native_retry_upload(
     exact_local_stream: bool,
 ) -> NativeRetryUploadPlan {
     if !response.recovery_enabled {
-        return NativeRetryUploadPlan::Restart { attempt_id: None };
+        return NativeRetryUploadPlan::Restart {
+            attempt_id: None,
+            upload_generation_id: None,
+        };
     }
 
     match response.status.as_deref() {
@@ -4921,16 +4981,19 @@ fn plan_native_retry_upload(
     let Some(bytes_received) = response.bytes_received else {
         return NativeRetryUploadPlan::Restart {
             attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
         };
     };
     let Some(next_chunk_index) = response.next_chunk_index else {
         return NativeRetryUploadPlan::Restart {
             attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
         };
     };
     let Ok(next_chunk_index) = usize::try_from(next_chunk_index) else {
         return NativeRetryUploadPlan::Restart {
             attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
         };
     };
     let aligned = bytes_received % UPLOAD_CHUNK_BYTES as u64 == 0;
@@ -4946,11 +5009,13 @@ fn plan_native_retry_upload(
             bytes_received,
             next_chunk_index,
             attempt_id: response.attempt_id,
+            upload_generation_id: response.upload_generation_id,
         });
     }
 
     NativeRetryUploadPlan::Restart {
         attempt_id: response.attempt_id,
+        upload_generation_id: response.upload_generation_id,
     }
 }
 
@@ -4959,12 +5024,10 @@ async fn interrupt_native_retry_upload(
     recording_id: &str,
     detail: &str,
     attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
     auth_token: &str,
     cookie: &str,
 ) {
-    let Some(attempt_id) = attempt_id.filter(|value| !value.trim().is_empty()) else {
-        return;
-    };
     let base = server_url.trim_end_matches('/');
     let Ok(url) = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/interrupt")) else {
         return;
@@ -4979,10 +5042,11 @@ async fn interrupt_native_retry_upload(
         .post(url)
         .header("Content-Type", "application/json")
         .header("X-Request-Source", "clips-desktop")
-        .json(&serde_json::json!({
-            "detail": detail.chars().take(1000).collect::<String>(),
-            "attemptId": attempt_id,
-        }));
+        .json(&native_retry_interruption_payload(
+            detail,
+            attempt_id,
+            upload_generation_id,
+        ));
     if !auth_token.trim().is_empty() {
         request = request.bearer_auth(auth_token.trim());
     }
@@ -5007,14 +5071,27 @@ async fn interrupt_native_retry_upload(
     }
 }
 
+fn native_retry_interruption_payload(
+    detail: &str,
+    attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "detail": detail.chars().take(1000).collect::<String>(),
+        "attemptId": attempt_id.filter(|value| !value.trim().is_empty()),
+        "uploadGenerationId": upload_generation_id.filter(|value| !value.trim().is_empty()),
+    })
+}
+
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
         is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
-        native_replay_attempt_id, native_retry_attempt_id, plan_native_retry_upload,
-        saved_native_retry_attempt_id, upload_url, NativeFullscreenUploadResult,
-        NativeRetryUploadPlan, NativeUploadResumeResponse, NATIVE_UPLOAD_RESTART_REQUIRED,
-        NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED, UPLOAD_CHUNK_BYTES,
+        native_replay_attempt_id, native_retry_attempt_id, native_retry_interruption_payload,
+        plan_native_retry_upload, saved_native_retry_attempt_id, upload_url,
+        NativeFullscreenUploadResult, NativeRetryUploadPlan, NativeUploadResumeResponse,
+        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED,
+        UPLOAD_CHUNK_BYTES,
     };
 
     fn response(bytes_received: u64, next_chunk_index: u64) -> NativeUploadResumeResponse {
@@ -5026,6 +5103,7 @@ mod native_retry_upload_plan_tests {
             bytes_received: Some(bytes_received),
             next_chunk_index: Some(next_chunk_index),
             attempt_id: Some("attempt-1".to_string()),
+            upload_generation_id: Some("generation-1".to_string()),
         }
     }
 
@@ -5076,6 +5154,7 @@ mod native_retry_upload_plan_tests {
                 bytes_received: None,
                 next_chunk_index: None,
                 attempt_id: Some("ignored-attempt".to_string()),
+                upload_generation_id: Some("ignored-generation".to_string()),
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -5083,7 +5162,10 @@ mod native_retry_upload_plan_tests {
 
         assert!(matches!(
             plan,
-            NativeRetryUploadPlan::Restart { attempt_id: None }
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                ..
+            }
         ));
     }
 
@@ -5098,6 +5180,7 @@ mod native_retry_upload_plan_tests {
                 bytes_received: None,
                 next_chunk_index: None,
                 attempt_id: None,
+                upload_generation_id: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -5122,13 +5205,14 @@ mod native_retry_upload_plan_tests {
                 bytes_received: Some(0),
                 next_chunk_index: Some(0),
                 attempt_id: Some(claimed_attempt_id.clone()),
+                upload_generation_id: Some("generation-1".to_string()),
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
         );
         assert!(matches!(
             restart,
-            NativeRetryUploadPlan::Restart { ref attempt_id }
+            NativeRetryUploadPlan::Restart { ref attempt_id, .. }
                 if attempt_id.as_deref() == Some(claimed_attempt_id.as_str())
         ));
 
@@ -5146,6 +5230,7 @@ mod native_retry_upload_plan_tests {
             false,
             false,
             Some(&claimed_attempt_id),
+            Some("generation-1"),
         )
         .expect("buffered upload URL");
         let query = url::Url::parse(&url)
@@ -5163,6 +5248,21 @@ mod native_retry_upload_plan_tests {
         let later = saved_native_retry_attempt_id(&mut saved_attempt_id);
         assert_eq!(first, later);
         assert_eq!(saved_attempt_id.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn reports_retry_interruptions_with_or_without_a_fencing_claim() {
+        let unfenced = native_retry_interruption_payload("upload failed", None, None);
+        assert_eq!(unfenced["detail"], "upload failed");
+        assert!(unfenced["attemptId"].is_null());
+
+        let fenced = native_retry_interruption_payload(
+            "upload failed",
+            Some("attempt-1"),
+            Some("generation-1"),
+        );
+        assert_eq!(fenced["attemptId"], "attempt-1");
+        assert_eq!(fenced["uploadGenerationId"], "generation-1");
     }
 
     #[test]
@@ -5209,9 +5309,10 @@ async fn reset_upload_chunks(
     recording_id: &str,
     mime_type: &str,
     attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
     auth_token: &str,
     cookie: &str,
-) -> Result<NativeUploadMode, String> {
+) -> Result<NativeUploadResetResponse, String> {
     let base = server_url.trim_end_matches('/');
     let url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/reset-chunks"))
         .map_err(|e| format!("invalid reset URL: {e}"))?;
@@ -5227,6 +5328,7 @@ async fn reset_upload_chunks(
             "requestStreaming": true,
             "mimeType": mime_type,
             "attemptId": attempt_id,
+            "uploadGenerationId": upload_generation_id,
         }));
     let trimmed_token = auth_token.trim();
     if !trimmed_token.is_empty() {
@@ -5249,7 +5351,12 @@ async fn reset_upload_chunks(
             body.chars().take(400).collect::<String>()
         ));
     }
-    Ok(NativeUploadMode::from_reset_response(&body))
+    let reset: NativeUploadResetResponse = serde_json::from_str(&body)
+        .map_err(|_| "native recording retry setup returned an unreadable response".to_string())?;
+    if attempt_id.is_some() && reset.upload_generation_id.is_none() {
+        return Err("native recording retry setup returned no upload generation".to_string());
+    }
+    Ok(reset)
 }
 
 async fn send_upload_post(
@@ -5291,6 +5398,7 @@ async fn send_upload_post(
         locally_transcoded,
         expected_source_bytes,
         None,
+        None,
         body,
     )
     .await
@@ -5315,6 +5423,7 @@ async fn send_upload_post_with_attempt(
     locally_transcoded: bool,
     expected_source_bytes: Option<u64>,
     attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
     body: Vec<u8>,
 ) -> Result<bool, String> {
     let body_len = body.len();
@@ -5332,6 +5441,7 @@ async fn send_upload_post_with_attempt(
         has_camera,
         locally_transcoded,
         attempt_id,
+        upload_generation_id,
     )?;
     eprintln!(
         "[clips-tray] native upload post start recording={recording_id} mode={} index={index}/{total} final={is_final} bytes={body_len}",
@@ -5506,6 +5616,7 @@ fn upload_url(
     has_camera: bool,
     locally_transcoded: bool,
     attempt_id: Option<&str>,
+    upload_generation_id: Option<&str>,
 ) -> Result<String, String> {
     let base = server_url.trim_end_matches('/');
     let mut url = url::Url::parse(&format!("{base}/api/uploads/{recording_id}/chunk"))
@@ -5533,6 +5644,11 @@ fn upload_url(
         }
         if let Some(attempt_id) = attempt_id.filter(|value| !value.trim().is_empty()) {
             query.append_pair("attemptId", attempt_id);
+        }
+        if let Some(upload_generation_id) =
+            upload_generation_id.filter(|value| !value.trim().is_empty())
+        {
+            query.append_pair("uploadGenerationId", upload_generation_id);
         }
     }
     Ok(url.to_string())

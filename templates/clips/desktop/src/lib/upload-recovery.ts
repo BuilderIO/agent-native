@@ -5,6 +5,7 @@ export type UploadResumeResponse =
       status: string;
       uploadMode: "streaming" | "buffered";
       attemptId: string;
+      uploadGenerationId?: string;
       bytesReceived: number;
       nextChunkIndex: number;
     }
@@ -40,6 +41,15 @@ export function retryAttemptIdAfterRestartSignal(
   recoveryEnabled: unknown,
 ): string | undefined {
   return recoveryEnabled === false ? undefined : attemptId;
+}
+
+export function retryAttemptIdAfterResumeResponse(
+  attemptId: string | undefined,
+  response: UploadResumeResponse,
+): string | undefined {
+  return response.resumable && response.attemptId === attemptId
+    ? attemptId
+    : undefined;
 }
 
 export function buildStreamingReplayPlan(input: {

@@ -54,6 +54,7 @@ export default defineEventHandler(async (event: H3Event) => {
   const body = (await readBody(event).catch(() => null)) as {
     detail?: unknown;
     attemptId?: unknown;
+    uploadGenerationId?: unknown;
   } | null;
   const attemptId =
     typeof body?.attemptId === "string" &&
@@ -65,6 +66,12 @@ export default defineEventHandler(async (event: H3Event) => {
     typeof body?.detail === "string" && body.detail.trim()
       ? body.detail.trim().slice(0, 1000)
       : null;
+  const uploadGenerationId =
+    typeof body?.uploadGenerationId === "string" &&
+    body.uploadGenerationId.length > 0 &&
+    body.uploadGenerationId.length <= 128
+      ? body.uploadGenerationId
+      : null;
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
@@ -75,6 +82,7 @@ export default defineEventHandler(async (event: H3Event) => {
         failureReason: schema.recordings.failureReason,
         videoUrl: schema.recordings.videoUrl,
         uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -100,6 +108,13 @@ export default defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 409);
       return {
         error: "A newer upload retry is already active.",
+        staleAttempt: true,
+      };
+    }
+    if ((existing.uploadGenerationId ?? null) !== uploadGenerationId) {
+      setResponseStatus(event, 409);
+      return {
+        error: "A newer upload generation is already active.",
         staleAttempt: true,
       };
     }
@@ -135,6 +150,9 @@ export default defineEventHandler(async (event: H3Event) => {
           attemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, attemptId),
+          uploadGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, uploadGenerationId),
         ),
       )
       .returning({ id: schema.recordings.id });

@@ -188,19 +188,23 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       }),
     );
 
-    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1", null);
     expect(mockStartSession).toHaveBeenCalledWith(
       "rec-1.webm",
       "video/webm",
       expect.any(Number),
     );
-    expect(mockSetResumableSession).toHaveBeenCalledWith("rec-1", {
-      providerId: "test-provider",
-      sessionId: "session-1",
-      meta: { provider: "test", stableUrl: true, recordAsset: false },
-      bytesUploaded: 0,
-      lastCommittedIndex: -1,
-    });
+    expect(mockSetResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      {
+        providerId: "test-provider",
+        sessionId: "session-1",
+        meta: { provider: "test", stableUrl: true, recordAsset: false },
+        bytesUploaded: 0,
+        lastCommittedIndex: -1,
+      },
+      expect.any(String),
+    );
   });
 
   it("keeps an explicitly buffered reset on the buffered path", async () => {

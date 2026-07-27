@@ -58,6 +58,7 @@ export async function renewUploadLease(
     now?: number;
     uploadProgress?: number;
     attemptId?: string | null;
+    generationId?: string | null;
   } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
@@ -84,6 +85,16 @@ export async function renewUploadLease(
                 ? isNull(schema.recordings.uploadAttemptId)
                 : eq(schema.recordings.uploadAttemptId, options.attemptId),
             ]),
+        ...(options.generationId === undefined
+          ? []
+          : [
+              options.generationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(
+                    schema.recordings.uploadGenerationId,
+                    options.generationId,
+                  ),
+            ]),
       ),
     )
     .returning({ id: schema.recordings.id });
@@ -100,6 +111,7 @@ export async function renewUploadLease(
       videoSizeBytes: schema.recordings.videoSizeBytes,
       durationMs: schema.recordings.durationMs,
       uploadAttemptId: schema.recordings.uploadAttemptId,
+      uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
     .where(eq(schema.recordings.id, recordingId));
@@ -107,11 +119,14 @@ export async function renewUploadLease(
   return {
     held: false,
     staleAttempt:
-      options.attemptId !== undefined &&
+      (options.attemptId !== undefined || options.generationId !== undefined) &&
       IN_PROGRESS_STATUSES.includes(
         row?.status as (typeof IN_PROGRESS_STATUSES)[number],
       ) &&
-      row?.uploadAttemptId !== options.attemptId,
+      ((options.attemptId !== undefined &&
+        row?.uploadAttemptId !== options.attemptId) ||
+        (options.generationId !== undefined &&
+          row?.uploadGenerationId !== options.generationId)),
     status: row?.status ?? null,
     failureReason: row?.failureReason ?? null,
     videoUrl: row?.videoUrl ?? null,

@@ -4,8 +4,13 @@ function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
-function chunkPrefix(recordingId: string): string {
-  return `recording-chunks-${recordingId}-`;
+function chunkPrefix(
+  recordingId: string,
+  generationId?: string | null,
+): string {
+  return generationId
+    ? `recording-chunks-${recordingId}-${generationId}-`
+    : `recording-chunks-${recordingId}-`;
 }
 
 function likePrefix(prefix: string): string {
@@ -81,10 +86,11 @@ export function validateRecordingChunkKeys(
 export async function listRecordingChunkKeys(
   ownerEmail: string,
   recordingId: string,
+  generationId?: string | null,
 ): Promise<string[]> {
   const { rows } = await getDbExec().execute({
     sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId))],
+    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
   });
   return rows.map((row) => String(row.key));
 }
@@ -92,10 +98,11 @@ export async function listRecordingChunkKeys(
 export async function deleteRecordingChunks(
   ownerEmail: string,
   recordingId: string,
+  generationId?: string | null,
 ): Promise<number> {
   const result = await getDbExec().execute({
     sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId))],
+    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
   });
   return result.rowsAffected ?? 0;
 }
@@ -103,13 +110,14 @@ export async function deleteRecordingChunks(
 export async function sumRecordingChunkBytes(
   ownerEmail: string,
   recordingId: string,
+  generationId?: string | null,
 ): Promise<number> {
   const bytesExpression = isPostgres()
     ? `COALESCE(SUM((value::jsonb ->> 'bytes')::bigint), 0)`
     : `COALESCE(SUM(json_extract(value, '$.bytes')), 0)`;
   const { rows } = await getDbExec().execute({
     sql: `SELECT ${bytesExpression} AS bytes FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
-    args: [ownerEmail, likePrefix(chunkPrefix(recordingId))],
+    args: [ownerEmail, likePrefix(chunkPrefix(recordingId, generationId))],
   });
   return numberFromRowValue(rows[0]?.bytes);
 }

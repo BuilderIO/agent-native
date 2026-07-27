@@ -91,6 +91,7 @@ import {
   buildStreamingReplayPlan,
   planStreamingRecovery,
   retryAttemptIdAfterRestartSignal,
+  retryAttemptIdAfterResumeResponse,
   type UploadResumeResponse,
 } from "./upload-recovery";
 import {
@@ -1040,7 +1041,8 @@ async function resetBrowserRecordingBackupUpload(
   meta: BrowserRecordingBackupMeta,
   authToken?: string,
   attemptId?: string,
-): Promise<UploadMode> {
+  uploadGenerationId?: string,
+): Promise<{ uploadMode: UploadMode; uploadGenerationId?: string }> {
   const res = await fetch(
     `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/reset-chunks`,
     {
@@ -1055,6 +1057,7 @@ async function resetBrowserRecordingBackupUpload(
         requestStreaming: true,
         mimeType: meta.mimeType,
         ...(attemptId ? { attemptId } : {}),
+        ...(uploadGenerationId ? { uploadGenerationId } : {}),
       }),
     },
   );
@@ -1066,8 +1069,17 @@ async function resetBrowserRecordingBackupUpload(
   }
   const body = (await res.json().catch(() => null)) as {
     uploadMode?: unknown;
+    uploadGenerationId?: unknown;
   } | null;
-  return body?.uploadMode === "streaming" ? "streaming" : "buffered";
+  if (attemptId && typeof body?.uploadGenerationId !== "string") {
+    throw new Error("Upload retry setup returned no upload generation");
+  }
+  return {
+    uploadMode: body?.uploadMode === "streaming" ? "streaming" : "buffered",
+    ...(typeof body?.uploadGenerationId === "string"
+      ? { uploadGenerationId: body.uploadGenerationId }
+      : {}),
+  };
 }
 
 async function getBrowserRecordingUploadResume(
@@ -1107,6 +1119,7 @@ async function replayBrowserBackupToResumableSession(
   chunks: BrowserRecordingBackupChunk[],
   authToken?: string,
   attemptId?: string,
+  uploadGenerationId?: string,
   resumeFrom: { bytesReceived: number; nextChunkIndex: number } = {
     bytesReceived: 0,
     nextChunkIndex: 0,
@@ -1139,6 +1152,7 @@ async function replayBrowserBackupToResumableSession(
         total: String(totalPosts),
         mimeType: meta.mimeType,
         ...(attemptId ? { attemptId } : {}),
+        ...(uploadGenerationId ? { uploadGenerationId } : {}),
       }),
       body,
       authToken,
@@ -1164,6 +1178,7 @@ async function replayBrowserBackupToResumableSession(
       hasAudio: meta.hasAudio ? "1" : "0",
       hasCamera: meta.hasCamera ? "1" : "0",
       ...(attemptId ? { attemptId } : {}),
+      ...(uploadGenerationId ? { uploadGenerationId } : {}),
     }),
     finalBody,
     authToken,
@@ -1191,6 +1206,7 @@ export async function retryBrowserRecordingBackup(input: {
   const validatedChunks = validateBrowserRecordingBackupChunks(meta, chunks);
   let activeAttemptId: string | undefined =
     meta.uploadAttemptId || crypto.randomUUID();
+  let activeUploadGenerationId: string | undefined;
 
   try {
     await putBrowserRecordingBackupMeta({
@@ -1213,7 +1229,13 @@ export async function retryBrowserRecordingBackup(input: {
       localBytes: recordingBytes,
       chunkBytes: STREAM_CHUNK_BYTES,
     });
-    if (!resumeResponse.recoveryEnabled) activeAttemptId = undefined;
+    activeAttemptId = retryAttemptIdAfterResumeResponse(
+      activeAttemptId,
+      resumeResponse,
+    );
+    activeUploadGenerationId = resumeResponse.resumable
+      ? resumeResponse.uploadGenerationId
+      : undefined;
     if (recoveryPlan.action === "reconcile") {
       input.onRecoveryDecision?.({ action: "reconcile", progress: 1 });
       if (
@@ -1255,11 +1277,14 @@ export async function retryBrowserRecordingBackup(input: {
         localBytes: recordingBytes,
         reason: recoveryPlan.reason,
       });
-      uploadMode = await resetBrowserRecordingBackupUpload(
+      const reset = await resetBrowserRecordingBackupUpload(
         meta,
         input.authToken,
         activeAttemptId,
+        activeUploadGenerationId,
       );
+      uploadMode = reset.uploadMode;
+      activeUploadGenerationId = reset.uploadGenerationId;
     }
 
     if (uploadMode === "streaming") {
@@ -1270,6 +1295,7 @@ export async function retryBrowserRecordingBackup(input: {
           validatedChunks,
           input.authToken,
           activeAttemptId,
+          activeUploadGenerationId,
           resumeFrom,
         );
       } catch (err) {
@@ -1278,22 +1304,29 @@ export async function retryBrowserRecordingBackup(input: {
             activeAttemptId,
             err.recoveryEnabled,
           );
+          if (err.recoveryEnabled === false) {
+            activeUploadGenerationId = undefined;
+          }
           input.onRecoveryDecision?.({ action: "restart", progress: 0 });
           console.info("[clips-recorder] restarting expired upload session", {
             recordingId: meta.recordingId,
             localBytes: recordingBytes,
           });
-          uploadMode = await resetBrowserRecordingBackupUpload(
+          const reset = await resetBrowserRecordingBackupUpload(
             meta,
             input.authToken,
             activeAttemptId,
+            activeUploadGenerationId,
           );
+          uploadMode = reset.uploadMode;
+          activeUploadGenerationId = reset.uploadGenerationId;
           if (uploadMode === "streaming") {
             receipt = await replayBrowserBackupToResumableSession(
               meta,
               validatedChunks,
               input.authToken,
               activeAttemptId,
+              activeUploadGenerationId,
             );
           }
         } else if (
@@ -1339,6 +1372,9 @@ export async function retryBrowserRecordingBackup(input: {
           total: String(totalPosts),
           mimeType: meta.mimeType,
           ...(activeAttemptId ? { attemptId: activeAttemptId } : {}),
+          ...(activeUploadGenerationId
+            ? { uploadGenerationId: activeUploadGenerationId }
+            : {}),
         }),
         chunk.blob,
         input.authToken,
@@ -1359,6 +1395,9 @@ export async function retryBrowserRecordingBackup(input: {
         hasAudio: meta.hasAudio ? "1" : "0",
         hasCamera: meta.hasCamera ? "1" : "0",
         ...(activeAttemptId ? { attemptId: activeAttemptId } : {}),
+        ...(activeUploadGenerationId
+          ? { uploadGenerationId: activeUploadGenerationId }
+          : {}),
       },
     );
     try {
@@ -1420,6 +1459,7 @@ export async function retryBrowserRecordingBackup(input: {
       message,
       input.authToken,
       activeAttemptId,
+      activeUploadGenerationId,
     );
     throw err;
   }
@@ -1805,6 +1845,7 @@ async function interruptRecordingUpload(
   detail: string,
   authToken?: string,
   attemptId?: string,
+  uploadGenerationId?: string,
 ): Promise<void> {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= CHUNK_UPLOAD_MAX_ATTEMPTS; attempt += 1) {
@@ -1815,7 +1856,11 @@ async function interruptRecordingUpload(
           method: "POST",
           headers: buildRetryHeaders("application/json", authToken),
           credentials: "include",
-          body: JSON.stringify({ detail, ...(attemptId ? { attemptId } : {}) }),
+          body: JSON.stringify({
+            detail,
+            ...(attemptId ? { attemptId } : {}),
+            ...(uploadGenerationId ? { uploadGenerationId } : {}),
+          }),
         },
       );
       if (res.ok) {

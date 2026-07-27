@@ -904,6 +904,11 @@ const migrations = runMigrations(
       name: "recording-upload-attempt-fence",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_attempt_id TEXT`,
     },
+    {
+      version: 55,
+      name: "recording-upload-generation-fence",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_generation_id TEXT`,
+    },
   ],
   { table: "clips_migrations" },
 );

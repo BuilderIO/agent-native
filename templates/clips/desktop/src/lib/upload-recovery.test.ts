@@ -4,6 +4,7 @@ import {
   buildStreamingReplayPlan,
   planStreamingRecovery,
   retryAttemptIdAfterRestartSignal,
+  retryAttemptIdAfterResumeResponse,
 } from "./upload-recovery";
 
 const CHUNK_BYTES = 3_932_160;
@@ -22,6 +23,33 @@ describe("retryAttemptIdAfterRestartSignal", () => {
   });
 });
 
+describe("retryAttemptIdAfterResumeResponse", () => {
+  it("keeps only a server-acknowledged retry claim", () => {
+    expect(
+      retryAttemptIdAfterResumeResponse("attempt-1", {
+        resumable: true,
+        recoveryEnabled: true,
+        status: "uploading",
+        uploadMode: "streaming",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+        bytesReceived: 0,
+        nextChunkIndex: 0,
+      }),
+    ).toBe("attempt-1");
+  });
+
+  it("drops a local claim when the server did not acknowledge it", () => {
+    expect(
+      retryAttemptIdAfterResumeResponse("attempt-1", {
+        resumable: false,
+        recoveryEnabled: true,
+        status: "failed",
+      }),
+    ).toBeUndefined();
+  });
+});
+
 describe("planStreamingRecovery", () => {
   it("resumes from an aligned authoritative offset", () => {
     expect(
@@ -32,6 +60,7 @@ describe("planStreamingRecovery", () => {
           status: "uploading",
           uploadMode: "streaming",
           attemptId: "attempt-1",
+          uploadGenerationId: "generation-1",
           bytesReceived: CHUNK_BYTES * 2,
           nextChunkIndex: 2,
         },
@@ -61,6 +90,7 @@ describe("planStreamingRecovery", () => {
             status: "uploading",
             uploadMode: "streaming",
             attemptId: "attempt-1",
+            uploadGenerationId: "generation-1",
             bytesReceived,
             nextChunkIndex,
           },

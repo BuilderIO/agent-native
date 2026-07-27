@@ -102,6 +102,7 @@ export default defineEventHandler(async (event: H3Event) => {
         videoUrl: schema.recordings.videoUrl,
         uploadProgress: schema.recordings.uploadProgress,
         uploadAttemptId: schema.recordings.uploadAttemptId,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -116,7 +117,13 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
-    const session = await getResumableSession(recordingId);
+    // Legacy rows keep their null generation and unscoped scratch. A reset
+    // upgrades them by installing a fresh generation before it deletes data.
+    const existingGenerationId = recording.uploadGenerationId ?? null;
+    const generationId = existingGenerationId;
+    const session = generationId
+      ? await getResumableSession(recordingId, generationId)
+      : await getResumableSession(recordingId);
     const retryableFailure =
       recording.status === "failed" &&
       isRetryableUploadInterruption(recording.failureReason);
@@ -154,6 +161,7 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         failureReason: null,
         uploadAttemptId: attemptId,
+        ...(generationId ? { uploadGenerationId: generationId } : {}),
         uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
@@ -173,6 +181,9 @@ export default defineEventHandler(async (event: H3Event) => {
           existingAttemptId === null
             ? isNull(schema.recordings.uploadAttemptId)
             : eq(schema.recordings.uploadAttemptId, existingAttemptId),
+          existingGenerationId === null
+            ? isNull(schema.recordings.uploadGenerationId)
+            : eq(schema.recordings.uploadGenerationId, existingGenerationId),
         ),
       )
       .returning({ id: schema.recordings.id });
@@ -202,6 +213,7 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason: null,
       retryableInterruption: false,
       progress: recording.uploadProgress,
+      ...(generationId ? { uploadGenerationId: generationId } : {}),
       ...(session ? { bytesReceived: session.bytesUploaded } : {}),
       updatedAt: now,
     });
@@ -215,13 +227,17 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         uploadMode: "streaming" as const,
         attemptId,
+        ...(generationId ? { uploadGenerationId: generationId } : {}),
         bytesReceived: session.bytesUploaded,
         nextChunkIndex: (session.lastCommittedIndex ?? -1) + 1,
       };
     }
 
     const stored = new Set(
-      (await listRecordingChunkKeys(ownerEmail, recordingId))
+      (generationId
+        ? await listRecordingChunkKeys(ownerEmail, recordingId, generationId)
+        : await listRecordingChunkKeys(ownerEmail, recordingId)
+      )
         .map(recordingChunkIndexFromKey)
         .filter((index): index is number => index !== null),
     );
@@ -237,7 +253,10 @@ export default defineEventHandler(async (event: H3Event) => {
       status: "uploading",
       uploadMode: "buffered" as const,
       attemptId,
-      bytesReceived: await sumRecordingChunkBytes(ownerEmail, recordingId),
+      ...(generationId ? { uploadGenerationId: generationId } : {}),
+      bytesReceived: generationId
+        ? await sumRecordingChunkBytes(ownerEmail, recordingId, generationId)
+        : await sumRecordingChunkBytes(ownerEmail, recordingId),
       nextChunkIndex,
     };
   });

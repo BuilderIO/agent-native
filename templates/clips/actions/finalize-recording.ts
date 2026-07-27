@@ -902,6 +902,12 @@ export default defineAction({
         "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
       ),
     mediaVerificationRetryAttempt: z.number().int().min(1).max(10).optional(),
+    uploadGenerationId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Upload generation that owns the scratch data being finalized"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -921,7 +927,7 @@ export default defineAction({
     // never retain scratch video blobs.
     let chunkKeysToPurge: string[] = [];
     try {
-      const [existing] = await db
+      let [existing] = await db
         .select()
         .from(schema.recordings)
         .where(
@@ -938,6 +944,32 @@ export default defineAction({
         throw new Error(`Recording not found: ${id}`);
       }
 
+      const generationId = args.uploadGenerationId ?? null;
+      if ((existing.uploadGenerationId ?? null) !== generationId) {
+        throw new Error("Upload generation changed before finalization");
+      }
+      // Claim finalization before touching provider/scratch state. Reset only
+      // admits uploading/failed rows, so once this CAS succeeds it cannot
+      // replace the generation underneath a delayed final chunk.
+      if (generationId !== null && existing.status === "uploading") {
+        const claimed = await db
+          .update(schema.recordings)
+          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "uploading"),
+              eq(schema.recordings.uploadGenerationId, generationId),
+            ),
+          )
+          .returning();
+        if (claimed.length !== 1) {
+          throw new Error("Upload changed before finalization could claim it");
+        }
+        existing = claimed[0]!;
+      }
+
       // Idempotency guard: finalize can be re-invoked when a client retries the
       // final chunk after a lost response. If already 'ready' return the existing
       // result instead of re-running the complete/assembly path (session and
@@ -947,7 +979,7 @@ export default defineAction({
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
-        await deleteResumableSession(id).catch((err) =>
+        await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
@@ -1038,7 +1070,7 @@ export default defineAction({
 
       // Resumable path: create-recording initialized a session and chunk.post.ts
       // forwarded all chunks to the provider. Complete the session to get the CDN URL.
-      const resumableSession = await getResumableSession(id);
+      const resumableSession = await getResumableSession(id, generationId);
       if (resumableSession && isStreamingUploadDisabled()) {
         console.warn(
           `[finalize] streaming uploads are disabled, but completing existing resumable session for in-flight recording: ${id}`,
@@ -1147,7 +1179,7 @@ export default defineAction({
                 locallyTranscoded: args.locallyTranscoded === true,
               },
             });
-            await deleteResumableSession(id).catch((deleteErr) =>
+            await deleteResumableSession(id, generationId).catch((deleteErr) =>
               console.warn(
                 "[finalize] failed to retire pending resumable session:",
                 deleteErr,
@@ -1178,7 +1210,7 @@ export default defineAction({
           }
           // Delete only after durable state is written — so a retry before
           // this point can still find the session and re-enter this path.
-          deleteResumableSession(id).catch((err) =>
+          deleteResumableSession(id, generationId).catch((err) =>
             console.warn("[finalize] failed to delete resumable session:", err),
           );
           return result;
@@ -1262,7 +1294,11 @@ export default defineAction({
       // Pull chunk keys first, then fetch values one at a time. A single
       // SELECT key,value over many base64 chunks can exceed Neon's 8s op
       // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const chunkKeys = await listRecordingChunkKeys(
+        ownerEmail,
+        id,
+        generationId,
+      );
       const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
       debugLog("[finalize] chunks found", {
         id,
