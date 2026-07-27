@@ -1295,6 +1295,33 @@ describe("disposable runtime authority", () => {
     );
   });
 
+  it("updates an existing acceptance runtime variable through the per-key endpoint", async () => {
+    const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const netlify = new NetlifyRuntime(async (input, init) => {
+      requests.push({ input, init });
+      return init?.method === "PUT"
+        ? new Response(null, { status: 200 })
+        : Response.json({ values: [{ context: "production" }] });
+    }, "injected-management-token");
+    await netlify.setRuntime(
+      "account",
+      "site",
+      { AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO: "withdraw-member" },
+      true,
+    );
+    assert.equal(requests[1]?.init?.method, "PUT");
+    assert.equal(
+      requests[1]?.input,
+      "https://api.netlify.com/api/v1/accounts/account/env/AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO?site_id=site",
+    );
+    assert.deepEqual(JSON.parse(String(requests[1]?.init?.body)), {
+      key: "AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO",
+      scopes: ["functions", "runtime"],
+      values: [{ value: "withdraw-member", context: "production" }],
+      is_secret: true,
+    });
+  });
+
   it("binds the declared acceptance origin to the exact Netlify site before mutation", async () => {
     const netlify = new NetlifyRuntime(async (input) => {
       if (input.endsWith("/sites/site"))

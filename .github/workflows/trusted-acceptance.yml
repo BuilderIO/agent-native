@@ -659,7 +659,10 @@ jobs:
                 inferenceAuthority: lease.verification.inferenceDisabled ? "verified-absent" : "failed",
                 databaseBranches: lease.verification.branchesDeleted ? "verified-absent" : "failed",
                 runtimeConfiguration: lease.verification.runtimeVariablesAbsent ? "verified-absent" : "failed",
-                tombstoneDeployIds: lease.members.flatMap(member => member.tombstoneDeployId ? [member.tombstoneDeployId] : []),
+                tombstoneDeployIds: [
+                  ...lease.members.flatMap(member => member.tombstoneDeployId ? [member.tombstoneDeployId] : []),
+                  ...(lease.directoryFixture?.tombstoneDeployId ? [lease.directoryFixture.tombstoneDeployId] : []),
+                ],
                 verifiedAt: cleanupPassed ? new Date().toISOString() : null,
               },
               scenarios,

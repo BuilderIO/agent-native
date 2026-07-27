@@ -504,10 +504,36 @@ export class NetlifyRuntime {
         throw new Error(
           `Netlify runtime variable lookup failed: ${existing.status}`,
         );
+      if (!existing.ok && allowExisting)
+        throw new Error(
+          `Netlify runtime variable ${key} does not exist; refusing acceptance-site update`,
+        );
       if (existing.ok && !allowExisting)
         throw new Error(
           `Netlify runtime variable ${key} already exists; refusing to overwrite acceptance-site state`,
         );
+    }
+    if (allowExisting) {
+      for (const [key, value] of entries) {
+        const response = await this.fetch(this.envUrl(accountId, siteId, key), {
+          method: "PUT",
+          headers: {
+            authorization: `Bearer ${this.token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            key,
+            scopes: ["functions", "runtime"],
+            values: [{ value, context: "production" }],
+            is_secret: key !== "AGENT_NATIVE_ACCEPTANCE_LEASE_MARKER",
+          }),
+        });
+        if (!response.ok)
+          throw new Error(
+            `Netlify runtime variable update failed: ${response.status}`,
+          );
+      }
+      return;
     }
     const response = await this.fetch(this.envUrl(accountId, siteId), {
       method: "POST",

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
+  defaultHarnessTimeoutMs,
   parseHostedAcceptanceCliArgs,
   runHostedAcceptance,
 } from "./run-hosted-acceptance.ts";
@@ -60,6 +61,14 @@ function providers() {
 }
 
 describe("trusted in-process hosted acceptance runner", () => {
+  it("reserves explicit margin beyond the maximum poll and token-expiry windows", () => {
+    assert.equal(defaultHarnessTimeoutMs, 12 * 60_000);
+    assert(
+      defaultHarnessTimeoutMs > 60 * 5_000 + 300_000,
+      "default deadline must leave setup and network margin",
+    );
+  });
+
   it("accepts only the six non-secret CLI file flags", () => {
     const parsed = parseHostedAcceptanceCliArgs([
       "--plan",

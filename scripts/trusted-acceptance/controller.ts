@@ -552,7 +552,9 @@ export async function executeTrustedAcceptance(
       lease.verification.tombstoneActive &&
       lease.members.every(
         (member) => !member.runtimeOwned || Boolean(member.tombstoneDeployId),
-      );
+      ) &&
+      (!lease.directoryFixture?.runtimeOwned ||
+        Boolean(lease.directoryFixture.tombstoneDeployId));
     const receipt = receiptFor(
       profile,
       lease,
@@ -673,7 +675,9 @@ function assertRevoked(lease: RuntimeLease): void {
     !lease.verification.tombstoneActive ||
     !lease.members.every(
       (member) => !member.runtimeOwned || Boolean(member.tombstoneDeployId),
-    )
+    ) ||
+    (lease.directoryFixture?.runtimeOwned &&
+      !lease.directoryFixture.tombstoneDeployId)
   ) {
     throw new Error(
       "cleanup verification failed: lease was not revoked with tombstone IDs",

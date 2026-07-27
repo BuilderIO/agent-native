@@ -285,6 +285,35 @@ describe("trusted acceptance controller", () => {
     assert.equal(receipt.lease?.members[0]?.tombstoneDeployId, "tombstone");
   });
 
+  it("cannot pass cleanup without a directory fixture tombstone receipt", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "trusted-acceptance-directory-"));
+    const trusted = profile();
+    trusted.directoryFixture = directoryFixture();
+    const injected = providers();
+    injected.netlify.deployTombstoneAndVerify = async (siteId) =>
+      siteId === "directory-site"
+        ? { deployId: "" }
+        : { deployId: "member-tombstone" };
+    await assert.rejects(
+      executeTrustedAcceptance(trusted, {
+        providers: injected,
+        journalFile: join(dir, "lease.json"),
+        receiptFile: join(dir, "receipt.json"),
+        ttlMs: 60_000,
+        expectedAssertionIds: ["stable", "withdrawn"],
+        async deployArtifact() {},
+        async deployDirectoryArtifact() {},
+        async runStableHarness() {
+          return [{ assertionId: "stable", status: "passed" }];
+        },
+        async runWithdrawalHarness() {
+          return [{ assertionId: "withdrawn", status: "passed" }];
+        },
+      }),
+      /cleanup verification failed/,
+    );
+  });
+
   it("cannot pass a controller receipt with missing harness evidence", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trusted-acceptance-empty-"));
     const receipt = await executeTrustedAcceptance(profile(), {

@@ -137,6 +137,8 @@ function sha256(value: string | Uint8Array): string {
 }
 
 const leaseMarkerTemplate = "{{TRUSTED_ACCEPTANCE_LEASE_MARKER}}";
+const statusPollIntervalMs = 5_000;
+export const defaultHarnessTimeoutMs = 12 * 60_000;
 
 function leaseMarker(leaseId: string): string {
   return `TRUSTED_ACCEPTANCE_FIXTURE_${sha256(leaseId).slice(0, 16)}`;
@@ -594,12 +596,13 @@ export async function runHostedAcceptance(
     ),
     ...(profile.directoryFixture ? ["directory:withdrawal-redeployed"] : []),
   ];
+  const harnessTimeoutMs = deps.harnessTimeoutMs ?? defaultHarnessTimeoutMs;
   const controller: ControllerExecution = {
     providers: deps.providers,
     journalFile: files.journalFile,
     receiptFile: files.receiptFile,
     ttlMs: 15 * 60_000,
-    harnessTimeoutMs: deps.harnessTimeoutMs ?? 10 * 60_000,
+    harnessTimeoutMs,
     expectedAssertionIds: expected,
     now: deps.now,
     async deployArtifact(member) {
@@ -806,7 +809,7 @@ export async function runHostedAcceptance(
                     deps.sleep ??
                     ((ms) =>
                       new Promise<void>((resolve) => setTimeout(resolve, ms)))
-                  )(5_000),
+                  )(statusPollIntervalMs),
                 controller: {
                   async withdrawDirectoryMember() {
                     signal.throwIfAborted();
