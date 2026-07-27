@@ -120,7 +120,9 @@ jobs:
         # runner. The package's `test` script keeps --maxWorkers=25% for local /
         # nightly co-scheduled runs (4-6 packages at once); here core runs alone,
         # so the cap only wastes cores. Exclusions mirror the `test:fast` root
-        # script; keep the lists in sync.
+        # script; keep the lists in sync. create-e2e.spec.ts is a heavyweight
+        # scaffold e2e test (real `createApp`, needs AGENT_NATIVE_CREATE_USE_LOCAL_CORE
+        # + disk setup) — it runs in the dedicated scaffold-e2e job, not here.
         run: >-
           pnpm --filter @agent-native/core exec vitest run --dir src
           --exclude "**/*.db.test.ts"
@@ -133,6 +135,7 @@ jobs:
           --exclude "**/*.live.test.ts"
           --exclude "**/*.perf.spec.ts"
           --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
@@ -188,6 +191,7 @@ jobs:
           --exclude "**/*.live.test.ts"
           --exclude "**/*.perf.spec.ts"
           --exclude "**/*.perf.test.ts"
+          --exclude "**/create-e2e.spec.ts"
 
   # Stable required status check. Point branch protection at "Fast tests" (this
   # gate), not the per-lane jobs whose names vary with the matrix.
