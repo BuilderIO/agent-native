@@ -51,3 +51,41 @@ export function getAppName(): string | undefined {
   cachedFromPkg = name ?? undefined;
   return name;
 }
+
+/**
+ * Resolve the app's slug — the machine-readable identifier used for the
+ * per-app transactional email sender (e.g. `clips@agent-native.com`).
+ *
+ * Prefer the first-party template name matched by package.json (safe even on
+ * serverless runtimes where `process.cwd()` may expose a bogus name). Fall
+ * back to slugifying the resolved display name so custom `APP_NAME` overrides
+ * still produce a usable local-part. Returns `undefined` when nothing resolves.
+ */
+export function getAppSlug(): string | undefined {
+  const pkg = readPkg();
+  if (pkg?.name) {
+    const tmpl = TEMPLATES.find((t) => t.name === pkg.name);
+    if (tmpl) return tmpl.name;
+  }
+  const name = getAppName();
+  if (!name) return undefined;
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || undefined;
+}
+
+/**
+ * One-line description of the app, used to tailor transactional email bodies
+ * so recipients recognize which app they signed up for. Sourced from the
+ * first-party template metadata; `undefined` for unknown apps.
+ */
+export function getAppDescription(): string | undefined {
+  const pkg = readPkg();
+  if (pkg?.name) {
+    const tmpl = TEMPLATES.find((t) => t.name === pkg.name);
+    if (tmpl) return tmpl.hint;
+  }
+  return undefined;
+}

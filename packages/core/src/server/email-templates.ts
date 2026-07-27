@@ -11,13 +11,20 @@
  * site — keeps the transactional look-and-feel consistent.
  */
 
-import { getAppName } from "./app-name.js";
+import { getAppName, getAppSlug, getAppDescription } from "./app-name.js";
 import { renderEmail, emailStrong } from "./email-template.js";
+
+/** Shared reply-to for the framework's transactional emails. */
+export const AGENT_NATIVE_REPLY_TO = "hello@agent-native.com";
 
 export interface RenderedEmailMessage {
   subject: string;
   html: string;
   text: string;
+  /** Optional sender override ("Name <addr>") for per-app branding. */
+  from?: string;
+  /** Optional reply-to address. */
+  replyTo?: string;
 }
 
 /**
@@ -93,24 +100,37 @@ export function renderVerifySignupEmail(
   args: RenderVerifySignupEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const appName = resolveAppName();
+  const appName = getAppName();
+  // Brand each app's verification email as "Agent-Native <App>" so recipients
+  // can tell which app they signed up for. Fall back to the generic name when
+  // the app can't be resolved (unknown/serverless runtime).
+  const brand = appName ? `Agent-Native ${stripCrlf(appName)}` : "Agent Native";
+  const description = appName ? getAppDescription() : undefined;
+  const slug = appName ? getAppSlug() : undefined;
+
+  const paragraphs = [
+    `Thanks for signing up for ${emailStrong(brand)}. To finish creating your account, confirm that ${emailStrong(email)} is your email address.`,
+  ];
+  if (description) {
+    paragraphs.push(`${stripCrlf(description).replace(/\.\s*$/, "")}.`);
+  }
+  paragraphs.push(`This link expires in 1 hour.`);
 
   const { html, text } = renderEmail({
-    brandName: appName,
-    preheader: `Confirm ${email} to finish setting up your ${appName} account.`,
-    heading: `Verify your email for ${appName}`,
-    paragraphs: [
-      `Thanks for signing up for ${emailStrong(appName)}. To finish creating your account, confirm that ${emailStrong(email)} is your email address.`,
-      `This link expires in 1 hour.`,
-    ],
+    brandName: brand,
+    preheader: `Confirm ${email} to finish setting up your ${brand} account.`,
+    heading: `Verify your email for ${brand}`,
+    paragraphs,
     cta: { label: "Verify email", url: args.verifyUrl },
     footer: `If you didn't sign up, you can safely ignore this email.`,
   });
 
   return {
-    subject: `Verify your email for ${appName}`,
+    subject: `Verify your email for ${brand}`,
     html,
     text,
+    from: slug ? `${brand} <${slug}@agent-native.com>` : undefined,
+    replyTo: AGENT_NATIVE_REPLY_TO,
   };
 }
 
