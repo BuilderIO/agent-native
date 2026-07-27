@@ -138,13 +138,15 @@ export default defineAction({
         if (!pptxOwnerEmail) throw new Error("no authenticated user");
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const uploadLimit = pLimit(4);
-        const slides = await Promise.all(
+        const pptxResults = await Promise.all(
           presentation.slides.map((slide, i) =>
             uploadLimit(() =>
               buildPptxSlide(slide, i, pptxOwnerEmail, pptxThemeFont),
             ),
           ),
         );
+        const slides = pptxResults.map((r) => r.slide);
+        const imagesSkipped = pptxResults.filter((r) => r.imageSkipped).length;
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
         return {
           format: "pptx",
@@ -153,6 +155,7 @@ export default defineAction({
           theme: presentation.theme,
           deckId,
           imported: true,
+          ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
         };
       }
 
@@ -457,37 +460,59 @@ function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// EMF/WMF (Windows metafiles) and TIFF are valid PPTX embed formats but
+// browsers can't render them in an <img> tag — uploading and linking one
+// would just produce a broken image icon.
+const PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+]);
+
 async function buildPptxSlide(
   slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
   slideIndex: number,
   ownerEmail: string,
   themeFont: string | undefined,
 ): Promise<{
-  id: string;
-  content: string;
-  layout: string;
-  notes?: string;
+  slide: { id: string; content: string; layout: string; notes?: string };
+  imageSkipped: boolean;
 }> {
   const { convertToSlideHtml } =
     await import("../server/handlers/import/html-converter.js");
   const image = slide.images[0];
-  const imageUrl = image
+  const uploadable =
+    image && PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)
+      ? image
+      : undefined;
+  const imageUrl = uploadable
     ? (
         await uploadFile({
-          data: Buffer.from(image.data),
+          data: Buffer.from(uploadable.data),
           filename:
-            "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name,
-          mimeType: image.mimeType,
+            "pptx-import-" +
+            Date.now() +
+            "-s" +
+            slideIndex +
+            "-" +
+            uploadable.name,
+          mimeType: uploadable.mimeType,
           ownerEmail,
           recordAsset: false,
         })
       )?.url
     : undefined;
   return {
-    id: newSlideId(),
-    content: convertToSlideHtml(slide, imageUrl, themeFont),
-    layout: slide.layoutHint ?? "content",
-    notes: slide.notes,
+    slide: {
+      id: newSlideId(),
+      content: convertToSlideHtml(slide, imageUrl, themeFont),
+      layout: slide.layoutHint ?? "content",
+      notes: slide.notes,
+    },
+    imageSkipped: Boolean(image && !imageUrl),
   };
 }
 

@@ -247,32 +247,117 @@ interface PictureShape {
   heightEmu?: number;
 }
 
-/** Recursively find every `p:pic` node in a slide, in document order, and read its embed relationship id plus its placed size on the slide canvas. */
-function collectPictureShapes(value: unknown, out: PictureShape[]): void {
+/**
+ * Recursively find every embedded picture in a slide, in document order:
+ * plain `p:pic` shapes, and `p:sp` autoshapes whose fill is a picture
+ * (common for "photo cutout" shapes and full-bleed decorative rectangles).
+ * A group shape (`p:grpSp`) defines its own local coordinate space for its
+ * children (`chOff`/`chExt`) that can be scaled arbitrarily relative to the
+ * group's own placed size on the slide, so each level of nesting multiplies
+ * a running scale factor into the child sizes below it — without that, a
+ * picture inside a resized group would report its unscaled design-time
+ * size instead of how large it actually appears on the slide.
+ */
+function collectPictureShapes(
+  value: unknown,
+  out: PictureShape[],
+  scaleX = 1,
+  scaleY = 1,
+): void {
   const node = record(value);
   if (!node) return;
   for (const [key, child] of Object.entries(node)) {
     if (key.startsWith("@_")) continue;
     if (key === "p:pic") {
-      for (const picNode of asArray(child))
-        out.push(extractPictureShape(picNode));
+      for (const picNode of asArray(child)) {
+        const pic = record(picNode);
+        const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
+        out.push(
+          scaledShape(
+            stringValue(blip?.["@_r:embed"]),
+            extFromSpPr(pic),
+            scaleX,
+            scaleY,
+          ),
+        );
+      }
       continue;
     }
-    for (const item of asArray(child)) collectPictureShapes(item, out);
+    if (key === "p:sp") {
+      for (const spNode of asArray(child)) {
+        const sp = record(spNode);
+        const blip = record(
+          record(record(sp?.["p:spPr"])?.["a:blipFill"])?.["a:blip"],
+        );
+        const embedId = stringValue(blip?.["@_r:embed"]);
+        if (embedId) {
+          out.push(scaledShape(embedId, extFromSpPr(sp), scaleX, scaleY));
+        }
+      }
+      continue;
+    }
+    if (key === "p:grpSp") {
+      for (const groupNode of asArray(child)) {
+        const scale = groupChildScale(record(groupNode), scaleX, scaleY);
+        collectPictureShapes(groupNode, out, scale.x, scale.y);
+      }
+      continue;
+    }
+    for (const item of asArray(child)) {
+      collectPictureShapes(item, out, scaleX, scaleY);
+    }
   }
 }
 
-function extractPictureShape(value: unknown): PictureShape {
-  const pic = record(value);
-  const blip = record(record(pic?.["p:blipFill"])?.["a:blip"]);
-  const embedId = stringValue(blip?.["@_r:embed"]);
-  const ext = record(record(record(pic?.["p:spPr"])?.["a:xfrm"])?.["a:ext"]);
+/** A group's `chExt` is the coordinate space its children are authored in; `ext` is how large the group actually renders — the ratio between them is the extra scale nested children need on top of their own declared size. */
+function groupChildScale(
+  groupNode: Record<string, unknown> | null,
+  parentScaleX: number,
+  parentScaleY: number,
+): { x: number; y: number } {
+  const xfrm = record(record(groupNode?.["p:grpSpPr"])?.["a:xfrm"]);
+  const ext = record(xfrm?.["a:ext"]);
+  const chExt = record(xfrm?.["a:chExt"]);
+  const extCx = Number(ext?.["@_cx"]);
+  const extCy = Number(ext?.["@_cy"]);
+  const chExtCx = Number(chExt?.["@_cx"]);
+  const chExtCy = Number(chExt?.["@_cy"]);
+  const groupScaleX =
+    Number.isFinite(extCx) && Number.isFinite(chExtCx) && chExtCx > 0
+      ? extCx / chExtCx
+      : 1;
+  const groupScaleY =
+    Number.isFinite(extCy) && Number.isFinite(chExtCy) && chExtCy > 0
+      ? extCy / chExtCy
+      : 1;
+  return { x: parentScaleX * groupScaleX, y: parentScaleY * groupScaleY };
+}
+
+function extFromSpPr(shapeNode: Record<string, unknown> | null): {
+  cx?: number;
+  cy?: number;
+} {
+  const ext = record(
+    record(record(shapeNode?.["p:spPr"])?.["a:xfrm"])?.["a:ext"],
+  );
   const cx = Number(ext?.["@_cx"]);
   const cy = Number(ext?.["@_cy"]);
   return {
+    cx: Number.isFinite(cx) && cx > 0 ? cx : undefined,
+    cy: Number.isFinite(cy) && cy > 0 ? cy : undefined,
+  };
+}
+
+function scaledShape(
+  embedId: string | undefined,
+  size: { cx?: number; cy?: number },
+  scaleX: number,
+  scaleY: number,
+): PictureShape {
+  return {
     embedId,
-    widthEmu: Number.isFinite(cx) && cx > 0 ? cx : undefined,
-    heightEmu: Number.isFinite(cy) && cy > 0 ? cy : undefined,
+    widthEmu: size.cx !== undefined ? size.cx * scaleX : undefined,
+    heightEmu: size.cy !== undefined ? size.cy * scaleY : undefined,
   };
 }
 
@@ -284,7 +369,14 @@ function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
   return stringValue(blip?.["@_r:embed"]);
 }
 
-/** Add the slide's background picture fill, if any, as a synthetic full-slide-sized shape so it's treated like any other embedded photo. */
+/**
+ * Add the slide's background picture fill, if any, as a synthetic
+ * full-slide-sized shape. It's unshifted to the front rather than appended:
+ * downstream rendering only ever uses the first image in the list, and a
+ * background fill is the slide's base layer — the primary visual — so a
+ * smaller foreground picture (a logo, an icon) must not bump it out of that
+ * slot.
+ */
 function addBackgroundFillShape(
   slide: unknown,
   pictureShapes: PictureShape[],
@@ -293,7 +385,7 @@ function addBackgroundFillShape(
 ): void {
   const embedId = extractBackgroundFillEmbedId(slide);
   if (!embedId) return;
-  pictureShapes.push({
+  pictureShapes.unshift({
     embedId,
     widthEmu: slideWidthEmu,
     heightEmu: slideHeightEmu,
