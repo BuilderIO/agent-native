@@ -11,6 +11,10 @@ import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
+const workflowRuns = new Map<
+  string,
+  { recordingId: string; requestedAt: string }
+>();
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -99,6 +103,39 @@ export function useAutoTitleBridge(): void {
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
 
+  useEffect(() => {
+    const handleChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
+        return;
+
+      const workflowRun = workflowRuns.get(detail.tabId);
+      if (!workflowRun) return;
+      workflowRuns.delete(detail.tabId);
+
+      void callAction(
+        "reconcile-workflow-generation" as any,
+        workflowRun as any,
+      )
+        .catch(() =>
+          callAction(
+            "reconcile-workflow-generation" as any,
+            workflowRun as any,
+          ),
+        )
+        .catch((error) => {
+          console.error(
+            "Failed to reconcile stopped workflow generation",
+            error,
+          );
+        });
+    };
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
   const readyRecordings = recordings.filter((r) => r.status === "ready");
   const readyRecordingsKey = readyRecordings
     .map(
@@ -155,7 +192,16 @@ export function useAutoTitleBridge(): void {
               dispatched.current.add(`${rec.id}:fallback`);
             }
 
-            dispatchAiRequest(rec, request);
+            const tabId = dispatchAiRequest(rec, request);
+            if (
+              request.kind === "generate-workflow" &&
+              typeof request.requestedAt === "string"
+            ) {
+              workflowRuns.set(tabId, {
+                recordingId: rec.id,
+                requestedAt: request.requestedAt,
+              });
+            }
 
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -295,7 +341,7 @@ export function buildAiRequestChatOptions(
 }
 
 function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
-  sendToAgentChat(buildAiRequestChatOptions(rec, request));
+  return sendToAgentChat(buildAiRequestChatOptions(rec, request));
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {
