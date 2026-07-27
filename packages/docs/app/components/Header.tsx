@@ -38,7 +38,7 @@ function SearchTrigger({
     <button
       onClick={onClick}
       aria-label={label}
-      className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
+      className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
     >
       <svg
         width="14"

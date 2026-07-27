@@ -25,7 +25,7 @@ function TerminalCommand({ command }: { command: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="group mx-auto mt-8 flex items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
+      className="group mx-auto mt-8 flex items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-5 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)]"
     >
       <span className="text-[var(--fg-secondary)]">$</span>
       <span className="terminal-command-text min-w-0 flex-1 text-[var(--fg)]">

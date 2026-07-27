@@ -51,7 +51,7 @@ function CliCopy() {
     <button
       onClick={handleCopy}
       data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
+      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       <span
