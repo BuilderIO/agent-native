@@ -67,6 +67,7 @@ export default defineAction({
 
     const deckTitle = title || presentation.title || "Imported Presentation";
     const ownerEmail = getRequestUserEmail();
+    const themeFont = presentation.theme?.fonts?.[0];
 
     // Convert each parsed slide to our HTML format, uploading the first
     // embedded image (if any) so it renders as a real image instead of a
@@ -78,7 +79,7 @@ export default defineAction({
           i,
           ownerEmail,
         );
-        const html = convertToSlideHtml(parsedSlide, imageUrl);
+        const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
         return {
           id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           content: html,

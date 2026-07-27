@@ -50,9 +50,20 @@ export function buildFullBleedImageSlideHtml(
 /** Wrap text in formatting tags based on run properties. */
 function formatRun(run: ParsedTextRun): string {
   let text = esc(run.content);
+  if (run.color)
+    text = `<span style="color: ${esc(run.color)};">${text}</span>`;
   if (run.bold) text = `<strong>${text}</strong>`;
   if (run.italic) text = `<em>${text}</em>`;
   return text;
+}
+
+const DEFAULT_IMPORT_FONT = "'Poppins', sans-serif";
+
+/** Turn an extracted PPTX theme font name into a safe CSS font-family value, falling back to the default when absent. */
+function cssFontFamily(themeFont: string | undefined): string {
+  if (!themeFont) return DEFAULT_IMPORT_FONT;
+  const safeName = themeFont.replace(/["']/g, "").trim();
+  return safeName ? `'${safeName}', sans-serif` : DEFAULT_IMPORT_FONT;
 }
 
 /**
@@ -90,30 +101,36 @@ function groupIntoParagraphs(texts: ParsedTextRun[]): ParsedTextRun[][] {
  * for the slide's first embedded image (already uploaded by the caller) —
  * pass undefined when the slide has no image or the upload failed, and the
  * builders fall back to a text placeholder instead of a broken `<img>`.
+ * `themeFont` is the presentation's extracted theme font, if any, so
+ * imported slides keep the source deck's typeface instead of always
+ * rendering in Poppins.
  */
 export function convertToSlideHtml(
   slide: ParsedSlide,
   imageUrl?: string,
+  themeFont?: string,
 ): string {
   const paragraphs = groupIntoParagraphs(slide.texts);
+  const fontFamily = cssFontFamily(themeFont);
 
   // An embedded image always wins the layout choice — a forced title slide
   // has no room to show it, which is how imports used to silently drop
   // photos from otherwise short/title-shaped slides.
   if (slide.images.length > 0) {
-    return buildImageSlide(paragraphs, slide, imageUrl);
+    return buildImageSlide(paragraphs, slide, imageUrl, fontFamily);
   }
 
   if (slide.layoutHint === "title" || paragraphs.length <= 2) {
-    return buildTitleSlide(paragraphs, slide);
+    return buildTitleSlide(paragraphs, slide, fontFamily);
   }
 
-  return buildContentSlide(paragraphs, slide);
+  return buildContentSlide(paragraphs, slide, fontFamily);
 }
 
 function buildTitleSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
+  fontFamily: string,
 ): string {
   const titlePara = paragraphs[0] ?? [];
   const subtitlePara = paragraphs[1] ?? [];
@@ -121,7 +138,7 @@ function buildTitleSlide(
   const titleText = titlePara.map(formatRun).join(" ") || "Untitled Slide";
   const subtitleText = subtitlePara.map(formatRun).join(" ");
 
-  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: 'Poppins', sans-serif;">
+  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; font-family: ${fontFamily};">
     <h1 style="font-size: 64px; font-weight: 900; color: #fff; line-height: 1.1; letter-spacing: -2px; margin: 0 0 24px 0;">${titleText}</h1>${subtitleText ? `\n    <p style="font-size: 22px; color: rgba(255,255,255,0.55); margin: 0;">${subtitleText}</p>` : ""}
 </div>`;
 }
@@ -129,6 +146,7 @@ function buildTitleSlide(
 function buildContentSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
+  fontFamily: string,
 ): string {
   // First paragraph is the heading, rest are bullet points
   const headingPara = paragraphs[0] ?? [];
@@ -153,7 +171,7 @@ ${bulletItems}
     </div>`;
   }
 
-  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
+  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
     <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
     <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 48px 0;">${headingText}</h2>${bulletsHtml}
 </div>`;
@@ -171,10 +189,18 @@ function imageOrPlaceholder(
   return `<div class="fmd-img-placeholder" style="${style}">Imported image: ${esc(imageName)}</div>`;
 }
 
+/**
+ * Photo-led layout: image first, heading/caption below — this matches how
+ * PPTX/Keynote decks with a hero image per slide are actually laid out.
+ * Putting the heading above the image (the old order) pushed the image
+ * further down the slide and made overflow far more likely for slides with
+ * any real amount of body text.
+ */
 function buildImageSlide(
   paragraphs: ParsedTextRun[][],
   slide: ParsedSlide,
-  imageUrl?: string,
+  imageUrl: string | undefined,
+  fontFamily: string,
 ): string {
   const headingPara = paragraphs[0] ?? [];
   const headingText = headingPara.map(formatRun).join(" ") || "Slide";
@@ -188,13 +214,12 @@ function buildImageSlide(
   const imageHtml = imageOrPlaceholder(
     imageUrl,
     imageName,
-    "width: 100%; height: 300px; border-radius: 12px;",
+    "width: 100%; height: 260px; border-radius: 12px; margin-bottom: 24px;",
   );
 
-  return `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: flex-start; font-family: 'Poppins', sans-serif;">
-    <div style="font-size: 14px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: #00E5FF; margin-bottom: 16px;">IMPORTED</div>
-    <h2 style="font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; letter-spacing: -1px; margin: 0 0 32px 0;">${headingText}</h2>
-    ${imageHtml}${captionText ? `\n    <p style="font-size: 18px; color: rgba(255,255,255,0.55); margin: 24px 0 0 0;">${captionText}</p>` : ""}
+  return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
+    ${imageHtml}
+    <h2 style="font-size: 32px; font-weight: 900; color: #fff; line-height: 1.2; letter-spacing: -0.5px; margin: 0 0 12px 0;">${headingText}</h2>${captionText ? `\n    <p style="font-size: 16px; color: rgba(255,255,255,0.7); line-height: 1.5; margin: 0;">${captionText}</p>` : ""}
 </div>`;
 }
 

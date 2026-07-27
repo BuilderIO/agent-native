@@ -133,9 +133,10 @@ export default defineAction({
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
         const pptxOwnerEmail = getRequestUserEmail();
+        const pptxThemeFont = presentation.theme?.fonts?.[0];
         const slides = await Promise.all(
           presentation.slides.map((slide, i) =>
-            buildPptxSlide(slide, i, pptxOwnerEmail),
+            buildPptxSlide(slide, i, pptxOwnerEmail, pptxThemeFont),
           ),
         );
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
@@ -454,6 +455,7 @@ async function buildPptxSlide(
   slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
   slideIndex: number,
   ownerEmail: string | undefined,
+  themeFont: string | undefined,
 ): Promise<{
   id: string;
   content: string;
@@ -477,7 +479,7 @@ async function buildPptxSlide(
     : undefined;
   return {
     id: newSlideId(),
-    content: convertToSlideHtml(slide, imageUrl),
+    content: convertToSlideHtml(slide, imageUrl, themeFont),
     layout: slide.layoutHint ?? "content",
     notes: slide.notes,
   };
