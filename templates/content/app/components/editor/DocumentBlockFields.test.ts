@@ -137,22 +137,37 @@ describe("computeFieldReorderTarget", () => {
 
 describe("isLoadedForDocument (stale placeholder-data gate)", () => {
   it("is NOT loaded while no data has arrived", () => {
-    expect(isLoadedForDocument("doc-new", undefined)).toBe(false);
+    expect(isLoadedForDocument("doc-new", "db-new", undefined)).toBe(false);
   });
 
   it("is NOT loaded while data still belongs to the PREVIOUS document", () => {
     // useDocumentProperties keeps the old doc's data as placeholder for a tick
     // after documentId changes. Trusting it would route the new row's edits to
     // the old doc's field layout (body-clobber window). Must read as loading.
-    expect(isLoadedForDocument("doc-new", { documentId: "doc-old" })).toBe(
-      false,
-    );
+    expect(
+      isLoadedForDocument("doc-new", "db-new", {
+        documentId: "doc-old",
+        databaseId: "db-new",
+      }),
+    ).toBe(false);
   });
 
-  it("is loaded once the data's documentId matches the current row", () => {
-    expect(isLoadedForDocument("doc-new", { documentId: "doc-new" })).toBe(
-      true,
-    );
+  it("is NOT loaded while data still belongs to the previous database", () => {
+    expect(
+      isLoadedForDocument("doc-new", "db-new", {
+        documentId: "doc-new",
+        databaseId: "db-old",
+      }),
+    ).toBe(false);
+  });
+
+  it("is loaded once both response identities match the active scope", () => {
+    expect(
+      isLoadedForDocument("doc-new", "db-new", {
+        documentId: "doc-new",
+        databaseId: "db-new",
+      }),
+    ).toBe(true);
   });
 
   it("stale previous-doc data renders 'loading', never a writable body editor", () => {
@@ -167,7 +182,10 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
         options: { blocks: { primary: true } },
       }),
     ];
-    const loaded = isLoadedForDocument("doc-new", { documentId: "doc-old" });
+    const loaded = isLoadedForDocument("doc-new", "db-new", {
+      documentId: "doc-old",
+      databaseId: "db-new",
+    });
     const state = blockFieldsRenderState({
       loaded,
       blockFields: previousDocPrimary,
@@ -184,7 +202,10 @@ describe("isLoadedForDocument (stale placeholder-data gate)", () => {
         options: { blocks: { primary: false } },
       }),
     ];
-    const loaded = isLoadedForDocument("doc-new", { documentId: "doc-new" });
+    const loaded = isLoadedForDocument("doc-new", "db-new", {
+      documentId: "doc-new",
+      databaseId: "db-new",
+    });
     const state = blockFieldsRenderState({
       loaded,
       blockFields: newDocSoloNonPrimary,

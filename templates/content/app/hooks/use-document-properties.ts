@@ -25,6 +25,16 @@ import { documentPropertiesQueryKey } from "./use-documents";
 
 type DatabaseScopedRequest = { databaseId: string };
 
+export function documentPropertiesResponseMatchesScope(
+  documentId: string,
+  databaseId: string,
+  data:
+    | Pick<DocumentPropertiesResponse, "documentId" | "databaseId">
+    | undefined,
+): boolean {
+  return data?.documentId === documentId && data.databaseId === databaseId;
+}
+
 function withDatabaseScope<
   TData,
   TVariables extends DatabaseScopedRequest,

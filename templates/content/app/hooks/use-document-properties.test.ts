@@ -13,7 +13,30 @@ vi.mock("@tanstack/react-query", () => ({
   useQueryClient,
 }));
 
-import { useSetDocumentProperty } from "./use-document-properties";
+import {
+  documentPropertiesResponseMatchesScope,
+  useSetDocumentProperty,
+} from "./use-document-properties";
+
+describe("documentPropertiesResponseMatchesScope", () => {
+  it("rejects placeholder data from another database for the same row", () => {
+    expect(
+      documentPropertiesResponseMatchesScope("row-1", "database-2", {
+        documentId: "row-1",
+        databaseId: "database-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("accepts data only when both active identities match", () => {
+    expect(
+      documentPropertiesResponseMatchesScope("row-1", "database-1", {
+        documentId: "row-1",
+        databaseId: "database-1",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("useSetDocumentProperty", () => {
   beforeEach(() => {

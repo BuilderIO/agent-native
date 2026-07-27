@@ -132,6 +132,7 @@ import {
 } from "@/components/ui/tooltip";
 import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
+  documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
   useDocumentProperties,
@@ -805,9 +806,14 @@ export function DocumentProperties({
 }: DocumentPropertiesProps) {
   const t = useT();
   const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const loaded = documentPropertiesResponseMatchesScope(
+    documentId,
+    databaseId,
+    data,
+  );
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
-  const properties = (data?.properties ?? []).filter(
+  const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
   const visibleProperties = properties.filter(isPropertyVisible);
@@ -817,7 +823,7 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading ? (
+      {isLoading || !loaded ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -838,7 +844,7 @@ export function DocumentProperties({
         </div>
       ) : null}
 
-      {canEdit && hiddenProperties.length > 0 ? (
+      {loaded && canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
           databaseId={databaseId}
@@ -847,7 +853,7 @@ export function DocumentProperties({
         />
       ) : null}
 
-      {canEdit && databaseId ? (
+      {loaded && canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
           databaseId={databaseId}
