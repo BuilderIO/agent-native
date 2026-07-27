@@ -906,11 +906,11 @@ async function createBetterAuthInstance(
           ""
         ).replace(/\/$/, "");
         const resetUrl = `${appUrl}${appBasePath}/_agent-native/auth/reset?token=${encodeURIComponent(token)}`;
-        const { subject, html, text } = renderResetPasswordEmail({
+        const { subject, html, text, from, replyTo } = renderResetPasswordEmail({
           email: user.email,
           resetUrl,
         });
-        await sendEmail({ to: user.email, subject, html, text });
+        await sendEmail({ to: user.email, subject, html, text, from, replyTo });
       },
     },
     emailVerification: {

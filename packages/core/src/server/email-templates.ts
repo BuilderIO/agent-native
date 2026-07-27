@@ -169,12 +169,16 @@ export function renderResetPasswordEmail(
   args: RenderResetPasswordEmailArgs,
 ): RenderedEmailMessage {
   const email = stripCrlf(args.email);
-  const appName = resolveAppName();
+  const appName = getAppName();
+  // Match the verification email branding so password resets are clearly tied
+  // to the specific app. No value pitch here — it's a security email.
+  const brand = appName ? `Agent-Native ${stripCrlf(appName)}` : "Agent Native";
+  const slug = appName ? getAppSlug() : undefined;
 
   const { html, text } = renderEmail({
-    brandName: appName,
+    brandName: brand,
     preheader: `Reset the password for ${email}. This link expires in 1 hour.`,
-    heading: `Reset your ${appName} password`,
+    heading: `Reset your ${brand} password`,
     paragraphs: [
       `Someone requested a password reset for ${emailStrong(email)}. Click the button below to choose a new password.`,
       `This link expires in 1 hour.`,
@@ -184,8 +188,10 @@ export function renderResetPasswordEmail(
   });
 
   return {
-    subject: `Reset your ${appName} password`,
+    subject: `Reset your ${brand} password`,
     html,
     text,
+    from: slug ? `${brand} <${slug}@agent-native.com>` : undefined,
+    replyTo: AGENT_NATIVE_REPLY_TO,
   };
 }
