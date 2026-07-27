@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconRefresh,
+  IconTerminal2,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
 
 type ProviderStatusTone = "ok" | "offline";
 const PENDING_BUILDER_CONNECT_RELOAD_KEY =
@@ -96,7 +98,9 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
         ? "Desktop settings"
         : provider.source === "environment"
           ? "environment"
-          : "settings and environment";
+          : provider.source === "local-codex"
+            ? "local Codex CLI login"
+            : "settings and environment";
     return {
       label: "Connected",
       description: `Ready from ${source}.`,
@@ -166,12 +170,19 @@ export function CodeProviderSettings({
   const [providerSavingId, setProviderSavingId] =
     useState<CodeAgentProviderId | null>(null);
   const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [codexConnecting, setCodexConnecting] = useState(false);
+  const [codexRefreshing, setCodexRefreshing] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
   );
+  const codexProvider = settings.providers.find(
+    (provider) => provider.id === "codex",
+  );
   const builderConnected = Boolean(builderProvider?.configured);
+  const codexAvailable = Boolean(codexProvider);
+  const codexConnected = Boolean(codexProvider?.configured);
   const builderSavedKeys = Boolean(builderProvider?.savedKeys.length);
   const selectedProviderDefinition =
     CODE_AGENT_PROVIDER_FIELDSETS.find(
@@ -240,6 +251,50 @@ export function CodeProviderSettings({
     },
     [onProvidersChanged, onSettingsChanged],
   );
+
+  const handleConnectCodex = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.openCodexLogin) {
+      setProviderMessage(
+        "Open Agent Native Desktop to sign in to your ChatGPT subscription.",
+      );
+      return;
+    }
+    setCodexConnecting(true);
+    setProviderMessage(
+      "Terminal opened. Finish `codex login`, then refresh this status.",
+    );
+    try {
+      const result = await api.openCodexLogin();
+      if (!result.ok)
+        setProviderMessage(result.error ?? "Terminal was not opened.");
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexConnecting(false);
+    }
+  }, []);
+
+  const refreshCodexStatus = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getProviderSettings) return;
+    setCodexRefreshing(true);
+    try {
+      const nextSettings = await api.getProviderSettings();
+      onSettingsChanged(nextSettings);
+      onProvidersChanged?.();
+      setProviderMessage(
+        nextSettings.providers.find((provider) => provider.id === "codex")
+          ?.configured
+          ? "ChatGPT subscription is ready on this computer."
+          : "Codex is not signed in yet. Finish `codex login` in Terminal.",
+      );
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexRefreshing(false);
+    }
+  }, [onProvidersChanged, onSettingsChanged]);
 
   useEffect(() => {
     if (!consumePendingBuilderConnectReload()) return;
@@ -316,11 +371,11 @@ export function CodeProviderSettings({
     <div className="settings-provider-card">
       <div className="settings-provider-card-header">
         <div>
-          <span className="settings-mode-card-title">Code providers</span>
+          <span className="settings-mode-card-title">Agent runtimes</span>
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
-              : "Connect a provider before chatting in Code."}
+              : "Connect Builder.io, run codex login, or add an API key before chatting."}
           </span>
         </div>
       </div>
@@ -336,7 +391,7 @@ export function CodeProviderSettings({
             {builderConnected
               ? builderProvider?.source === "environment"
                 ? "Connected through environment credentials."
-                : "Connected for Code chats."
+                : "Connected for Agent tasks."
               : "Free credits to start - no API key needed."}
           </span>
         </div>
@@ -375,6 +430,75 @@ export function CodeProviderSettings({
         </div>
       </div>
 
+      <div
+        className={`settings-builder-connect-card${
+          codexConnected ? " settings-builder-connect-card--ok" : ""
+        }`}
+      >
+        <div className="settings-builder-connect-copy">
+          <span className="settings-builder-title">ChatGPT subscription</span>
+          <span className="settings-builder-description">
+            {codexConnected
+              ? "Ready to run Agent tasks on this computer through Codex."
+              : codexAvailable
+                ? "Use your ChatGPT subscription locally through Codex."
+                : "Install the OpenAI Codex CLI to use your ChatGPT subscription locally."}
+          </span>
+        </div>
+        <div className="settings-builder-actions">
+          <span
+            className={`settings-codex-status${
+              codexConnected ? " settings-codex-status--ok" : ""
+            }`}
+          >
+            <IconTerminal2 size={13} />
+            {codexConnected
+              ? "Ready"
+              : codexAvailable
+                ? "Not signed in"
+                : "Install"}
+          </span>
+          {codexAvailable && !codexConnected && (
+            <button
+              type="button"
+              className="settings-builder-connect-button"
+              onClick={() => void handleConnectCodex()}
+              disabled={codexConnecting}
+            >
+              {codexConnecting ? (
+                <>
+                  <IconLoader2
+                    size={13}
+                    className="settings-codex-status-spinner"
+                  />
+                  Opening...
+                </>
+              ) : (
+                "Sign in"
+              )}
+            </button>
+          )}
+          {codexAvailable && (
+            <button
+              type="button"
+              className="settings-provider-text-button"
+              onClick={() => void refreshCodexStatus()}
+              disabled={codexRefreshing}
+            >
+              {codexRefreshing ? (
+                <IconLoader2
+                  size={13}
+                  className="settings-codex-status-spinner"
+                />
+              ) : (
+                <IconRefresh size={13} />
+              )}
+              Refresh
+            </button>
+          )}
+        </div>
+      </div>
+
       <button
         type="button"
         className="settings-provider-advanced-toggle"
@@ -385,7 +509,7 @@ export function CodeProviderSettings({
         ) : (
           <IconChevronRight size={14} />
         )}
-        <span>Or add your own API key</span>
+        <span>Or add an API key</span>
       </button>
 
       {showProviderKeys && (

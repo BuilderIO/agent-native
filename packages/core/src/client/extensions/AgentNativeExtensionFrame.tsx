@@ -8,6 +8,8 @@ import React, {
   type CSSProperties,
   type IframeHTMLAttributes,
 } from "react";
+
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import {
   createAgentNativeHostBridge,
   type AgentNativeClientAction,
@@ -603,6 +605,7 @@ export const AgentNativeExtensionFrame = forwardRef<
   return (
     <iframe
       {...iframeProps}
+      {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
       key={`${extension.id}:${extension.updatedAt ?? ""}`}
       ref={(node) => {
         iframeRef.current = node;

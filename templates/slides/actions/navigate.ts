@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { writeAppStateForCurrentTab } from "./_tab-state.js";
 
 export default defineAction({
@@ -7,9 +8,9 @@ export default defineAction({
     "Navigate the UI to a specific deck, slide, or view. Writes a navigate command to application state which the UI reads and auto-deletes.",
   schema: z.object({
     view: z
-      .string()
+      .enum(["list", "editor", "present"])
       .optional()
-      .describe("Top-level view to navigate to (list, settings)"),
+      .describe("Top-level view to navigate to (list, editor, present)"),
     deckId: z.string().optional().describe("Deck ID to open in the editor"),
     slideNumber: z.coerce
       .number()

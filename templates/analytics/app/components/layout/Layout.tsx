@@ -1,16 +1,31 @@
-import { useMemo } from "react";
-import { useLocation } from "react-router";
-import { Sidebar } from "./Sidebar";
-import { MobileNav } from "./MobileNav";
-import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import {
   AgentSidebar,
   GuidedQuestionFlow,
+  focusAgentChat,
+  isAgentChatHomeHandoffActive,
+  markAgentChatHomeHandoff,
+  navigateWithAgentChatViewTransition,
+  useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import { useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import {
+  ANALYTICS_CHAT_STORAGE_KEY,
+  markAnalyticsChatActivity,
+} from "@/lib/chat-handoff";
+import { TAB_ID } from "@/lib/tab-id";
+
+import { Header } from "./Header";
+import { HeaderActionsProvider } from "./HeaderActions";
+import { MobileNav } from "./MobileNav";
+import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -19,18 +34,29 @@ interface LayoutProps {
 const BARE_ROUTES = new Set(["/chart"]);
 
 export function Layout({ children }: LayoutProps) {
+  return <InteractiveLayout>{children}</InteractiveLayout>;
+}
+
+function InteractiveLayout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
+  const navigate = useNavigate();
+  const t = useT();
 
-  // Analytics has two distinct "primary resources" — dashboards
-  // (`/adhoc/:id`) and ad-hoc analyses (`/analyses/:id`). Each binds the
-  // chat to that artifact so a dashboard chat doesn't leak into a
-  // different analysis (and vice versa). The list pages and overview
-  // leave scope null so general data questions still work.
+  // Analytics stages the active primary resource as composer context —
+  // dashboards (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
+  // (`/analyses/:id`). List pages and Ask leave context null so general data
+  // questions still work.
   const analyticsScope = useMemo(() => {
-    const dashMatch = location.pathname.match(/^\/adhoc\/([^/]+)/);
+    const dashMatch = location.pathname.match(
+      /^\/(?:adhoc|dashboards)\/([^/]+)/,
+    );
     if (dashMatch?.[1]) {
-      return { type: "dashboard" as const, id: dashMatch[1] };
+      return {
+        type: "dashboard" as const,
+        id: dashMatch[1],
+        contextKey: "analytics-selected-dashboard",
+      };
     }
     const analysisMatch = location.pathname.match(/^\/analyses\/([^/]+)/);
     if (analysisMatch?.[1]) {
@@ -62,29 +88,74 @@ export function Layout({ children }: LayoutProps) {
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
-  if (BARE_ROUTES.has(location.pathname)) {
-    return <>{children}</>;
-  }
   // Extensions list (`/extensions`) and viewer (`/extensions/:id`) render their own h-12
-  // toolbar with NotificationsBell + AgentToggleButton. Skip the framework
+  // toolbar. Skip the framework
   // Header so there's no double-header.
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
+  const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
+  // Monitoring renders its own header row (section tabs / "Back to monitors"
+  // + the relocated agent toggle), so skip the framework Header to avoid a
+  // redundant second title bar.
+  const isMonitoringRoute =
+    location.pathname === "/monitoring" ||
+    location.pathname.startsWith("/monitoring/");
   const isAskRoute = location.pathname === "/ask";
+  const chatHomeHandoffActive = useAgentChatHomeHandoff({
+    storageKey: ANALYTICS_CHAT_STORAGE_KEY,
+    activePath: location.pathname,
+    enabled: !isAskRoute,
+  });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
+    ANALYTICS_CHAT_STORAGE_KEY,
+  );
+  useAgentChatHomeHandoffLinks({
+    storageKey: ANALYTICS_CHAT_STORAGE_KEY,
+    chatPath: "/ask",
+    enabled: true,
+    requireActiveHandoff: true,
+  });
+  useEffect(() => {
+    function handleChatRunning(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (isAskRoute && typeof detail?.isRunning === "boolean") {
+        markAnalyticsChatActivity();
+        if (detail.isRunning === true) {
+          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+        }
+      }
+    }
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, [isAskRoute]);
+
+  function openAskAgentFullscreen() {
+    focusAgentChat();
+    navigateWithAgentChatViewTransition(navigate, "/ask");
+  }
+
+  if (BARE_ROUTES.has(location.pathname)) {
+    return <>{children}</>;
+  }
 
   const contentFrame = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      <MobileNav />
-      {!isExtensionsRoute && !isAskRoute && <Header />}
+      <MobileNav showNewChat={isAskRoute} />
+      {!isExtensionsRoute &&
+        !isAskRoute &&
+        !isSessionDetailRoute &&
+        !isMonitoringRoute && <Header />}
       <InvitationBanner />
       <main
         className={
           isExtensionsRoute
-            ? "flex-1 overflow-y-auto"
+            ? "agent-native-app-main flex-1 overflow-y-auto"
             : isAskRoute
-              ? "flex-1 overflow-hidden p-0"
-              : "flex-1 overflow-y-auto p-4 md:p-6 lg:p-8"
+              ? "agent-native-app-main flex-1 overflow-hidden p-0"
+              : "agent-native-app-main flex-1 overflow-y-auto p-6 pt-2"
         }
       >
         {children}
@@ -95,11 +166,8 @@ export function Layout({ children }: LayoutProps) {
             questions={guidedQuestions}
             onSubmit={handleGuidedSubmit}
             onSkip={handleGuidedSkip}
-            title={guidedTitle ?? "Clarify the dashboard"}
-            description={
-              guidedDescription ??
-              "A few choices help the agent pick the right source, metrics, cuts, and layout before it writes SQL."
-            }
+            title={guidedTitle ?? t("guidedQuestions.title")}
+            description={guidedDescription ?? t("guidedQuestions.description")}
             skipLabel={guidedSkipLabel}
             submitLabel={guidedSubmitLabel}
           />
@@ -110,24 +178,34 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden shrink-0 md:block">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden shrink-0 md:block">
           <Sidebar />
         </div>
         {isAskRoute ? (
-          contentFrame
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {contentFrame}
+          </div>
         ) : (
           <AgentSidebar
             position="right"
-            defaultOpen
-            emptyStateText="Ask me to analyze a dashboard, compare trends, or dig into data..."
+            defaultOpen={false}
+            chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
+            storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+            browserTabId={TAB_ID}
+            openOnChatRunning={chatHomeHandoffActive}
+            onFullscreenRequest={openAskAgentFullscreen}
+            emptyStateText={t("chat.emptyState")}
+            agentPageHref="/agent"
             suggestions={[
-              "What's driving ARR growth this quarter?",
-              "Show me churn trends over the last 6 months",
-              "Analyze the HubSpot Sales dashboard for anomalies",
-              "Compare MRR between enterprise and SMB",
+              t("chat.suggestionArrGrowth"),
+              t("chat.suggestionChurn"),
+              t("chat.suggestionAnomalies"),
+              t("chat.suggestionMrr"),
             ]}
             scope={analyticsScope}
+            composerSlot={<CreativeContextComposerChip />}
           >
             {contentFrame}
           </AgentSidebar>

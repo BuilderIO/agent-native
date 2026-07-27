@@ -1,8 +1,11 @@
-import { useLocation } from "react-router";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
-import { Button } from "@/components/ui/button";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { LanguagePicker } from "@agent-native/core/client/i18n";
+import { RunsTray } from "@agent-native/core/client/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
+import { useLocation, useNavigate } from "react-router";
+
+import { Button } from "../ui/button";
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "Overview",
@@ -15,8 +18,9 @@ const pageTitles: Record<string, string> = {
   "/destinations": "Destinations",
   "/identities": "Identities",
   "/approvals": "Approvals",
+  "/automations": "Automations",
   "/audit": "Audit",
-  "/team": "Team",
+  "/settings": "Settings",
 };
 
 function resolveTitle(pathname: string): string {
@@ -35,8 +39,27 @@ export function Header({
   showAgentToggle?: boolean;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+
+  function openRunThread(threadId: string) {
+    navigate("/chat", {
+      state: {
+        dispatchThread: {
+          id: `${Date.now()}-${threadId}`,
+          threadId,
+        },
+      },
+    });
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId },
+        }),
+      );
+    });
+  }
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 lg:px-6">
@@ -60,6 +83,8 @@ export function Header({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
+        <LanguagePicker variant="icon" />
+        <RunsTray limit={8} onOpenThread={openRunThread} />
         {showAgentToggle ? (
           <AgentToggleButton className="h-8 w-8 rounded-md hover:bg-accent" />
         ) : null}

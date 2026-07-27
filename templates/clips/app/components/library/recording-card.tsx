@@ -1,5 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconDots,
   IconLock,
@@ -8,47 +7,44 @@ import {
   IconPlayerPlay,
   IconShare,
   IconFolder,
+  IconFolderPlus,
   IconArchive,
   IconTrash,
-  IconEdit,
   IconCheck,
   IconAlertTriangle,
+  IconExternalLink,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useCallback, useMemo, useState } from "react";
+import { Link } from "react-router";
+
+import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import type { RecordingSummary } from "@/hooks/use-library";
+import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { EditableRecordingTitle } from "@/components/editable-recording-title";
+import type { RecordingSummary } from "@/hooks/use-library";
+import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
+import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { cn } from "@/lib/utils";
+
+import type { BulkMoveTarget } from "./bulk-action-toolbar";
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-function formatRelative(iso: string): string {
-  const date = new Date(iso);
-  const now = Date.now();
-  const diff = (date.getTime() - now) / 1000;
-  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  const abs = Math.abs(diff);
-  if (abs < 60) return rtf.format(Math.round(diff), "second");
-  if (abs < 3600) return rtf.format(Math.round(diff / 60), "minute");
-  if (abs < 86400) return rtf.format(Math.round(diff / 3600), "hour");
-  if (abs < 604800) return rtf.format(Math.round(diff / 86400), "day");
-  if (abs < 2629800) return rtf.format(Math.round(diff / 604800), "week");
-  if (abs < 31557600) return rtf.format(Math.round(diff / 2629800), "month");
-  return rtf.format(Math.round(diff / 31557600), "year");
 }
 
 function PrivacyIcon({
@@ -69,13 +65,15 @@ interface RecordingCardProps {
   recording: RecordingSummary;
   selected?: boolean;
   selectionMode?: boolean;
-  onToggleSelect?: (id: string) => void;
+  onToggleSelect?: (id: string, shiftKey: boolean) => void;
   onShare?: (rec: RecordingSummary) => void;
-  onMove?: (rec: RecordingSummary) => void;
-  onRename?: (rec: RecordingSummary) => void;
+  onMove?: (rec: RecordingSummary, folderId: string | null) => void;
+  moveTargets?: BulkMoveTarget[];
+  isMovePending?: boolean;
+  onCreateFolder?: () => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
-  canRenameTitle?: boolean;
+  readOnly?: boolean;
 }
 
 export function RecordingCard({
@@ -85,30 +83,53 @@ export function RecordingCard({
   onToggleSelect,
   onShare,
   onMove,
-  onRename,
+  moveTargets = [],
+  isMovePending = false,
+  onCreateFolder,
   onArchive,
   onTrash,
-  canRenameTitle = false,
+  readOnly = false,
 }: RecordingCardProps) {
-  const navigate = useNavigate();
+  const t = useT();
+  const { formatDate, formatRelativeTime } = useFormatters();
   const [hovered, setHovered] = useState(false);
 
   const duration = useMemo(
     () => formatDuration(recording.durationMs),
     [recording.durationMs],
   );
-  const relative = useMemo(
-    () => formatRelative(recording.createdAt),
-    [recording.createdAt],
-  );
+  const relative = useMemo(() => {
+    const date = new Date(recording.createdAt);
+    const diff = (date.getTime() - Date.now()) / 1000;
+    const abs = Math.abs(diff);
+    if (abs < 60) return formatRelativeTime(Math.round(diff), "second");
+    if (abs < 3600) return formatRelativeTime(Math.round(diff / 60), "minute");
+    if (abs < 86400) return formatRelativeTime(Math.round(diff / 3600), "hour");
+    if (abs < 604800)
+      return formatRelativeTime(Math.round(diff / 86400), "day");
+    return formatDate(date);
+  }, [formatDate, formatRelativeTime, recording.createdAt]);
   const waitingForStorage = isStorageSetupFailureReason(
     recording.failureReason,
   );
+  const staleUpload = isStaleRecordingUpload(recording);
+  const displayFailed = recording.status === "failed" || staleUpload;
+  const failureReason = staleUpload
+    ? (recording.failureReason ??
+      t("recordingPage.processingStuck", { status: recording.status }))
+    : (recording.failureReason ?? t("clipsFinalRaw.removeFailedClip"));
   const nativeUploadPaused =
     recording.status === "failed" &&
     /native recording|native fullscreen|screencapture|avconvert/i.test(
       recording.failureReason ?? "",
     );
+  const canMove = Boolean(onMove && moveTargets.length > 0);
+  const canSelect = Boolean(onToggleSelect) && !readOnly;
+  const showActions = Boolean(onShare || onMove || onArchive || onTrash);
+  const hasDefaultTitle = isDefaultTitle(recording.title);
+  const displayTitle = hasDefaultTitle
+    ? t("editableTitle.untitled")
+    : recording.title;
 
   const displayThumbnail = useMemo(() => {
     if (hovered && recording.animatedThumbnailUrl)
@@ -121,18 +142,31 @@ export function RecordingCard({
     return (local || "?").slice(0, 2).toUpperCase();
   }, [recording.ownerEmail]);
 
-  const handleOpen = useCallback(() => {
-    if (selectionMode) {
-      onToggleSelect?.(recording.id);
-    } else {
-      navigate(`/r/${recording.id}`);
-    }
-  }, [navigate, onToggleSelect, recording.id, selectionMode]);
+  const recordingPath = `/r/${recording.id}`;
+
+  const handleLinkClick = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (
+        !onToggleSelect ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (!selectionMode && !event.shiftKey)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      onToggleSelect(recording.id, event.shiftKey);
+    },
+    [onToggleSelect, recording.id, selectionMode],
+  );
 
   const handleCheckbox = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onToggleSelect?.(recording.id);
+      onToggleSelect?.(recording.id, e.shiftKey);
     },
     [onToggleSelect, recording.id],
   );
@@ -145,10 +179,14 @@ export function RecordingCard({
     [onTrash, recording],
   );
 
+  const handleOpenDesktopApp = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    attemptOpenDesktopApp();
+  }, []);
+
   return (
     <div
       role="article"
-      onClick={handleOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
@@ -158,8 +196,15 @@ export function RecordingCard({
         selected && "ring-2 ring-primary border-primary",
       )}
     >
+      <Link
+        to={recordingPath}
+        aria-label={displayTitle}
+        onClick={handleLinkClick}
+        className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      />
+
       {/* Thumbnail */}
-      <div className="relative aspect-video bg-muted overflow-hidden">
+      <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
         {displayThumbnail ? (
           // eslint-disable-next-line jsx-a11y/alt-text
           <img
@@ -186,20 +231,22 @@ export function RecordingCard({
         </div>
 
         {/* Duration badge */}
-        <div className="absolute bottom-2 right-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
+        <div className="absolute bottom-2 end-2 rounded bg-black/80 px-1.5 py-0.5 text-[11px] font-medium text-white tabular-nums">
           {duration}
         </div>
 
         {/* Selection checkbox */}
-        {(selectionMode || hovered || selected) && (
+        {canSelect && (selectionMode || hovered || selected) && (
           <div
             onClick={handleCheckbox}
-            className="absolute top-2 left-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
+            className="pointer-events-auto absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded border border-border bg-background/90"
           >
             <Checkbox
               checked={selected}
-              onCheckedChange={() => onToggleSelect?.(recording.id)}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.(recording.id, e.shiftKey);
+              }}
               className="h-3.5 w-3.5"
             />
           </div>
@@ -207,15 +254,19 @@ export function RecordingCard({
 
         {/* Status pill for non-ready recordings */}
         {recording.status !== "ready" && (
-          <div className="absolute top-2 right-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
-            {waitingForStorage ? "storage" : recording.status}
+          <div className="absolute top-2 end-2 rounded-full bg-black/80 px-2 py-0.5 text-[10px] font-medium text-white uppercase tracking-wide">
+            {waitingForStorage
+              ? "storage"
+              : staleUpload
+                ? "failed"
+                : recording.status}
           </div>
         )}
 
-        {(recording.status === "failed" || waitingForStorage) && (
+        {(displayFailed || waitingForStorage) && (
           <div
             className={cn(
-              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-left shadow-sm backdrop-blur",
+              "absolute inset-x-2 bottom-2 rounded-md border bg-background/95 p-2 text-start shadow-sm backdrop-blur",
               waitingForStorage ? "border-primary/30" : "border-destructive/30",
             )}
           >
@@ -229,26 +280,36 @@ export function RecordingCard({
               <div className="min-w-0 flex-1">
                 <div className="text-[11px] font-medium text-foreground">
                   {waitingForStorage
-                    ? "Waiting for storage"
+                    ? t("clipsFinalRaw.waitingForStorage")
                     : nativeUploadPaused
-                      ? "Saved locally"
-                      : "Upload failed"}
+                      ? t("clipsFinalRaw.savedLocally")
+                      : t("clipsFinalRaw.uploadFailed")}
                 </div>
                 <div className="line-clamp-2 text-[10px] leading-snug text-muted-foreground">
                   {waitingForStorage
-                    ? "Open to connect storage and finish saving."
+                    ? t("clipsFinalRaw.connectStorageToFinish")
                     : nativeUploadPaused
-                      ? "Retry from the Clips menu; no need to re-record."
-                      : (recording.failureReason ?? "Remove this failed clip.")}
+                      ? t("clipsFinalRaw.retryFromClipsMenu")
+                      : failureReason}
                 </div>
+                {nativeUploadPaused ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenDesktopApp}
+                    className="pointer-events-auto mt-1.5 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <IconExternalLink className="h-3 w-3" />
+                    {t("captureInstall.openDesktopApp")}
+                  </button>
+                ) : null}
               </div>
-              {!waitingForStorage && (
+              {!waitingForStorage && onTrash && (
                 <button
                   type="button"
                   onClick={handleRemoveFailed}
-                  className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+                  className="pointer-events-auto rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
                 >
-                  Remove
+                  {t("clipsFinalRaw.remove")}
                 </button>
               )}
             </div>
@@ -257,23 +318,30 @@ export function RecordingCard({
       </div>
 
       {/* Body */}
-      <div className="flex-1 p-3 space-y-2">
+      <div className="relative z-10 flex-1 space-y-2 p-3 pointer-events-none">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <EditableRecordingTitle
-              recordingId={recording.id}
-              title={recording.title}
-              canEdit={canRenameTitle}
-              displayTitle={
-                isDefaultTitle(recording.title)
-                  ? "Untitled Clip"
-                  : recording.title
-              }
-              showPendingSkeleton={isDefaultTitle(recording.title)}
-              className="text-sm font-medium text-foreground"
-              inputClassName="h-7 text-sm font-medium"
-              skeletonClassName="h-3.5 w-3/4"
-            />
+            {hasDefaultTitle ? (
+              <Skeleton
+                aria-label={t("editableTitle.generatingTitle")}
+                className="h-3.5 w-3/4"
+              />
+            ) : (
+              <div className="min-w-0 truncate select-none text-sm font-medium text-foreground">
+                {displayTitle}
+              </div>
+            )}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Avatar className="h-4 w-4 shrink-0">
+                <AvatarImage src="" alt={recording.ownerEmail} />
+                <AvatarFallback className="bg-primary/15 text-[8px] text-primary">
+                  {ownerInitials}
+                </AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 truncate">{recording.ownerEmail}</span>
+              <span aria-hidden>•</span>
+              <span className="shrink-0">{relative}</span>
+            </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <PrivacyIcon
                 visibility={recording.visibility}
@@ -281,89 +349,130 @@ export function RecordingCard({
               />
               <span className="capitalize">{recording.visibility}</span>
               <span>•</span>
-              <span>
-                {recording.viewCount} view{recording.viewCount === 1 ? "" : "s"}
-              </span>
-              <span>•</span>
-              <span>{relative}</span>
+              {recording.viewCount > 0 && !readOnly ? (
+                <ViewedByPopover
+                  recordingId={recording.id}
+                  className="pointer-events-auto underline-offset-2 hover:underline hover:text-foreground"
+                >
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </ViewedByPopover>
+              ) : (
+                <span>
+                  {t("clipsFinalRaw.viewsCount", {
+                    count: recording.viewCount,
+                  })}
+                </span>
+              )}
             </div>
           </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-              <button
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label="Recording menu"
-              >
-                <IconDots className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <DropdownMenuItem onSelect={() => onShare?.(recording)}>
-                <IconShare className="h-4 w-4 mr-2" /> Share
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onMove?.(recording)}>
-                <IconFolder className="h-4 w-4 mr-2" /> Move to folder
-              </DropdownMenuItem>
-              {onRename ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => onRename(recording)}>
-                    <IconEdit className="h-4 w-4 mr-2" /> Rename
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-              <DropdownMenuSeparator />
-              {recording.archivedAt ? (
-                <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconCheck className="h-4 w-4 mr-2" /> Unarchive
-                </DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem onSelect={() => onArchive?.(recording)}>
-                  <IconArchive className="h-4 w-4 mr-2" /> Archive
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onSelect={() => onTrash?.(recording)}
-                className="text-destructive focus:text-destructive"
-              >
-                <IconTrash className="h-4 w-4 mr-2" /> Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Avatar className="h-5 w-5">
-            <AvatarImage src="" alt={recording.ownerEmail} />
-            <AvatarFallback className="text-[9px] bg-primary/15 text-primary">
-              {ownerInitials}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-xs text-muted-foreground truncate">
-            {recording.ownerEmail}
-          </span>
-          {recording.tags.length > 0 && (
-            <div className="ml-auto flex items-center gap-1 truncate">
-              {recording.tags.slice(0, 2).map((t) => (
-                <span
-                  key={t}
-                  className="rounded-full bg-primary/10 text-primary text-[10px] px-1.5 py-0.5"
+          {showActions && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="pointer-events-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-label={t("clipsFinalRaw.recordingMenu")}
                 >
-                  {t}
-                </span>
-              ))}
-              {recording.tags.length > 2 && (
-                <span className="text-[10px] text-muted-foreground">
-                  +{recording.tags.length - 2}
-                </span>
-              )}
-            </div>
+                  <IconDots className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {onShare && (
+                  <DropdownMenuItem onSelect={() => onShare(recording)}>
+                    <IconShare className="h-4 w-4 me-2" />{" "}
+                    {t("recordingPage.share")}
+                  </DropdownMenuItem>
+                )}
+                {canMove ? (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <IconFolder className="h-4 w-4 me-2" />{" "}
+                      {t("clipsFinalRaw.moveToFolder")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64">
+                      <DropdownMenuItem
+                        disabled={isMovePending}
+                        onSelect={() => {
+                          setTimeout(() => onCreateFolder?.(), 0);
+                        }}
+                      >
+                        <IconFolderPlus className="h-4 w-4 me-2" />
+                        {t("navigation.newFolder")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      {moveTargets.map((target, index) => (
+                        <DropdownMenuItem
+                          key={target.id ?? `root-${index}`}
+                          disabled={target.disabled || isMovePending}
+                          onSelect={() => onMove?.(recording, target.id)}
+                        >
+                          <span
+                            className="truncate"
+                            style={{
+                              paddingInlineStart: (target.depth ?? 0) * 12,
+                            }}
+                          >
+                            {target.name}
+                          </span>
+                          {target.disabled && (
+                            <span className="ms-auto text-xs text-muted-foreground">
+                              {t("clipsFinalRaw.current")}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : null}
+                {(onArchive || onTrash) && <DropdownMenuSeparator />}
+                {onArchive &&
+                  (recording.archivedAt ? (
+                    <DropdownMenuItem onSelect={() => onArchive(recording)}>
+                      <IconCheck className="h-4 w-4 me-2" />{" "}
+                      {t("clipsFinalRaw.unarchive")}
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem onSelect={() => onArchive(recording)}>
+                      <IconArchive className="h-4 w-4 me-2" />{" "}
+                      {t("navigation.archive")}
+                    </DropdownMenuItem>
+                  ))}
+                {onTrash && (
+                  <DropdownMenuItem
+                    onSelect={() => onTrash(recording)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <IconTrash className="h-4 w-4 me-2" />{" "}
+                    {t("folderTree.delete")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
+
+        {recording.tags.length > 0 && (
+          <div className="flex items-center gap-1 truncate">
+            {recording.tags.slice(0, 2).map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-primary/10 text-primary text-[10px] px-1.5 py-0.5"
+              >
+                {t}
+              </span>
+            ))}
+            {recording.tags.length > 2 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{recording.tags.length - 2}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

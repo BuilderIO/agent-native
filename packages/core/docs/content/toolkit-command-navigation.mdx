@@ -1,0 +1,112 @@
+---
+title: "Command & Navigation Kit"
+description: "Command menu, deep links, standard routes, and app shell navigation patterns."
+---
+
+# Command & Navigation Kit
+
+The Command & Navigation Kit makes apps feel consistent under keyboard, sidebar,
+URL, and agent control. It covers the command menu, deep links, standard app
+routes, `navigate` actions, `view-screen`, and shell conventions.
+
+<WireframeBlock id="doc-block-toolkit-command-navigation">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='box-sizing:border-box;padding:10px;display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1.4px solid var(--wf-line)'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>Type a command or search...</span><span class='wf-pill'>Esc</span></div><small class='wf-muted' style='padding:0 6px'>Navigate</small><div style='display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span><div style='flex:1'>Open Q3 Forecast</div></div><div style='display:flex;align-items:center;gap:10px;padding:8px 10px'><span data-icon='settings'></span><div style='flex:1'>Go to Settings: Connections</div><span class='wf-pill'>G S</span></div><small class='wf-muted' style='padding:0 6px'>Actions</small><div style='display:flex;align-items:center;gap:10px;padding:8px 10px'><span data-icon='user'></span><div style='flex:1'>Share current resource</div></div><div style='display:flex;align-items:center;gap:10px;padding:8px 10px'><span data-icon='send'></span><div style='flex:1'>Ask agent about this page</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                      | Purpose                                                                     |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `<CommandMenu>`            | Reusable command palette with docs, changelog, actions, and agent fallback. |
+| `useCommandMenuShortcut()` | Standard keyboard shortcut wiring.                                          |
+| `buildDeepLink()`          | Server helper for action results that open the app focused on a resource.   |
+| `createNavigateAction()`   | Generic agent-callable navigation action factory.                           |
+| `createViewScreenAction()` | Generic current-screen action factory.                                      |
+| Route helpers              | Standard settings, team, resource, and open-route builders.                 |
+| App shell patterns         | Persistent sidebar/header layout and route conventions.                     |
+
+## API {#api}
+
+Client code imports the command menu and route helpers from the client kit:
+
+```tsx
+import {
+  CommandMenu,
+  buildResourceRoute,
+  buildSettingsRoute,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/command-navigation";
+
+const settingsUrl = buildSettingsRoute("connections");
+const documentUrl = buildResourceRoute("documents", documentId);
+```
+
+Action code uses the server-safe kit:
+
+```ts
+import {
+  buildDeepLink,
+  createNavigateAction,
+  createViewScreenAction,
+} from "@agent-native/core/command-navigation";
+
+export const navigate = createNavigateAction();
+export const viewScreen = createViewScreenAction({
+  extraStateKeys: ["selected-resource"],
+});
+
+return {
+  link: {
+    label: "Open dashboard",
+    url: buildDeepLink({
+      app: "analytics",
+      view: "dashboard",
+      params: { dashboardId },
+    }),
+  },
+};
+```
+
+For `/_agent-native/open`, apps can provide a typed route map instead of
+hand-parsing query strings:
+
+```ts
+import { createStandardOpenPathResolver } from "@agent-native/core/navigation";
+
+export const resolveOpenPath = createStandardOpenPathResolver({
+  dashboard: ({ dashboardId }) => `/dashboards/${dashboardId}`,
+  settings: "/settings",
+});
+```
+
+## Route Standard {#route-standard}
+
+Use a small predictable route set:
+
+| Route                       | Purpose                                                                    |
+| --------------------------- | -------------------------------------------------------------------------- |
+| `/`                         | Primary app surface.                                                       |
+| `/settings`                 | Standard settings tabs.                                                    |
+| `/team` or `/settings#team` | Team management.                                                           |
+| Resource routes             | `/documents/:id`, `/dashboards/:id`, or equivalent focused resource pages. |
+
+## UX Standard {#ux-standard}
+
+- Command menu entries should map to real app routes or actions.
+- Deep links carry pointers, not secret payloads.
+- The agent reads `view-screen` before acting on the current page.
+- The app shell should not remount when users navigate between app routes.
+
+## What's next
+
+- [**Routing**](/docs/routing) — the file-route conventions the route standard
+  builds on.
+- [**Context Awareness**](/docs/context-awareness) — how `view-screen` and
+  navigation state stay in sync.
+- [**External Agents**](/docs/external-agents) — deep links and
+  `/_agent-native/open` for hosts outside the app.

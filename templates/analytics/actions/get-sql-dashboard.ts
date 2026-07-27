@@ -5,34 +5,25 @@ import {
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
-import { getDashboard } from "../server/lib/dashboards-store";
+
+import {
+  buildDashboardAgentContext,
+  buildDashboardSeedAgentContext,
+} from "../server/lib/agent-readable-resource-context";
 import { loadDashboardSeed } from "../server/lib/dashboard-seeds";
-
-function seededResponse(
-  id: string,
-  seed: Record<string, unknown>,
-): Record<string, unknown> {
-  return {
-    id,
-    ...seed,
-    ownerEmail: null,
-    orgId: null,
-    visibility: "org",
-    archivedAt: null,
-    hiddenAt: null,
-    hiddenBy: null,
-  };
-}
-
-function isEmptyConfig(config: Record<string, unknown>): boolean {
-  return !Array.isArray(config.panels) || config.panels.length === 0;
-}
+import { getDashboard } from "../server/lib/dashboards-store";
 
 export default defineAction({
   description:
-    "Get a SQL analytics dashboard by ID, including its full panel config, visibility, and access metadata.",
+    "Get a SQL analytics dashboard by ID. By default this returns compact panel summaries and layout/order fields without giant SQL strings; use includeConfig=true only when you need the full dashboard config for a detailed SQL/config edit.",
   schema: z.object({
     id: z.string().describe("The dashboard ID"),
+    includeConfig: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, include the full dashboard config including panel SQL. Defaults to false to keep agent context compact.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -72,30 +63,16 @@ export default defineAction({
     const dash = await getDashboard(args.id, ctx);
     if (!dash || dash.kind !== "sql") {
       const seed = loadDashboardSeed(args.id);
-      if (seed) return seededResponse(args.id, seed);
+      if (seed)
+        return buildDashboardSeedAgentContext(args.id, seed, {
+          includeConfig: args.includeConfig === true,
+        });
       throw Object.assign(new Error("Dashboard not found"), {
         statusCode: 404,
       });
     }
-    const config = dash.config as Record<string, unknown>;
-    if (isEmptyConfig(config)) {
-      const seed = loadDashboardSeed(args.id);
-      if (seed) return seededResponse(args.id, seed);
-    }
-    return {
-      id: args.id,
-      ...config,
-      ownerEmail: dash.ownerEmail,
-      orgId: dash.orgId,
-      visibility: dash.visibility,
-      role: dash.role,
-      canEdit: dash.canEdit,
-      canManage: dash.canManage,
-      archivedAt: dash.archivedAt,
-      hiddenAt: dash.hiddenAt,
-      hiddenBy: dash.hiddenBy,
-      createdAt: dash.createdAt,
-      updatedAt: dash.updatedAt,
-    };
+    return buildDashboardAgentContext(dash, {
+      includeConfig: args.includeConfig === true,
+    });
   },
 });

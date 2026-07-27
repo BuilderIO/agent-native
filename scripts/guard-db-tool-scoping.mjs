@@ -48,10 +48,36 @@ const SKIP_DIRS = new Set([
 // cache pathway. Key format: "<template>:<sql_table_name>".
 const INTENTIONAL_RAW_DB_DENYLIST = {
   "analytics:bigquery_cache": "provider cache, not a user-facing resource",
+  "analytics:first_party_analytics_cache":
+    "internal query cache, accessed through scoped analytics queries",
   "analytics:dashboard_views": "view telemetry, scoped by dashboard/action",
   "brain:brain_ingest_queue": "internal ingestion queue scoped by actions",
+  "brain:brain_audience_members":
+    "internal audience memberships scoped through Brain actions",
+  "brain:brain_audience_dependencies":
+    "internal derived-audience dependencies scoped through Brain actions",
+  "brain:brain_audience_source_dependencies":
+    "internal derived-audience source dependencies scoped through Brain actions",
+  "brain:brain_audiences":
+    "internal audience ACLs scoped through Brain actions",
+  "brain:brain_capture_audiences":
+    "internal capture ACL mappings scoped through Brain actions",
+  "brain:brain_project_sources":
+    "internal project-source mappings scoped through Brain actions",
   "brain:brain_raw_captures": "raw imported content scoped through sources",
+  "brain:brain_search_artifacts":
+    "internal search index scoped through Brain retrieval",
+  "brain:brain_search_bursts":
+    "internal search ranking data scoped through Brain retrieval",
+  "brain:brain_search_corpus_stats":
+    "internal search statistics scoped through Brain retrieval",
+  "brain:brain_search_embeddings":
+    "internal embeddings scoped through Brain retrieval",
+  "brain:brain_sensitivity_events":
+    "internal privacy receipts scoped through Brain actions",
   "brain:brain_sync_runs": "provider sync bookkeeping scoped by sources",
+  "brain:brain_term_stats":
+    "internal search term statistics scoped through Brain retrieval",
   "calendar:booking_slug_redirects": "public redirect helper, no user data",
   "clips:calendar_events": "mirrored calendar rows scoped through accounts",
   "clips:invites": "invite-token rows scoped through workspace actions",
@@ -63,6 +89,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_reactions": "child rows scoped through recordings",
   "clips:recording_tags": "child rows scoped through recordings",
+  "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
   "clips:space_members": "membership join rows scoped through spaces",
   "clips:spaces": "workspace child rows scoped through workspaces",
@@ -71,8 +98,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_assets": "child rows scoped through plans",
   "plan:plan_events": "child rows scoped through plans",
   "plan:plan_guest_mints": "internal guest abuse-mitigation counters",
+  "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
   "forms:responses": "public submissions scoped through forms",
   "assets:asset_folders": "child rows scoped through libraries",
@@ -85,7 +114,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "mail:email_link_tracking": "tracking rows scoped through owning draft/job",
   "slides:deck_share_links": "public share-token rows scoped through decks",
   "slides:slide_comments": "child rows scoped through decks",
-  "videos:folder_memberships": "membership join rows scoped through folders",
 };
 
 async function* walk(dir) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+
 import {
   defineEventHandler,
   getMethod,
@@ -6,14 +7,39 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
-import { readBody } from "../server/h3-helpers.js";
+
+import { getDbExec, isPostgres } from "../db/client.js";
+import { getOrgContext } from "../org/context.js";
+import {
+  resolveKeyReferencesWithRequestScopes,
+  validateUrlAllowlist,
+  getResolvedKeyAllowlist,
+  type ResolvedKeyReference,
+} from "../secrets/substitution.js";
 import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
 } from "../server/request-context.js";
-import { getOrgContext } from "../org/context.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { ForbiddenError, resolveAccess } from "../sharing/access.js";
+import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import { ExtensionContentEditError } from "./content-patch.js";
+import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
+import {
+  getLocalExtension,
+  isLocalExtensionRow,
+  listLocalExtensions,
+  type LocalExtensionRow,
+} from "./local.js";
+import {
+  collectSecretValues,
+  normalizeExtensionProxyMethod,
+  readResponseTextWithLimit,
+  redactSecrets,
+  redactString,
+  sanitizeOutboundHeaders,
+} from "./proxy-security.js";
 import {
   listExtensions,
   getExtension,
@@ -31,28 +57,11 @@ import {
   ensureExtensionsTables,
   type ExtensionRow,
 } from "./store.js";
-import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import { getThemeVars } from "./theme.js";
-import {
-  resolveKeyReferencesWithRequestScopes,
-  validateUrlAllowlist,
-  getResolvedKeyAllowlist,
-  type ResolvedKeyReference,
-} from "../secrets/substitution.js";
-import {
-  collectSecretValues,
-  normalizeExtensionProxyMethod,
-  readResponseTextWithLimit,
-  redactSecrets,
-  redactString,
-  sanitizeOutboundHeaders,
-} from "./proxy-security.js";
 import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
-import { ForbiddenError, resolveAccess } from "../sharing/access.js";
-import type { ShareRole } from "../sharing/schema.js";
 
 export function createExtensionsHandler() {
   return defineEventHandler(async (event: H3Event) => {
@@ -77,7 +86,11 @@ export function createExtensionsHandler() {
     }
 
     const orgCtx = await getOrgContext(event).catch(() => null);
-    const userEmail = session.email;
+    const userEmail = normalizeExtensionUserEmail(session.email);
+    if (!userEmail) {
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
+    }
     const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
 
     try {
@@ -90,9 +103,19 @@ export function createExtensionsHandler() {
         setResponseStatus(event, 403);
         return { error: err.message };
       }
+      if (err instanceof ExtensionContentEditError) {
+        setResponseStatus(event, 400);
+        return { error: err.message, errorCode: err.code };
+      }
       throw err;
     }
   });
+}
+
+const MAX_EXTENSION_DATA_BYTES = 1024 * 1024;
+
+function normalizeExtensionUserEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 async function dispatch(
@@ -152,8 +175,15 @@ async function dispatch(
   if (method === "GET" && parts.length === 0) {
     const includeGloballyHidden =
       event.url?.searchParams?.get("includeGloballyHidden") === "true";
+    const includeContent =
+      event.url?.searchParams?.get("includeContent") === "true";
     const rows = await listExtensions({ includeGloballyHidden });
-    return Promise.all(rows.map((row) => extensionResponse(row)));
+    const localRows = includeGloballyHidden ? [] : await listLocalExtensions();
+    return Promise.all(
+      [...rows, ...localRows].map((row) =>
+        extensionResponse(row, undefined, { includeContent }),
+      ),
+    );
   }
 
   // POST / — create
@@ -170,9 +200,35 @@ async function dispatch(
 
   // GET /:id/render
   if (method === "GET" && parts.length === 2 && parts[1] === "render") {
+    const localExtension = await getLocalExtension(parts[0]);
+    if (localExtension) {
+      const search = event.url?.search || "";
+      const isDark = search.includes("dark=1") || search.includes("dark=true");
+      const themeVars = getThemeVars(isDark);
+      const html = buildExtensionHtml(
+        localExtension.content,
+        themeVars,
+        isDark,
+        parts[0],
+        {
+          authorEmail: localExtension.ownerEmail,
+          viewerEmail: userEmail,
+          isAuthor: false,
+          role: "viewer",
+          source: "local-files",
+          permissions: localExtension.source.permissions,
+        },
+      );
+      setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
+      setResponseHeader(event, "Content-Security-Policy", EXTENSION_IFRAME_CSP);
+      setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+      setResponseHeader(event, "Referrer-Policy", "no-referrer");
+      return html;
+    }
+
     const access = await resolveAccess("extension", parts[0]);
-    const extension = access?.resource;
-    if (!extension) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
@@ -207,6 +263,8 @@ async function dispatch(
 
   // GET /:id/history — list saved snapshots for an extension
   if (method === "GET" && parts.length === 2 && parts[1] === "history") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const limitParam = event.url?.searchParams?.get("limit");
     const limit =
       limitParam === null || limitParam === undefined
@@ -224,6 +282,8 @@ async function dispatch(
 
   // GET /:id/history/:version — fetch one snapshot plus its previous-version diff
   if (method === "GET" && parts.length === 3 && parts[1] === "history") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const detail = await getExtensionHistoryVersion(parts[0], parts[2]);
     if (!detail) {
       setResponseStatus(event, 404);
@@ -239,6 +299,8 @@ async function dispatch(
     parts[1] === "history" &&
     parts[3] === "restore"
   ) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const restored = await restoreExtensionHistoryVersion(parts[0], parts[2]);
     if (!restored) {
       setResponseStatus(event, 404);
@@ -249,17 +311,25 @@ async function dispatch(
 
   // GET /:id
   if (method === "GET" && parts.length === 1) {
+    const localExtension = await getLocalExtension(parts[0]);
+    if (localExtension) {
+      return extensionResponse(localExtension, "viewer");
+    }
+
     const access = await resolveAccess("extension", parts[0]);
-    if (!access) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return extensionResponse(access.resource as ExtensionRow, access.role);
+    return extensionResponse(extension, access.role);
   }
 
   // POST /:id/hide — remove from the current user's Extensions list/sidebar
   // without deleting the underlying extension for teammates or shared slots.
   if (method === "POST" && parts.length === 2 && parts[1] === "hide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await hideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -270,6 +340,8 @@ async function dispatch(
 
   // POST /:id/unhide — restore an extension hidden by the current user.
   if (method === "POST" && parts.length === 2 && parts[1] === "unhide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await unhideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -280,6 +352,8 @@ async function dispatch(
 
   // POST /:id/global-hide — admin/owner hides the extension from EVERYONE.
   if (method === "POST" && parts.length === 2 && parts[1] === "global-hide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await globalHideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -290,6 +364,8 @@ async function dispatch(
 
   // POST /:id/global-unhide — admin/owner reverses a global hide.
   if (method === "POST" && parts.length === 2 && parts[1] === "global-unhide") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await globalUnhideExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
@@ -300,7 +376,19 @@ async function dispatch(
 
   // PUT /:id
   if (method === "PUT" && parts.length === 1) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const body = await readBody(event);
+    if (
+      typeof body.visibility === "string" &&
+      body.visibility.trim().toLowerCase() === "public"
+    ) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Extensions cannot be made public — use private or org visibility instead. No content changes were applied.",
+      };
+    }
     const hasContentUpdate =
       body.content !== undefined ||
       body.patches !== undefined ||
@@ -316,6 +404,9 @@ async function dispatch(
     if (hasContentUpdate) {
       result = await updateExtensionContent(parts[0], {
         content: body.content,
+        allowFullReplacement:
+          body.allowFullReplacement === true ||
+          body.allowFullReplacement === "true",
         patches: body.patches,
         edits: body.edits,
         format: body.format === true || body.format === "true",
@@ -336,12 +427,14 @@ async function dispatch(
 
   // DELETE /:id
   if (method === "DELETE" && parts.length === 1) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
     const ok = await deleteExtension(parts[0]);
     if (!ok) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return { ok: true };
+    return { ok: true, archived: true };
   }
 
   setResponseStatus(event, 404);
@@ -349,22 +442,49 @@ async function dispatch(
 }
 
 async function extensionResponse(
-  row: ExtensionRow,
+  row: ExtensionRow | LocalExtensionRow,
   role?: "owner" | ShareRole | null,
+  options: { includeContent?: boolean } = {},
 ) {
-  const resolvedRole =
-    role ??
-    (await resolveAccess("extension", row.id)
-      .then((access) => access?.role ?? null)
-      .catch(() => null));
+  const local = isLocalExtensionRow(row);
+  const resolvedRole = local
+    ? "viewer"
+    : (role ??
+      (await resolveAccess("extension", row.id)
+        .then((access) => access?.role ?? null)
+        .catch(() => null)));
+  const responseRow =
+    options.includeContent === false
+      ? (({ content: _content, ...rest }) => rest)(row)
+      : row;
   return {
-    ...row,
+    ...responseRow,
     role: resolvedRole,
-    canEdit: resolvedRole
-      ? ["owner", "admin", "editor"].includes(resolvedRole)
-      : false,
-    canDelete: resolvedRole ? ["owner", "admin"].includes(resolvedRole) : false,
+    canEdit: local
+      ? false
+      : resolvedRole
+        ? ["owner", "admin", "editor"].includes(resolvedRole)
+        : false,
+    canDelete: local
+      ? false
+      : resolvedRole
+        ? ["owner", "admin"].includes(resolvedRole)
+        : false,
     globallyHidden: row.hiddenAt != null,
+  };
+}
+
+async function localExtensionSqlOnlyResponse(
+  event: H3Event,
+  extensionId: string,
+): Promise<unknown | null> {
+  const localExtension = await getLocalExtension(extensionId);
+  if (!localExtension) return null;
+  setResponseStatus(event, 400);
+  return {
+    error:
+      "This extension is backed by local files. Edit its extension.json or entry file in the workspace; SQL-backed extension history, sharing, hide, update, and delete operations do not apply.",
+    source: localExtension.source,
   };
 }
 
@@ -375,11 +495,9 @@ async function handleExtensionDataList(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  if (!extension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "viewer");
+  if (!access.ok) return access.response;
+
   const client = getDbExec();
   const url = event.url;
   const limitParam = url?.searchParams?.get("limit");
@@ -410,7 +528,7 @@ async function handleExtensionDataList(
       sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
         FROM tool_data
         WHERE tool_id = ? AND collection = ?
-          AND ((scope = 'user' AND owner_email = ?) OR (scope = 'org' AND org_id = ?))
+          AND ((scope = 'user' AND lower(owner_email) = ?) OR (scope = 'org' AND org_id = ?))
         ORDER BY created_at DESC
         LIMIT ?`,
       args: [extensionId, collection, userEmail, orgId ?? "", limit],
@@ -421,7 +539,7 @@ async function handleExtensionDataList(
   const result = await client.execute({
     sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
       FROM tool_data
-      WHERE tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?
+      WHERE tool_id = ? AND collection = ? AND scope = 'user' AND lower(owner_email) = ?
       ORDER BY updated_at DESC
       LIMIT ?`,
     args: [extensionId, collection, userEmail, limit],
@@ -436,11 +554,9 @@ async function handleExtensionDataUpsert(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  if (!extension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "editor");
+  if (!access.ok) return access.response;
+
   const body = await readBody(event);
   if (body.data === undefined) {
     setResponseStatus(event, 400);
@@ -449,6 +565,14 @@ async function handleExtensionDataUpsert(
   const itemId = String(body.id || randomUUID());
   const data =
     typeof body.data === "string" ? body.data : JSON.stringify(body.data);
+  if (Buffer.byteLength(data, "utf8") > MAX_EXTENSION_DATA_BYTES) {
+    setResponseStatus(event, 413);
+    return {
+      error:
+        "Extension data is too large for SQL storage. Store large files, base64, or blobs in file storage and save only a URL or handle.",
+      maxBytes: MAX_EXTENSION_DATA_BYTES,
+    };
+  }
   const now = new Date().toISOString();
   const scope = body.scope === "org" ? "org" : "user";
   const orgId = getRequestOrgId();
@@ -506,11 +630,9 @@ async function handleExtensionDataDelete(
   userEmail: string,
 ): Promise<unknown> {
   await ensureExtensionsTables();
-  const extension = await getExtension(extensionId);
-  if (!extension) {
-    setResponseStatus(event, 404);
-    return { error: "Extension not found" };
-  }
+  const access = await requireExtensionDataAccess(event, extensionId, "editor");
+  if (!access.ok) return access.response;
+
   const url = event.url;
   const scope = url?.searchParams?.get("scope") || "user";
   const orgId = getRequestOrgId();
@@ -529,10 +651,49 @@ async function handleExtensionDataDelete(
   }
 
   await client.execute({
-    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?`,
+    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND lower(owner_email) = ?`,
     args: [itemId, extensionId, collection, userEmail],
   });
   return { ok: true };
+}
+
+async function requireExtensionDataAccess(
+  event: H3Event,
+  extensionId: string,
+  minRole: ShareRole,
+): Promise<{ ok: true } | { ok: false; response: unknown }> {
+  const access = await resolveAccess("extension", extensionId);
+  if (access?.resource && (access.resource as ExtensionRow).archivedAt) {
+    setResponseStatus(event, 404);
+    return { ok: false, response: { error: "Extension not found" } };
+  }
+  if (access) {
+    if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {
+      setResponseStatus(event, 403);
+      return {
+        ok: false,
+        response: {
+          error: `Requires ${minRole} role on extension ${extensionId} (have ${access.role})`,
+        },
+      };
+    }
+    return { ok: true };
+  }
+
+  const localExtension = await getLocalExtension(extensionId);
+  if (localExtension) {
+    if (!localExtension.source.permissions.extensionData) {
+      setResponseStatus(event, 403);
+      return {
+        ok: false,
+        response: { error: "extensionData is disabled for this extension" },
+      };
+    }
+    return { ok: true };
+  }
+
+  setResponseStatus(event, 404);
+  return { ok: false, response: { error: "Extension not found" } };
 }
 
 async function handleProxy(
@@ -826,7 +987,7 @@ export const DESTRUCTIVE_SQL_RE =
 // integrations, notifications, scheduling, sharing/orgs), and Postgres
 // catalogs that would let a extension enumerate or read internals.
 export const SENSITIVE_SQL_RE =
-  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|settings|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
 // Refuses positional INSERTs (no column list). `INSERT INTO recordings VALUES
 // (...)` would let a extension stuff arbitrary owner_email values into a row.

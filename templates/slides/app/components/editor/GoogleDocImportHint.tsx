@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { agentNativePath, oauthRedirectUri } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { extractGoogleDocUrls } from "@shared/google-docs";
 import {
   IconAlertCircle,
   IconBrandGoogleDrive,
@@ -8,7 +10,7 @@ import {
   IconLoader2,
   IconPlugConnected,
 } from "@tabler/icons-react";
-import { extractGoogleDocUrls } from "@shared/google-docs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 declare global {
   interface Window {
@@ -118,7 +120,7 @@ function buildSourceContext(doc: ImportedGoogleDoc): string {
   const title = doc.title.replace(/"/g, "'");
   return [
     "Imported Google Docs source material:",
-    `<google-doc title="${title}" documentId="${doc.documentId}" source="${doc.source}" charCount="${doc.charCount}" truncated="${doc.truncated}">`,
+    `<google-doc title="${title}" documentId="${doc.documentId}" source="${doc.source}" charCount="${doc.charCount}" truncated="${doc.truncated}">`, // i18n-ignore source-context wrapper, not UI copy
     doc.text,
     "</google-doc>",
     doc.note ?? "",
@@ -131,6 +133,7 @@ export function GoogleDocImportHint({
   promptText,
   onSourceContextChange,
 }: GoogleDocImportHintProps) {
+  const t = useT();
   const googleDocUrl = useMemo(
     () => extractGoogleDocUrls(promptText)[0] ?? "",
     [promptText],
@@ -384,13 +387,12 @@ export function GoogleDocImportHint({
           </p>
           {!configured && (
             <p className="mt-1 text-[11px] text-amber-500">
-              Google OAuth is not configured for this deployment.
+              {t("raw.googleOAuthNotConfigured")}
             </p>
           )}
           {pickerMissing && (
             <p className="mt-1 text-[11px] text-amber-500">
-              Google Picker needs GOOGLE_PICKER_API_KEY and
-              GOOGLE_PICKER_APP_ID.
+              {t("raw.googlePickerNeedsKeys")}
             </p>
           )}
         </div>

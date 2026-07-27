@@ -262,7 +262,33 @@ export function _resetEmbedAuthForTests(): void {
   embedAuthFailure = null;
 }
 
+/**
+ * True when this document runs in an opaque-origin (`origin === "null"`)
+ * browsing context — e.g. a `sandbox="allow-scripts"` iframe without
+ * `allow-same-origin`, which is how MCP App embeds always load (the outer host
+ * iframe's sandbox propagates to nested frames).
+ *
+ * It matters for auth: the embed session cookie is keyed to the real app origin
+ * and is NOT delivered to an opaque context, so a full document reload here
+ * arrives with neither cookie nor — once stripped — URL token, and the server
+ * auth guard serves the sign-in page. In that case the URL token is the only
+ * credential that survives a reload, so it must stay in the URL.
+ */
+function isOpaqueOriginFrame(win: Window): boolean {
+  try {
+    return win.location.origin === "null";
+  } catch {
+    // A thrown access is itself a signal of an opaque/cross-origin context.
+    return true;
+  }
+}
+
 function stripTokenFromUrl(win: Window): void {
+  // Keep the token in the URL for opaque-origin frames — see
+  // isOpaqueOriginFrame. Stripping it there breaks re-auth on any document
+  // reload. Referrer-Policy is set to no-referrer on embed responses, so the
+  // retained token does not leak via the Referer header.
+  if (isOpaqueOriginFrame(win)) return;
   try {
     const url = currentUrl(win);
     if (!url) return;
@@ -309,6 +335,14 @@ function sameOrigin(input: RequestInfo | URL, win: Window): boolean {
   return !!url && !!origin && url.origin === origin;
 }
 
+function isAgentNativeRuntimePath(pathname: string): boolean {
+  return (
+    pathname === "/_agent-native" ||
+    pathname.endsWith("/_agent-native") ||
+    pathname.includes("/_agent-native/")
+  );
+}
+
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return (
     init?.method ??
@@ -328,7 +362,9 @@ function isAuthFailureStatus(status: number): boolean {
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
-  if (url.pathname === "/_agent-native/sign-in") return false;
+  // Suffix, not equality: an app mounted under a base path serves
+  // `/<app>/_agent-native/sign-in`, which the old exact match never matched.
+  if (url.pathname.endsWith("/_agent-native/sign-in")) return false;
   return true;
 }
 
@@ -418,6 +454,18 @@ function withEmbedAuthHeaders(
   token: string,
   win: Window,
 ): [RequestInfo | URL, RequestInit | undefined] {
+  const method = requestMethod(input, init);
+  const url = inputUrl(input, win);
+  if (
+    url &&
+    sameOrigin(input, win) &&
+    GUARDED_METHODS.has(method) &&
+    isAgentNativeRuntimePath(url.pathname)
+  ) {
+    url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+    return [url.toString(), init];
+  }
+
   const headers = new Headers(
     init?.headers ?? (input instanceof Request ? input.headers : undefined),
   );

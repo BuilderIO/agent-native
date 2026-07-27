@@ -7,23 +7,24 @@
  *
  * Actions must export a default function: (args: string[]) => Promise<void>
  *
- * Usage: pnpm action <action-name> [--args]
+ * Usage: pnpm action <action-name> ['{"arg":"value"}'] [--args]
  */
 
-import path from "path";
 import fs from "fs";
+import path from "path";
 import { pathToFileURL } from "url";
-import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
+
+import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
-import { loadEnv } from "./utils.js";
+import { notifyActionChange } from "../server/action-change.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
 import { resolveDevUserEmail } from "./dev-session.js";
-import { notifyActionChange } from "../server/action-change.js";
-import type { ActionEntry } from "../agent/production-agent.js";
+import { loadEnv } from "./utils.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
@@ -59,7 +60,9 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   const actionName = process.argv[2];
 
   if (!actionName || actionName === "--help") {
-    console.log(`Usage: pnpm action <action-name> [--arg value ...]`);
+    console.log(
+      `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
+    );
     console.log(`\nRun any action with --help for usage details.`);
 
     // List local actions (try actions/ first, then scripts/)
@@ -158,7 +161,8 @@ function parseActionArgs(
   args: string[],
   options: { coerceBooleans?: boolean } = {},
 ): Record<string, unknown> {
-  const parsed: Record<string, unknown> = {};
+  const parsed = parsePositionalJsonArg(args);
+  const flagArgs: Record<string, unknown> = {};
   const coerceBooleans = options.coerceBooleans ?? false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -166,22 +170,57 @@ function parseActionArgs(
     const eqIdx = arg.indexOf("=");
     if (eqIdx > 0) {
       setParsedArg(
-        parsed,
+        flagArgs,
         arg.slice(2, eqIdx),
         coerceCliValue(arg.slice(eqIdx + 1), coerceBooleans),
       );
     } else {
       const key = arg.slice(2);
       const next = args[i + 1];
-      if (next && !next.startsWith("--")) {
-        setParsedArg(parsed, key, coerceCliValue(next, coerceBooleans));
+      if (next !== undefined && !next.startsWith("--")) {
+        setParsedArg(flagArgs, key, coerceCliValue(next, coerceBooleans));
         i++;
       } else {
-        setParsedArg(parsed, key, coerceBooleans ? true : "true");
+        setParsedArg(flagArgs, key, coerceBooleans ? true : "true");
       }
     }
   }
-  return parsed;
+  return { ...parsed, ...flagArgs };
+}
+
+function parsePositionalJsonArg(args: string[]): Record<string, unknown> {
+  let jsonArg: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("--")) {
+      if (!arg.includes("=") && args[i + 1] && !args[i + 1].startsWith("--")) {
+        i++;
+      }
+      continue;
+    }
+
+    const trimmed = arg.trim();
+    if (!trimmed.startsWith("{")) continue;
+    if (jsonArg !== undefined) {
+      throw new Error("Only one positional JSON object argument is supported.");
+    }
+    jsonArg = trimmed;
+  }
+
+  if (jsonArg === undefined) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonArg);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid positional JSON argument: ${message}`);
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Positional JSON argument must be a JSON object.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 /**
@@ -190,11 +229,14 @@ function parseActionArgs(
  * resolves `AGENT_USER_EMAIL` / the dev session); we never inject a dev
  * identity here beyond what that wrap already established.
  */
-function cliActionCtx(): import("../action.js").ActionRunContext {
+function cliActionCtx(
+  actionName: string,
+): import("../action.js").ActionRunContext {
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId() ?? null,
     caller: "cli",
+    actionName,
   };
 }
 
@@ -230,7 +272,7 @@ async function dispatchAction(
         typeof handler.run === "function"
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed, cliActionCtx());
+        const result = await handler.run(parsed, cliActionCtx(actionName));
         if (handler.readOnly !== true) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -260,7 +302,7 @@ async function dispatchAction(
       const parsed = parseActionArgs(args, { coerceBooleans: true });
       const result = await packageAction.run(
         parsed as Record<string, string>,
-        cliActionCtx(),
+        cliActionCtx(actionName),
       );
       if (packageAction.readOnly !== true) {
         await notifyActionChange({ actionName }).catch(() => {});

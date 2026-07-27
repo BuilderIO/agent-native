@@ -1,12 +1,13 @@
 /**
- * `agent-native connect <url>` — wire your local Claude Code / Codex / Cowork
+ * `agent-native connect <url>` — wire your local MCP-capable coding agent
  * to a DEPLOYED agent-native app. OAuth-capable clients receive a standard
  * remote MCP URL entry and authenticate in the host. Fallback clients use the
  * browser device-code flow: open the verification URL, approve in the browser,
  * and the minted HTTP MCP server entry is written idempotently.
  *
- *   agent-native connect <url> [--client all|claude-code|claude-code-cli|
- *                               codex|cowork] [--scope user|project]
+ *   agent-native connect <url> [--client all|claude-code|
+ *                               codex|cowork|cursor|opencode|github-copilot]
+ *                               [--scope user|project]
  *                               [--name <serverName>]
  *   agent-native reconnect [<url>] [--client ...] [--name <serverName>]
  *   agent-native connect <url> --token <token>   (no-browser fallback)
@@ -14,11 +15,11 @@
  *   agent-native connect --all  [--client ...]   (separate first-party app MCP resources)
  *
  * Server contract (implemented by another agent on `<url>`):
- *   POST <url>/_agent-native/mcp/connect/device/start  (no auth)
+ *   POST <url>/mcp/connect/device/start  (no auth)
  *     body { client?, app? }
  *     → { device_code, user_code, verification_uri,
  *         verification_uri_complete, interval, expires_in }
- *   POST <url>/_agent-native/mcp/connect/device/poll   (no auth)
+ *   POST <url>/mcp/connect/device/poll   (no auth)
  *     body { device_code }
  *     → { status: "pending" }
  *     | { status: "approved", token, mcpUrl, serverName, mcpServerEntry }
@@ -29,19 +30,25 @@
  * Node-only CLI module. Uses Node built-ins, @clack/prompts, and global fetch.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
-import { spawn } from "node:child_process";
 import path from "node:path";
 
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "../mcp/route-paths.js";
 import { findWorkspaceRoot } from "../mcp/workspace-resolve.js";
 import {
   CLIENTS,
   ClientId,
   configPathFor,
+  jsonMcpConfigKeyForClient,
+  removeSameUrlDuplicatesForClient,
   writeCodexBlock,
   writeHttpEntryForClient,
-  writeJsonMcpEntry,
+  writeJsonMcpEntryForClient,
 } from "./mcp-config-writers.js";
 import {
   isFirstPartyPlanHost,
@@ -49,20 +56,44 @@ import {
 } from "./plan-publish-store.js";
 import { TEMPLATES, visibleTemplates } from "./templates-meta.js";
 
-const DEVICE_START_PATH = "/_agent-native/mcp/connect/device/start";
-const DEVICE_POLL_PATH = "/_agent-native/mcp/connect/device/poll";
-const MCP_PATH = "/_agent-native/mcp";
+const DEVICE_START_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start`;
+const DEVICE_POLL_PATH = `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll`;
+const MCP_PATH = MCP_PUBLIC_ROUTE_PREFIX;
+const LEGACY_MCP_PATH = MCP_LEGACY_ROUTE_PREFIX;
 const SERVER_NAME_PREFIX = "agent-native";
 const CONNECT_PREFERENCES_VERSION = 1;
+
+/**
+ * Maps a normalised hosted MCP URL to the canonical server name for that
+ * first-party app. Kept in sync with BUILT_IN_APP_SKILLS in skills.ts (we
+ * cannot import from there — it imports connect.ts, which would be circular).
+ */
+const CANONICAL_SERVER_NAME_BY_MCP_URL: Readonly<Record<string, string>> = {
+  "https://plan.agent-native.com/mcp": "plan",
+  "https://assets.agent-native.com/mcp": "agent-native-assets",
+  "https://design.agent-native.com/mcp": "agent-native-design",
+  "https://context-xray.agent-native.com/mcp": "agent-native-context-xray",
+};
+const LEGACY_SERVER_NAMES_BY_MCP_URL: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "https://plan.agent-native.com/mcp": [
+    "agent-native-plan",
+    "agent-native-plans",
+    "agent-native-visual-plans",
+  ],
+};
 const CONNECT_PROFILES_VERSION = 1;
 const DEFAULT_DEV_GATEWAY = "http://127.0.0.1:8080";
-const MCP_FULL_CATALOG_HEADER = "X-Agent-Native-MCP-Full-Catalog";
 
 const CLIENT_LABELS: Record<ClientId, string> = {
   "claude-code": "Claude Code",
   "claude-code-cli": "Claude Code CLI",
   codex: "Codex",
   cowork: "Claude Cowork",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  "github-copilot": "GitHub Copilot / VS Code",
 };
 
 const CLIENT_HINTS: Record<ClientId, string> = {
@@ -70,18 +101,27 @@ const CLIENT_HINTS: Record<ClientId, string> = {
   "claude-code-cli": ".mcp.json or ~/.claude.json",
   codex: "$CODEX_HOME/config.toml or ~/.codex/config.toml",
   cowork: "~/.cowork/mcp.json",
+  cursor: ".cursor/mcp.json or ~/.cursor/mcp.json",
+  opencode: "opencode.json or ~/.config/opencode/opencode.json",
+  "github-copilot": ".vscode/mcp.json or VS Code user mcp.json",
 };
 
 const REMOTE_MCP_OAUTH_CLIENTS = new Set<ClientId>([
   "claude-code",
   "claude-code-cli",
+  "cursor",
+  "opencode",
+  "github-copilot",
 ]);
 
+let logOutImpl = (msg: string) => process.stdout.write(`${msg}\n`);
+let logErrImpl = (msg: string) => process.stderr.write(`${msg}\n`);
+
 function logOut(msg: string): void {
-  process.stdout.write(`${msg}\n`);
+  logOutImpl(msg);
 }
 function logErr(msg: string): void {
-  process.stderr.write(`${msg}\n`);
+  logErrImpl(msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +133,7 @@ export interface ParsedConnectArgs {
   mode?: "dev" | "prod" | "reauth" | "reconnect";
   /** Positional URL (the deployed app origin). Undefined for `--all`. */
   url?: string;
-  /** all | claude-code | claude-code-cli | codex | cowork (default "all"). */
+  /** all | claude-code | codex | cowork | cursor | opencode | github-copilot (default "all"). claude-code-cli is accepted as a legacy alias for claude-code. */
   client: string;
   /** True when the user passed --client explicitly, so we skip the picker. */
   clientExplicit: boolean;
@@ -124,9 +164,8 @@ export interface ParsedConnectArgs {
   ownerEmail?: string;
   /**
    * Embed `catalog_scope: "full"` in the minted token so the connected client
-   * bypasses the connector-catalog tier and sees the complete action surface,
-   * identical to the local/dev experience. Matches the `fullCatalog` body
-   * param on the app's token-mint route.
+   * bypasses the connector-catalog tier and sees the complete action surface.
+   * Matches the `fullCatalog` body param on the app's token-mint route.
    */
   fullCatalog?: boolean;
 }
@@ -180,7 +219,9 @@ export function parseConnectArgs(argv: string[]): ParsedConnectArgs {
 export function normalizeUrl(raw: string): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) {
-    throw new Error("Missing app URL. Usage: agent-native connect <url>");
+    throw new Error(
+      "Missing app URL. Usage: npx @agent-native/core@latest connect <url>",
+    );
   }
   let parsed: URL;
   try {
@@ -188,7 +229,7 @@ export function normalizeUrl(raw: string): string {
   } catch {
     throw new Error(
       `Not a valid URL: "${raw}". Pass a full origin, e.g. ` +
-        `agent-native connect https://mail.agent-native.com`,
+        `npx @agent-native/core@latest connect https://mail.agent-native.com`,
     );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -214,10 +255,17 @@ export function normalizeUrl(raw: string): string {
   return base;
 }
 
+// Clients offered in the interactive picker and expanded by "all". Excludes
+// the `claude-code-cli` alias so users only ever see a single "Claude Code"
+// option (it still works if passed explicitly via --client).
+const SELECTABLE_CLIENTS: ClientId[] = CLIENTS.filter(
+  (c) => c !== "claude-code-cli",
+);
+
 /** Resolve the requested clients list. "all" → every supported client. */
 export function resolveClients(client: string): ClientId[] {
-  const c = (client ?? "all").toLowerCase();
-  if (c === "all" || c === "") return [...CLIENTS];
+  const c = normalizeClientAlias(client ?? "all");
+  if (c === "all" || c === "") return [...SELECTABLE_CLIENTS];
   if (c.includes(",")) {
     const clients = normalizeClientIds(c.split(",").map((part) => part.trim()));
     if (clients.length > 0) return clients;
@@ -226,6 +274,23 @@ export function resolveClients(client: string): ClientId[] {
   throw new Error(
     `Unknown --client "${client}". Use: all, ${CLIENTS.join(", ")}`,
   );
+}
+
+function normalizeClientAlias(value: string): string {
+  const id = value.trim().toLowerCase();
+  // The Claude Code CLI and desktop share ~/.claude.json, so they are one
+  // client. `claude-code-cli` stays accepted for back-compat but collapses to
+  // the single "Claude Code" option everywhere it surfaces.
+  if (
+    id === "claude" ||
+    id === "claude-code-desktop" ||
+    id === "claude-code-cli"
+  )
+    return "claude-code";
+  if (id === "copilot" || id === "vscode" || id === "vs-code") {
+    return "github-copilot";
+  }
+  return id;
 }
 
 export function connectPreferencesPath(): string {
@@ -238,7 +303,7 @@ function normalizeClientIds(values: unknown): ClientId[] {
   const out: ClientId[] = [];
   for (const value of values) {
     if (typeof value !== "string") continue;
-    const id = value.toLowerCase();
+    const id = normalizeClientAlias(value);
     if (!(CLIENTS as string[]).includes(id)) continue;
     const client = id as ClientId;
     if (seen.has(client)) continue;
@@ -302,7 +367,7 @@ export interface ConnectHostedAppsPromptContext {
 }
 
 function clientPromptOptions(): ConnectClientPromptContext["options"] {
-  return CLIENTS.map((client) => ({
+  return SELECTABLE_CLIENTS.map((client) => ({
     value: client,
     label: CLIENT_LABELS[client],
     hint: CLIENT_HINTS[client],
@@ -445,10 +510,90 @@ function clientLabelList(clients: ClientId[]): string {
   return clients.map((client) => CLIENT_LABELS[client]).join(", ");
 }
 
-function withFullCatalogHeader(
-  headers: Record<string, string> | undefined,
-): Record<string, string> {
-  return { ...(headers ?? {}), [MCP_FULL_CATALOG_HEADER]: "1" };
+function sentenceClientLabelList(clients: ClientId[]): string {
+  const labels = clients.map((client) => CLIENT_LABELS[client]);
+  if (labels.length <= 1) return labels[0] ?? "";
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
+}
+
+function oauthNextStepsForClients(
+  clients: ClientId[],
+  serverName?: string,
+): string[] {
+  const lines: string[] = [];
+  if (clients.includes("claude-code") || clients.includes("claude-code-cli")) {
+    lines.push(
+      "Claude Code: restart Claude Code, run /mcp, and choose Authenticate.",
+    );
+  }
+  if (clients.includes("cursor")) {
+    lines.push(
+      "Cursor: restart or reload Cursor, then authenticate the MCP server from Cursor MCP settings if prompted.",
+    );
+  }
+  if (clients.includes("opencode")) {
+    lines.push(
+      `OpenCode: run opencode mcp auth ${serverName ?? "<server-name>"} or authenticate on first use.`,
+    );
+  }
+  if (clients.includes("github-copilot")) {
+    lines.push(
+      "GitHub Copilot / VS Code: reload VS Code, open the MCP config, and use the Auth action above the server if prompted.",
+    );
+  }
+  return lines;
+}
+
+function clientsNotIn(
+  requestedClients: ClientId[],
+  effectiveClients: ClientId[],
+): ClientId[] {
+  const effective = new Set(effectiveClients);
+  return requestedClients.filter((client) => !effective.has(client));
+}
+
+function displayMcpServerName(serverName: string | undefined): string {
+  if (!serverName) return "Agent Native MCP";
+  if (serverName === "plan") return "Plan MCP";
+  return `"${serverName}" MCP`;
+}
+
+async function showReconnectSuccessOutro({
+  serverName,
+  clients,
+}: {
+  serverName: string | undefined;
+  clients: ClientId[];
+}): Promise<void> {
+  const lines = [`✅ Reconnected ${displayMcpServerName(serverName)}.`];
+  if (clients.includes("codex")) {
+    lines.push(
+      "Codex: start a new Codex session now; the MCP tools should be available there.",
+    );
+  }
+  const oauthClients = clients.filter((client) =>
+    supportsRemoteMcpOAuth(client),
+  );
+  if (oauthClients.length > 0) {
+    lines.push(...oauthNextStepsForClients(oauthClients, serverName));
+  }
+  if (!clients.includes("codex") && oauthClients.length === 0) {
+    lines.push(
+      `Restart or reload ${sentenceClientLabelList(
+        clients,
+      )} before using the MCP tools.`,
+    );
+  }
+
+  const message = lines.join("\n");
+  try {
+    const clack = await import("@clack/prompts");
+    clack.outro(message);
+  } catch {
+    logOut("");
+    for (const line of lines) logOut(`  ${line}`);
+  }
 }
 
 /** Derive an app slug from a deployed origin, e.g. mail.agent-native.com → mail. */
@@ -463,7 +608,28 @@ function appSlugFromUrl(url: string): string {
 }
 
 function defaultServerName(url: string): string {
+  const canonical = canonicalServerNameForMcpUrl(mcpUrlForBaseUrl(url));
+  if (canonical) return canonical;
   return `${SERVER_NAME_PREFIX}-${appSlugFromUrl(url)}`;
+}
+
+function canonicalServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  return key ? CANONICAL_SERVER_NAME_BY_MCP_URL[key] : undefined;
+}
+
+function reconnectServerNameForMcpUrl(
+  mcpUrl: string | undefined,
+  serverName: string | undefined,
+): string | undefined {
+  const key = canonicalMcpUrl(mcpUrl);
+  if (!key || !serverName) return serverName;
+  const canonical = CANONICAL_SERVER_NAME_BY_MCP_URL[key];
+  if (!canonical || serverName === canonical) return serverName;
+  const legacyNames = LEGACY_SERVER_NAMES_BY_MCP_URL[key] ?? [];
+  return legacyNames.includes(serverName) ? canonical : serverName;
 }
 
 // ---------------------------------------------------------------------------
@@ -527,7 +693,12 @@ export interface ConnectDeps {
   /** Sleep between polls (ms). Defaults to real setTimeout. */
   sleep?: (ms: number) => Promise<void>;
   /** Open the verification URL. Defaults to the platform browser opener. */
-  openBrowser?: (url: string) => void;
+  openBrowser?: (url: string) => void | Promise<void>;
+  /** Optional wrapper for showing progress while the browser opener runs. */
+  withBrowserOpenSpinner?: (
+    message: string,
+    openBrowser: () => void | Promise<void>,
+  ) => void | Promise<void>;
   /** Override "now" for the expiry cap (ms epoch). Defaults to Date.now. */
   now?: () => number;
   /** Tests/embedders can force or suppress the interactive client picker. */
@@ -544,6 +715,9 @@ export interface ConnectDeps {
   preferencesFile?: string;
   /** Override the saved dev/prod profile file. */
   profilesFile?: string;
+  /** Optional output hooks used when another clack-based command embeds connect. */
+  logOut?: (message: string) => void;
+  logErr?: (message: string) => void;
 }
 
 function realSleep(ms: number): Promise<void> {
@@ -589,8 +763,9 @@ function responseMessage(json: any, fallback: string): string {
 function stripMcpPath(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   const pathname = parsed.pathname.replace(/\/+$/, "");
-  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
-    parsed.pathname = pathname.slice(0, -MCP_PATH.length) || "/";
+  const suffix = mcpPathSuffix(pathname);
+  if (suffix) {
+    parsed.pathname = pathname.slice(0, -suffix.length) || "/";
     parsed.search = "";
     parsed.hash = "";
     return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
@@ -601,8 +776,9 @@ function stripMcpPath(baseUrl: string): string {
 function mcpUrlForBaseUrl(baseUrl: string): string {
   const parsed = new URL(baseUrl);
   const pathname = parsed.pathname.replace(/\/+$/, "");
-  if (pathname === MCP_PATH || pathname.endsWith(MCP_PATH)) {
-    parsed.pathname = pathname;
+  const suffix = mcpPathSuffix(pathname);
+  if (suffix) {
+    parsed.pathname = `${pathname.slice(0, -suffix.length)}${MCP_PATH}`;
     parsed.search = "";
     parsed.hash = "";
     return `${parsed.origin}${parsed.pathname}`;
@@ -616,42 +792,51 @@ async function validateOAuthMcpServer(
   deps: ConnectDeps,
 ): Promise<boolean> {
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const sleep = deps.sleep ?? realSleep;
   const metadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  try {
-    const response = await fetchImpl(metadataUrl, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      logErr(
-        `  Could not validate OAuth MCP support at ${metadataUrl} ` +
-          `(HTTP ${response.status}).`,
-      );
-      return false;
+  let lastFailure = "";
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetchImpl(metadataUrl, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        lastFailure = `HTTP ${response.status}`;
+      } else {
+        const metadata = (await response.json().catch(() => null)) as {
+          resource?: unknown;
+        } | null;
+        if (
+          canonicalMcpUrl(String(metadata?.resource ?? "")) !==
+          canonicalMcpUrl(mcpUrl)
+        ) {
+          logErr(
+            `  ${metadataUrl} did not advertise the expected MCP resource ` +
+              `${mcpUrl}.`,
+          );
+          return false;
+        }
+        return true;
+      }
+    } catch (err: any) {
+      lastFailure = err?.message ?? String(err);
+    } finally {
+      clearTimeout(timeout);
     }
-    const metadata = (await response.json().catch(() => null)) as {
-      resource?: unknown;
-    } | null;
-    if (metadata?.resource !== mcpUrl) {
-      logErr(
-        `  ${metadataUrl} did not advertise the expected MCP resource ` +
-          `${mcpUrl}.`,
-      );
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    logErr(
-      `  Could not reach ${metadataUrl} (${err?.message ?? err}). ` +
-        `Check the URL and your network.`,
-    );
-    return false;
-  } finally {
-    clearTimeout(timeout);
+
+    if (attempt === 0) await sleep(500);
   }
+
+  logErr(
+    `  Could not validate OAuth MCP support at ${metadataUrl}` +
+      (lastFailure ? ` (${lastFailure}).` : "."),
+  );
+  return false;
 }
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -678,33 +863,49 @@ export async function runDeviceFlow(
   const open = deps.openBrowser ?? openInBrowser;
   const now = deps.now ?? (() => Date.now());
 
-  let start: DeviceStartResponse;
-  try {
-    const { status, json } = await postJson(
-      fetchImpl,
-      `${baseUrl}${DEVICE_START_PATH}`,
-      {
-        client: clientArg,
-        app: appSlug,
-        ...(options.fullCatalog ? { fullCatalog: true } : {}),
-      },
-    );
-    if (status < 200 || status >= 300 || !json?.device_code) {
+  let start: DeviceStartResponse | null = null;
+  // A cold/propagating Plan instance can briefly 404/5xx before its connect
+  // route is registered (async plugin init). Retry a few times so a recoverable
+  // blip doesn't kill the connect before polling even begins.
+  const START_ATTEMPTS = 4;
+  for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
+    try {
+      const { status, json } = await postJson(
+        fetchImpl,
+        `${baseUrl}${DEVICE_START_PATH}`,
+        {
+          client: clientArg,
+          app: appSlug,
+          ...(options.fullCatalog ? { fullCatalog: true } : {}),
+        },
+      );
+      if (status >= 200 && status < 300 && json?.device_code) {
+        start = json as DeviceStartResponse;
+        break;
+      }
+      if ((status === 404 || status >= 500) && attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
       logErr(
         `  Could not start the connect flow on ${baseUrl} ` +
           `(HTTP ${status}). Is this an agent-native app, and is it ` +
           `deployed with the connect endpoint enabled?`,
       );
       return null;
+    } catch (err: any) {
+      if (attempt < START_ATTEMPTS - 1) {
+        await sleep(1000 * (attempt + 1));
+        continue;
+      }
+      logErr(
+        `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
+          `Check the URL and your network.`,
+      );
+      return null;
     }
-    start = json as DeviceStartResponse;
-  } catch (err: any) {
-    logErr(
-      `  Could not reach ${baseUrl} (${err?.message ?? err}). ` +
-        `Check the URL and your network.`,
-    );
-    return null;
   }
+  if (!start) return null;
 
   const interval = Math.max(1, Number(start.interval) || 5);
   const expiresIn = Math.max(interval, Number(start.expires_in) || 600);
@@ -717,12 +918,26 @@ export async function runDeviceFlow(
   logOut(`  Open:       ${start.verification_uri_complete}`);
   logOut("");
   logOut("  Approve in the browser to finish. Opening it now…");
-  open(start.verification_uri_complete);
+  const openVerificationUrl = () => open(start.verification_uri_complete);
+  if (deps.withBrowserOpenSpinner) {
+    await deps.withBrowserOpenSpinner(
+      "Opening browser for approval",
+      openVerificationUrl,
+    );
+  } else {
+    await openVerificationUrl();
+  }
 
   let spin = 0;
+  let transientStreak = 0;
+  // Ride out brief cold-instance blips, but don't poll a persistently-dead
+  // endpoint forever: give up after this many consecutive transient (404/5xx
+  // or network-error) polls. Reset as soon as one poll responds normally.
+  const MAX_TRANSIENT_POLLS = 20;
   const isTTY = !!process.stdout.isTTY;
   while (now() < deadline) {
     let poll: DevicePollResponse;
+    let transient = false;
     try {
       const { status, json } = await postJson(
         fetchImpl,
@@ -730,23 +945,51 @@ export async function runDeviceFlow(
         { device_code: start.device_code },
       );
       if (status < 200 || status >= 300) {
+        if (isTerminalPollBody(json)) {
+          poll = json as DevicePollResponse;
+        } else if (status === 404 || status >= 500) {
+          // Transient: a cold/propagating Plan instance can briefly serve a
+          // bare 404 (the MCP route isn't registered until async plugin init
+          // settles) or a 5xx before it's healthy. The next poll usually lands
+          // on a warm instance, so keep polling until the deadline instead of
+          // hard-failing the whole connect on a recoverable blip. (This is the
+          // recurring "Cannot find any route matching [POST] .../mcp" case.)
+          poll = { status: "pending" };
+          transient = true;
+        } else {
+          if (isTTY) process.stdout.write("\r\x1b[K");
+          logErr(
+            `  Connect polling failed (HTTP ${status}): ` +
+              responseMessage(json, "server returned an error."),
+          );
+          return null;
+        }
+      } else {
+        poll = (json ?? { status: "pending" }) as DevicePollResponse;
+      }
+    } catch {
+      // Transient network error — keep polling.
+      poll = { status: "pending" };
+      transient = true;
+    }
+
+    if (transient) {
+      if (++transientStreak > MAX_TRANSIENT_POLLS) {
         if (isTTY) process.stdout.write("\r\x1b[K");
         logErr(
-          `  Connect polling failed (HTTP ${status}): ` +
-            responseMessage(json, "server returned an error."),
+          "  Connect endpoint is not responding (repeated 404/5xx). It may be " +
+            "mid-deploy — wait a minute and run the command again.",
         );
         return null;
       }
-      poll = (json ?? { status: "pending" }) as DevicePollResponse;
-    } catch {
-      // Transient network error — keep polling until the deadline.
-      poll = { status: "pending" };
+    } else {
+      transientStreak = 0;
     }
 
     if (poll.status === "approved") {
       if (isTTY) process.stdout.write("\r\x1b[K");
       const token = poll.token ?? "";
-      const mcpUrl = poll.mcpUrl ?? `${baseUrl}/_agent-native/mcp`;
+      const mcpUrl = mcpUrlForBaseUrl(poll.mcpUrl ?? baseUrl);
       const serverName = poll.serverName ?? `${SERVER_NAME_PREFIX}-${appSlug}`;
       const headers =
         poll.mcpServerEntry &&
@@ -756,7 +999,12 @@ export async function runDeviceFlow(
           ? (poll.mcpServerEntry.headers as Record<string, string>)
           : undefined;
       logOut("  Approved.");
-      return { token: token || undefined, mcpUrl, serverName, headers };
+      return {
+        token: token || undefined,
+        mcpUrl,
+        serverName,
+        ...(headers ? { headers } : {}),
+      };
     }
     if (poll.status === "expired") {
       if (isTTY) process.stdout.write("\r\x1b[K");
@@ -793,6 +1041,15 @@ export async function runDeviceFlow(
   if (isTTY) process.stdout.write("\r\x1b[K");
   logErr("  Timed out waiting for approval. Run the command again to retry.");
   return null;
+}
+
+function isTerminalPollBody(json: any): boolean {
+  return (
+    json?.status === "not_found" ||
+    json?.status === "error" ||
+    json?.status === "expired" ||
+    json?.status === "consumed"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -918,12 +1175,13 @@ function setSavedProfileEntry(
 }
 
 function readJsonMcpServerEntry(
+  client: ClientId,
   file: string,
   serverName: string,
 ): Record<string, unknown> | undefined {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    const entry = parsed?.mcpServers?.[serverName];
+    const entry = parsed?.[jsonMcpConfigKeyForClient(client)]?.[serverName];
     return entry && typeof entry === "object" ? entry : undefined;
   } catch {
     return undefined;
@@ -981,7 +1239,7 @@ function readCurrentMcpEntry(
         : undefined,
     };
   }
-  const entry = readJsonMcpServerEntry(file, serverName);
+  const entry = readJsonMcpServerEntry(client, file, serverName);
   return {
     file,
     saved: entry
@@ -1002,7 +1260,7 @@ function writeSavedMcpEntry(
     return;
   }
   if (saved.kind !== "json") return;
-  writeJsonMcpEntry(file, serverName, saved.entry);
+  writeJsonMcpEntryForClient(client, file, serverName, saved.entry);
 }
 
 function unescapeTomlString(value: string): string {
@@ -1043,11 +1301,12 @@ interface ExistingMcpEntry {
 }
 
 function readJsonMcpServerEntries(
+  client: ClientId,
   file: string,
 ): { serverName: string; saved: SavedMcpEntry }[] {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
-    const servers = parsed?.mcpServers;
+    const servers = parsed?.[jsonMcpConfigKeyForClient(client)];
     if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
       return [];
     }
@@ -1123,7 +1382,7 @@ function readExistingMcpEntries(
     const rawEntries =
       client === "codex"
         ? readCodexMcpServerEntries(file)
-        : readJsonMcpServerEntries(file);
+        : readJsonMcpServerEntries(client, file);
     for (const { serverName, saved } of rawEntries) {
       const url = savedEntryUrl(saved);
       if (!url) continue;
@@ -1138,10 +1397,23 @@ function canonicalMcpUrl(value: string | undefined): string | undefined {
   try {
     const url = new URL(value);
     url.hash = "";
+    const pathname = url.pathname.replace(/\/+$/, "");
+    if (pathname === LEGACY_MCP_PATH || pathname.endsWith(LEGACY_MCP_PATH)) {
+      url.pathname = `${pathname.slice(0, -LEGACY_MCP_PATH.length)}${MCP_PATH}`;
+    }
     return url.toString().replace(/\/+$/, "");
   } catch {
     return undefined;
   }
+}
+
+function mcpPathSuffix(pathname: string): string | undefined {
+  const normalized = pathname.replace(/\/+$/, "");
+  if (normalized === LEGACY_MCP_PATH || normalized.endsWith(LEGACY_MCP_PATH)) {
+    return LEGACY_MCP_PATH;
+  }
+  if (normalized === MCP_PATH || normalized.endsWith(MCP_PATH)) return MCP_PATH;
+  return undefined;
 }
 
 function sameMcpUrl(a: string | undefined, b: string | undefined): boolean {
@@ -1155,7 +1427,13 @@ function savedEntryHeaders(
 ): Record<string, string> {
   if (!saved) return {};
   if (saved.kind === "json") {
-    const headers = saved.entry.headers;
+    const headers =
+      saved.entry.headers ??
+      (saved.entry.requestInit &&
+      typeof saved.entry.requestInit === "object" &&
+      !Array.isArray(saved.entry.requestInit)
+        ? (saved.entry.requestInit as Record<string, unknown>).headers
+        : undefined);
     return headers && typeof headers === "object"
       ? Object.fromEntries(
           Object.entries(headers as Record<string, unknown>)
@@ -1293,9 +1571,10 @@ async function devHeadersForApp(params: {
   if (ownerEmail) {
     headers["X-Agent-Native-Owner-Email"] = ownerEmail;
   }
-  return Object.keys(headers).length
-    ? withFullCatalogHeader(headers)
-    : undefined;
+  // Local dev defaults to the compact/connector catalog + tool-search, same as
+  // every other client. The local server still honors AGENT_NATIVE_MCP_FULL_CATALOG=1
+  // for an explicit full-catalog opt-in, so we don't force the header here.
+  return Object.keys(headers).length ? headers : undefined;
 }
 
 function connectableApps(includeHidden = false): ConnectableApp[] {
@@ -1411,7 +1690,7 @@ function devMcpUrl(
   gatewayUrls: Map<string, string>,
 ): string {
   const base = gatewayUrls.get(app.name) ?? `${gatewayUrl}/${app.name}`;
-  return `${base.replace(/\/+$/, "")}/_agent-native/mcp`;
+  return `${base.replace(/\/+$/, "")}${MCP_PATH}`;
 }
 
 function serverNameForApp(app: ConnectableApp): string {
@@ -1551,7 +1830,7 @@ async function connectProdProfile(
       const app = apps.find((candidate) => candidate.name === row.app);
       logOut(
         `    ${row.app.padEnd(12)} ${row.client.padEnd(18)} ` +
-          `run: agent-native connect ${app?.url ?? "<url>"} --client ${row.client}`,
+          `run: npx @agent-native/core@latest connect ${app?.url ?? "<url>"} --client ${row.client}`,
       );
     }
   }
@@ -1567,6 +1846,7 @@ async function connectProdProfile(
 interface ReconnectTarget {
   rawUrl: string;
   serverName?: string;
+  clients?: ClientId[];
 }
 
 function distinctReconnectEntries(
@@ -1583,14 +1863,43 @@ function distinctReconnectEntries(
   return out;
 }
 
-function describeReconnectEntry(entry: ExistingMcpEntry): string {
-  return `${entry.serverName} (${entry.url}) in ${entry.client}`;
+function uniqueClients(entries: ExistingMcpEntry[]): ClientId[] {
+  return [...new Set(entries.map((entry) => entry.client))];
 }
 
-function resolveReconnectTarget(
+function preferredReconnectEntry(
+  url: string,
+  entries: ExistingMcpEntry[],
+): ExistingMcpEntry | undefined {
+  const canonicalName = CANONICAL_SERVER_NAME_BY_MCP_URL[url];
+  return (
+    (canonicalName
+      ? entries.find((entry) => entry.serverName === canonicalName)
+      : undefined) ??
+    entries.find((entry) => !entry.serverName.startsWith("agent-native-")) ??
+    entries[0]
+  );
+}
+
+/**
+ * Return true when `url` is an agent-native MCP endpoint.
+ * Matches either the public `/mcp` path or the legacy `/_agent-native/mcp`
+ * path, regardless of the MCP server's name in the config.
+ */
+function isAgentNativeMcpUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    return Boolean(mcpPathSuffix(new URL(url).pathname));
+  } catch {
+    return false;
+  }
+}
+
+async function resolveReconnectTarget(
   parsed: ParsedConnectArgs,
   clients: ClientId[],
-): ReconnectTarget | null {
+  deps: ConnectDeps,
+): Promise<ReconnectTarget | null> {
   const baseDir = projectBaseDir();
   const scope = parsed.scope === "user" ? "user" : "project";
   const entries = readExistingMcpEntries(clients, baseDir, scope);
@@ -1598,17 +1907,58 @@ function resolveReconnectTarget(
   if (parsed.url) {
     const normalizedUrl = normalizeUrl(parsed.url);
     const mcpUrl = mcpUrlForBaseUrl(normalizedUrl);
-    if (parsed.name) {
-      return { rawUrl: parsed.url, serverName: parsed.name };
-    }
-
     const matches = distinctReconnectEntries(
       entries.filter((entry) => sameMcpUrl(entry.url, mcpUrl)),
     );
-    const names = [...new Set(matches.map((entry) => entry.serverName))];
-    if (names.length === 1) {
-      return { rawUrl: parsed.url, serverName: names[0] };
+
+    if (matches.length === 0) {
+      logErr(`  No existing Agent Native MCP entry found for ${mcpUrl}.`);
+      logErr(
+        "  First-time setup still uses: npx @agent-native/core@latest connect <url> --client <client>",
+      );
+      return null;
     }
+
+    if (parsed.name) {
+      const namedMatches = matches.filter(
+        (entry) => entry.serverName === parsed.name,
+      );
+      if (namedMatches.length === 0) {
+        logErr(
+          `  No existing MCP entry named "${parsed.name}" found for ${mcpUrl}.`,
+        );
+        logErr("  Re-run without --name to use the existing entry name.");
+        return null;
+      }
+      return {
+        rawUrl: parsed.url,
+        serverName: parsed.name,
+        clients: uniqueClients(namedMatches),
+      };
+    }
+
+    const key = canonicalMcpUrl(mcpUrl) ?? mcpUrl;
+    const preferred = preferredReconnectEntry(key, matches);
+    if (preferred) {
+      const names = [...new Set(matches.map((entry) => entry.serverName))];
+      if (names.length > 1) {
+        logOut(
+          `  Found duplicate MCP entries for ${mcpUrl}: ${names.join(", ")}.`,
+        );
+        logOut(
+          `  Reconnecting "${preferred.serverName}" and removing the duplicate names.`,
+        );
+      }
+      return {
+        rawUrl: parsed.url,
+        serverName:
+          reconnectServerNameForMcpUrl(mcpUrl, preferred.serverName) ??
+          preferred.serverName,
+        clients: uniqueClients(matches),
+      };
+    }
+
+    const names = [...new Set(matches.map((entry) => entry.serverName))];
     if (names.length > 1) {
       logErr(
         `  Found multiple MCP entries for ${mcpUrl}: ${names.join(", ")}.`,
@@ -1616,39 +1966,106 @@ function resolveReconnectTarget(
       logErr("  Re-run with --name <serverName> to choose one.");
       return null;
     }
-    return { rawUrl: parsed.url };
+    return {
+      rawUrl: parsed.url,
+      serverName: names[0],
+      clients: uniqueClients(matches),
+    };
   }
 
-  const candidates = distinctReconnectEntries(
+  // No URL provided: scan all configs for agent-native MCP entries by URL
+  // pattern, not by server name prefix. This finds the canonical "plan" entry
+  // (and any other custom-named entries) that the old prefix scan missed.
+  const agentNativeEntries = distinctReconnectEntries(
     parsed.name
       ? entries.filter((entry) => entry.serverName === parsed.name)
-      : entries.filter((entry) =>
-          entry.serverName.startsWith(`${SERVER_NAME_PREFIX}-`),
-        ),
+      : entries.filter((entry) => isAgentNativeMcpUrl(entry.url)),
   );
 
-  if (candidates.length === 0) {
+  // Group by normalised URL so we can detect multi-app situations.
+  const byUrl = new Map<string, ExistingMcpEntry[]>();
+  for (const entry of agentNativeEntries) {
+    const key = canonicalMcpUrl(entry.url) ?? entry.url;
+    const bucket = byUrl.get(key) ?? [];
+    bucket.push(entry);
+    byUrl.set(key, bucket);
+  }
+
+  if (byUrl.size === 0) {
     logErr("  No existing Agent Native MCP entry found to reconnect.");
     logErr(
       "  Pass a URL, or use --name <serverName> if the entry has a custom name.",
     );
     logErr(
-      "  First-time setup still uses: agent-native connect <url> --client <client>",
+      "  First-time setup still uses: npx @agent-native/core@latest connect <url> --client <client>",
     );
     return null;
   }
 
-  if (candidates.length > 1) {
-    logErr("  Found multiple Agent Native MCP entries:");
-    for (const entry of candidates) {
-      logErr(`    ${describeReconnectEntry(entry)}`);
-    }
-    logErr("  Re-run with a URL or --name <serverName>.");
-    return null;
+  if (byUrl.size === 1) {
+    // Exactly one distinct URL: prefer the entry whose serverName matches the
+    // canonical name for this app (e.g. "plan" over "agent-native-plans").
+    // Fall back to any entry whose name doesn't start with "agent-native-"
+    // (short canonical names like "plan"), then bucket[0].
+    const [url, bucket] = [...byUrl.entries()][0];
+    const preferred = preferredReconnectEntry(url, bucket) ?? bucket[0];
+    return {
+      rawUrl: preferred.url,
+      serverName:
+        reconnectServerNameForMcpUrl(preferred.url, preferred.serverName) ??
+        preferred.serverName,
+      clients: uniqueClients(bucket),
+    };
   }
 
-  const [entry] = candidates;
-  return { rawUrl: entry.url, serverName: entry.serverName };
+  // Multiple distinct URLs: pick interactively when TTY, else list with hints.
+  const urlList = [...byUrl.keys()];
+  if (shouldPrompt(deps)) {
+    const clack = await import("@clack/prompts");
+    const result = await clack.select<
+      { value: string; label: string; hint: string }[],
+      string
+    >({
+      message:
+        "Multiple Agent Native apps found. Which one do you want to reconnect?",
+      options: urlList.map((u) => {
+        const representativeEntry = byUrl.get(u)![0];
+        return {
+          value: u,
+          label: representativeEntry.serverName,
+          hint: u,
+        };
+      }),
+    });
+    if (clack.isCancel(result)) {
+      clack.cancel("Cancelled.");
+      return null;
+    }
+    const bucket = byUrl.get(result as string);
+    const chosen = bucket
+      ? (preferredReconnectEntry(result as string, bucket) ?? bucket[0])
+      : undefined;
+    if (!chosen || !bucket) return null;
+    return {
+      rawUrl: chosen.url,
+      serverName:
+        reconnectServerNameForMcpUrl(chosen.url, chosen.serverName) ??
+        chosen.serverName,
+      clients: uniqueClients(bucket),
+    };
+  }
+
+  logErr("  Found multiple Agent Native MCP entries:");
+  for (const [u, bucket] of byUrl) {
+    logErr(`    ${bucket[0].serverName} → ${u}`);
+  }
+  logErr("  Re-run with a URL or --name <serverName>. For example:");
+  for (const u of urlList) {
+    // Strip the MCP path suffix for a cleaner reconnect URL suggestion.
+    const baseUrl = stripMcpPath(u);
+    logErr(`    npx -y @agent-native/core@latest reconnect ${baseUrl}`);
+  }
+  return null;
 }
 
 async function reconnectOne(
@@ -1656,18 +2073,44 @@ async function reconnectOne(
   clients: ClientId[],
   deps: ConnectDeps,
 ): Promise<boolean> {
-  const target = resolveReconnectTarget(parsed, clients);
+  const target = await resolveReconnectTarget(parsed, clients, deps);
   if (!target) return false;
   const effectiveParsed: ParsedConnectArgs = {
     ...parsed,
     url: target.rawUrl,
     name: target.serverName ?? parsed.name,
   };
+  const effectiveClients = target.clients?.length ? target.clients : clients;
   logOut("");
   logOut(
     `  Reconnecting${effectiveParsed.name ? ` "${effectiveParsed.name}"` : ""}...`,
   );
-  const res = await connectOne(target.rawUrl, effectiveParsed, clients, deps);
+  const res = await connectOne(
+    target.rawUrl,
+    effectiveParsed,
+    effectiveClients,
+    deps,
+  );
+  const skippedClients = clientsNotIn(clients, effectiveClients);
+  if (res.ok && skippedClients.length > 0) {
+    const baseUrl = stripMcpPath(normalizeUrl(target.rawUrl));
+    logOut("");
+    logOut(
+      `  Reconnected existing client configs for ${clientLabelList(effectiveClients)}.`,
+    );
+    logOut(
+      `  Did not touch ${clientLabelList(skippedClients)} because no matching MCP entry was found.`,
+    );
+    logOut(
+      `  To add another client, run: npx @agent-native/core@latest connect ${baseUrl} --client CLIENT --scope ${effectiveParsed.scope}`,
+    );
+  }
+  if (res.ok) {
+    await showReconnectSuccessOutro({
+      serverName: res.serverName ?? effectiveParsed.name,
+      clients: effectiveClients,
+    });
+  }
   return res.ok;
 }
 
@@ -1684,10 +2127,10 @@ async function connectOne(
   const scope = parsed.scope === "user" ? "user" : "project";
   const baseDir = projectBaseDir();
   const allWritten: { client: ClientId; file: string }[] = [];
-  const oauthClients = parsed.token
+  let oauthClients = parsed.token
     ? []
     : clients.filter((client) => supportsRemoteMcpOAuth(client));
-  const deviceFlowClients = parsed.token
+  let deviceFlowClients = parsed.token
     ? clients
     : clients.filter((client) => !supportsRemoteMcpOAuth(client));
   const oauthMigrations: ClientId[] = [];
@@ -1719,13 +2162,48 @@ async function connectOne(
     if (!grant) return { ok: false };
     token = grant.token;
     mcpUrl = grant.mcpUrl;
-    serverName = parsed.name ?? grant.serverName ?? defaultServerName(baseUrl);
+    serverName =
+      parsed.name ??
+      reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+      grant.serverName ??
+      defaultServerName(baseUrl);
     headers = grant.headers;
   }
 
   if (oauthClients.length > 0 && !parsed.token) {
     if (!(await validateOAuthMcpServer(baseUrl, mcpUrl, deps))) {
-      return { ok: false };
+      if (parsed.mode !== "reconnect") {
+        return { ok: false };
+      }
+
+      logOut("");
+      logOut(
+        `  OAuth metadata was unavailable; falling back to bearer-token reconnect for ${clientLabelList(
+          oauthClients,
+        )}.`,
+      );
+
+      if (!token) {
+        const grant = await runDeviceFlow(
+          baseUrl,
+          appSlug,
+          clientArgForDeviceFlow(oauthClients),
+          deps,
+          { fullCatalog: parsed.fullCatalog },
+        );
+        if (!grant) return { ok: false };
+        token = grant.token;
+        mcpUrl = grant.mcpUrl;
+        serverName =
+          parsed.name ??
+          reconnectServerNameForMcpUrl(grant.mcpUrl, grant.serverName) ??
+          grant.serverName ??
+          defaultServerName(baseUrl);
+        headers = grant.headers;
+      }
+
+      deviceFlowClients = [...deviceFlowClients, ...oauthClients];
+      oauthClients = [];
     }
   }
 
@@ -1738,7 +2216,7 @@ async function connectOne(
         token,
         scope,
         baseDir,
-        withFullCatalogHeader(headers),
+        headers,
       ),
     );
   }
@@ -1764,6 +2242,26 @@ async function connectOne(
     );
   }
 
+  // After writing the canonical entry, remove any same-URL duplicates (alias
+  // names, legacy default names, stale custom names) from the same config
+  // files so each app has exactly one MCP session.
+  const allRemovedNames: string[] = [];
+  for (const client of clients) {
+    const removed = removeSameUrlDuplicatesForClient(
+      client,
+      serverName,
+      mcpUrl,
+      baseDir,
+      scope,
+    );
+    allRemovedNames.push(...removed);
+  }
+  if (allRemovedNames.length > 0) {
+    logOut(
+      `  Removed duplicate MCP entries: ${[...new Set(allRemovedNames)].join(", ")}`,
+    );
+  }
+
   // Canonical publish-token write: when we have a real minted bearer token for
   // a first-party Plans app, also persist `{ url, token }` to
   // `~/.agent-native/plan-publish.json` so the local Plans server can read the
@@ -1771,12 +2269,11 @@ async function connectOne(
   // ADDITIONAL write alongside the per-client MCP config; Best-effort and
   // merge-not-clobber — never fails the connect.
   //
-  // OAuth clients (claude-code, claude-code-cli) authenticate in-host via
-  // standard MCP OAuth, so they never mint a local bearer token. To still
-  // populate the publish store for them, we run a supplemental device-flow
-  // mint using a non-OAuth client arg so the Plans server gets a usable token
-  // and `publish-visual-plan` doesn't send the user back to `agent-native
-  // connect` right after they just ran it.
+  // OAuth clients authenticate in-host via standard MCP OAuth, so they never
+  // mint a local bearer token. To still populate the publish store for them, we
+  // run a supplemental device-flow mint using a non-OAuth client arg so the
+  // Plans server gets a usable token and `publish-visual-plan` doesn't send the
+  // user back to `agent-native connect` right after they just ran it.
   let publishToken = token;
   if (
     !publishToken &&
@@ -1830,6 +2327,9 @@ async function connectOne(
   for (const w of allWritten) {
     logOut(`    ${w.client.padEnd(18)} ${w.file}`);
   }
+  logOut(
+    `  Auth/config is per client: this command updated ${clientLabelList(clients)} only.`,
+  );
   if (oauthClients.length > 0 && !parsed.token) {
     logOut("");
     if (oauthMigrations.length > 0) {
@@ -1844,10 +2344,19 @@ async function connectOne(
         oauthClients,
       )}: wrote URL-only MCP config (no bearer headers).`,
     );
-    logOut("  Next: restart Claude Code, run /mcp, and choose Authenticate.");
+    for (const line of oauthNextStepsForClients(oauthClients, serverName)) {
+      logOut(`  Next: ${line}`);
+    }
   }
   logOut("");
-  logOut("  Restart your coding agent to pick up the new MCP server.");
+  logOut(
+    `  Restart or reload ${sentenceClientLabelList(clients)} to pick up the new MCP server.`,
+  );
+  if (clients.includes("codex")) {
+    logOut(
+      "  Codex sessions load MCP tools at startup; start a new Codex session if the tools are still missing.",
+    );
+  }
   return { ok: true, serverName, files: allWritten.map((w) => w.file) };
 }
 
@@ -1966,7 +2475,7 @@ export async function runServiceTokenMint(
   if (!parsed.url) {
     logErr("  --service-token requires the app URL.");
     logErr(
-      "  Usage: agent-native connect <url> --service-token <name> [--ttl-days <1-365>]",
+      "  Usage: npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]",
     );
     return false;
   }
@@ -2060,32 +2569,34 @@ export async function runServiceTokenMint(
 // Entry point
 // ---------------------------------------------------------------------------
 
-const HELP = `agent-native connect — wire your coding agent to a deployed app
+const HELP = `npx @agent-native/core@latest connect — wire your coding agent to a deployed app
 
 Usage:
-  agent-native connect [--client <c>] [--scope user|project]
+  npx @agent-native/core@latest connect [--client <c>] [--scope user|project]
       With no URL, opens a picker for the built-in hosted apps
       (mail.agent-native.com, calendar.agent-native.com, and friends).
 
-  agent-native connect <url> [--client <c>] [--scope user|project] [--name <n>]
+  npx @agent-native/core@latest connect <url> [--client <c>] [--scope user|project] [--name <n>]
       Writes the HTTP MCP entry into your selected client config(s). Claude
-      Code / Claude Code CLI use standard remote MCP OAuth: restart Claude,
-      run /mcp, and choose Authenticate. Codex / Cowork use the browser
+      Code, Cursor, OpenCode, and GitHub Copilot / VS Code use standard remote
+      MCP OAuth and get URL-only config. Codex / Cowork use the browser
       device-code fallback: the command prints a code, opens the verification
       URL, polls until approved, then writes bearer headers. With no --client,
       opens a brief picker preselected from ~/.agent-native/connect.json, or
       all clients on first run. Idempotent — re-running replaces the same entry.
-      Re-running over an older Claude bearer entry upgrades it to URL-only
-      OAuth config and prompts you to authenticate with /mcp.
+      Auth is stored per client config/session; restart or reload each selected
+      client before expecting new tools to appear.
+      Re-running over an older OAuth-capable bearer entry upgrades it to
+      URL-only OAuth config and prompts you to authenticate in that host.
 
       For cross-app access, prefer the unified Dispatch gateway:
-      agent-native connect https://dispatch.agent-native.com
+      npx @agent-native/core@latest connect https://dispatch.agent-native.com
 
-  agent-native connect <url> --token <token>
+  npx @agent-native/core@latest connect <url> --token <token>
       No-browser fallback. Skip the device flow and write the entry with
       the supplied token (get it from the app's Connect page).
 
-  agent-native connect <url> --service-token <name> [--ttl-days <1-365>]
+  npx @agent-native/core@latest connect <url> --service-token <name> [--ttl-days <1-365>]
       Mint an ORG service token for CI (e.g. the PLAN_RECAP_TOKEN secret for
       PR Visual Recap). Authenticates you via the browser device flow, then
       mints a token owned by your ORGANIZATION — it keeps working if you
@@ -2093,25 +2604,27 @@ Usage:
       org-visible. Org owner/admin only. Printed once; nothing is written
       to local MCP configs.
 
-  agent-native reconnect [<url>] [--client <c>] [--scope user|project]
-  agent-native connect reconnect [<url>] [--client <c>] [--scope user|project]
+  npx -y @agent-native/core@latest reconnect [<url>] [--client <c>] [--scope user|project]
+  npx -y @agent-native/core@latest connect reconnect [<url>] [--client <c>] [--scope user|project]
       Re-authenticate an existing MCP entry without reinstalling apps/skills.
       With a URL, it reuses the existing server name for that MCP URL when
-      possible. Without a URL, it reconnects the only matching Agent Native
-      entry in the selected client config. Use --name for custom server names.
+      possible, reconnecting only clients that already have that entry. Pass
+      --client to limit which configs it searches; for Codex recovery, prefer
+      --client codex. Without a URL, it reconnects the only matching Agent
+      Native entry in local client configs. Use --name for custom server names.
 
-  agent-native connect --all [--client <c>] [--scope user|project]
+  npx @agent-native/core@latest connect --all [--client <c>] [--scope user|project]
       Connect every first-party hosted app as separate MCP resources.
 
 Developer:
-  agent-native connect dev [--apps mail,calendar] [--client <c>]
+  npx @agent-native/core@latest connect dev [--apps mail,calendar] [--client <c>]
       Switch selected first-party MCP entries to a local dev-lazy gateway.
       Defaults to ${DEFAULT_DEV_GATEWAY}; override with --gateway or --port.
 
-  agent-native connect prod [--apps mail,calendar] [--client <c>]
+  npx @agent-native/core@latest connect prod [--apps mail,calendar] [--client <c>]
       Restore production MCP entries saved before the dev switch.
 
-Clients:  all (default), claude-code, claude-code-cli, codex, cowork
+Clients:  all (default), claude-code, codex, cowork, cursor, opencode, github-copilot
 Scope:    user (default, ~/.claude.json) or project (.mcp.json)`;
 
 /**
@@ -2126,23 +2639,31 @@ export async function runConnect(
   args: string[],
   deps: ConnectDeps = {},
 ): Promise<void> {
-  if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
-    logOut(HELP);
-    return;
-  }
-
-  const parsed = parseConnectArgs(args);
-
+  const previousLogOut = logOutImpl;
+  const previousLogErr = logErrImpl;
+  logOutImpl = deps.logOut ?? previousLogOut;
+  logErrImpl = deps.logErr ?? previousLogErr;
   try {
+    if (args[0] === "--help" || args[0] === "-h" || args[0] === "help") {
+      logOut(HELP);
+      return;
+    }
+
+    const parsed = parseConnectArgs(args);
+
     if (parsed.mode) {
-      const clients = await resolveConnectClients(parsed, deps);
-      if (!clients) return;
-      const ok =
-        parsed.mode === "dev"
-          ? await connectDevProfile(parsed, clients, deps)
-          : parsed.mode === "prod"
-            ? await connectProdProfile(parsed, clients, deps)
-            : await reconnectOne(parsed, clients, deps);
+      let ok: boolean;
+      if (parsed.mode === "reconnect" || parsed.mode === "reauth") {
+        const clients = resolveClients(parsed.client);
+        ok = await reconnectOne(parsed, clients, deps);
+      } else {
+        const clients = await resolveConnectClients(parsed, deps);
+        if (!clients) return;
+        ok =
+          parsed.mode === "dev"
+            ? await connectDevProfile(parsed, clients, deps)
+            : await connectProdProfile(parsed, clients, deps);
+      }
       if (!ok) process.exitCode = 1;
       return;
     }
@@ -2186,5 +2707,8 @@ export async function runConnect(
   } catch (err: any) {
     logErr(`  ${err?.message ?? err}`);
     process.exitCode = 1;
+  } finally {
+    logOutImpl = previousLogOut;
+    logErrImpl = previousLogErr;
   }
 }

@@ -35,12 +35,12 @@ vi.mock("./embed-session.js", () => ({
   requestHasEmbedAuthMarker: (...a: any[]) => requestHasEmbedAuthMarker(...a),
 }));
 
-import { createOpenRouteHandler } from "./open-route.js";
 import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { createOpenRouteHandler } from "./open-route.js";
 
 /** Build a fake H3 event the open route understands. */
 function fakeEvent(url: string, method = "GET") {
@@ -103,6 +103,44 @@ describe("createOpenRouteHandler", () => {
     expect(appStatePut).not.toHaveBeenCalled();
   });
 
+  it("unauthenticated may redirect to an app-allowed public open target without app-state writes", async () => {
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    const handler = createOpenRouteHandler({
+      allowUnauthenticatedOpen: ({ target }) =>
+        target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,
+    });
+
+    const res: Response = await handler(
+      fakeEvent(
+        "/_agent-native/open?app=design&view=editor&to=%2Fdesign%2Fdesign_123%3FeditorView%3Doverview&designId=design_123&editorView=overview",
+      ),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "/design/design_123?editorView=overview&agentSidebar=closed",
+    );
+    expect(appStatePut).not.toHaveBeenCalled();
+  });
+
+  it("unauthenticated still gets login HTML when the app does not allow the resolved open target", async () => {
+    getSession.mockResolvedValue(null);
+    getConfiguredLoginHtml.mockReturnValue("<html>login</html>");
+    const handler = createOpenRouteHandler({
+      allowUnauthenticatedOpen: ({ target }) =>
+        target.split(/[?#]/, 1)[0]?.startsWith("/design/") ?? false,
+    });
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?app=design&view=editor"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<html>login</html>");
+    expect(appStatePut).not.toHaveBeenCalled();
+  });
+
   it("rejects non-GET methods with 405", async () => {
     getSession.mockResolvedValue({ email: "user@example.com" });
     const handler = createOpenRouteHandler();
@@ -148,6 +186,18 @@ describe("createOpenRouteHandler", () => {
     // %01 is a control character (Start of Heading).
     const res: Response = await handler(
       fakeEvent("/_agent-native/open?to=%2Ffoo%01bar"),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/?agentSidebar=closed");
+  });
+
+  it("open-redirect guard rejects an auth entry path as `to` so a deep link cannot land on a login form", async () => {
+    getSession.mockResolvedValue({ email: "user@example.com" });
+    const handler = createOpenRouteHandler();
+
+    const res: Response = await handler(
+      fakeEvent("/_agent-native/open?to=%2F_agent-native%2Fsign-in"),
     );
 
     expect(res.status).toBe(302);

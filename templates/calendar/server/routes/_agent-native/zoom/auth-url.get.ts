@@ -1,3 +1,9 @@
+import {
+  getSession,
+  resolveOAuthRedirectUri,
+  encodeOAuthState,
+  isElectron,
+} from "@agent-native/core/server";
 /**
  * Start the Zoom OAuth flow.
  *
@@ -11,12 +17,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import {
-  getSession,
-  resolveOAuthRedirectUri,
-  encodeOAuthState,
-  isElectron,
-} from "@agent-native/core/server";
+
 import { getZoomAuthUrl, isZoomConfigured } from "../../../lib/zoom.js";
 
 const OAUTH_STATE_APP_ID = process.env.APP_NAME || "calendar";

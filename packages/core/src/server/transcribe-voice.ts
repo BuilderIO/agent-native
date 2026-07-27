@@ -20,21 +20,29 @@
 import {
   defineEventHandler,
   getMethod,
-  getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "./auth.js";
+
+import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import { appStateGet } from "../application-state/store.js";
+import { getOrgContext } from "../org/context.js";
+import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
+import {
+  applyVoiceContextReplacements,
+  buildVoiceGuidanceBlock,
+  parseVoiceContextPack,
+  voiceContextTermsOnly,
+  type VoiceContextPack,
+} from "../voice/index.js";
+import { getSession } from "./auth.js";
 import {
   resolveHasBuilderPrivateKey,
   resolveSecret,
 } from "./credential-provider.js";
-import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getOrgContext } from "../org/context.js";
-import { createBuilderEngine } from "../agent/engine/builder-engine.js";
+import { isSameOriginRequest } from "./request-origin.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -43,9 +51,16 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "whisper-1";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_CLEANUP_MODEL = "gpt-5.4-mini";
+const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024; // Whisper hard limit.
-const MAX_TRANSCRIPT_CHARS = 40_000;
+// Hard cap for the dictation-cleanup text path (`sanitizeTranscriptText`
+// below). This endpoint has no `task` field — it's always the Hold-Fn
+// dictation cleanup pass — but a long session (many minutes across
+// multiple pause-triggered final segments) can still exceed a tight cap.
+// 150k gives real headroom for a long dictation session while still
+// bounding worst-case request size; truncation (when it does happen) keeps
+// both ends of the text instead of silently dropping the tail.
+const MAX_TRANSCRIPT_CHARS = 150_000;
 // Public Builder transcription model id. The Builder gateway maps this to
 // Gemini 3.1 Flash-Lite.
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
@@ -61,52 +76,36 @@ const GEMINI_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**
- * Reject cross-site POSTs. Cookies are `SameSite=None; Secure` over HTTPS so
- * the browser would otherwise attach the session to a forged form submission
- * from evil.com, causing us to spend OpenAI credits on the user's behalf.
- * Same-origin browsers always send `Origin` on POST; if it's missing we fall
- * back to `Sec-Fetch-Site` so Safari's fetch-spec behavior still works.
+ * Derive an AbortSignal that fires when the client disconnects mid-request
+ * (e.g. the desktop client's own 8s ceiling firing before a provider call's
+ * longer timeout). Without this, an abandoned client connection leaves the
+ * server-side provider fetch running for its full timeout, burning provider
+ * quota/cost on a response nobody will read. `req.on("close", ...)` fires on
+ * abnormal/early disconnect in Node's http server; a stray fire after normal
+ * completion is a harmless no-op since the response has already been sent.
+ * Returns undefined if the underlying Node request isn't available (e.g. a
+ * non-Node adapter), so callers fall back to their existing timeout-only
+ * signal.
  */
-function isSameOriginRequest(event: H3Event): boolean {
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
-  if (origin && host) {
-    try {
-      const parsed = new URL(origin);
-      if (parsed.host === host) return true;
-      // Tauri desktop dev serves the tray WebView from localhost:1420 while
-      // the app server lives on the template dev port. Production Tauri
-      // WebViews can also send a tauri://localhost origin. Treat only those
-      // desktop origins as trusted cross-origin callers; arbitrary websites
-      // still fail the CSRF check.
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
-      if (
-        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-        parsed.hostname === "tauri.localhost" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      if (
-        parsed.protocol === "http:" &&
-        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
-        parsed.port === "1420" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-  const fetchSite = getRequestHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
-  // No Origin and no Sec-Fetch-Site: likely a non-browser client (curl,
-  // server-side) — safe to allow, CSRF requires a browser with ambient cookies.
-  return true;
+function clientDisconnectSignal(event: H3Event): AbortSignal | undefined {
+  const req = event.node?.req as
+    | (NodeJS.EventEmitter & { on?: (...args: any[]) => void })
+    | undefined;
+  if (!req?.on) return undefined;
+  const controller = new AbortController();
+  req.on("close", () => controller.abort());
+  return controller.signal;
+}
+
+/** Combine a provider call's own timeout signal with the request's optional
+ * client-disconnect signal so either one aborts the upstream fetch. */
+function withClientAbort(
+  timeoutSignal: AbortSignal,
+  clientAbortSignal?: AbortSignal,
+): AbortSignal {
+  return clientAbortSignal
+    ? AbortSignal.any([timeoutSignal, clientAbortSignal])
+    : timeoutSignal;
 }
 
 export function createTranscribeVoiceHandler() {
@@ -119,6 +118,12 @@ export function createTranscribeVoiceHandler() {
       setResponseStatus(event, 403);
       return { error: "Cross-origin request rejected" };
     }
+
+    // One client-disconnect signal per request, threaded into every
+    // provider-fetch AbortController below via AbortSignal.any so a client
+    // giving up early aborts the same upstream fetch instead of leaving it
+    // running for its full timeout.
+    const clientAbort = clientDisconnectSignal(event);
 
     const parts = await readMultipartFormData(event).catch(() => null);
     const audio = parts?.find((p) => p.name === "audio");
@@ -145,6 +150,20 @@ export function createTranscribeVoiceHandler() {
           Buffer.from(instructionsPart.data).toString("utf8"),
         )
       : undefined;
+    const voiceContextPart = parts?.find(
+      (p) => p.name === "voiceContext" || p.name === "contextPack",
+    );
+    const voiceContext = voiceContextPart?.data
+      ? parseVoiceContextPack(
+          Buffer.from(voiceContextPart.data).toString("utf8"),
+        )
+      : undefined;
+    const voiceGuidance = buildVoiceGuidanceBlock({
+      instructions,
+      contextPack: voiceContextTermsOnly(voiceContext),
+    });
+    const applyVoiceContext = (value: string) =>
+      applyVoiceContextReplacements(value, voiceContext).trim();
 
     // Resolve provider preference. Per-request "provider" form field takes
     // precedence (the desktop client sends it on every dictation press),
@@ -219,7 +238,7 @@ export function createTranscribeVoiceHandler() {
     // does not want audio uploaded to any external provider. The client
     // shouldn't hit this endpoint when "browser" is selected; this is a
     // defense-in-depth refusal.
-    if (providerPref === "browser") {
+    if (providerPref === "browser" && !transcriptText) {
       setResponseStatus(event, 400);
       return {
         error:
@@ -237,11 +256,13 @@ export function createTranscribeVoiceHandler() {
       return await cleanupTranscriptText({
         event,
         text: transcriptText,
-        instructions,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
         providerPref,
         hasBuilderPrivateKey,
         withRequestContext,
         resolveApiKey,
+        clientAbortSignal: clientAbort,
       });
     }
 
@@ -281,9 +302,10 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           apiKey: geminiKey,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
+          clientAbortSignal: clientAbort,
         });
-        const trimmed = text.trim();
+        const trimmed = applyVoiceContext(text);
         if (!trimmed) {
           setResponseStatus(event, 502);
           return { error: "Gemini returned an empty transcript." };
@@ -317,9 +339,9 @@ export function createTranscribeVoiceHandler() {
               ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
               : undefined,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
         });
-        return { text: (result.text ?? "").trim() };
+        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
         const message = (err as Error)?.message ?? String(err);
         if (message.includes("credits exhausted")) {
@@ -351,7 +373,9 @@ export function createTranscribeVoiceHandler() {
         audioBytes,
         mime,
         language,
-        instructions,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
+        clientAbortSignal: clientAbort,
       });
     }
 
@@ -367,9 +391,9 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
         });
-        return { text: (result.text ?? "").trim() };
+        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
         const message = (err as Error)?.message ?? String(err);
         // Surface 402 (credits exhausted) as a 402 so the client can show
@@ -394,9 +418,10 @@ export function createTranscribeVoiceHandler() {
             mimeType: mime,
             apiKey: geminiKey,
             language: language || undefined,
-            instructions,
+            instructions: voiceGuidance,
+            clientAbortSignal: clientAbort,
           });
-          const trimmed = text.trim();
+          const trimmed = applyVoiceContext(text);
           if (trimmed) {
             console.log(`[transcribe-voice] Gemini → ${trimmed.length} chars`);
             return { text: trimmed };
@@ -464,7 +489,9 @@ export function createTranscribeVoiceHandler() {
       audioBytes,
       mime,
       language,
-      instructions,
+      instructions: voiceGuidance,
+      contextPack: voiceContext,
+      clientAbortSignal: clientAbort,
     });
   });
 }
@@ -483,6 +510,8 @@ async function callWhisperCompat({
   mime,
   language,
   instructions,
+  contextPack,
+  clientAbortSignal,
 }: {
   event: H3Event;
   provider: {
@@ -495,6 +524,8 @@ async function callWhisperCompat({
   mime: string;
   language?: string;
   instructions?: string;
+  contextPack?: VoiceContextPack;
+  clientAbortSignal?: AbortSignal;
 }): Promise<{ text: string } | { error: string }> {
   const ext = pickExtension(mime);
   const filename = `composer-voice.${ext}`;
@@ -517,7 +548,7 @@ async function callWhisperCompat({
       method: "POST",
       headers: { Authorization: `Bearer ${provider.apiKey}` },
       body: form,
-      signal: controller.signal,
+      signal: withClientAbort(controller.signal, clientAbortSignal),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
@@ -530,7 +561,12 @@ async function callWhisperCompat({
       };
     }
     const data = (await res.json()) as { text?: string };
-    return { text: (data.text ?? "").trim() };
+    return {
+      text: applyVoiceContextReplacements(
+        (data.text ?? "").trim(),
+        contextPack,
+      ).trim(),
+    };
   } catch (err) {
     setResponseStatus(event, 502);
     return {
@@ -548,24 +584,30 @@ async function cleanupTranscriptText({
   event,
   text,
   instructions,
+  contextPack,
   providerPref,
   hasBuilderPrivateKey,
   withRequestContext,
   resolveApiKey,
+  clientAbortSignal,
 }: {
   event: H3Event;
   text: string;
   instructions?: string;
+  contextPack?: VoiceContextPack;
   providerPref?: string;
   hasBuilderPrivateKey: () => Promise<boolean>;
   withRequestContext: <T>(fn: () => Promise<T>) => Promise<T>;
   resolveApiKey: (key: string) => Promise<string | undefined>;
+  clientAbortSignal?: AbortSignal;
 }): Promise<{ text: string } | { error: string }> {
   const original = text.trim();
   if (!original) return { text: "" };
+  const finalizeText = (value: string) =>
+    applyVoiceContextReplacements(value || original, contextPack).trim();
 
   if (providerPref === "browser") {
-    return { text: original };
+    return { text: finalizeText(original) };
   }
 
   if (providerPref === "builder" || providerPref === "builder-gemini") {
@@ -578,9 +620,9 @@ async function cleanupTranscriptText({
     }
     try {
       const cleaned = await withRequestContext(() =>
-        cleanupWithBuilder({ text: original, instructions }),
+        cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),
       );
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -603,8 +645,9 @@ async function cleanupTranscriptText({
         text: original,
         apiKey: geminiKey,
         instructions,
+        clientAbortSignal,
       });
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -629,8 +672,9 @@ async function cleanupTranscriptText({
         text: original,
         apiKey,
         instructions,
+        clientAbortSignal,
       });
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -642,9 +686,9 @@ async function cleanupTranscriptText({
   if (await hasBuilderPrivateKey()) {
     try {
       const cleaned = await withRequestContext(() =>
-        cleanupWithBuilder({ text: original, instructions }),
+        cleanupWithBuilder({ text: original, instructions, clientAbortSignal }),
       );
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through to BYOK providers, then raw text.
     }
@@ -657,8 +701,9 @@ async function cleanupTranscriptText({
         text: original,
         apiKey: geminiKey,
         instructions,
+        clientAbortSignal,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
@@ -672,8 +717,9 @@ async function cleanupTranscriptText({
         text: original,
         apiKey: groqKey,
         instructions,
+        clientAbortSignal,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
@@ -687,22 +733,25 @@ async function cleanupTranscriptText({
         text: original,
         apiKey: openaiKey,
         instructions,
+        clientAbortSignal,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
   }
 
-  return { text: original };
+  return { text: finalizeText(original) };
 }
 
 async function cleanupWithBuilder({
   text,
   instructions,
+  clientAbortSignal,
 }: {
   text: string;
   instructions?: string;
+  clientAbortSignal?: AbortSignal;
 }): Promise<string> {
   const engine = createBuilderEngine();
   const controller = new AbortController();
@@ -721,7 +770,7 @@ async function cleanupWithBuilder({
         },
       ],
       tools: [],
-      abortSignal: controller.signal,
+      abortSignal: withClientAbort(controller.signal, clientAbortSignal),
       maxOutputTokens: Math.min(4096, Math.max(512, text.length * 2)),
       temperature: 0,
     })) {
@@ -748,10 +797,12 @@ async function cleanupWithGemini({
   text,
   apiKey,
   instructions,
+  clientAbortSignal,
 }: {
   text: string;
   apiKey: string;
   instructions?: string;
+  clientAbortSignal?: AbortSignal;
 }): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
@@ -773,7 +824,7 @@ async function cleanupWithGemini({
         ],
         generationConfig: { temperature: 0 },
       }),
-      signal: controller.signal,
+      signal: withClientAbort(controller.signal, clientAbortSignal),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -799,11 +850,13 @@ async function cleanupWithChatProvider({
   text,
   apiKey,
   instructions,
+  clientAbortSignal,
 }: {
   provider: "openai" | "groq";
   text: string;
   apiKey: string;
   instructions?: string;
+  clientAbortSignal?: AbortSignal;
 }): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8_000);
@@ -825,7 +878,7 @@ async function cleanupWithChatProvider({
         ],
         temperature: 0,
       }),
-      signal: controller.signal,
+      signal: withClientAbort(controller.signal, clientAbortSignal),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -860,7 +913,23 @@ function sanitizeInstructions(value: string): string | undefined {
 function sanitizeTranscriptText(value: string): string | undefined {
   const trimmed = value.replace(/\0/g, "").trim();
   if (!trimmed) return undefined;
-  return trimmed.slice(0, MAX_TRANSCRIPT_CHARS);
+  if (trimmed.length <= MAX_TRANSCRIPT_CHARS) return trimmed;
+  // Truncate the middle rather than the tail — losing the end of a long
+  // dictation silently (previous behavior) is worse than losing the middle,
+  // since users notice a cut-off ending immediately but rarely proofread
+  // the entire cleaned output against the original.
+  console.warn(
+    `[transcribe-voice] transcript truncated: ${trimmed.length} chars exceeds ${MAX_TRANSCRIPT_CHARS} cap`,
+  );
+  const marker = "\n[... transcript truncated ...]\n";
+  const keepChars = MAX_TRANSCRIPT_CHARS - marker.length;
+  const headChars = Math.floor((keepChars * 2) / 3);
+  const tailChars = keepChars - headChars;
+  return (
+    trimmed.slice(0, headChars) +
+    marker +
+    trimmed.slice(trimmed.length - tailChars)
+  );
 }
 
 function buildCleanupSystemPrompt(instructions?: string): string {
@@ -923,12 +992,14 @@ async function transcribeWithGemini({
   apiKey,
   language,
   instructions,
+  clientAbortSignal,
 }: {
   audioBytes: Uint8Array;
   mimeType: string;
   apiKey: string;
   language?: string;
   instructions?: string;
+  clientAbortSignal?: AbortSignal;
 }): Promise<string> {
   const base64 = uint8ArrayToBase64(audioBytes);
   const prompt = buildGeminiTranscriptionPrompt({ language, instructions });
@@ -960,7 +1031,7 @@ async function transcribeWithGemini({
         // creative reinterpretation.
         generationConfig: { temperature: 0 },
       }),
-      signal: controller.signal,
+      signal: withClientAbort(controller.signal, clientAbortSignal),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");

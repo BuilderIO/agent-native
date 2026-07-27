@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { BlockAttrReader } from "@agent-native/core/blocks/server";
+import { describe, expect, it } from "vitest";
+
 import {
   dataModelMdx,
   dataModelSchema,

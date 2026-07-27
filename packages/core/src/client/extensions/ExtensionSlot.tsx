@@ -1,20 +1,23 @@
-import { agentNativePath } from "../api-path.js";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPlus } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+
+import { sendToAgentChat } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { sendToAgentChat } from "../agent-chat.js";
-import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
+import { EmbeddedExtension } from "./EmbeddedExtension.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface SlotInstall {
   installId: string;
@@ -46,6 +49,8 @@ export interface ExtensionSlotProps {
   className?: string;
   /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
+  /** Fires once when the slot query and all installed extensions are ready. */
+  onReady?: () => void;
 }
 
 /**
@@ -67,8 +72,12 @@ export function ExtensionSlot({
   showEmptyAffordance,
   className,
   toolClassName,
+  onReady,
 }: ExtensionSlotProps) {
-  const { data: installs = [], isLoading } = useQuery<SlotInstall[]>({
+  const t = useT();
+  const readyInstallIds = useRef(new Set<string>());
+  const readyNotified = useRef(false);
+  const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
     queryFn: async () => {
       const res = await fetch(
@@ -76,13 +85,56 @@ export function ExtensionSlot({
           `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok)
+        throw new Error(`Failed to load slot installs (${res.status})`);
       return res.json();
     },
   });
+  const installs = installsQuery.data ?? [];
 
-  if (isLoading) {
+  useEffect(() => {
+    readyInstallIds.current.clear();
+    readyNotified.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (readyNotified.current || installsQuery.isLoading) return;
+    if (
+      installsQuery.isError ||
+      installs.length === 0 ||
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+
+  const markInstallReady = (installId: string) => {
+    readyInstallIds.current.add(installId);
+    if (
+      !readyNotified.current &&
+      !installsQuery.isLoading &&
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  };
+
+  if (installsQuery.isLoading) {
     return null;
+  }
+
+  if (installsQuery.isError) {
+    return (
+      <ExtensionQueryErrorState
+        compact
+        className={className}
+        message={t("extensions.widgetsLoadError")}
+        onRetry={() => void installsQuery.refetch()}
+        retrying={installsQuery.isFetching}
+      />
+    );
   }
 
   if (installs.length === 0) {
@@ -103,6 +155,8 @@ export function ExtensionSlot({
           slotId={id}
           context={context}
           className={toolClassName}
+          onReady={() => markInstallReady(install.installId)}
+          onUnavailable={() => markInstallReady(install.installId)}
         />
       ))}
     </div>
@@ -110,8 +164,9 @@ export function ExtensionSlot({
 }
 
 function SlotEmptyAffordance({ slotId }: { slotId: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const { data: available = [], isLoading } = useQuery<AvailableTool[]>({
+  const availableQuery = useQuery<AvailableTool[]>({
     queryKey: ["slot-available", slotId],
     queryFn: async () => {
       const res = await fetch(
@@ -119,11 +174,14 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load available extensions (${res.status})`);
+      }
       return res.json();
     },
     enabled: open,
   });
+  const available = availableQuery.data ?? [];
   const queryClient = useQueryClient();
 
   const install = async (extensionId: string) => {
@@ -167,12 +225,12 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
   const requestNew = () => {
     setOpen(false);
     sendToAgentChat({
-      message: `Create a new widget that fits in slot "${slotId}". I'll describe what it should do next.`,
+      message: t("extensions.createWidgetPrompt", { slotId }),
       submit: false,
       openSidebar: true,
     });
   };
-  const slotDescription = describeSlot(slotId);
+  const slotDescription = describeSlot(slotId, t);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -187,11 +245,11 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
                 <div className="h-5 w-5 rounded-md border border-dashed border-border/40 flex items-center justify-center shrink-0">
                   <IconPlus className="h-3 w-3" />
                 </div>
-                <span>Add widget</span>
+                <span>{t("extensions.addWidget")}</span>
               </button>
             </PopoverTrigger>
           </TooltipTrigger>
-          <TooltipContent>Add a widget</TooltipContent>
+          <TooltipContent>{t("extensions.addWidget")}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
       <PopoverContent
@@ -207,16 +265,26 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           </p>
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
-          {isLoading && (
+          {availableQuery.isLoading && (
             <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
-              Loading…
+              {t("extensions.loading")}
             </div>
           )}
-          {!isLoading && available.length === 0 && (
-            <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
-              No widgets available for this slot yet.
-            </div>
+          {availableQuery.isError && (
+            <ExtensionQueryErrorState
+              compact
+              message={t("extensions.widgetsLoadError")}
+              onRetry={() => void availableQuery.refetch()}
+              retrying={availableQuery.isFetching}
+            />
           )}
+          {!availableQuery.isLoading &&
+            !availableQuery.isError &&
+            available.length === 0 && (
+              <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
+                {t("extensions.noWidgetsAvailable")}
+              </div>
+            )}
           {available.map((extension) => (
             <button
               key={extension.extensionId}
@@ -244,7 +312,7 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
           >
             <IconPlus className="h-3.5 w-3.5" />
-            <span>Build a new widget</span>
+            <span>{t("extensions.buildNewWidget")}</span>
           </button>
         </div>
       </PopoverContent>
@@ -252,17 +320,26 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
   );
 }
 
-function describeSlot(slotId: string): { title: string; description: string } {
+function describeSlot(
+  slotId: string,
+  t: ReturnType<typeof useT>,
+): { title: string; description: string } {
   if (slotId === "mail.contact-sidebar.bottom") {
     return {
-      title: "Contact sidebar widget",
-      description:
-        "Appears beside the current conversation with contact and thread context.",
+      title: t("extensions.contactSidebarWidget"),
+      description: t("extensions.contactSidebarDescription"),
+    };
+  }
+
+  if (slotId === "calendar.event-detail.bottom") {
+    return {
+      title: t("extensions.eventDetailWidget"),
+      description: t("extensions.eventDetailDescription"),
     };
   }
 
   return {
-    title: "Add widget here",
+    title: t("extensions.addWidgetHere"),
     description: slotId,
   };
 }

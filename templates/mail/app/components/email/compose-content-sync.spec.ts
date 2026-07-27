@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   shouldApplyComposeContent,
   COMPOSE_TYPING_GRACE_MS,

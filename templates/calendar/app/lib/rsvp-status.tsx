@@ -1,11 +1,12 @@
+import type { CalendarEvent } from "@shared/api";
 import {
   IconCheck,
   IconCircleX,
   IconClock,
   IconHelpCircle,
 } from "@tabler/icons-react";
+
 import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@shared/api";
 
 export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
 
@@ -25,6 +26,12 @@ export function getRsvpStatusLabel(status?: string) {
     default:
       return undefined;
   }
+}
+
+export function canInlineRsvp(
+  event: Pick<CalendarEvent, "source" | "overlayEmail">,
+): boolean {
+  return event.source === "google" && !event.overlayEmail;
 }
 
 export function RsvpStatusIcon({

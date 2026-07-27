@@ -1,19 +1,38 @@
-import { Link, NavLink, useLocation } from "react-router";
-import ThemeToggle from "./ThemeToggle";
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconMessage } from "@tabler/icons-react";
-import { FeedbackButton } from "@agent-native/core/client";
+import { useState, useEffect, lazy, Suspense } from "react";
+import { Link, NavLink, useLocation } from "react-router";
+
+import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
+import DocsLanguagePicker from "./DocsLanguagePicker";
+import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
+import ThemeToggle from "./ThemeToggle";
+
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
 );
 
-function SearchTrigger({ onClick }: { onClick: () => void }) {
+const feedbackTriggerClassName =
+  "h-8 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-3 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+
+function SearchTrigger({
+  onClick,
+  label,
+  placeholder,
+}: {
+  onClick: () => void;
+  label: string;
+  placeholder: string;
+}) {
   return (
     <button
       onClick={onClick}
-      aria-label="Search docs"
-      className="flex items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)]"
+      aria-label={label}
+      className="flex shrink-0 items-center gap-2 rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-2 py-1.5 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] sm:px-3"
     >
       <svg
         width="14"
@@ -28,7 +47,7 @@ function SearchTrigger({ onClick }: { onClick: () => void }) {
         <circle cx="11" cy="11" r="8" />
         <line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
-      <span className="hidden sm:inline">Search docs...</span>
+      <span className="hidden sm:inline">{placeholder}</span>
       <kbd className="hidden rounded border border-[var(--docs-border)] px-1.5 py-0.5 text-[10px] sm:inline-block">
         ⌘K
       </kbd>
@@ -100,8 +119,13 @@ function useSearchModal() {
 export default function Header() {
   const { open, setOpen, everOpened, openModal } = useSearchModal();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const isHome = useLocation().pathname === "/";
+  const location = useLocation();
+  const { locale } = useLocale();
+  const isHome =
+    sitePathForLocale(location.pathname, DEFAULT_DOCS_LOCALE) === "/";
   const [scrolled, setScrolled] = useState(false);
+  const t = useT();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   useEffect(() => {
     if (!isHome) return;
@@ -132,28 +156,54 @@ export default function Header() {
   const showHeaderBg = !isHome || scrolled;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const feedbackLabel = t("feedback.label");
+  const feedbackPlaceholder = t("feedback.placeholder");
 
   return (
     <>
       <header
         className={`sticky top-0 z-50 transition-[background-color,border-color,backdrop-filter] duration-300 ${showHeaderBg ? "border-b border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg" : "border-b border-transparent bg-transparent"}`}
       >
-        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-6 px-6">
+        <nav className="mx-auto flex h-16 w-full max-w-[1600px] items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <Link
             data-an-prefetch="render"
-            to="/"
+            to={localizedPath("/")}
             aria-label="Agent-Native"
-            className="flex shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
+            className="flex min-w-0 shrink-0 items-center gap-2 text-[var(--fg)] no-underline"
           >
+            <img
+              src="/agent-native-icon-light.svg"
+              alt=""
+              className="block h-6 w-6 min-[380px]:hidden dark:hidden"
+              aria-hidden="true"
+              loading="lazy"
+              decoding="async"
+            />
+            <img
+              src="/agent-native-icon-dark.svg"
+              alt=""
+              className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
+              aria-hidden="true"
+              loading="lazy"
+              decoding="async"
+            />
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
-              className="block h-[1.155rem] w-auto dark:hidden"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+              loading="lazy"
+              decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
-              className="hidden h-[1.155rem] w-auto dark:block"
+              width={1023}
+              height={120}
+              className="hidden aspect-[1023/120] h-[1.155rem] w-auto min-[380px]:dark:block"
+              loading="lazy"
+              decoding="async"
             />
           </Link>
 
@@ -161,39 +211,21 @@ export default function Header() {
           <div className="hidden lg:flex items-center gap-5 text-sm">
             <NavLink
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
             >
-              Docs
+              {t("header.docs")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/templates"
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
             >
-              Templates
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/skills"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              Skills
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/download"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              Download
+              {t("header.templates")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
@@ -202,7 +234,7 @@ export default function Header() {
               className="header-link"
             >
               GitHub
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
@@ -213,28 +245,52 @@ export default function Header() {
               className="header-link"
             >
               Discord
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
-              variant="outlined"
-              className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              url={DOCS_FEEDBACK_URL}
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} hidden lg:flex`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="end"
               side="bottom"
             />
-            <SearchTrigger onClick={openModal} />
-            <ThemeToggle />
+            <div className="hidden lg:block">
+              <SearchTrigger
+                onClick={openModal}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+            </div>
+            <div className="hidden shrink-0 items-center lg:flex">
+              <DocsLanguagePicker />
+            </div>
+            <div className="hidden lg:block">
+              <DocsLanguageSuggestion />
+            </div>
+            <div className="hidden lg:block">
+              <ThemeToggle />
+            </div>
             <button
               onClick={() =>
                 window.dispatchEvent(new Event("agent-panel:toggle"))
               }
-              aria-label="Ask the AI assistant"
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
-              title="Ask the AI assistant"
+              aria-label={t("header.askAssistant")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              title={t("header.askAssistant")}
             >
               <IconMessage size={16} stroke={1.5} />
             </button>
@@ -242,8 +298,8 @@ export default function Header() {
             {/* Mobile hamburger */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden flex items-center justify-center w-8 h-8 text-[var(--fg-secondary)] hover:text-[var(--fg)] transition"
-              aria-label="Toggle navigation menu"
+              className="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)] lg:hidden"
+              aria-label={t("header.toggleNavigation")}
               aria-expanded={mobileMenuOpen}
             >
               {mobileMenuOpen ? <CloseIcon /> : <HamburgerIcon />}
@@ -254,45 +310,37 @@ export default function Header() {
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden border-t border-[var(--docs-border)] bg-[var(--header-bg)] backdrop-blur-lg px-6 py-4 flex flex-col gap-4">
+            <div className="flex items-center gap-2">
+              <SearchTrigger
+                onClick={() => {
+                  closeMobileMenu();
+                  openModal();
+                }}
+                label={t("header.searchAria")}
+                placeholder={t("header.searchPlaceholder")}
+              />
+              <DocsLanguagePicker />
+              <ThemeToggle />
+            </div>
             <NavLink
               data-an-prefetch="render"
-              to="/docs"
+              to={localizedPath("/docs")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
               onClick={closeMobileMenu}
             >
-              Docs
+              {t("header.docs")}
             </NavLink>
             <NavLink
               data-an-prefetch="render"
-              to="/templates"
+              to={localizedPath("/apps")}
               className={({ isActive }) =>
                 isActive ? "header-link is-active" : "header-link"
               }
               onClick={closeMobileMenu}
             >
-              Templates
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/skills"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              Skills
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to="/download"
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              Download
+              {t("header.templates")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
@@ -301,7 +349,7 @@ export default function Header() {
               className="header-link"
             >
               GitHub
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
@@ -312,13 +360,23 @@ export default function Header() {
               className="header-link"
             >
               Discord
-              <span className="text-[0.6em] align-super ml-0.5 opacity-70">
+              <span className="text-[0.6em] align-super ms-0.5 opacity-70">
                 ↗
               </span>
             </a>
             <FeedbackButton
-              variant="outlined"
-              className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              url={DOCS_FEEDBACK_URL}
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} inline-flex self-start`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="start"
               side="bottom"
             />

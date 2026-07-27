@@ -10,7 +10,10 @@ export default createCollabPlugin({
   contentColumn: "config",
   idColumn: "id",
   autoSeed: true,
-  resourceType: "dashboard",
-  resolveResourceId: (docId) =>
-    docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
+  access: {
+    mode: "resource",
+    resourceType: "dashboard",
+    resolveResourceId: (docId) =>
+      docId.startsWith("dash-") ? docId.slice("dash-".length) : docId,
+  },
 });

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import action from "./upload-image.js";
 
 afterEach(() => vi.restoreAllMocks());

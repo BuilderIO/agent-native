@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
 import { writeAppState } from "@agent-native/core/application-state";
-import { unarchiveEmail } from "../server/lib/email-state.js";
+import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+
+import { unarchiveEmail } from "../server/lib/email-state.js";
 
 export default defineAction({
   description: "Restore one or more archived emails back to the inbox.",

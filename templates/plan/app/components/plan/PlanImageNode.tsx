@@ -1,21 +1,24 @@
-import { useRef, type ChangeEvent } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import { SharedImage } from "@agent-native/toolkit/editor";
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { SharedImage, uploadEditorImage } from "@agent-native/core/client";
+import { useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
+
 import { PlanImageViewer } from "./PlanImageViewer";
 
 /**
- * The plan editor's image node. It extends the shared core `SharedImage` node —
+ * The plan editor's image node. It extends the shared Toolkit `SharedImage` node —
  * inheriting its byte-stable GFM `![alt](src)` serializer and the paste / drop /
  * `/image` upload plugin — and adds a React node view so editor images get the
  * same hover zoom button, lightbox, and three-dots menu (swap / download / copy)
  * as the read-only reader and structured image blocks.
  *
- * Plans inject this via `extraExtensions` with `features.image` off, so the core
+ * Plans inject this via `extraExtensions` with `features.image` off, so the shared
  * default image node never coexists with it. Content keeps its own richer image
  * node and is unaffected.
  */
@@ -25,25 +28,26 @@ function PlanImageNodeView({
   updateAttributes,
   selected,
 }: NodeViewProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const src = (node.attrs.src as string) || "";
   const alt = (node.attrs.alt as string) || "";
   const uploading = Boolean(node.attrs.uploadId);
-  const isEditable = editor.isEditable;
+  const isEditable = editor.options.editable !== false;
 
   async function handleReplaceFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file) return;
 
-    const toastId = toast.loading("Replacing image…");
+    const toastId = toast.loading(t("raw.document.replacingImage"));
     try {
       const { src: nextSrc, alt: nextAlt } = await uploadEditorImage(file);
       updateAttributes({ src: nextSrc, alt: nextAlt ?? alt });
-      toast.success("Image replaced.", { id: toastId });
+      toast.success(t("raw.document.imageReplaced"), { id: toastId });
     } catch (error) {
       console.error("Image replace failed:", error);
-      toast.error("Could not replace the image.", { id: toastId });
+      toast.error(t("raw.document.replaceImageFailed"), { id: toastId });
     }
   }
 

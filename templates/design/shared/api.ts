@@ -15,6 +15,33 @@ import type {
   BrandKitDefaults,
 } from "@agent-native/core/brand-kit";
 
+export type {
+  DesignBridgeCapability,
+  DesignBridgeOperation,
+  DesignBridgeOperationStatus,
+  DesignBridgeRequest,
+  DesignBridgeResponse,
+  DesignSourceDescriptor,
+  DesignSourceType,
+  FlowCanvasArtboard,
+  FlowCanvasEdge,
+  FlowCanvasSnapshotRef,
+  FusionDesignSource,
+  InlineDesignSource,
+  LocalhostDesignConnectionConfig,
+  LocalhostDesignRoute,
+  LocalhostDesignRouteManifest,
+  LocalhostDesignSource,
+} from "./source-mode";
+export {
+  DESIGN_BRIDGE_OPERATIONS,
+  DESIGN_SOURCE_TYPES,
+  isDesignSourceType,
+  makeLocalhostRouteId,
+  normalizeDesignSourceType,
+  titleFromRoutePath,
+} from "./source-mode";
+
 export interface DesignSystemData extends BrandKitData {
   spacing: { pagePadding: string; elementGap: string };
   defaults: BrandKitDefaults;
@@ -54,6 +81,8 @@ export interface TweakDefinition {
   step?: number;
   defaultValue: string | number | boolean;
   cssVar?: string;
+  /** CSS unit to append when resolving a numeric slider value, e.g. "px" or "rem". When omitted, "px" is inferred for vars whose name contains "radius" and no unit is added for others. */
+  unit?: string;
 }
 
 // --- Question Flow ---

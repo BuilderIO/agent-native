@@ -1,3 +1,11 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconEye,
+  IconUser,
+  IconPercentage,
+  IconTarget,
+} from "@tabler/icons-react";
 import {
   LineChart,
   Line,
@@ -7,14 +15,12 @@ import {
   Tooltip as ReTooltip,
   CartesianGrid,
 } from "recharts";
+
 import {
-  IconEye,
-  IconUser,
-  IconPercentage,
-  IconTarget,
-} from "@tabler/icons-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useActionQuery } from "@agent-native/core/client";
+  ViewerAvatar,
+  viewerLabel,
+} from "@/components/player/recording-views-badge";
+import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 
 export interface InsightsPanelProps {
   recordingId: string;
@@ -36,6 +42,7 @@ interface Insights {
 }
 
 export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
+  const t = useT();
   const q = useActionQuery<Insights>("get-recording-insights", { recordingId });
   const vq = useActionQuery<{ viewers: Insights["topViewers"] }>(
     "list-viewers",
@@ -44,7 +51,9 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
 
   if (q.isLoading) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">Loading insights…</div>
+      <div className="p-4 text-sm text-muted-foreground">
+        {t("recordingInsights.loading")}
+      </div>
     );
   }
   const data = q.data;
@@ -52,38 +61,50 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
 
   if (!data) {
     return (
-      <div className="p-4 text-sm text-muted-foreground">No data yet.</div>
+      <div className="p-4 text-sm text-muted-foreground">
+        {t("recordingInsights.noData")}
+      </div>
     );
   }
 
   return (
     <div className="p-4 space-y-6">
       <div className="grid grid-cols-2 gap-3">
-        <Stat
-          icon={<IconEye className="h-4 w-4" />}
-          label="Views"
-          value={data.views}
-        />
+        {data.views > 0 ? (
+          <ViewedByPopover recordingId={recordingId} className="w-full">
+            <Stat
+              icon={<IconEye className="h-4 w-4" />}
+              label={t("recordingInsights.views")}
+              value={data.views}
+            />
+          </ViewedByPopover>
+        ) : (
+          <Stat
+            icon={<IconEye className="h-4 w-4" />}
+            label={t("recordingInsights.views")}
+            value={data.views}
+          />
+        )}
         <Stat
           icon={<IconUser className="h-4 w-4" />}
-          label="Unique viewers"
+          label={t("recordingInsights.uniqueViewers")}
           value={data.uniqueViewers}
         />
         <Stat
           icon={<IconPercentage className="h-4 w-4" />}
-          label="Completion"
+          label={t("recordingInsights.completion")}
           value={`${Math.round(data.completionRate)}%`}
         />
         <Stat
           icon={<IconTarget className="h-4 w-4" />}
-          label="CTA conversion"
+          label={t("recordingInsights.ctaConversion")}
           value={`${Math.round(data.ctaConversionRate)}%`}
         />
       </div>
 
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Drop-off
+          {t("recordingInsights.dropOff")}
         </div>
         <div className="h-40 rounded-lg border border-border bg-card p-3">
           <ResponsiveContainer width="100%" height="100%">
@@ -101,7 +122,10 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
               />
               <YAxis stroke="#6b7280" fontSize={10} />
               <ReTooltip
-                formatter={(v) => [`${v} viewers`, "Watching"]}
+                formatter={(v) => [
+                  t("recordingInsights.viewersCount", { count: Number(v) }),
+                  t("recordingInsights.watching"),
+                ]}
                 labelFormatter={(b) =>
                   msCompact(((b as number) / 100) * durationMs)
                 }
@@ -120,27 +144,24 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
 
       <div>
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-          Recent viewers
+          {t("recordingInsights.recentViewers")}
         </div>
         {viewers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No viewers yet.</p>
+          <p className="text-sm text-muted-foreground">
+            {t("recordingInsights.noViewers")}
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {viewers.slice(0, 12).map((v, i) => (
               <div
                 key={i}
-                className="flex items-center gap-2 rounded-full border border-border bg-card pr-3 pl-0.5 py-0.5"
-                title={v.viewerEmail ?? "Anonymous"}
+                className="flex items-center gap-2 rounded-full border border-border bg-card pe-3 ps-0.5 py-0.5"
+                title={v.viewerEmail ?? t("recordingInsights.anonymous")}
               >
-                <Avatar className="h-6 w-6">
-                  <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
-                    {initials(v.viewerName || v.viewerEmail || "?")}
-                  </AvatarFallback>
-                </Avatar>
+                <ViewerAvatar viewer={v} />
                 <span className="text-xs">
-                  {v.viewerName ||
-                    (v.viewerEmail ? v.viewerEmail.split("@")[0] : "Anon")}
-                  <span className="text-muted-foreground ml-1">
+                  {viewerLabel(v, t("recordingInsights.anonymous"))}
+                  <span className="text-muted-foreground ms-1">
                     {Math.round(v.completedPct)}%
                   </span>
                 </span>
@@ -148,7 +169,9 @@ export function InsightsPanel({ recordingId, durationMs }: InsightsPanelProps) {
             ))}
             {viewers.length > 12 ? (
               <span className="text-xs text-muted-foreground self-center">
-                +{viewers.length - 12} more
+                {t("recordingInsights.moreViewers", {
+                  count: viewers.length - 12,
+                })}
               </span>
             ) : null}
           </div>
@@ -178,14 +201,6 @@ function Stat({
       </div>
     </div>
   );
-}
-
-function initials(s: string): string {
-  return s
-    .split(/\s+|@/)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function msCompact(ms: number): string {

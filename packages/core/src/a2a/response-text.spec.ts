@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { collectFinalResponseTextFromAgentEvents } from "./response-text.js";
+
 import type { AgentChatEvent } from "../agent/types.js";
+import { collectFinalResponseTextFromAgentEvents } from "./response-text.js";
 
 describe("collectFinalResponseTextFromAgentEvents", () => {
   it("returns all text when no tools ran", () => {
@@ -72,5 +73,31 @@ describe("collectFinalResponseTextFromAgentEvents", () => {
         fallbackToPreToolText: false,
       }),
     ).toBe("");
+  });
+
+  it("drops rejected guarded text before the latest clear", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "Draft with fake data." },
+      { type: "clear" },
+      { type: "text", text: "Corrected answer." },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe(
+      "Corrected answer.",
+    );
+  });
+
+  it("does not fall back to pre-clear text after a rejected post-tool draft", () => {
+    const events: AgentChatEvent[] = [
+      { type: "text", text: "I will check analytics." },
+      { type: "tool_start", tool: "call-agent", input: {} },
+      { type: "tool_done", tool: "call-agent", result: "queued" },
+      { type: "text", text: "Rejected draft." },
+      { type: "clear" },
+      { type: "done" },
+    ];
+
+    expect(collectFinalResponseTextFromAgentEvents(events)).toBe("");
   });
 });

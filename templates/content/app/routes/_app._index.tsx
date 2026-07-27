@@ -1,17 +1,28 @@
+import type { Document } from "@shared/api";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+
 import { EmptyState } from "@/components/EmptyState";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
+const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
+const SEO_DESCRIPTION =
+  "Open Source MDX editor for local docs, knowledge bases, and content systems, with custom blocks and agent-assisted editing.";
+
 export function meta() {
   return [
-    { title: "Agent-Native Content" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 
@@ -36,13 +47,19 @@ function DocumentSkeleton() {
 
 export default function IndexRoute() {
   const navigate = useNavigate();
-  const { data: documents, isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const documents: Document[] = documentsQuery.data ?? [];
+  const isLoading = documentsQuery.isLoading;
 
   // Auto-select the first favorite, or the first document if no favorites
   useEffect(() => {
     if (documents && documents.length > 0) {
-      const firstFavorite = documents.find((d) => d.isFavorite);
-      const target = firstFavorite ?? documents[0];
+      const openableDocuments = documents.filter(
+        (document) => document.source?.kind !== "folder",
+      );
+      const firstFavorite = openableDocuments.find((d) => d.isFavorite);
+      const target = firstFavorite ?? openableDocuments[0];
+      if (!target) return;
       navigate(`/page/${target.id}`, { replace: true });
     }
   }, [documents, navigate]);
@@ -51,5 +68,14 @@ export default function IndexRoute() {
   // show a skeleton instead of the "no page selected" empty state.
   const showSkeleton = isLoading || (documents && documents.length > 0);
 
-  return showSkeleton ? <DocumentSkeleton /> : <EmptyState />;
+  if (showSkeleton) return <DocumentSkeleton />;
+  if (documentsQuery.isError) {
+    return (
+      <QueryErrorState
+        onRetry={() => void documentsQuery.refetch()}
+        retrying={documentsQuery.isFetching}
+      />
+    );
+  }
+  return <EmptyState />;
 }

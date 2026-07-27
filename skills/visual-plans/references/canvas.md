@@ -17,13 +17,25 @@ desktop frames plus compact `mobile`, `popover`, or `panel` surfaces, do not put
 everything in one horizontal strip. Use board-level artboard `x`/`y` to reserve
 lanes with generous empty space: main flow on one row, compact surfaces in their
 own column or row, and loading/error states in a lower row. Keep at least 96px
-between rendered artboard rectangles plus room for annotation gutters. Connect
-only neighboring steps; never draw a long connector that skips across unrelated
-frames. Before handoff, inspect the top canvas at default zoom and move any
-frame whose label, connector, or annotation crosses another frame.
+between rendered artboard rectangles plus room for annotation gutters; when a
+broad browser/desktop frame sits beside a compact panel/popover, leave at least
+160px so frame borders, labels, and hover controls never touch. Connect only
+neighboring steps; never draw a long connector that skips across unrelated
+frames. Connector labels must sit in open canvas space. If the label would touch
+or cross either artboard, remove the label and explain the transition with a
+nearby annotation instead. Before handoff, inspect the top canvas at default zoom
+and move any frame whose label, connector, or annotation crosses another frame.
+
+**Board-unit spacing defaults.** The canvas coordinate system uses approximately 2 board units per screen pixel. `browser` frames occupy roughly 700 × 600 board units; `desktop` frames roughly 900 × 700 board units. Apply these minimum x/y gaps when placing frames explicitly — any less and frames will touch or overlap:
+
+- x-gap between `browser` frames: **≥ 1100** (700-unit frame + 400-unit gutter)
+- x-gap between `desktop` frames: **≥ 1300** (900-unit frame + 400-unit gutter)
+- y-gap between rows of any surface: **≥ 1400** (includes frame height + section header + buffer)
+
+When in doubt, use larger values — the canvas auto-zooms to fit everything.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
-present, sprinkle Figma-style notes near the frames they explain: a short
+present, sprinkle design-review notes near the frames they explain: a short
 heading, supporting text, and bullets — plain text layers, never bordered or
 shadowed cards, and never a box around a frame. The renderer spaces notes away
 from frames, so place each note by the frame it describes. Use an arrow only to
@@ -54,6 +66,11 @@ the canonical runtime shape; MDX is the repo-friendly authoring/export surface.
 In the browser, humans edit `rich-text` prose inline; agents should still use
 `update-rich-text` content patches or source patches for prose, and use
 comments/structured patches for canvas, artboard, wireframe, and diagram edits.
+Never send a partial top-level `content` object as a shortcut to add a canvas,
+frame, or block: `content` is a full structured replacement, so omitted blocks
+or surfaces can disappear. If a full replacement is truly unavoidable, read the
+complete source/JSON first, include every existing block and surface in the new
+payload, and verify the source/export immediately after the update.
 
 **Never emit a titled artboard with no interior wireframe content.** Every artboard
 you place on the canvas must carry an `html` wireframe or reference a wireframe
@@ -81,11 +98,30 @@ requested UI fidelity, still keep the closest top-surface representation and
 call out or extend the needed renderer capability. A skeleton/loading mockup
 also lives in a canvas artboard — never move a mockup out of the canvas.
 
+**Storyboards are canvas artifacts, not document diagrams.** When the requested
+output is a product flow, onboarding journey, "light storyboard", or canvas
+wireframe, author the flow as multiple top-canvas artboards with real screen
+content and neighboring connectors. Keep document-body `diagram` blocks for
+architecture and mechanics that are not themselves user-visible screens. A
+storyboard made from a single inline HTML diagram is the wrong surface.
+
+For abstract product concepts, use the canvas to create the first "I get it"
+moment: one real app state near the top showing how the concept appears to a
+user, followed by separate annotations or diagrams for mechanics. Do not make
+the first artboard a hybrid of app UI and architecture notes; the app screen
+should be inspectable as product UI on its own.
+
 **Legacy kit tree.** Older plans set a `screen` array of `{ el, ...props }` kit
-nodes instead of `html`; the renderer still accepts and displays it, but new
-plans emit `html`. Do not author fresh kit-tree screens - write the HTML mockup
-instead. Likewise, old or imported plans may carry coordinate-based regions or
-free-float x/y on notes; those are legacy escape hatches the renderer still
+nodes instead of `html`; the renderer still accepts and displays it so saved
+plans round-trip, but new plans emit `html`. Do not author fresh kit-tree
+screens, and do not put nested kit components such as `<FrameScreen>`, `<Card>`,
+`<Row>`, `<Title>`, or `<Btn>` inside a canvas `<Screen>`. A new canvas artboard
+with kit-tree children is a defect: replace it with
+`<Screen surface="..." html={...} />` using the HTML wireframe rules. The HTML
+path is the one that gets the renderer-owned surface sizing, theme tokens,
+sketch/clean toggle, and safe text layout used by good document-body
+wireframes. Likewise, old or imported plans may carry coordinate-based regions
+or free-float x/y on notes; those are legacy escape hatches the renderer still
 shows but you must never produce. The gutter parks notes by `targetId` +
 `placement`, and the coordinate rule at the top of this file governs all
 new-plan placement.

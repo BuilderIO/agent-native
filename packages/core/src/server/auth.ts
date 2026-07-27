@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import {
   defineEventHandler,
   getMethod,
@@ -12,19 +13,20 @@ import {
   getHeader,
 } from "h3";
 import type { H3Event } from "h3";
-import type { H3AppShim } from "./framework-request-handler.js";
+
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
-import {
-  resolveEmbedSessionFromRequest,
-  requestHasEmbedAuthMarker,
-} from "./embed-session.js";
 import {
   EMBED_TRANSPLANT_HEADER,
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import {
+  resolveEmbedSessionFromRequest,
+  requestHasEmbedAuthMarker,
+} from "./embed-session.js";
+import type { H3AppShim } from "./framework-request-handler.js";
 
 // In h3 v2, `event.req` IS the web Request — but in Nitro's dev server (srvx
 // runtime), event.url and event.req share the same underlying URL object.
@@ -70,24 +72,64 @@ import {
   retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+  isMcpProtocolPath,
+} from "../mcp/route-paths.js";
+import { readBody } from "../server/h3-helpers.js";
+import { putSetting } from "../settings/store.js";
+import { resolveSsrCacheHeaders } from "../shared/cache-control.js";
+import { extractOAuthStateAppId } from "../shared/oauth-state.js";
+import {
+  SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_LEGACY_RETURN_PARAM,
+  normalizeAppPath,
+  signInJourney,
+} from "../shared/sign-in-journey.js";
+import {
+  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
+  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
+  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
+  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
+  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  withAgentNativeSocialImageCacheBuster,
+} from "../shared/social-meta.js";
+import {
+  normalizeWorkspaceAppAudience,
+  workspaceAppAudienceFromEnv,
+  workspaceAppRouteAccessFromEnv,
+  type WorkspaceAppAudience,
+} from "../shared/workspace-app-audience.js";
+import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import { injectAnalyticsIntoHtml } from "./analytics.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
+import {
+  BUILDER_CONNECT_OWNER_COOKIE,
+  BUILDER_CONNECT_PARAM,
+  BUILDER_RELAY_PATH,
+  BUILDER_RELAY_STATE_PARAM,
+  BUILDER_STATE_PARAM,
+  verifyBuilderCallbackStateAndGetOwner,
+  verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderPreviewRelayStateForCallback,
+} from "./builder-browser.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
 import {
-  getOnboardingHtml,
-  getResetPasswordHtml,
-  type OnboardingHtmlOptions,
-} from "./onboarding-html.js";
-import type { GoogleAuthMode } from "./google-auth-mode.js";
-import { readBody } from "../server/h3-helpers.js";
-import {
   readDesktopSso,
   writeDesktopSso,
   clearDesktopSso,
 } from "./desktop-sso.js";
+import type { GoogleAuthMode } from "./google-auth-mode.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import {
   isElectron as isElectronRequest,
   getAppBasePath,
@@ -101,37 +143,18 @@ import {
   resolveOAuthRedirectUri,
   isAllowedOAuthRedirectUri,
 } from "./google-oauth.js";
-import { safeOAuthReturnUrl } from "./oauth-return-url.js";
-import { captureAuthError } from "./sentry.js";
-import { extractOAuthStateAppId } from "../shared/oauth-state.js";
-import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
-import {
-  AGENT_NATIVE_SOCIAL_IMAGE_ALT,
-  AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
-  AGENT_NATIVE_SOCIAL_IMAGE_PATH,
-  AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
-  AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
-} from "../shared/social-meta.js";
-import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
-import {
-  normalizeWorkspaceAppAudience,
-  workspaceAppAudienceFromEnv,
-  workspaceAppRouteAccessFromEnv,
-  type WorkspaceAppAudience,
-} from "../shared/workspace-app-audience.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import {
-  BUILDER_CONNECT_OWNER_COOKIE,
-  BUILDER_CONNECT_PARAM,
-  BUILDER_STATE_PARAM,
-  verifyBuilderCallbackStateAndGetOwner,
-  verifyBuilderConnectTokenAndGetOwner,
-} from "./builder-browser.js";
-import { putSetting } from "../settings/store.js";
 // Pure env-read feature switch from a leaf module (no dependency back on
 // auth.ts), so the guard and the SSO route handler share one validator and
 // can never disagree about whether federated SSO is enabled.
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
+import { safeOAuthReturnUrl } from "./oauth-return-url.js";
+import {
+  getOnboardingHtml,
+  getResetPasswordHtml,
+  type OnboardingHtmlOptions,
+} from "./onboarding-html.js";
+import { captureAuthError } from "./sentry.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -259,6 +282,12 @@ export interface AuthOptions {
     continueLabel?: string;
     cancelLabel?: string;
   };
+  /**
+   * Optional email signup legal copy for the built-in login page.
+   * Leave unset to use Agent Native links only on `*.agent-native.com` hosts,
+   * pass false to suppress, or pass URLs for custom/self-hosted policies.
+   */
+  signupLegalNotice?: OnboardingHtmlOptions["signupLegalNotice"];
   /**
    * Google sign-in flow: `'popup'`, `'redirect'`, or `'auto'` (default).
    *
@@ -512,27 +541,19 @@ export function isDevEnvironment(): boolean {
 }
 
 /**
- * Validate a `?return=` URL for the /_agent-native/sign-in entrypoint.
+ * @deprecated Prefer `normalizeAppPath` from `@agent-native/core/shared`,
+ * which returns `null` for a rejected path instead of a `"/"` a caller cannot
+ * distinguish from a genuine request for the home page.
  *
- * Parses the candidate against a sentinel base origin; any input that
- * resolves to a different origin (network-path references, absolute URLs,
- * `data:` / `javascript:` schemes, backslash-bypass tricks WHATWG normalises
- * to `//`) gets rejected and falls back to "/". Control characters are
- * stripped up front to defend against header-injection. Returns the
- * normalised path the parser produced — never the raw input.
- *
- * Exported for unit tests.
+ * Retained because eight template call sites use it for PROVIDER OAuth
+ * returns (Google Calendar, Slack, Google Docs, …), which is a legitimately
+ * separate concern from the sign-in journey. Deliberately passes NO base path:
+ * provider return targets are not guaranteed to be base-path prefixed, and
+ * tightening that here would silently collapse working provider returns to
+ * "/" on base-path deploys. Base-path containment belongs to `signInJourney`.
  */
 export function safeReturnPath(raw: string | null | undefined): string {
-  if (!raw) return "/";
-  if (/[\x00-\x1f]/.test(raw)) return "/";
-  try {
-    const parsed = new URL(raw, "http://safe-base.invalid");
-    if (parsed.origin !== "http://safe-base.invalid") return "/";
-    return parsed.pathname + parsed.search + parsed.hash;
-  } catch {
-    return "/";
-  }
+  return normalizeAppPath(raw) ?? "/";
 }
 
 /**
@@ -699,8 +720,9 @@ async function getBearerLegacySession(
  * `agent-native connect` mints this token for the local Plans publish flow and
  * POSTs it to the HOSTED action route
  * `/_agent-native/actions/import-visual-plan-source`. That token is audience-
- * bound to the app's MCP resource (`{appUrl}/_agent-native/mcp`), not to the
- * legacy `sessions` table — so the legacy bearer lookup above never matches it.
+ * bound to the app's canonical MCP resource (`{appUrl}/mcp`; the legacy
+ * `/_agent-native/mcp` resource is also accepted), not to the legacy `sessions`
+ * table — so the legacy bearer lookup above never matches it.
  * Reuse the MCP surface's canonical `verifyAuth` here so the HTTP action surface
  * honors EXACTLY the tokens the MCP endpoint honors: same signature check, same
  * audience binding to THIS app's resource, same connect-token revocation gate.
@@ -721,13 +743,13 @@ async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
       ]);
     const result = await verifyAuth(authHeader, undefined, {
-      resourceUrl: getMcpOAuthResource(event),
+      resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
     });
     const identity = result.authed ? result.identity : undefined;
@@ -788,6 +810,76 @@ function authLoginResponse(
   return email ? { ok: true, token, email } : { ok: true, token };
 }
 
+function decodeEmailVerificationTokenEmail(request: Request): string | null {
+  try {
+    const token = new URL(request.url).searchParams.get("token");
+    const payloadSegment = token?.split(".")[1];
+    if (!payloadSegment) return null;
+    const payload = JSON.parse(
+      Buffer.from(payloadSegment, "base64url").toString("utf8"),
+    ) as { email?: unknown; updateTo?: unknown };
+    return normalizeAuthEmail(payload.updateTo ?? payload.email);
+  } catch {
+    return null;
+  }
+}
+
+function verifyEmailRedirectHasError(
+  location: string,
+  requestUrl: string,
+): boolean {
+  try {
+    return new URL(location, requestUrl).searchParams.has("error");
+  } catch {
+    return /[?&]error=/.test(location);
+  }
+}
+
+function appendVerifiedParamToLocation(location: string): string {
+  const hashIndex = location.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? location.slice(0, hashIndex) : location;
+  const hash = hashIndex >= 0 ? location.slice(hashIndex) : "";
+  const sep = beforeHash.includes("?") ? "&" : "?";
+  return `${beforeHash}${sep}verified=1${hash}`;
+}
+
+async function ensureEmailVerifiedForRedirect(
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const email =
+    (await emailFromVerificationResponseSession(response)) ??
+    decodeEmailVerificationTokenEmail(request);
+  if (!email) return;
+  try {
+    const db = getDbExec();
+    await db.execute({
+      sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
+      args: [email],
+    });
+  } catch {
+    // Better Auth already handled the verification route. This repair is
+    // best-effort so response cookies/redirects are never lost to DB noise.
+  }
+}
+
+async function emailFromVerificationResponseSession(
+  response: Response,
+): Promise<string | null> {
+  const sessionToken = extractSessionTokenFromSetCookies(response);
+  if (!sessionToken) return null;
+  try {
+    const db = getDbExec();
+    const { rows } = await db.execute({
+      sql: 'SELECT u.email FROM "session" s JOIN "user" u ON u.id = s.user_id WHERE s.token = ? LIMIT 1',
+      args: [sessionToken],
+    });
+    return normalizeAuthEmail(rows[0]?.email ?? rows[0]?.[0]);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Bad-credential / already-registered errors are normal user behavior, not
  * bugs we want to investigate. Filtering them out keeps Sentry signal
@@ -796,12 +888,49 @@ function authLoginResponse(
  */
 const EXPECTED_AUTH_FAILURE_PATTERNS: RegExp[] = [
   /invalid\s+(email|password|credentials)/i,
+  /\[?body\.email\]?\s+invalid input/i,
   /password.*incorrect/i,
   /user\s+(not\s+found|already\s+exists)/i,
   /email\s+already/i,
   /already\s+(exists|registered|in\s+use)/i,
   /not\s+verified/i,
 ];
+
+const VALID_AUTH_EMAIL_MESSAGE =
+  "Enter a valid email address, like you@example.com.";
+const AUTH_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeAuthEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  return AUTH_EMAIL_PATTERN.test(email) ? email : null;
+}
+
+function publicAuthError(
+  error: unknown,
+  fallback: string,
+): { message: string; statusCode?: number } {
+  const message = (error as { message?: unknown })?.message;
+  if (typeof message === "string") {
+    if (isAuthEmailValidationMessage(message)) {
+      return { message: VALID_AUTH_EMAIL_MESSAGE, statusCode: 400 };
+    }
+    if (message.trim()) return { message };
+  }
+  return { message: fallback };
+}
+
+function isAuthEmailValidationMessage(message: string): boolean {
+  // Credential failures (e.g. Better Auth's "Invalid email or password") mention
+  // "email" + "invalid" but are NOT email-format errors — don't rewrite them to
+  // the "enter a valid email" message, or every wrong-password attempt looks like
+  // a malformed-email error.
+  if (/password|credential/i.test(message)) return false;
+  return (
+    /\bemail\b/i.test(message) &&
+    /(invalid|input|required|format)/i.test(message)
+  );
+}
 
 export function isExpectedAuthFailure(error: unknown): boolean {
   const msg = (error as { message?: unknown })?.message;
@@ -821,20 +950,41 @@ async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at ${intType()} NOT NULL
           )
-        `),
-      );
+        `;
+
+      // PG guard: probe information_schema first (no lock), run DDL only when
+      // missing, bounded by a transaction-scoped lock_timeout.
+      if (isPostgres()) {
+        await ensureTableExists("sessions", createSql);
+        await ensureColumnExists(
+          "sessions",
+          "email",
+          `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
+        );
+        // Older deployments have a 32-bit `created_at`; on Postgres the
+        // `Date.now()` written on session create overflows int4. Widen in place
+        // (no-op once done / on fresh DBs).
+        await widenIntColumnsToBigInt("sessions", ["created_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await retryOnDdlRace(() => client.execute(createSql));
       try {
         await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
       } catch {
         // Column already exists
       }
+      // Older deployments have a 32-bit `created_at`; on Postgres the
+      // `Date.now()` written on session create overflows int4. Widen in place
+      // (no-op once done / on fresh DBs).
+      await widenIntColumnsToBigInt("sessions", ["created_at"]);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _sessionInitPromise = undefined;
@@ -879,6 +1029,20 @@ export async function addSession(token: string, email?: string): Promise<void> {
       args: [token, email ?? null, Date.now()],
     }),
   );
+}
+
+export async function hasLegacySessionForEmail(
+  email: string,
+): Promise<boolean> {
+  await ensureSessionTable();
+  const client = getDbExec();
+  const result = await retryIfSessionsMissing(() =>
+    client.execute({
+      sql: `SELECT 1 FROM sessions WHERE email = ? LIMIT 1`,
+      args: [email],
+    }),
+  );
+  return result.rows.length > 0;
 }
 
 /** Remove a session from the legacy sessions table. */
@@ -960,6 +1124,7 @@ function getOnboardingHtmlOptions(
     googleOnly: options.googleOnly,
     marketing: options.marketing,
     googleSignInNotice: options.googleSignInNotice,
+    signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
     requestPath: rawPath,
@@ -1048,6 +1213,8 @@ const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
   "http://localhost:1420",
 ]);
 
@@ -1285,13 +1452,6 @@ function mountAuthCorsMiddleware(app: H3App): void {
   app.use("/_agent-native/google", handler);
 }
 
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
-}
-
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
   return (
     pathname.startsWith("/_agent-native/") &&
@@ -1358,7 +1518,15 @@ function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
   return verifyBuilderConnectTokenAndGetOwner(token);
 }
 
-function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
+export function shouldBypassAuthForBuilderConnect(
+  event: H3Event,
+  p: string,
+): boolean {
+  // The preview-safe second hop is authenticated by its timestamped HMAC and
+  // one-shot pending row. It cannot carry a browser session from the corporate
+  // callback deployment, so let the route perform that stronger check itself.
+  if (p === BUILDER_RELAY_PATH) return true;
+
   if (p === "/_agent-native/builder/connect") {
     const url = event.node?.req?.url ?? event.path ?? "/";
     return Boolean(verifiedBuilderConnectOwnerFromUrl(url));
@@ -1373,6 +1541,19 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
             BUILDER_STATE_PARAM,
           )
         : null;
+    const relayState =
+      queryStart >= 0
+        ? new URLSearchParams(url.slice(queryStart + 1)).get(
+            BUILDER_RELAY_STATE_PARAM,
+          )
+        : null;
+    if (relayState) {
+      try {
+        if (verifyBuilderPreviewRelayStateForCallback(relayState)) return true;
+      } catch {
+        // Dedicated relay secret missing: let the auth guard fail closed.
+      }
+    }
     // The signed `_an_state` authenticates this specific Builder callback
     // flow back to our app. A stale localhost session cookie can otherwise
     // make the global guard reject the callback before the handler gets to
@@ -1417,7 +1598,9 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
     LOGIN_OG_IMAGE_META_RE.test(loginHtml) ||
     LOGIN_TWITTER_IMAGE_META_RE.test(loginHtml);
   const imageUrl = escapeHtmlAttr(
-    getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+    withAgentNativeSocialImageCacheBuster(
+      getAppUrl(event, AGENT_NATIVE_SOCIAL_IMAGE_PATH),
+    ),
   );
   const tags: string[] = [];
 
@@ -1456,20 +1639,24 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 }
 
 function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
-  return new Response(injectLoginSocialImageMeta(loginHtml, event), {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      // The sign-in document is part of the public server shell. Keep it on the
-      // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
-      // template roots do not invoke origin just to render anonymous login UI.
-      // The login HTML is env-INDEPENDENT (a Google-only app always renders a
-      // working button), so a cached copy is never "wrong" — never downgrade
-      // this to private/no-store.
-      ...DEFAULT_SSR_CACHE_HEADERS,
-      "X-Robots-Tag": "noindex, nofollow",
+  return new Response(
+    injectAnalyticsIntoHtml(injectLoginSocialImageMeta(loginHtml, event)),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        // The sign-in document is part of the public server shell. Keep it on the
+        // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
+        // template roots do not invoke origin just to render anonymous login UI.
+        // The login markup is env-INDEPENDENT (a Google-only app always renders
+        // a working button); the analytics script is public build configuration,
+        // not user/session state. Never vary this per request — the
+        // deployment-wide override inside the resolver is the only knob.
+        ...resolveSsrCacheHeaders(),
+        "X-Robots-Tag": "noindex, nofollow",
+      },
     },
-  });
+  );
 }
 
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
@@ -1550,6 +1737,12 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // External durable-recovery scheduler. The route verifies a short-lived
+    // HMAC token bound to its fixed sweep subject before touching the queue.
+    if (p === "/_agent-native/integrations/retry-stuck-tasks") {
+      return;
+    }
+
     // Internal processor endpoint for deferred A2A continuations created by
     // integration tasks. It uses the same HMAC internal-token scheme as the
     // primary integration processor, so it must bypass cookie/session auth.
@@ -1562,6 +1755,36 @@ function createAuthGuardFn(): (
     // verified by the same HMAC internal-token scheme plus an atomic SQL claim,
     // so it bypasses cookie/session auth (mirrors the integration processor).
     if (p === "/_agent-native/agent-teams/_process-run") {
+      return;
+    }
+
+    // Durable-background AGENT-CHAT processor. The foreground POST self-dispatches
+    // a long chat turn here (through the Netlify `-background` function, which
+    // rewrites its default url to this path); the route HMAC-verifies the
+    // dispatch (same internal-token scheme as agent-teams above) plus an atomic
+    // SQL claim. The self-dispatch carries ONLY a Bearer HMAC token and NO
+    // session cookie, so without this bypass the blanket 401-for-/_agent-native/*
+    // gate below blocks the worker before `prepareProcessRunRequest` ever runs —
+    // the run is never claimed, its heartbeat never starts, and it times out with
+    // no visible progress. Exact path only (mirrors agent-teams).
+    if (p === "/_agent-native/agent-chat/_process-run") {
+      return;
+    }
+
+    // Durable sandbox-execution processor (run-code background queue). The
+    // enqueueing request self-dispatches here so long compute runs in a fresh
+    // invocation with its own budget; the dispatch carries ONLY a Bearer HMAC
+    // internal token (verified by the route) and NO session cookie, plus an
+    // atomic SQL claim prevents double execution — same scheme as the
+    // agent-teams/_process-run bypass above. Exact path only.
+    if (p === "/_agent-native/sandbox/_process-execution") {
+      return;
+    }
+
+    // Read-only agent chat share links. The random token is the bearer secret;
+    // the route returns a sanitized transcript plus bounded run summaries and
+    // exposes no write surface, live event stream, tool payloads, or owner APIs.
+    if (p.startsWith("/_agent-native/agent-chat/shared/")) {
       return;
     }
 
@@ -1579,7 +1802,11 @@ function createAuthGuardFn(): (
     // the stdio proxy or HTTP can never reach it. Exact protocol endpoint only:
     // tolerate the common trailing slash, but keep
     // `/_agent-native/mcp/*` management subroutes on normal session auth.
-    if (p === "/_agent-native/mcp" || p === "/_agent-native/mcp/") {
+    if (
+      isMcpProtocolPath(p) ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
+      p === `${MCP_LEGACY_ROUTE_PREFIX}/`
+    ) {
       return;
     }
 
@@ -1610,7 +1837,13 @@ function createAuthGuardFn(): (
       p === "/_agent-native/mcp/connect/device/poll" ||
       p === "/_agent-native/mcp/oauth/authorize" ||
       p === "/_agent-native/mcp/oauth/token" ||
-      p === "/_agent-native/mcp/oauth/register"
+      p === "/_agent-native/mcp/oauth/register" ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/token` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/register`
     ) {
       return;
     }
@@ -1664,47 +1897,42 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query — anonymous
-    // visitors get the loginHtml, and once they sign in the loginHtml's
-    // post-login reload re-hits this same URL with a session cookie set,
-    // so we 302 them to the original page.
-    //
-    // `return` is validated by parsing it against a sentinel base origin
-    // and checking the resolved origin still matches. This rejects every
-    // open-redirect shape — `//evil.com/...` (network-path reference),
-    // `/\evil.com/...` (WHATWG URL parser normalises `\` to `/` in HTTP
-    // URLs, so a naive prefix check on `//` misses this), absolute URLs
-    // like `https://evil.com`, and `data:` / `javascript:` schemes. The
-    // reconstructed path comes from the parsed segments so any leftover
-    // quirks get normalised. Control chars (incl. CR/LF for header
-    // injection) are rejected up front.
-    //
+    // (share links, embeds) here with a `?return=<path>` query. The cached
+    // login document validates that return path in the browser and redirects
+    // there after sign-in or when its client-side session check finds an
+    // existing session.
     if (p === "/_agent-native/sign-in") {
-      const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
-      const safeReturn = safeReturnPath(
-        new URLSearchParams(queryStr).get("return"),
-      );
-      const session = await getSession(event);
-      if (session) {
-        return new Response("", {
-          status: 302,
-          headers: { Location: safeReturn },
+      // Preserve the zero-setup localhost experience without putting a
+      // session lookup back on the cacheable app-shell URL. The client gate
+      // reaches this explicit entrypoint after discovering there is no
+      // session; only a fresh local development DB can take this redirect.
+      if (getMethod(event) === "GET") {
+        const query = new URLSearchParams(
+          queryStart >= 0 ? url.slice(queryStart + 1) : "",
+        );
+        // `?return=` is read as a fallback FOREVER. Generated apps in the wild
+        // hand-write `/_agent-native/sign-in?return=…` and cannot be upgraded;
+        // dropping the fallback would send them all to "/" — a UX quirk no
+        // test would catch. New producers emit `c`; only NEW `?return=`
+        // producers are forbidden, never this consumer.
+        const { resumeHref } = signInJourney({
+          at: url,
+          continuation: query.get(SIGN_IN_CONTINUATION_PARAM),
+          legacyReturn: query.get(SIGN_IN_LEGACY_RETURN_PARAM),
+          basePath: getAppBasePath(),
         });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
+        if (autoSession) return autoSession;
       }
       return loginHtmlResponse(loginHtml, event);
     }
 
-    // Auth entry pages are framework-owned pages, not app routes. When a user
-    // already has a session, redirect them back to the mounted app instead of
-    // letting React Router try to render /login.
+    // Auth entry pages are framework-owned pages, not app routes. Always serve
+    // the same public, cacheable login document here. Its client-side session
+    // check redirects signed-in visitors to the validated return path. Keeping
+    // session-dependent decisions out of this server response prevents the CDN
+    // from caching two different representations for the same URL.
     if (p === "/login" || p === "/signup") {
-      const session = await getSession(event);
-      if (session) {
-        return new Response("", {
-          status: 302,
-          headers: { Location: getAppBasePath() || "/" },
-        });
-      }
       return loginHtmlResponse(loginHtml, event);
     }
 
@@ -1724,7 +1952,7 @@ function createAuthGuardFn(): (
       return;
     }
 
-    // React Router 7's lazy route discovery fetches `/__manifest?p=...` to
+    // React Router's lazy route discovery fetches `/__manifest?p=...` to
     // resolve manifest patches for `<Link>`s the user might click. The
     // auth fallback returning loginHtml here makes RR fail to parse the
     // body as RSC, surfacing as a console error and (when the visitor
@@ -1733,9 +1961,55 @@ function createAuthGuardFn(): (
     // route tree, no per-user data.
     if (p === "/__manifest") return;
     if (p === "/_agent-native/speculation-rules.json") return;
+    // Liveness probe: always public so uptime monitors and the keep-warm cron
+    // can reach the DB-warmup route without a session. It exposes no per-user
+    // data (just ok/db/ms) and runs a trivial `SELECT 1`. Without this bypass
+    // the gate below 401s anonymous /_agent-native/* requests before any DB
+    // query, so the database would never get warmed.
+    if (p === "/_agent-native/health") return;
+    if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
+      return;
+    }
     if (isPublicPath(normalizedUrl, publicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
+      return;
+    }
+
+    // Normal app documents and React Router page-data requests are an
+    // impersonal SSR shell. `createH3SSRHandler` renders both under an
+    // explicitly anonymous request context and gives them one shared public
+    // cache policy, so production requests must not vary either response by
+    // cookie. `AppProviders` resolves the browser session and gates private UI
+    // after hydration.
+    const isAppPageRequest =
+      p !== "/api" &&
+      !p.startsWith("/api/") &&
+      p !== "/_agent-native" &&
+      !p.startsWith("/_agent-native/") &&
+      (isHtmlDocumentRequest(event, p) ||
+        (isReadMethod(event) && p.endsWith(".data")));
+    if (isAppPageRequest) {
+      // A freshly scaffolded, loopback-only development app needs its initial
+      // session before Vite starts optimizing and potentially reloading the
+      // client. Waiting for the hydrated client gate to reach sign-in can lose
+      // that one-time redirect after the dev account is created, leaving the
+      // browser at the login page with no way to recreate its random password.
+      // `maybeAutoCreateDevSession` is strictly development + loopback scoped,
+      // does not read an existing session, and returns null for every existing
+      // dev account, so production SSR remains one cacheable anonymous shell
+      // and explicit sign-out still works.
+      if (getMethod(event) === "GET") {
+        // Same source of truth as the sign-in entry above. This used to pass
+        // the raw request URL, which made one decision with two sources — the
+        // shape the sign-in unification exists to delete.
+        const { resumeHref } = signInJourney({
+          at: url,
+          basePath: getAppBasePath(),
+        });
+        const autoSession = await maybeAutoCreateDevSession(event, resumeHref);
+        if (autoSession) return autoSession;
+      }
       return;
     }
 
@@ -1747,22 +2021,8 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
-    if (!isHtmlDocumentRequest(event, p)) {
-      setResponseStatus(event, 401);
-      return { error: "Unauthorized" };
-    }
-
-    // Local-dev convenience: on the first page GET of a freshly-scaffolded
-    // app, transparently create + sign in `dev@local.test` instead of
-    // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
-    // DB, so production and any app that has ever had a real signup are
-    // unaffected. See maybeAutoCreateDevSession for full conditions.
-    if (getMethod(event) === "GET") {
-      const autoSession = await maybeAutoCreateDevSession(event, url);
-      if (autoSession) return autoSession;
-    }
-
-    return loginHtmlResponse(loginHtml, event);
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   };
 }
 
@@ -1771,14 +2031,32 @@ function createAuthGuardFn(): (
 // validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
 // which silently broke the zero-setup auto-sign-in on every fresh dev DB).
 const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
-// No fixed password: maybeAutoCreateDevSession mints a random one per DB
-// and prints it to the console once (see there).
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB and
+// never emits it to logs.
 
 // Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
 // legacy address as the dev account too, so the "any real users?" check
 // below doesn't mistake the old auto-account for a real signup (which would
 // permanently disable auto-create) and the post-logout guard still fires.
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+
+let authDisabledWarningLogged = false;
+
+function isAuthDisabled(): boolean {
+  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function getAuthDisabledSession(): AuthSession | null {
+  if (!isAuthDisabled()) return null;
+  if (!authDisabledWarningLogged) {
+    authDisabledWarningLogged = true;
+    console.warn(
+      `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${AUTO_DEV_ACCOUNT_EMAIL}`,
+    );
+  }
+  return { email: AUTO_DEV_ACCOUNT_EMAIL };
+}
 
 async function hasAutoDevAccountUser(
   db: ReturnType<typeof getDbExec>,
@@ -1788,6 +2066,70 @@ async function hasAutoDevAccountUser(
     args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
   });
   return rows.length > 0;
+}
+
+type AutoDevAccountCreationResult = { password: string } | null;
+
+const autoDevAccountCreationPromises = new Map<
+  string,
+  Promise<AutoDevAccountCreationResult>
+>();
+
+function getAutoDevAccountCreationKey(): string {
+  return `${process.cwd()}:${process.env.APP_BASE_PATH ?? ""}`;
+}
+
+async function createAutoDevAccountForSession(
+  auth: NonNullable<Awaited<ReturnType<typeof getBetterAuth>>>,
+  db: ReturnType<typeof getDbExec>,
+): Promise<string | null> {
+  const key = getAutoDevAccountCreationKey();
+  let creationPromise = autoDevAccountCreationPromises.get(key);
+
+  if (!creationPromise) {
+    const devPassword = crypto.randomBytes(18).toString("base64url");
+
+    creationPromise = (async () => {
+      try {
+        await auth.api.signUpEmail({
+          body: {
+            email: AUTO_DEV_ACCOUNT_EMAIL,
+            password: devPassword,
+            name: "Dev",
+          },
+        });
+      } catch (e) {
+        // Another process can still win the create race after our SELECT.
+        // In-process first-page races share this promise and do not issue a
+        // duplicate Better Auth signup, which keeps local SQLite logs quiet.
+        if (await hasAutoDevAccountUser(db)) return null;
+        if (!isExpectedAuthFailure(e)) throw e;
+        return null;
+      }
+
+      // Confirm the convenience path without emitting the generated email or
+      // password. Terminal output is frequently captured and shared in bug
+      // reports, CI artifacts, and remote development sessions.
+      console.log(
+        "[agent-native] Local dev auto-login ready. " +
+          "Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.",
+      );
+
+      return { password: devPassword };
+    })();
+
+    autoDevAccountCreationPromises.set(key, creationPromise);
+    creationPromise
+      .finally(() => {
+        if (autoDevAccountCreationPromises.get(key) === creationPromise) {
+          autoDevAccountCreationPromises.delete(key);
+        }
+      })
+      .catch(() => {});
+  }
+
+  const result = await creationPromise;
+  return result?.password ?? null;
 }
 
 /**
@@ -1814,10 +2156,9 @@ async function hasAutoDevAccountUser(
  *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
  *    in a directly-remote visitor (mirrors the desktop SSO broker).
  *  - **Random per-DB password.** The account password is freshly
- *    generated on creation and printed to the server console exactly
- *    once — there is no source-code-known credential. After logout the
- *    auto-flow won't refire (dev row exists), so signing back in uses
- *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *    generated on creation and never logged — there is no
+ *    source-code-known credential. After logout the auto-flow won't refire
+ *    (dev row exists); use normal signup or reset the local DB to start over.
  *  - **NODE_ENV.** Still gated on development/test.
  *
  * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely
@@ -1859,33 +2200,13 @@ async function maybeAutoCreateDevSession(
     const auth = await getBetterAuth();
     if (!auth) return null;
 
-    // Random per-DB password — there is no source-code-known credential
-    // for this account. Printed once below so the developer can sign back
-    // in after logout (the auto-flow won't refire while the dev row
-    // exists).
-    const devPassword = crypto.randomBytes(18).toString("base64url");
-
     // The dev account does not exist at this point (the devUsers check
-    // above returned early otherwise). The "already exists" swallow only
-    // matters under a rare concurrent first-hit race — in that case the
-    // sign-in below fails the password check and we return null, leaving
-    // the racing request that already won to keep the session.
-    try {
-      await auth.api.signUpEmail({
-        body: {
-          email: AUTO_DEV_ACCOUNT_EMAIL,
-          password: devPassword,
-          name: "Dev",
-        },
-      });
-    } catch (e) {
-      // A concurrent first page load can win the Better Auth signup after our
-      // preflight SELECT. Once the dev row exists, do not sign in with this
-      // request's random password or log a scary local-only stack trace.
-      if (await hasAutoDevAccountUser(db)) return null;
-      if (!isExpectedAuthFailure(e)) throw e;
-      return null;
-    }
+    // above returned early otherwise). Concurrent in-process first page
+    // loads share one signup promise so the losing request never asks Better
+    // Auth to insert the same email and therefore never emits a SQLite
+    // unique-constraint log.
+    const devPassword = await createAutoDevAccountForSession(auth, db);
+    if (!devPassword) return null;
 
     const result = await auth.api.signInEmail({
       body: {
@@ -1897,17 +2218,6 @@ async function maybeAutoCreateDevSession(
 
     setFrameworkSessionCookie(event, result.token);
     await addSession(result.token, AUTO_DEV_ACCOUNT_EMAIL);
-
-    // Print the throwaway credential exactly once so the developer can
-    // sign back in manually after logout (auto-flow won't refire once the
-    // dev row exists). Local console only — never Sentry.
-    console.log(
-      `\n[agent-native] Local dev auto-login ready.\n` +
-        `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
-        `  password: ${devPassword}\n` +
-        `  (random, this DB only — needed to sign back in after logout.\n` +
-        `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
-    );
 
     // Emit the session cookie ON the 302 itself. Returning a bare
     // `new Response(...)` here drops the cookie staged on event.node.res
@@ -1946,10 +2256,17 @@ function mapBetterAuthSession(baSession: {
  * org is active.
  *
  */
-async function backfillSessionOrg(session: AuthSession): Promise<AuthSession> {
+async function backfillSessionOrg(
+  session: AuthSession,
+  event: H3Event,
+): Promise<AuthSession> {
   if (session.orgId) return session;
-  const { resolveOrgIdForEmail } = await import("../org/context.js");
-  const orgId = await resolveOrgIdForEmail(session.email).catch(() => null);
+  // Event-aware variant: shares the per-request org_members lookup with
+  // getOrgContext so one request never pays the membership query twice.
+  const { resolveOrgIdForEmailViaEvent } = await import("../org/context.js");
+  const orgId = await resolveOrgIdForEmailViaEvent(event, session.email).catch(
+    () => null,
+  );
   return orgId ? { ...session, orgId } : session;
 }
 
@@ -1981,7 +2298,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
   };
   return (ctx.__anSessionCache ??= (async () => {
     const session = await resolveSessionUncached(event);
-    return session?.email ? backfillSessionOrg(session) : session;
+    return session?.email ? backfillSessionOrg(session, event) : session;
   })());
 }
 
@@ -2073,6 +2390,12 @@ async function resolveSessionUncached(
   // 8. Mobile WebView bridge — _session query param
   const querySession = await promoteQuerySession(event);
   if (querySession) return querySession;
+
+  // 9. AUTH_DISABLED fallback — only when no session resolved above.
+  // Must run after BYOA customGetSession so infrastructure/custom auth keeps
+  // caller identity instead of collapsing to the shared preview user.
+  const authDisabledSession = getAuthDisabledSession();
+  if (authDisabledSession) return authDisabledSession;
 
   return null;
 }
@@ -2340,11 +2663,8 @@ async function mountBetterAuthRoutes(
   // Auto-add Google OAuth routes when credentials are configured. Templates
   // that need broader product scopes (mail/calendar) opt out and provide
   // their own Nitro routes at these paths.
-  if (
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET &&
-    options.mountGoogleOAuthRoutes !== false
-  ) {
+  const googleSignInCredentials = resolveGoogleSignInCredentials();
+  if (googleSignInCredentials && options.mountGoogleOAuthRoutes !== false) {
     setGenericGoogleOAuthRoutesEnabled(app, true);
     for (const gp of [
       "/_agent-native/google/callback",
@@ -2394,6 +2714,9 @@ async function mountBetterAuthRoutes(
               })
             : "/";
         const returnUrl = validated !== "/" ? validated : undefined;
+        const signupAttribution = signupAttributionFromCookieHeader(
+          getHeader(event, "cookie") ?? null,
+        );
         const state = encodeOAuthState({
           redirectUri,
           desktop,
@@ -2401,6 +2724,7 @@ async function mountBetterAuthRoutes(
           app: getOAuthStateAppId(),
           returnUrl,
           flowId,
+          signupAttribution,
         });
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
@@ -2413,7 +2737,7 @@ async function mountBetterAuthRoutes(
             process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
         });
         const params = new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_id: googleSignInCredentials.clientId,
           redirect_uri: redirectUri,
           response_type: "code",
           scope: googleScopes,
@@ -2455,10 +2779,11 @@ async function mountBetterAuthRoutes(
         try {
           const query = getQuery(event);
           const code = query.code as string;
-          const { redirectUri, desktop, returnUrl, flowId } = decodeOAuthState(
-            query.state as string | undefined,
-            getAppUrl(event, "/_agent-native/google/callback"),
-          );
+          const { redirectUri, desktop, returnUrl, flowId, signupAttribution } =
+            decodeOAuthState(
+              query.state as string | undefined,
+              getAppUrl(event, "/_agent-native/google/callback"),
+            );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
@@ -2525,8 +2850,8 @@ async function mountBetterAuthRoutes(
             },
             body: new URLSearchParams({
               code,
-              client_id: process.env.GOOGLE_CLIENT_ID!,
-              client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+              client_id: googleSignInCredentials.clientId,
+              client_secret: googleSignInCredentials.clientSecret,
               redirect_uri: redirectUri,
               grant_type: "authorization_code",
             }),
@@ -2574,6 +2899,12 @@ async function mountBetterAuthRoutes(
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
+            trackSignup: {
+              authProvider: "google",
+              authUserId: typeof user.id === "string" ? user.id : undefined,
+              name: typeof user.name === "string" ? user.name : undefined,
+              attribution: signupAttribution,
+            },
           });
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
@@ -2806,9 +3137,16 @@ async function mountBetterAuthRoutes(
         (response as Response).status < 400
       ) {
         const loc = response.headers.get("location");
-        if (loc && !/[?&]verified=/.test(loc)) {
-          const sep = loc.includes("?") ? "&" : "?";
-          response.headers.set("location", loc + sep + "verified=1");
+        if (
+          loc &&
+          !/[?&]verified=/.test(loc) &&
+          !verifyEmailRedirectHasError(loc, authRequest.url)
+        ) {
+          await ensureEmailVerifiedForRedirect(
+            authRequest,
+            response as Response,
+          );
+          response.headers.set("location", appendVerifiedParamToLocation(loc));
         }
       }
 
@@ -2914,12 +3252,17 @@ async function mountBetterAuthRoutes(
       const body = await readBody(event);
 
       // Email/password login via Better Auth
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || !password) {
+      if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
         return { error: "Email and password are required" };
+      }
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
       try {
@@ -2950,8 +3293,9 @@ async function mountBetterAuthRoutes(
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        setResponseStatus(event, 401);
-        return { error: e?.message || "Invalid email or password" };
+        const authError = publicAuthError(e, "Invalid email or password");
+        setResponseStatus(event, authError.statusCode ?? 401);
+        return { error: authError.message };
       }
     }),
   );
@@ -2966,16 +3310,17 @@ async function mountBetterAuthRoutes(
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
           ? safeReturnPath(body.callbackURL)
           : "/";
 
-      if (!email || typeof email !== "string" || !email.includes("@")) {
+      if (!email) {
         setResponseStatus(event, 400);
-        return { error: "Valid email is required" };
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
@@ -2985,14 +3330,16 @@ async function mountBetterAuthRoutes(
       try {
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0], callbackURL },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        setResponseStatus(event, 409);
-        return { error: e?.message || "Registration failed" };
+        const authError = publicAuthError(e, "Registration failed");
+        setResponseStatus(event, authError.statusCode ?? 409);
+        return { error: authError.message };
       }
     }),
   );
@@ -3147,12 +3494,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || !password) {
+      if (!rawEmail.trim() || !password) {
         setResponseStatus(event, 400);
         return { error: "Email and password are required" };
+      }
+      if (!email) {
+        setResponseStatus(event, 400);
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
 
       try {
@@ -3181,8 +3533,9 @@ function mountAuthFallbackRoutes(app: H3App): void {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "login", email });
         }
-        setResponseStatus(event, 401);
-        return { error: e?.message || "Invalid email or password" };
+        const authError = publicAuthError(e, "Invalid email or password");
+        setResponseStatus(event, authError.statusCode ?? 401);
+        return { error: authError.message };
       }
     }),
   );
@@ -3196,12 +3549,13 @@ function mountAuthFallbackRoutes(app: H3App): void {
       }
 
       const body = await readBody(event);
-      const email = body?.email?.trim?.()?.toLowerCase?.();
+      const rawEmail = typeof body?.email === "string" ? body.email : "";
+      const email = normalizeAuthEmail(rawEmail);
       const password = body?.password;
 
-      if (!email || typeof email !== "string" || !email.includes("@")) {
+      if (!email) {
         setResponseStatus(event, 400);
-        return { error: "Valid email is required" };
+        return { error: VALID_AUTH_EMAIL_MESSAGE };
       }
       if (!password || typeof password !== "string" || password.length < 8) {
         setResponseStatus(event, 400);
@@ -3212,14 +3566,16 @@ function mountAuthFallbackRoutes(app: H3App): void {
         const auth = await getBetterAuth();
         await auth.api.signUpEmail({
           body: { email, password, name: email.split("@")[0] },
+          headers: event.headers,
         });
         return { ok: true };
       } catch (e: any) {
         if (!isExpectedAuthFailure(e)) {
           captureAuthError(e, { route: "signup", email });
         }
-        setResponseStatus(event, 409);
-        return { error: e?.message || "Registration failed" };
+        const authError = publicAuthError(e, "Registration failed");
+        setResponseStatus(event, authError.statusCode ?? 409);
+        return { error: authError.message };
       }
     }),
   );

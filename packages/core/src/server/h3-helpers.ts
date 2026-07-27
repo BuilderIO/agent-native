@@ -1,3 +1,5 @@
+import type { ReadStream } from "node:fs";
+
 /**
  * Small helpers around h3 v2 that polish ergonomics for templates.
  *
@@ -15,8 +17,6 @@
  */
 import { readBody as _readBody, getHeader, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
-import { Readable } from "node:stream";
-import type { ReadStream } from "node:fs";
 
 /**
  * Default maximum chat-POST body size (25 MB uncompressed). The agent chat
@@ -157,5 +157,18 @@ export async function readBodyWithSizeLimit<T = any>(
  *   return streamFile(fs.createReadStream(filePath));
  */
 export function streamFile(stream: ReadStream): ReadableStream {
-  return Readable.toWeb(stream) as ReadableStream;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      stream.on("data", (chunk: string | Uint8Array) => {
+        controller.enqueue(
+          typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk,
+        );
+      });
+      stream.on("end", () => controller.close());
+      stream.on("error", (error) => controller.error(error));
+    },
+    cancel() {
+      stream.destroy();
+    },
+  });
 }

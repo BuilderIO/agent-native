@@ -195,6 +195,43 @@ describe("uploadRecapImage — success on first try (fake fetch)", () => {
     expect(calls[0].method).toBe("POST");
     expect(calls[0].url).toContain("/_agent-native/recap-image");
   });
+
+  it("returns and preflights the cache-busted image URL when a cache key is supplied", async () => {
+    const pngPath = path.join(tmpDir, "test.png");
+    fs.writeFileSync(pngPath, Buffer.from([137, 80, 78, 71]));
+
+    const { fetchFn } = makeFakeFetch([
+      {
+        urlPattern: "/_agent-native/recap-image",
+        method: "POST",
+        response: () =>
+          jsonResp({
+            imageUrl:
+              "https://plan.agent-native.com/_agent-native/recap-image/" +
+              `${"a".repeat(64)}.png`,
+          }),
+      },
+    ]);
+    const waitedOn: string[] = [];
+
+    const result = await uploadRecapImage({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-test",
+      pngPath,
+      cacheKey: "28162728843-1",
+      fetchFn,
+      waitFn: async ({ imageUrl }) => {
+        waitedOn.push(imageUrl);
+        return true;
+      },
+    });
+
+    expect(result).toBe(
+      "https://plan.agent-native.com/_agent-native/recap-image/" +
+        `${"a".repeat(64)}.png?v=28162728843-1`,
+    );
+    expect(waitedOn).toEqual([result]);
+  });
 });
 
 describe("uploadRecapImage — upload failure returns null and logs stderr", () => {
@@ -486,6 +523,89 @@ describe("runShot — playwright not available", () => {
     } finally {
       process.stdout.write = origWrite;
       exitSpy.mockRestore();
+    }
+  });
+
+  it("captures the clean recap screenshot URL at 950px, 100% zoom, and measured height", async () => {
+    const stdoutLines: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    // @ts-expect-error patching for test
+    process.stdout.write = (chunk: string) => {
+      stdoutLines.push(String(chunk));
+      return true;
+    };
+
+    const shotPath = path.join(tmpDir, "recap.png");
+    const contextOptions: unknown[] = [];
+    const viewportSizes: unknown[] = [];
+    const gotoUrls: string[] = [];
+    const evaluateCalls: string[] = [];
+    const fakePage = {
+      goto: vi.fn(async (nextUrl: string) => {
+        gotoUrls.push(nextUrl);
+        return {
+          ok: () => true,
+          status: () => 200,
+          url: () => nextUrl,
+          headers: () => ({ "content-type": "text/html; charset=utf-8" }),
+        };
+      }),
+      waitForLoadState: vi.fn(async () => {}),
+      waitForSelector: vi.fn(async () => {}),
+      waitForTimeout: vi.fn(async () => {}),
+      evaluate: vi.fn(async (fn: unknown) => {
+        evaluateCalls.push(String(fn));
+        if (evaluateCalls.length === 2) return 1500;
+      }),
+      setViewportSize: vi.fn(async (size: unknown) => {
+        viewportSizes.push(size);
+      }),
+      screenshot: vi.fn(async ({ path: outPath }: { path: string }) => {
+        fs.writeFileSync(outPath, Buffer.from(PNG_MAGIC));
+      }),
+    };
+    const fakeContext = {
+      addInitScript: vi.fn(async () => {}),
+      route: vi.fn(),
+      newPage: vi.fn(async () => fakePage),
+    };
+    const fakeBrowser = {
+      newContext: vi.fn(async (options: unknown) => {
+        contextOptions.push(options);
+        return fakeContext;
+      }),
+      close: vi.fn(async () => {}),
+    };
+    const fakeChromium = {
+      launch: vi.fn(async () => fakeBrowser),
+    };
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/abc123?foo=bar#section-a",
+          out: shotPath,
+        },
+        async () => ({ chromium: fakeChromium as never }),
+      );
+
+      expect(contextOptions[0]).toMatchObject({
+        viewport: { width: 950, height: 2000 },
+        deviceScaleFactor: 2,
+      });
+      expect(viewportSizes[0]).toEqual({ width: 950, height: 1500 });
+      expect(gotoUrls[0]).toBe(
+        "https://plan.agent-native.com/recaps/abc123?foo=bar&recapScreenshot=1#section-a",
+      );
+      expect(evaluateCalls.join("\n")).toContain('style.zoom = "100%"');
+      expect(evaluateCalls.join("\n")).toContain(".plan-document-shell");
+      expect(evaluateCalls.join("\n")).not.toContain("90%");
+      expect(JSON.parse(stdoutLines.join("").trim())).toMatchObject({
+        ok: true,
+        out: shotPath,
+      });
+    } finally {
+      process.stdout.write = origWrite;
     }
   });
 

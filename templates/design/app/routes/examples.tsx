@@ -1,11 +1,7 @@
 import { redirect } from "react-router";
 
 export function loader() {
-  return redirect("/templates", 301);
-}
-
-export function meta() {
-  return [{ title: "Design Templates" }];
+  return redirect("/", 302);
 }
 
 export default function ExamplesRedirect() {

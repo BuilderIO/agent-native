@@ -163,7 +163,32 @@ export async function isBlockedExtensionUrlWithDns(
  * runtimes); the caller should fall back to the regular `fetch` path —
  * `isBlockedExtensionUrlWithDns` will still have caught most rebinding cases.
  */
-export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
+function normalizeLookupHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+function normalizeAllowedPrivateOriginKeys(
+  origins: readonly string[],
+): Set<string> {
+  const keys = new Set<string>();
+  for (const origin of origins) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        continue;
+      }
+      const port = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+      keys.add(`${normalizeLookupHostname(parsed.hostname)}:${port}`);
+    } catch {
+      // Ignore malformed deployment configuration and retain the private-IP guard.
+    }
+  }
+  return keys;
+}
+
+export async function createSsrfSafeDispatcher(
+  allowedPrivateOrigins: readonly string[] = [],
+): Promise<unknown | null> {
   // Keep the optional undici import opaque to Vite/Rolldown. A static
   // `import("undici")` makes browser builds try to resolve and bundle undici
   // even though this dispatcher is only useful in Node server runtimes.
@@ -182,6 +207,9 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
 
   const { Agent } = undici;
   const { lookup } = dnsModule;
+  const allowedPrivateOriginKeys = normalizeAllowedPrivateOriginKeys(
+    allowedPrivateOrigins,
+  );
   if (!Agent || !lookup) return null;
 
   return new Agent({
@@ -209,7 +237,10 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
               ? addresses
               : [{ address: addresses, family: 4 }];
             for (const record of list) {
-              if (isPrivateHost(record.address)) {
+              const allowedOrigin = allowedPrivateOriginKeys.has(
+                `${normalizeLookupHostname(hostname)}:${String(options?.port ?? "")}`,
+              );
+              if (isPrivateHost(record.address) && !allowedOrigin) {
                 const e = new Error(
                   `Connect blocked: ${hostname} resolved to private address ${record.address}`,
                 ) as NodeJS.ErrnoException;
@@ -247,18 +278,69 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
  * Throws an Error whose message starts with "SSRF blocked:" when a target
  * (initial or via redirect) resolves to a private/internal address, or when the
  * redirect limit is exceeded. Otherwise returns the final Response.
+ *
+ * `httpsOnly` extends the per-hop validation to the URL scheme: redirects are
+ * followed only to `https:` targets, so an HTTPS-only caller cannot be
+ * downgraded to plain HTTP by a 30x from the (untrusted) origin.
+ *
+ * `assertUrlAllowed` lets callers layer a stricter destination policy (for
+ * example, a credential's origin allowlist) on top of the SSRF checks. It runs
+ * before the initial request and before every redirect hop, so sensitive
+ * headers and bodies are never forwarded to a destination the caller rejects.
  */
 export async function ssrfSafeFetch(
   url: string,
   init: RequestInit = {},
-  options: { maxRedirects?: number } = {},
+  options: {
+    maxRedirects?: number;
+    httpsOnly?: boolean;
+    assertUrlAllowed?: (url: string) => void | Promise<void>;
+    /**
+     * Exact origins that may resolve to a private address. A workspace runs
+     * every app on loopback behind one gateway, so sibling A2A calls are
+     * private by construction; without this they are indistinguishable from an
+     * SSRF attempt and get blocked. Only ever pass origins the deployment
+     * itself configured (never a request-supplied value).
+     */
+    allowedPrivateOrigins?: readonly string[];
+  } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
-  const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+  const dispatcher =
+    (await createSsrfSafeDispatcher(options.allowedPrivateOrigins)) ??
+    undefined;
+  const allowedPrivateOrigins = new Set(
+    (options.allowedPrivateOrigins ?? [])
+      .map((origin) => {
+        try {
+          return new URL(origin).origin;
+        } catch {
+          return "";
+        }
+      })
+      .filter(Boolean),
+  );
+  const isAllowedPrivateOrigin = (candidate: string): boolean => {
+    if (allowedPrivateOrigins.size === 0) return false;
+    try {
+      return allowedPrivateOrigins.has(new URL(candidate).origin);
+    } catch {
+      return false;
+    }
+  };
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    if (await isBlockedExtensionUrlWithDns(currentUrl)) {
+    await options.assertUrlAllowed?.(currentUrl);
+    if (options.httpsOnly && new URL(currentUrl).protocol !== "https:") {
+      throw new Error(
+        `SSRF blocked: refusing to fetch non-HTTPS address (${currentUrl})`,
+      );
+    }
+    if (
+      !isAllowedPrivateOrigin(currentUrl) &&
+      (await isBlockedExtensionUrlWithDns(currentUrl))
+    ) {
       throw new Error(
         `SSRF blocked: refusing to fetch private/internal address (${currentUrl})`,
       );
@@ -273,6 +355,9 @@ export async function ssrfSafeFetch(
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
       if (!location) return response;
+      // Drain the redirect body so the hop's connection is released instead
+      // of being held until GC.
+      await response.body?.cancel().catch(() => {});
       currentUrl = new URL(location, currentUrl).href;
       continue;
     }

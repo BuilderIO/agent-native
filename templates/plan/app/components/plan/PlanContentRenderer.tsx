@@ -1,41 +1,74 @@
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type FormEvent,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
-import { IconBrandGithub } from "@tabler/icons-react";
+  BlockRegistryProvider,
+  type BlockRenderContext,
+} from "@agent-native/core/blocks";
+import {
+  type AttributedRecentEdit,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  PresenceBar,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
-import type { RichMarkdownCollabUser } from "@agent-native/core/client";
-import { BlockRegistryProvider } from "@agent-native/core/blocks";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import type {
   PlanAnnotation,
   PlanBlock,
   PlanContent,
   PlanContentPatch,
 } from "@shared/plan-content";
+import { IconBrandGithub } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  lazy,
+  useMemo,
+  useRef,
+  useState,
+  Suspense,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+
+import { Button } from "@/components/ui/button";
+import { usePlanPresence } from "@/hooks/use-plan-presence";
+import { cn } from "@/lib/utils";
+
 import {
   type CanvasMarkupCreateContext,
   type CanvasMarkupMode,
+  type CanvasViewport,
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PlanBlockView } from "./DocumentArea";
+import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
+import { PlanTableOfContents } from "./PlanTableOfContents";
+import { collectPlanTocItems } from "./PlanTableOfContents.utils";
+import { getPlanContentDirection } from "./planTextDirection";
 import {
   PlanVisualSurface,
   type PlanVisualSurfaceMode,
 } from "./PlanVisualSurface";
-import { PlanTableOfContents, PlanTocFallback } from "./PlanTableOfContents";
-import { planBlockRegistry, createPlanBlockRenderContext } from "./planBlocks";
-import {
-  NestedPlanBlocksEditor,
-  PlanDocumentEditor,
-} from "../editor/PlanDocumentEditor";
+import { usePlanHashScroll } from "./usePlanHashScroll";
+
+type PlanDocumentLayout = "wide" | "narrow";
+
+const DEFAULT_PLAN_DOCUMENT_LAYOUT: PlanDocumentLayout = "wide";
+
+const loadPlanDocumentEditor = () => import("../editor/PlanDocumentEditor");
+const LazyPlanDocumentEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({ default: mod.PlanDocumentEditor })),
+);
+const LazyNestedPlanBlocksEditor = lazy(() =>
+  loadPlanDocumentEditor().then((mod) => ({
+    default: mod.NestedPlanBlocksEditor,
+  })),
+);
 
 type PlanContentRendererProps = {
   content: PlanContent;
@@ -65,6 +98,8 @@ type PlanContentRendererProps = {
     annotation: Omit<PlanAnnotation, "id">,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onCanvasViewportChange?: (view: CanvasViewport) => void;
+  onCanvasCommentShortcut?: () => void;
   /** Plan id used to key per-block collaborative editing docs. */
   planId?: string | null;
   /** Current user for collaborative cursor labels. */
@@ -73,6 +108,14 @@ type PlanContentRendererProps = {
   prototypeOnly?: boolean;
   /** Render as a read-only visual recap ("Visual Recap" eyebrow, recap copy). */
   isRecap?: boolean;
+  /** Hide recap changed-file rails/blocks for compact generated screenshots. */
+  hideChangedFiles?: boolean;
+  /** Hide recap labels, source chips, stats, and contents rails for screenshots. */
+  hideRecapChrome?: boolean;
+  /** Render code annotation cards as static inline overlays for screenshots. */
+  showCodeAnnotationOverlays?: boolean;
+  /** Force GitHub-matched screenshot colors for generated recap thumbnails. */
+  recapScreenshotTheme?: "light" | "dark" | null;
   /** URL of the source PR/issue this recap covers. When set, a "View PR" chip
    *  is shown in the recap header as a back-link. */
   sourceUrl?: string | null;
@@ -106,6 +149,22 @@ function blockStructureSignature(blocks: PlanBlock[]): string {
   return walk(blocks);
 }
 
+export function getPlanCodeAnnotationLayout({
+  isRecap,
+  showCodeAnnotationOverlays,
+}: {
+  isRecap: boolean;
+  showCodeAnnotationOverlays: boolean;
+}): BlockRenderContext["codeAnnotationLayout"] {
+  if (showCodeAnnotationOverlays) return undefined;
+
+  return {
+    hoverSide: isRecap ? "right" : "left",
+    hoverFallbackSide: "right",
+    marginSide: "auto",
+  };
+}
+
 /**
  * Thin composition shell: the spatial board (CanvasArea) on top when present,
  * the semantic document (DocumentArea blocks) below. All visual quality lives
@@ -125,18 +184,78 @@ export function PlanContentRenderer({
   editingDisabled = false,
   canvasMarkupMode,
   onCanvasMarkupCreate,
+  onCanvasViewportChange,
+  onCanvasCommentShortcut,
   planId,
   collabUser,
   prototypeOnly = false,
   visualSurfaceMode,
   onVisualSurfaceModeChange,
   isRecap = false,
+  hideChangedFiles = false,
+  hideRecapChrome = false,
+  showCodeAnnotationOverlays = false,
+  recapScreenshotTheme = null,
   sourceUrl,
 }: PlanContentRendererProps) {
+  const t = useT();
+  // Deep-link scroll on load/reload/back-forward (TOC clicks aside).
+  usePlanHashScroll(content.blocks);
+
+  // ─── Plan-level presence + agent visibility ─────────────────────────────────
+  //
+  // A content-free `plan:<planId>` collab doc carries only awareness: which
+  // humans are viewing/editing, plus the agent's presence + recent-edit
+  // attribution published by the patch actions (`agentTouchDocument`). We render
+  // a PresenceBar in the header and paint a lingering highlight over any block
+  // the agent just patched. Disabled for recaps / non-persisted surfaces (no
+  // planId) and while editing is fully disabled.
+  const presenceUser = useMemo<CollabUser | undefined>(
+    () =>
+      collabUser?.email
+        ? {
+            name: collabUser.name,
+            email: collabUser.email,
+            color: collabUser.color,
+          }
+        : undefined,
+    [collabUser?.email, collabUser?.name, collabUser?.color],
+  );
+  const { activeUsers, agentPresent, agentActive, recentEdits, collabDoc } =
+    usePlanPresence({
+      planId,
+      enabled: !!planId && !isRecap,
+      user: presenceUser,
+    });
+  const documentRegionRef = useRef<HTMLDivElement>(null);
+  const resolvePlanEditRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const container = documentRegionRef.current;
+      if (!container || edit.descriptor.kind !== "paths") return null;
+      const paths = edit.descriptor.paths;
+      if (!Array.isArray(paths) || paths.length === 0) return null;
+      // Each path is a block id; resolve the first one that maps to a live block
+      // node (the core registry NodeView + the read-only view both stamp
+      // `data-block-id` on the block wrapper).
+      for (const blockId of paths) {
+        if (typeof blockId !== "string" || !blockId) continue;
+        const escaped =
+          typeof CSS !== "undefined" && CSS.escape
+            ? CSS.escape(blockId)
+            : blockId.replace(/["\\]/g, "\\$&");
+        const el = container.querySelector<HTMLElement>(
+          `[data-block-id="${escaped}"]`,
+        );
+        if (el) return el.getBoundingClientRect();
+      }
+      return null;
+    },
+    [],
+  );
   const planLabel = isRecap
     ? "Visual Recap"
     : content.prototype
-      ? "Prototype Plan"
+      ? "Visual Plan"
       : content.canvas?.title === "UI Flow"
         ? "UI Plan"
         : "Visual Plan";
@@ -380,10 +499,24 @@ export function PlanContentRenderer({
     onVisualQuestionsSubmit,
     editingDisabled,
   };
+  const codeAnnotationLayout = useMemo(
+    () =>
+      getPlanCodeAnnotationLayout({
+        isRecap,
+        showCodeAnnotationOverlays,
+      }),
+    [isRecap, showCodeAnnotationOverlays],
+  );
+  const documentDirection = useMemo(
+    () => getPlanContentDirection(content, fallbackTitle, fallbackBrief),
+    [content, fallbackBrief, fallbackTitle],
+  );
+  const documentLayout = DEFAULT_PLAN_DOCUMENT_LAYOUT;
 
   const blockRenderContext = useMemo(
     () =>
       createPlanBlockRenderContext({
+        textDirection: documentDirection,
         contentUpdatedAt,
         planId,
         collabUser,
@@ -410,56 +543,133 @@ export function PlanContentRenderer({
           // the stale node's id is gone from the side-map, a permanent
           // "Loading diff block…". Columns already render each region at its own
           // keyed position, so this is a no-op there.
-          <NestedPlanBlocksEditor
-            key={`${containerBlockId}::${regionId}`}
-            blocks={blocks as PlanBlock[]}
-            contentUpdatedAt={contentUpdatedAt}
-            planId={planId}
-            collabUser={collabUser}
-            editable={editable && !handlersRef.current.editingDisabled}
-            onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
-            onVisualQuestionsSubmit={(summary) =>
-              handlersRef.current.onVisualQuestionsSubmit?.(summary)
+          <Suspense
+            fallback={
+              <div className="grid gap-4">
+                {(blocks as PlanBlock[]).map((block) => (
+                  <PlanBlockView
+                    key={block.id}
+                    block={block}
+                    editingDisabled
+                    contentUpdatedAt={contentUpdatedAt}
+                    planId={planId}
+                    collabUser={collabUser}
+                  />
+                ))}
+              </div>
             }
-            notionCompatibleOnly={notionCompatibleOnly}
-            containerBlockId={containerBlockId}
-            regionId={regionId}
-            regionLabel={regionLabel}
-            compactVisuals={compactVisuals}
-          />
+          >
+            <LazyNestedPlanBlocksEditor
+              key={`${containerBlockId}::${regionId}`}
+              blocks={blocks as PlanBlock[]}
+              contentUpdatedAt={contentUpdatedAt}
+              planId={planId}
+              collabUser={collabUser}
+              editable={editable && !handlersRef.current.editingDisabled}
+              onBlocksChange={(nextBlocks) => onChange(nextBlocks)}
+              onVisualQuestionsSubmit={(summary) =>
+                handlersRef.current.onVisualQuestionsSubmit?.(summary)
+              }
+              notionCompatibleOnly={notionCompatibleOnly}
+              containerBlockId={containerBlockId}
+              regionId={regionId}
+              regionLabel={regionLabel}
+              compactVisuals={compactVisuals}
+            />
+          </Suspense>
         ),
         editingDisabled,
+        showCodeAnnotationOverlays,
+        codeAnnotationLayout,
       }),
     [
       contentUpdatedAt,
+      documentDirection,
       planId,
       collabUser,
       editingDisabled,
       notionCompatibleOnly,
+      showCodeAnnotationOverlays,
+      codeAnnotationLayout,
     ],
   );
 
-  // On wide recap screens the "Files touched" tree moves to a permanent left
-  // sidebar (mirroring the right-hand contents rail) instead of sitting in the
-  // document body. Keep the block in the document so it stays the editable
-  // source of truth and is never dropped on save; render a read-only mirror in
-  // the aside, and hide the in-flow copy at the same breakpoint the rail appears
-  // (see `filesSidebarHideCss`). Gated to recaps so ordinary plans are
-  // unaffected, and to the first file-tree block (the conventional files-touched
-  // summary).
-  const filesSidebarBlock = useMemo(
+  // The first recap file tree remains inline in the document. Screenshot/export
+  // paths can still hide it through `hideChangedFiles`, so generated PR recap
+  // screenshots stay focused on the visual recap content.
+  const changedFilesBlockIndex = useMemo(
     () =>
       isRecap
-        ? content.blocks.find((block) => block.type === "file-tree")
-        : undefined,
+        ? content.blocks.findIndex((block) => block.type === "file-tree")
+        : -1,
     [isRecap, content.blocks],
   );
-
-  /**
-   * Map from file path → first block id that references the file. Built from
-   * annotated-code, diff, and code blocks in the document. Used by the recap
-   * files rail to scroll to the matching block when a file row is clicked.
-   */
+  const changedFilesBlock =
+    changedFilesBlockIndex >= 0
+      ? content.blocks[changedFilesBlockIndex]
+      : undefined;
+  const changedFilesHeadingCandidate =
+    changedFilesBlockIndex > 0
+      ? content.blocks[changedFilesBlockIndex - 1]
+      : undefined;
+  const changedFilesHeadingBlock = isChangedFilesHeadingBlock(
+    changedFilesHeadingCandidate,
+  )
+    ? changedFilesHeadingCandidate
+    : undefined;
+  const tocOmitBlockIds = useMemo(
+    () =>
+      hideChangedFiles
+        ? [changedFilesBlock?.id, changedFilesHeadingBlock?.id].filter(
+            (id): id is string => Boolean(id),
+          )
+        : [],
+    [changedFilesBlock?.id, changedFilesHeadingBlock?.id, hideChangedFiles],
+  );
+  const hiddenChangedFileBlockIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!hideChangedFiles) return ids;
+    if (changedFilesBlock) ids.add(changedFilesBlock.id);
+    if (changedFilesHeadingBlock) ids.add(changedFilesHeadingBlock.id);
+    return ids;
+  }, [changedFilesBlock, changedFilesHeadingBlock, hideChangedFiles]);
+  const renderedBlocks = useMemo(() => {
+    const visible =
+      hiddenChangedFileBlockIds.size > 0
+        ? content.blocks.filter(
+            (block) => !hiddenChangedFileBlockIds.has(block.id),
+          )
+        : content.blocks;
+    if (!hideChangedFiles || !changedFilesHeadingCandidate) return visible;
+    return visible.map((block) =>
+      block.id === changedFilesHeadingCandidate.id
+        ? stripTrailingChangedFilesHeading(block)
+        : block,
+    );
+  }, [
+    content.blocks,
+    changedFilesHeadingCandidate,
+    hiddenChangedFileBlockIds,
+    hideChangedFiles,
+  ]);
+  const blockLookup = useMemo(() => {
+    const blocks = new Map<string, PlanBlock>();
+    const visit = (block: PlanBlock) => {
+      blocks.set(block.id, block);
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) {
+          for (const child of tab.blocks) visit(child);
+        }
+      }
+      if (block.type === "columns") {
+        for (const column of block.data.columns) {
+          for (const child of column.blocks) visit(child);
+        }
+      }
+    };
+    for (const block of content.blocks) visit(block);
+    return blocks;
+  }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
     if (!isRecap) return new Map();
     const map = new Map<string, string>();
@@ -468,26 +678,17 @@ export function PlanContentRenderer({
         (block.type === "annotated-code" ||
           block.type === "diff" ||
           block.type === "code") &&
-        block.data.filename
+        block.data.filename &&
+        !map.has(block.data.filename)
       ) {
-        if (!map.has(block.data.filename)) {
-          map.set(block.data.filename, block.id);
-        }
+        map.set(block.data.filename, block.id);
       }
     }
     return map;
-  }, [isRecap, content.blocks]);
-
-  /**
-   * Click handler for the recap files rail aside. When a file row (carrying
-   * `data-file-path`) is clicked, scroll to the matching block in the document
-   * if one exists. The file tree's own expansion click still fires; this only
-   * adds the scroll as a side effect (no event.preventDefault so expansion
-   * still works).
-   */
-  const handleFilesRailClick = useMemo(() => {
+  }, [content.blocks, isRecap]);
+  const handleRecapFileTreeClick = useMemo(() => {
     if (!isRecap || fileToBlockIdMap.size === 0) return undefined;
-    return (event: React.MouseEvent<HTMLElement>) => {
+    return (event: MouseEvent<HTMLElement>) => {
       const filePath = (event.target as HTMLElement)
         .closest("[data-file-path]")
         ?.getAttribute("data-file-path");
@@ -505,18 +706,61 @@ export function PlanContentRenderer({
         block: "start",
       });
     };
-  }, [isRecap, fileToBlockIdMap]);
+  }, [fileToBlockIdMap, isRecap]);
+  const firstWideLayoutBlockIndex = useMemo(
+    () =>
+      documentLayout === "wide"
+        ? renderedBlocks.findIndex(isWideLayoutBlock)
+        : -1,
+    [documentLayout, renderedBlocks],
+  );
+  const splitWideLayout = firstWideLayoutBlockIndex >= 0 && !documentEditable;
+  const railScopedBlocks = splitWideLayout
+    ? renderedBlocks.slice(0, firstWideLayoutBlockIndex)
+    : renderedBlocks;
+  const breakoutBlocks = splitWideLayout
+    ? renderedBlocks.slice(firstWideLayoutBlockIndex)
+    : [];
+  const tocContent = useMemo(
+    () =>
+      hideChangedFiles
+        ? {
+            ...content,
+            blocks: renderedBlocks,
+          }
+        : content,
+    [content, hideChangedFiles, renderedBlocks],
+  );
+
+  // Which rails exist, mirrored onto the body as data attributes so the grid
+  // (global.css) reserves a track only for a rail that renders.
+  const hasTocRail = useMemo(
+    () =>
+      !hideRecapChrome &&
+      collectPlanTocItems(tocContent.blocks).filter(
+        (item) => !tocOmitBlockIds.includes(item.blockId),
+      ).length >= 2,
+    [tocContent.blocks, tocOmitBlockIds, hideRecapChrome],
+  );
 
   return (
     <BlockRegistryProvider
       registry={planBlockRegistry}
       ctx={blockRenderContext}
     >
-      <article className="plan-content-surface relative min-h-full bg-plan-document text-plan-text">
+      <article
+        className="plan-content-surface relative min-h-full bg-plan-document text-plan-text"
+        data-plan-document
+        data-plan-direction={documentDirection}
+        data-plan-layout={documentLayout}
+        data-recap-screenshot-theme={recapScreenshotTheme ?? undefined}
+      >
         {autosaveFailed && (
           <div className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2">
             <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border/80 bg-background/95 px-3 py-1.5 text-sm shadow-lg backdrop-blur-sm">
-              <span className="text-muted-foreground">Couldn't save</span>
+              <span className="text-muted-foreground">
+                {t("raw.content.saveFailed")}
+              </span>
               <Button
                 type="button"
                 variant="link"
@@ -533,11 +777,11 @@ export function PlanContentRenderer({
           <PlanVisualSurface
             canvas={content.canvas}
             prototype={content.prototype}
-            blockLookup={
-              new Map(content.blocks.map((block) => [block.id, block]))
-            }
+            blockLookup={blockLookup}
             canvasMarkupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
+            onCanvasViewportChange={onCanvasViewportChange}
+            onCanvasCommentShortcut={onCanvasCommentShortcut}
             prototypeOnly={prototypeOnly}
             visualMode={visualSurfaceMode}
             onVisualModeChange={onVisualSurfaceModeChange}
@@ -549,133 +793,172 @@ export function PlanContentRenderer({
           />
         )}
         {!prototypeOnly && (
-          <div className="plan-document-shell relative mx-auto w-full max-w-[900px] px-6 py-12 sm:px-10 lg:py-14">
-            <header className="border-b border-plan-line pb-8">
-              <p className="mb-4 text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
-                {planLabel}
-              </p>
-              <EditableHeaderText
-                as="h1"
-                value={content.title || fallbackTitle}
-                editable={metadataEditable}
-                className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
-                placeholder="Untitled plan"
-                onCommit={(title) => onMetadataChange?.({ title })}
+          // Layout container the side-rail grid keys off; wraps only the document
+          // (not canvas) so its containment can't disturb fixed canvas chrome.
+          <div className="plan-document-region">
+            <div
+              ref={documentRegionRef}
+              className="plan-document-shell relative mx-auto w-full max-w-[1040px] px-6 pb-12 pt-16 sm:px-10 sm:py-12 lg:py-14"
+              data-plan-direction={documentDirection}
+              dir={documentDirection}
+            >
+              <RecentEditHighlights
+                edits={recentEdits}
+                resolveRect={resolvePlanEditRect}
+                containerRef={documentRegionRef}
               />
-              {metadataEditable ? (
-                <EditableHeaderText
-                  as="p"
-                  value={content.brief || fallbackBrief}
-                  editable
-                  className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
-                  placeholder="Add a short plan summary"
-                  onCommit={(brief) => onMetadataChange?.({ brief })}
-                />
-              ) : (
-                <HeaderBriefText
-                  value={content.brief || fallbackBrief}
-                  className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
-                  linkGithubPrReferences={isRecap}
-                />
-              )}
-              {isRecap && sourceUrl && (
-                <PrBackLink url={sourceUrl} className="mt-4" />
-              )}
-              {isRecap && (
-                <RecapStatStrip
-                  fileTreeBlock={
-                    filesSidebarBlock as PlanFileTreeBlock | undefined
-                  }
-                  className="mt-3"
-                />
-              )}
-            </header>
-
-            {/* The side rails (contents on the right, recap files on the left)
-                live in this wrapper, which begins below the header — so the rails
-                start level with the body content instead of the title, while
-                their nested `…__nav` stays sticky near the top on scroll. The
-                wrapper bleeds back out to the shell's padding box (see
-                global.css) so the rails keep their original margin anchor. */}
-            <div className="plan-document-body">
-              <PlanTableOfContents
-                content={content}
-                isRecap={isRecap}
-                omitBlockId={filesSidebarBlock?.id}
-              />
-              {filesSidebarBlock && (
-                <>
-                  <style>{filesSidebarHideCss(filesSidebarBlock.id)}</style>
-                  <aside
-                    className="plan-document-files"
-                    aria-label="Files changed"
-                    onClick={handleFilesRailClick}
-                  >
-                    <div className="plan-document-files__nav">
-                      {/* The sidebar owns the heading: a single fixed "Files
-                          changed" label. Strip BOTH the block-level `title` (the
-                          eyebrow `plan-block-label`) and the file-tree's own
-                          `data.title` (the bold summary-header heading) from the
-                          mirrored block so the file-tree renders heading-free and
-                          the label is never duplicated — regardless of what title
-                          the block was authored with (e.g. one carrying a
-                          "(+N / −M, K files)" stats suffix). The in-flow source
-                          block keeps both titles untouched. */}
-                      <div className="plan-document-files__label">
-                        Files changed
-                      </div>
-                      <PlanBlockView
-                        block={stripFileTreeTitles({
-                          ...filesSidebarBlock,
-                          id: `${filesSidebarBlock.id}__aside`,
-                        })}
-                        editingDisabled
-                        contentUpdatedAt={contentUpdatedAt}
-                        planId={planId}
-                        collabUser={collabUser}
+              {/* Grid wrapper (header/flow/rails). `data-has-*` picks the tracks;
+                  see global.css. */}
+              <div
+                className="plan-document-body"
+                data-has-toc={hasTocRail ? "" : undefined}
+              >
+                <header className="border-b border-plan-line pb-8">
+                  {!hideRecapChrome && (
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.16em] text-plan-muted">
+                        {planLabel}
+                      </p>
+                      {planId && !isRecap ? (
+                        <PresenceBar
+                          activeUsers={activeUsers}
+                          agentPresent={agentPresent}
+                          agentActive={agentActive}
+                          currentUserEmail={collabUser?.email}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                  <EditableHeaderText
+                    as="h1"
+                    value={content.title || fallbackTitle}
+                    editable={metadataEditable}
+                    className="max-w-3xl text-[1.8rem] font-bold leading-[1.15] tracking-[-0.02em] sm:text-[2.25rem]"
+                    placeholder={t("raw.content.untitledPlan")}
+                    onCommit={(title) => onMetadataChange?.({ title })}
+                  />
+                  {metadataEditable ? (
+                    <EditableHeaderText
+                      as="p"
+                      value={content.brief || fallbackBrief}
+                      editable
+                      className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
+                      placeholder={t("raw.content.addSummary")}
+                      onCommit={(brief) => onMetadataChange?.({ brief })}
+                    />
+                  ) : (
+                    <HeaderBriefText
+                      value={content.brief || fallbackBrief}
+                      className="mt-4 max-w-2xl plan-doc-body text-plan-muted"
+                      linkGithubPrReferences={isRecap}
+                    />
+                  )}
+                  {isRecap && !hideRecapChrome && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      {sourceUrl && <PrBackLink url={sourceUrl} />}
+                      <RecapStatStrip
+                        fileTreeBlock={
+                          hideChangedFiles
+                            ? undefined
+                            : (changedFilesBlock as
+                                | PlanFileTreeBlock
+                                | undefined)
+                        }
                       />
                     </div>
-                  </aside>
-                </>
-              )}
+                  )}
+                </header>
 
-              <div className="plan-document-flow">
-                {documentEditable ? (
-                  // The whole body is ONE editable rich-markdown document; custom
-                  // blocks are inline `planBlock` NodeViews. Read-only / review /
-                  // SSR keeps the per-block render below (no Tiptap server-side).
-                  <PlanDocumentEditor
-                    content={content}
-                    contentUpdatedAt={contentUpdatedAt}
-                    planId={planId}
-                    collabUser={collabUser}
-                    editable
-                    onBlocksChange={replaceBlocks}
-                    onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                {!hideRecapChrome && (
+                  <PlanTableOfContents
+                    content={tocContent}
+                    isRecap={isRecap}
+                    omitBlockIds={tocOmitBlockIds}
                   />
-                ) : (
-                  content.blocks.map((block) => (
-                    <PlanBlockView
-                      key={block.id}
-                      block={block}
-                      onChange={(nextBlock) => updateBlock(block.id, nextBlock)}
-                      onRichTextChange={updateRichTextBlock}
-                      onVisualQuestionsSubmit={onVisualQuestionsSubmit}
-                      contentUpdatedAt={contentUpdatedAt}
-                      editingDisabled={editingDisabled}
-                      planId={planId}
-                      collabUser={collabUser}
-                    />
-                  ))
                 )}
+
+                <div
+                  className="plan-document-flow-stack"
+                  onClick={handleRecapFileTreeClick}
+                >
+                  <div className="plan-document-flow">
+                    {documentEditable ? (
+                      // The whole body is ONE editable rich-markdown document; custom
+                      // blocks are inline `planBlock` NodeViews. Read-only / review /
+                      // SSR keeps the per-block render below (no Tiptap server-side).
+                      <Suspense
+                        fallback={renderedBlocks.map((block) =>
+                          renderFlowBlockFrame(
+                            block,
+                            <PlanBlockView
+                              block={block}
+                              onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                              contentUpdatedAt={contentUpdatedAt}
+                              editingDisabled
+                              planId={planId}
+                              collabUser={collabUser}
+                            />,
+                          ),
+                        )}
+                      >
+                        <LazyPlanDocumentEditor
+                          content={content}
+                          contentUpdatedAt={contentUpdatedAt}
+                          planId={planId}
+                          collabUser={collabUser}
+                          editable
+                          onBlocksChange={replaceBlocks}
+                          onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                          // Reuse the `plan:<planId>` connection `usePlanPresence`
+                          // already opened above for the header PresenceBar,
+                          // instead of opening a second independent one (see
+                          // `usePlanPresence`'s `collabDoc` doc comment).
+                          sharedCollabDoc={collabDoc}
+                        />
+                      </Suspense>
+                    ) : (
+                      railScopedBlocks.map((block) =>
+                        renderFlowBlockFrame(
+                          block,
+                          <PlanBlockView
+                            block={block}
+                            onChange={(nextBlock) =>
+                              updateBlock(block.id, nextBlock)
+                            }
+                            onRichTextChange={updateRichTextBlock}
+                            onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                            contentUpdatedAt={contentUpdatedAt}
+                            editingDisabled={editingDisabled}
+                            planId={planId}
+                            collabUser={collabUser}
+                          />,
+                        ),
+                      )
+                    )}
+                  </div>
+                  {!documentEditable && breakoutBlocks.length > 0 && (
+                    <div className="plan-document-flow plan-document-flow--wide-zone">
+                      {breakoutBlocks.map((block) =>
+                        renderFlowBlockFrame(
+                          block,
+                          <PlanBlockView
+                            block={block}
+                            onChange={(nextBlock) =>
+                              updateBlock(block.id, nextBlock)
+                            }
+                            onRichTextChange={updateRichTextBlock}
+                            onVisualQuestionsSubmit={onVisualQuestionsSubmit}
+                            contentUpdatedAt={contentUpdatedAt}
+                            editingDisabled={editingDisabled}
+                            planId={planId}
+                            collabUser={collabUser}
+                          />,
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-              {/* Compact floating TOC pill for narrower viewports — hidden by
-                  global.css above 1400px where the full sidebar rail is shown. */}
-              <PlanTocFallback
-                content={content}
-                isRecap={isRecap}
-                omitBlockId={filesSidebarBlock?.id}
-              />
             </div>
           </div>
         )}
@@ -684,51 +967,73 @@ export function PlanContentRenderer({
   );
 }
 
-/**
- * Scoped CSS that, at the contents-rail breakpoint (1400px), hides the in-flow
- * copy of the relocated "Files touched" block (its mirror lives in the left
- * `.plan-document-files` aside) and restores first-block spacing on whatever
- * block now leads the document body. The hide uses a descendant selector so it
- * matches both the read-mode `.plan-block` and the editable-mode
- * `.plan-block-node` wrappers; the spacing reset only matches the read-mode
- * direct-child layout (the editable mode draws no per-block top border, so there
- * is nothing to reset there). The aside mirror carries a distinct `…__aside` id,
- * so it is never caught by these rules.
- */
-/**
- * Return a copy of a `file-tree` block with BOTH heading sources removed so it
- * renders heading-free in the recap left sidebar: the block-level `title` (which
- * `FileTreeRead` shows as the greyed `plan-block-label` eyebrow) and the
- * file-tree's own `data.title` (the bold summary-header heading). The sidebar
- * supplies its own fixed "Files changed" label, so leaving either title on the
- * mirrored block stacks a second — often stats-laden ("(+N / −M, K files)") —
- * heading directly on top of it. Non-file-tree blocks pass through unchanged.
- * The in-flow source block is never touched.
- */
-function stripFileTreeTitles(block: PlanBlock): PlanBlock {
-  if (block.type !== "file-tree") return block;
-  return {
-    ...block,
-    title: undefined,
-    data: { ...block.data, title: undefined },
-  };
+function renderFlowBlockFrame(block: PlanBlock, node: ReactNode) {
+  const wide = isWideLayoutBlock(block);
+  return (
+    <div
+      key={block.id}
+      className={cn(
+        "plan-document-flow-block",
+        wide && "plan-document-flow-block--wide",
+      )}
+      data-block-type={block.type}
+      data-wide-layout-block={wide ? "" : undefined}
+    >
+      {node}
+    </div>
+  );
 }
 
-function filesSidebarHideCss(blockId: string): string {
-  const id = blockId.replace(/["\\]/g, "\\$&");
-  const leadReset = [
-    ".plan-block",
-    ".plan-callout",
-    ".plan-questions-block",
-    ".an-block-panel",
-    ".plan-block-node",
-  ]
-    .map((sel) => `.plan-document-flow > [data-block-id="${id}"] + ${sel}`)
-    .join(",\n");
-  return `@media (min-width: 1400px){
-.plan-document-flow [data-block-id="${id}"]{display:none}
-${leadReset}{margin-top:2.25rem;padding-top:0}
-}`;
+function isWideLayoutBlock(block: PlanBlock): boolean {
+  switch (block.type) {
+    case "diff":
+    case "annotated-code":
+      return true;
+    case "tabs":
+      return (
+        block.data.orientation === "vertical" ||
+        block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks))
+      );
+    default:
+      return false;
+  }
+}
+
+function blocksContainDiffLike(blocks: PlanBlock[]): boolean {
+  return blocks.some(blockContainsDiffLike);
+}
+
+function blockContainsDiffLike(block: PlanBlock): boolean {
+  if (block.type === "diff" || block.type === "annotated-code") return true;
+  if (block.type === "tabs") {
+    return block.data.tabs.some((tab) => blocksContainDiffLike(tab.blocks));
+  }
+  if (block.type === "columns") {
+    return block.data.columns.some((column) =>
+      blocksContainDiffLike(column.blocks),
+    );
+  }
+  return false;
+}
+
+// Matches a standalone heading that titles the files section ("Files changed",
+// "Files added", "Files", ...). Screenshot mode hides the file-tree and should
+// hide that standalone heading too, without touching body sections.
+function isChangedFilesHeadingBlock(block: PlanBlock | undefined): boolean {
+  if (!block || block.type !== "rich-text") return false;
+  return /^#{1,6}\s+(?:(?:changed|added|removed|touched|modified)\s+files|files(?:\s+(?:changed|added|removed|touched|modified))?)\s*$/i.test(
+    block.data.markdown.trim(),
+  );
+}
+
+function stripTrailingChangedFilesHeading(block: PlanBlock): PlanBlock {
+  if (block.type !== "rich-text") return block;
+  const markdown = block.data.markdown.replace(
+    /\n{0,2}#{1,6}\s+(?:Changed files|Files changed)\s*$/i,
+    "",
+  );
+  if (markdown === block.data.markdown) return block;
+  return { ...block, data: { ...block.data, markdown: markdown.trimEnd() } };
 }
 
 const GITHUB_PR_REFERENCE_RE =
@@ -978,6 +1283,7 @@ function RecapStatStrip({
   fileTreeBlock: PlanFileTreeBlock | undefined;
   className?: string;
 }) {
+  const t = useT();
   const stats = computeRecapStats(fileTreeBlock);
   if (!stats) return null;
   const { files, added, removed } = stats;
@@ -988,7 +1294,7 @@ function RecapStatStrip({
   return (
     <p
       className={cn("text-xs tabular-nums text-plan-muted/80", className)}
-      aria-label="Change statistics"
+      aria-label={t("raw.content.changeStatistics")}
     >
       {parts.join(" · ")}
     </p>

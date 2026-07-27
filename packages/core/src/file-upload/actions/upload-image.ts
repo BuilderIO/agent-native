@@ -1,7 +1,8 @@
 import { z } from "zod";
+
 import { defineAction } from "../../action.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
 import { ssrfSafeFetch } from "../../extensions/url-safety.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { uploadFile } from "../registry.js";
 
 const MAX_REMOTE_FETCH_BYTES = 25 * 1024 * 1024;
@@ -133,7 +134,7 @@ async function fetchRemote(url: string): Promise<{
 function uploadNotConfiguredError(): string {
   return [
     "Image uploads are not configured for this app.",
-    "Configure a file upload provider — connect Builder.io in Settings → File uploads (free credits), set BUILDER_PRIVATE_KEY, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
+    "Connect or reconnect Builder.io in Settings → File uploads, or register a custom provider (S3, R2, GCS, etc.) via registerFileUploadProvider().",
   ].join(" ");
 }
 

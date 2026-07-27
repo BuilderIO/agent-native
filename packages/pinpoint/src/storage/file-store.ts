@@ -4,6 +4,7 @@
 // Writes to data/pins/{uuid}.json — one file per annotation.
 // Atomic writes (temp + rename). Path traversal validation on all IDs.
 
+import { randomUUID } from "crypto";
 import {
   readdir,
   readFile,
@@ -13,8 +14,7 @@ import {
   mkdir,
 } from "fs/promises";
 import { join, resolve } from "path";
-import { tmpdir } from "os";
-import { randomUUID } from "crypto";
+
 import type { Pin, PinStatus, PinStorage } from "../types/index.js";
 import { PinSchema } from "./schemas.js";
 
@@ -60,9 +60,19 @@ export class FileStore implements PinStorage {
 
   private async atomicWrite(filePath: string, data: string): Promise<void> {
     await this.ensureDir();
-    const tempPath = join(tmpdir(), `pinpoint-${randomUUID()}.tmp`);
-    await writeFile(tempPath, data, "utf-8");
-    await rename(tempPath, filePath);
+    // Stage the temp file inside the data directory (not the OS tmpdir) so
+    // the final rename stays on the same filesystem. POSIX rename() is only
+    // atomic — and only works at all — across paths on the same mount; a
+    // separate /tmp mount (common in containers) makes rename() fail with
+    // EXDEV.
+    const tempPath = join(this.dir, `.${randomUUID()}.tmp`);
+    try {
+      await writeFile(tempPath, data, "utf-8");
+      await rename(tempPath, filePath);
+    } catch (err) {
+      await unlink(tempPath).catch(() => {});
+      throw err;
+    }
   }
 
   async load(pageUrl: string): Promise<Pin[]> {

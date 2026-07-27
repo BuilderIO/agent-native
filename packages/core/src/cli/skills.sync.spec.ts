@@ -1,13 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   CANVAS_REFERENCE_MD,
+  CONNECTION_REFERENCE_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
+  LOCAL_FILES_REFERENCE_MD,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
+  VISUALIZE_REPO_SKILL_MD,
   WIREFRAME_REFERENCE_MD,
 } from "./skills.js";
 
@@ -80,6 +84,18 @@ const PLAN_SKILLS = [
         constant: EXEMPLAR_REFERENCE_MD,
         marker: "exemplar",
       },
+      {
+        rel: "references/connection.md",
+        constant: CONNECTION_REFERENCE_MD,
+        marker: "connection",
+        sharedAcrossSkills: true,
+      },
+      {
+        rel: "references/local-files.md",
+        constant: LOCAL_FILES_REFERENCE_MD,
+        marker: "local-files",
+        sharedAcrossSkills: true,
+      },
     ],
   },
   {
@@ -94,7 +110,26 @@ const PLAN_SKILLS = [
         marker: "wireframe-quality",
         sharedAcrossSkills: true,
       },
+      {
+        rel: "references/connection.md",
+        constant: CONNECTION_REFERENCE_MD,
+        marker: "connection",
+        sharedAcrossSkills: true,
+      },
+      {
+        rel: "references/local-files.md",
+        constant: LOCAL_FILES_REFERENCE_MD,
+        marker: "local-files",
+        sharedAcrossSkills: true,
+      },
     ],
+  },
+  {
+    label: "visualize-repo",
+    constant: VISUALIZE_REPO_SKILL_MD,
+    templateDir: "visualize-repo",
+    exportedDir: "visualize-repo",
+    references: [],
   },
 ] as const;
 
@@ -223,16 +258,26 @@ describe("Plans skills sync guard", () => {
         }
       }
     }
-    // Cross-skill: a reference flagged `sharedAcrossSkills` must be identical
-    // everywhere it ships (e.g. the wireframe reference on visual-plan and
-    // visual-recap).
-    const sharedCopies = PLAN_SKILLS.flatMap((skill) =>
-      skill.references
-        .filter((ref) => ref.sharedAcrossSkills)
-        .map((ref) => exportedPath(skill.exportedDir, ref.rel)),
-    ).map(read);
-    for (const body of sharedCopies) {
-      expect(body).toBe(sharedCopies[0]);
+    // Cross-skill: each reference flagged `sharedAcrossSkills` must be identical
+    // everywhere it ships (wireframe / connection / local-files on both
+    // visual-plan and visual-recap). Group by the reference path so distinct
+    // shared references are only compared against their own copies.
+    const sharedByRel = new Map<string, string[]>();
+    for (const skill of PLAN_SKILLS) {
+      for (const ref of skill.references) {
+        if (!ref.sharedAcrossSkills) continue;
+        const body = read(exportedPath(skill.exportedDir, ref.rel));
+        const bodies = sharedByRel.get(ref.rel) ?? [];
+        bodies.push(body);
+        sharedByRel.set(ref.rel, bodies);
+      }
+    }
+    for (const [rel, bodies] of sharedByRel) {
+      for (const body of bodies) {
+        expect(body, `${rel}: shared reference differs across skills`).toBe(
+          bodies[0],
+        );
+      }
     }
     // The canonical references must still embed their SHARED-CORE marker regions
     // so the bar itself is preserved, just relocated out of the SKILL.md body.
@@ -294,5 +339,7 @@ describe("Plans skills sync guard", () => {
     // must call the canonical command `/visual-plan`.
     expect(VISUAL_PLANS_SKILL_MD).toMatch(/^---\nname: visual-plan\n/);
     expect(VISUAL_PLANS_SKILL_MD).toContain("`/visual-plan`");
+    expect(VISUALIZE_REPO_SKILL_MD).toMatch(/^---\nname: visualize-repo\n/);
+    expect(VISUALIZE_REPO_SKILL_MD).toContain("`/visualize-repo`");
   });
 });

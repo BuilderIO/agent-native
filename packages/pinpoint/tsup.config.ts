@@ -1,5 +1,5 @@
-import { defineConfig } from "tsup";
 import { solidPlugin } from "esbuild-plugin-solid";
+import { defineConfig } from "tsup";
 
 export default defineConfig([
   // Browser bundle (includes SolidJS UI — react entry needs solidPlugin too)

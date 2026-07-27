@@ -1,3 +1,6 @@
+import { TZDate } from "@date-fns/tz";
+import { format } from "date-fns";
+
 /**
  * SlotPicker — minimal, unstyled primitive that renders a vertical list of
  * available slots grouped by date. Consumers style the buttons via their
@@ -7,8 +10,7 @@
  * system for a fully styled picker.
  */
 import type { Slot } from "../../shared/index.js";
-import { TZDate } from "@date-fns/tz";
-import { format } from "date-fns";
+import { useSchedulingT } from "../i18n.js";
 
 export interface SlotPickerProps {
   slots: Slot[];
@@ -22,6 +24,7 @@ export interface SlotPickerProps {
 }
 
 export function SlotPicker(props: SlotPickerProps) {
+  const t = useSchedulingT();
   const grouped = new Map<string, Slot[]>();
   for (const s of props.slots) {
     const localDay = format(
@@ -58,7 +61,10 @@ export function SlotPicker(props: SlotPickerProps) {
                     fmt,
                   )}
                   {s.seatsRemaining != null && s.seatsRemaining > 0 && (
-                    <span> · {s.seatsRemaining} left</span>
+                    <span>
+                      {" "}
+                      · {s.seatsRemaining} {t("availableLeft")}
+                    </span>
                   )}
                 </button>
               </li>

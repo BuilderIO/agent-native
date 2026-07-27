@@ -1,6 +1,7 @@
-import type { ActionEntry } from "./production-agent.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import { getRequestRunContext } from "../server/request-context.js";
+import type { ActionEntry } from "./production-agent.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 
@@ -43,18 +44,18 @@ export function createToolSearchEntry(
   return {
     tool: {
       description:
-        "Search the live registry of callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Use this when you need a capability but are not sure which tool to call, especially after users connect new MCP servers. Returns exact tool names and parameter summaries so you can call the matching tool directly.",
+        "Discover callable tools/actions, including connected MCP server tools named `mcp__<server>__<tool>`. Call it with NO query to list every available tool by name with a one-line description (cheap — no input schemas); names from that menu are not loaded for calling yet, so call tool-search again with a specific query for the tool/capability before invoking it. Use this whenever you need a capability but aren't sure which tool to call — most tools are not loaded into context up front, so this is how you find and then call them.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
             description:
-              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`.",
+              "What capability to find, e.g. `send slack message`, `create calendar event`, `zapier gmail`, or `browser screenshot`. Omit to list every available tool name (the full menu) with one-line descriptions; then call tool-search again with a specific query before calling a tool from that menu.",
           },
           limit: {
             type: "number",
-            description: `Maximum results to return. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}.`,
+            description: `Maximum results to return for a query. Defaults to ${options.defaultLimit ?? DEFAULT_LIMIT}. Ignored when listing the full menu (no query).`,
           },
           includeSchemas: {
             type: "boolean",
@@ -62,7 +63,6 @@ export function createToolSearchEntry(
               "When true, include each matching tool's full input schema. Default false.",
           },
         },
-        required: ["query"],
       },
     },
     http: false,
@@ -91,15 +91,50 @@ export function searchToolRegistry(
   query: string;
   totalTools: number;
   count: number;
+  repeated?: boolean;
+  message?: string;
   results: ToolSearchResult[];
 } {
   const query = String(args.query ?? "").trim();
-  const includeSchemas = parseBoolean(args.includeSchemas);
+  // No query → "menu" mode: list every available tool by name + a terse
+  // description, with no parameter summaries or input schemas. This is the
+  // cheap, non-opaque counterpart to the compact catalog: the agent can see
+  // the full set of tools for a small token cost, then search/load the few it
+  // actually needs. A query switches to ranked search with parameter details.
+  const listAll = query.length === 0;
+  const includeSchemas = !listAll && parseBoolean(args.includeSchemas);
   const limit = parseLimit(
     args.limit,
     options.defaultLimit ?? DEFAULT_LIMIT,
     options.maxLimit ?? MAX_LIMIT,
   );
+  const cacheKey = normalizeToolSearchCacheKey({
+    query,
+    limit,
+    includeSchemas,
+  });
+  const runCtx = getRequestRunContext();
+  const priorSearch = includeSchemas
+    ? undefined
+    : runCtx?.toolSearchReads?.[cacheKey];
+  if (priorSearch) {
+    return {
+      query,
+      totalTools: priorSearch.totalTools,
+      count: priorSearch.resultNames.length,
+      repeated: true,
+      message:
+        "This exact tool-search query already ran in this agent run. Use the previously returned schemas/details instead of searching again.",
+      results: priorSearch.resultNames.map((name) => ({
+        name,
+        kind: parseMcpToolName(name) ? ("mcp" as const) : ("action" as const),
+        score: 0,
+        description:
+          "Already returned by an earlier identical tool-search call.",
+        parameters: [],
+      })),
+    };
+  }
   const queryTokens = tokenize(query);
 
   const candidates: ToolSearchResult[] = [];
@@ -107,16 +142,30 @@ export function searchToolRegistry(
 
   for (const [name, entry] of Object.entries(registry)) {
     if (!entry?.tool || name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (entry.agentTool === false) continue;
     if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
       continue;
     }
 
     totalTools++;
     const description = normalizeWhitespace(entry.tool.description ?? "");
-    const parameters = summarizeParameters(entry.tool.parameters);
     const parsedMcp = parseMcpToolName(name);
     const kind = parsedMcp ? "mcp" : "action";
     const source = parsedMcp?.serverId;
+
+    if (listAll) {
+      candidates.push({
+        name,
+        kind,
+        ...(source ? { source } : {}),
+        description: truncate(description, 140),
+        score: 0,
+        parameters: [],
+      });
+      continue;
+    }
+
+    const parameters = summarizeParameters(entry.tool.parameters);
     const score = scoreTool({
       query,
       queryTokens,
@@ -127,7 +176,7 @@ export function searchToolRegistry(
       kind,
     });
 
-    if (queryTokens.length > 0 && score <= 0) continue;
+    if (score <= 0) continue;
 
     candidates.push({
       name,
@@ -140,17 +189,63 @@ export function searchToolRegistry(
     });
   }
 
+  if (listAll) {
+    candidates.sort((a, b) => a.name.localeCompare(b.name));
+    const result = {
+      query,
+      totalTools,
+      count: candidates.length,
+      message:
+        'Menu mode lists tool names only; it does not load schemas for calling. Before invoking a tool found here, call tool-search again with a specific query such as the tool name or capability (for example, { "query": "hubspot-deals" }).',
+      results: candidates,
+    };
+    rememberToolSearchResult(cacheKey, result);
+    return result;
+  }
+
   candidates.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.name.localeCompare(b.name);
   });
 
-  return {
+  const result = {
     query,
     totalTools,
     count: Math.min(candidates.length, limit),
     results: candidates.slice(0, limit),
   };
+  if (!includeSchemas) rememberToolSearchResult(cacheKey, result);
+  return result;
+}
+
+function normalizeToolSearchCacheKey(options: {
+  query: string;
+  limit: number;
+  includeSchemas: boolean;
+}): string {
+  return JSON.stringify({
+    query: options.query.trim().toLowerCase(),
+    limit: options.limit,
+    includeSchemas: options.includeSchemas,
+  });
+}
+
+function rememberToolSearchResult(
+  cacheKey: string,
+  result: { totalTools: number; results: Array<{ name: string }> },
+) {
+  const runCtx = getRequestRunContext();
+  if (!runCtx) return;
+  const reads = (runCtx.toolSearchReads ??= {});
+  reads[cacheKey] = {
+    totalTools: result.totalTools,
+    resultNames: result.results.map((item) => item.name),
+  };
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1).trimEnd()}…`;
 }
 
 function parseLimit(value: unknown, fallback: number, max: number): number {

@@ -21,6 +21,8 @@ export const bookings = table("bookings", {
   meetingLink: text("meeting_link"),
   /** Google Calendar event created for this booking, if any */
   googleEventId: text("google_event_id"),
+  /** Connected calendar account that owns the provider event, if any */
+  calendarAccountId: text("calendar_account_id"),
   /** Token for public cancel/reschedule link */
   cancelToken: text("cancel_token"),
   status: text("status", { enum: ["confirmed", "cancelled"] })
@@ -39,6 +41,8 @@ export const bookingLinks = table("booking_links", {
   duration: integer("duration").notNull().default(30),
   /** JSON array of additional duration options, e.g. [15, 30, 60] */
   durations: text("durations"),
+  /** JSON array of required co-hosts, excluding the owner */
+  hosts: text("hosts"),
   /** JSON array of custom field definitions */
   customFields: text("custom_fields"),
   /** JSON conferencing config (type + optional URL) */

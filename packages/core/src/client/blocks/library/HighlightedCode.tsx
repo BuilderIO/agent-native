@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 
 type ShikiHighlighter = {
   codeToHtml: (
@@ -179,7 +181,7 @@ export function HighlightedCode({
  * stay scannable instead of dominating the document, matching the rest of the
  * plan's progressively-disclosed surfaces.
  */
-export const DEFAULT_CODE_MAX_LINES = 40;
+export const DEFAULT_CODE_MAX_LINES = 30;
 
 /**
  * Read-only code surface used across the plan blocks (code tabs, API specs) and
@@ -219,6 +221,7 @@ export function CodeSurface({
 
   return (
     <div
+      {...ltrCodeBlockProps}
       className={cn("plan-code-surface", className ?? "mt-5")}
       data-collapsed={collapsed ? "true" : undefined}
     >

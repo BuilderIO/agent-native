@@ -1,14 +1,15 @@
+import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, createError } from "h3";
+
+import type {
+  NotionSearchResponse,
+  NotionSearchResult,
+} from "../../../../shared/api.js";
 import {
   getDocumentOwnerEmail,
   getNotionConnectionForOwner,
   notionFetch,
 } from "../../../lib/notion.js";
-import { readBody } from "@agent-native/core/server";
-import type {
-  NotionSearchResponse,
-  NotionSearchResult,
-} from "../../../../shared/api.js";
 
 export default defineEventHandler(
   async (event): Promise<NotionSearchResponse> => {

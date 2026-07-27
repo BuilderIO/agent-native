@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   registerTrackingProvider,
   track,
   unregisterTrackingProvider,
 } from "./registry.js";
-import type { TrackingEvent } from "./types.js";
 import {
   MAX_TRACK_EVENT_NAME_LENGTH,
   MAX_TRACK_PROPERTIES_BYTES,
   validateTrackPayload,
 } from "./route.js";
+import type { TrackingEvent } from "./types.js";
 
 describe("validateTrackPayload", () => {
   it("accepts a non-empty name and trims it", () => {

@@ -1,126 +1,51 @@
+import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
-  type AgentChatAttachment,
 } from "@agent-native/core/server";
+
 import actionsRegistry from "../../.generated/actions-registry.js";
-import { getOrgContext } from "@agent-native/core/org";
-import path from "path";
-import { saveUploadedReferenceFile } from "../handlers/uploads.js";
-import { isSlidesReferenceFileExtension } from "../../shared/upload-types.js";
+import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import "../register-secrets.js";
 
-const MAX_CHAT_UPLOAD_BYTES = 50 * 1024 * 1024;
+const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
 
-function decodeDataUrl(data: string | undefined): {
-  bytes: Buffer;
-  contentType: string;
-} | null {
-  const match = data?.match(/^data:([^;,]+);base64,(.*)$/s);
-  if (!match) return null;
-  return {
-    contentType: match[1] || "application/octet-stream",
-    bytes: Buffer.from(match[2], "base64"),
-  };
-}
-
-async function prepareSlidesChatAttachments(args: {
-  ownerEmail: string | null;
-  message: string;
-  attachments: AgentChatAttachment[];
-}): Promise<{ message?: string } | void> {
-  if (!args.ownerEmail || args.attachments.length === 0) return;
-
-  const uploaded: Array<{
-    originalName: string;
-    path: string;
-    url?: string;
-    type: string;
-    size: number;
-  }> = [];
-  const failed: Array<{ name: string; reason: string }> = [];
-
-  for (const attachment of args.attachments) {
-    if (attachment.type !== "file" || !attachment.data) continue;
-    const ext = path.extname(attachment.name).toLowerCase();
-    if (!isSlidesReferenceFileExtension(ext)) continue;
-
-    const decoded = decodeDataUrl(attachment.data);
-    if (!decoded) continue;
-    if (decoded.bytes.length > MAX_CHAT_UPLOAD_BYTES) {
-      failed.push({
-        name: attachment.name,
-        reason: "file is larger than the 50 MB upload limit",
-      });
-      continue;
-    }
-
-    try {
-      uploaded.push(
-        await saveUploadedReferenceFile({
-          email: args.ownerEmail,
-          originalName: attachment.name,
-          data: decoded.bytes,
-          type: attachment.contentType || decoded.contentType,
-        }),
-      );
-    } catch (error) {
-      failed.push({
-        name: attachment.name,
-        reason: error instanceof Error ? error.message : "upload failed",
-      });
-    }
-  }
-
-  if (uploaded.length === 0 && failed.length === 0) return;
-
-  const fileList = uploaded
-    .map(
-      (file) =>
-        `- ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
-    )
-    .join("\n");
-  const failureList = failed
-    .map((file) => `- ${file.name}: ${file.reason}`)
-    .join("\n");
-  const attachmentContext = [
-    "<slides-chat-attachments>",
-    uploaded.length > 0
-      ? [
-          "The user attached file(s) in chat. They have been saved as real server upload paths that Slides import actions can read:",
-          fileList,
-          "",
-          "File handling rules:",
-          "- If the request refers to the current or visible deck, call `view-screen` first to confirm the active deckId, then pass that deckId to import or slide-edit actions.",
-          '- PPTX files: call `import-pptx --filePath "<path>" --deckId <deckId>` when updating the visible deck, or omit deckId only when the user explicitly wants a new deck.',
-          '- PDF and DOCX files: call `import-file --filePath "<path>" --format auto --deckId <deckId>` and use the returned full text as source material before creating slides. If the user wants a direct replacement import, pass `--importIntoDeck true` as well.',
-          '- Figma `.fig` files: call `import-file --filePath "<path>" --format fig`, then call `create-design-system` with the returned `designSystem` data and `customInstructions`.',
-          "- For deck-generation requests, start mutating promptly: create or update the first slide as soon as source material is extracted, then continue slide-by-slide with add-slide/update-slide.",
-          '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
-          "- Do not say no PDF/PPTX/DOCX/FIG was attached when a matching saved path is listed here.",
-        ].join("\n")
-      : "",
-    failed.length > 0
-      ? [
-          "Some attached file(s) could not be saved to Slides upload storage:",
-          failureList,
-          "The binary attachment is still present in the chat request; use it directly if the model supports it, otherwise report the save error exactly.",
-        ].join("\n")
-      : "",
-    "</slides-chat-attachments>",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return { message: `${args.message}\n\n${attachmentContext}` };
-}
+const INITIAL_TOOL_NAMES = [
+  "view-screen",
+  "list-decks",
+  "get-deck",
+  "create-deck",
+  "add-slide",
+  "update-slide",
+  "patch-deck",
+  "generate-slides-ai",
+  "import-file",
+  "import-google-doc",
+  "import-pptx",
+  "export-pptx",
+  "navigate",
+  "provider-api-catalog",
+  "provider-api-docs",
+  "provider-api-request",
+];
 
 export default createAgentChatPlugin({
   appId: "slides",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
-  runSoftTimeoutMs: 240_000,
+  initialToolNames: INITIAL_TOOL_NAMES,
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  // Enable sandboxed JavaScript execution so Slides agents can fetch,
+  // paginate, and reduce provider data through providerFetch() without us
+  // hardcoding one action per Google Drive endpoint.
+  codeExecution: { production: "sandboxed" },
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   prepareRequest: prepareSlidesChatAttachments,
+  systemPrompt: `You are an AI deck assistant. You create, edit, import, export, style, share, and navigate decks through actions and shared application state.
+
+Provider-specific Slides actions are shortcuts, not limits. If a first-class action cannot express the exact Google Drive endpoint, file metadata field, export format, query, request body, pagination mode, payload shape, or API version needed, call provider-api-catalog and provider-api-docs as needed, then call provider-api-request against the real provider API. Use the raw provider API escape hatch instead of weakening the answer or claiming Slides cannot do something the underlying Google Drive API can do.
+
+Slides' Google Drive provider API uses the user's connected Google Docs OAuth account. The drive.file scope is intentionally limited to files the user selected or the app created. For large Drive file lists or metadata sweeps, pass stageAs and pagination options to provider-api-request, then use query-staged-dataset to count, filter, group, or project the staged rows.`,
   mentionProviders: async () => {
     const { getDb } = await import("../db/index.js");
     const { decks, deckShares } = await import("../db/schema.js");

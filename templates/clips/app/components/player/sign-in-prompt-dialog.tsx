@@ -1,3 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -6,7 +10,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 export interface SignInPromptDialogProps {
   open: boolean;
@@ -16,17 +19,15 @@ export interface SignInPromptDialogProps {
   /**
    * Same-origin path to return the viewer to after sign-in. Defaults to the
    * current URL so anonymous viewers on a public share page land back where
-   * they were. The dialog routes through
-   * `/_agent-native/sign-in?return=<returnTo>` — the framework's login flow
-   * fires there and forwards to `returnTo` once the viewer is signed in.
+   * they were.
    */
   returnTo?: string;
-}
-
-function buildSignInHref(returnTo: string | undefined): string {
-  if (typeof window === "undefined") return "/_agent-native/sign-in";
-  const target = returnTo ?? window.location.pathname + window.location.search;
-  return `/_agent-native/sign-in?return=${encodeURIComponent(target)}`;
+  /**
+   * Fired when the viewer activates the "Sign in" button, before navigation.
+   * Used by the public share page to emit the signin funnel event. Must not
+   * change navigation behavior.
+   */
+  onSignIn?: () => void;
 }
 
 export function SignInPromptDialog({
@@ -34,27 +35,29 @@ export function SignInPromptDialog({
   onOpenChange,
   intent,
   returnTo,
+  onSignIn,
 }: SignInPromptDialogProps) {
+  const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Sign in to {intent}</DialogTitle>
+          <DialogTitle>{t("signInPrompt.title", { intent })}</DialogTitle>
           <DialogDescription>
-            Create an account or sign in to {intent} on this clip. We'll bring
-            you right back here when you're done.
+            {t("signInPrompt.description", { intent })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-end gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Not now
+            {t("signInPrompt.notNow")}
           </Button>
-          <Button
-            onClick={() => {
-              window.location.href = buildSignInHref(returnTo);
-            }}
-          >
-            Sign in
+          <Button asChild>
+            <a
+              href={buildSignInReturnHref({ returnTo })}
+              onClick={() => onSignIn?.()}
+            >
+              {t("signInPrompt.signIn")}
+            </a>
           </Button>
         </DialogFooter>
       </DialogContent>

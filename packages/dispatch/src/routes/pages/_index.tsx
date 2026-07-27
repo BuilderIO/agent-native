@@ -1,15 +1,25 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { appPath } from "@agent-native/core/client";
-import { Spinner } from "@/components/ui/spinner";
+
+import { Spinner } from "../../components/ui/spinner";
+
+const SEO_TITLE =
+  "Dispatch - Open Source workspace control plane for AI agents";
+const SEO_DESCRIPTION =
+  "Open Source workspace control plane for AI agents to manage apps, secrets, approvals, messages, jobs, and cross-app delegation.";
 
 export function meta() {
   return [
-    { title: "Agent-Native Dispatch" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 
@@ -25,17 +35,16 @@ export function meta() {
  * "Open thread" button survive the bounce — `useThreadDeepLink` in
  * `root.tsx` reads them after the redirect lands and opens `/chat`.
  */
-function buildTarget(request: Request): string {
-  const url = new URL(request.url);
+function buildTarget(url: URL): string {
   return appPath(`/overview${url.search}${url.hash}`);
 }
 
-export function loader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
-export function clientLoader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
 export function HydrateFallback() {

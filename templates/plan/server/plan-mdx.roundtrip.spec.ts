@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {
   applyPlanMdxSourcePatches,
@@ -960,6 +961,52 @@ describe("canvas (Artboard/Section/Annotation/Connector) round-trip", () => {
     );
   });
 
+  it("round-trips annotation text that looks like an HTML tag", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Canvas annotation text",
+      canvas: {
+        title: "Board",
+        frames: [],
+        annotations: [
+          {
+            id: "anno-html-like",
+            text: "Inspect the <label> before continuing.",
+          },
+        ],
+      },
+      blocks: [{ id: "rt", type: "rich-text", data: { markdown: "x" } }],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Canvas annotation text",
+    });
+
+    expect(folder["canvas.mdx"]).toContain("text={");
+    const result = await parsePlanMdxFolder(folder);
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
+  it("accepts legacy annotation bodies containing HTML-like plain text", async () => {
+    const result = await parsePlanMdxFolder({
+      "plan.mdx":
+        '---\ntitle: "Canvas annotation text"\nversion: 2\n---\n\nBody.\n',
+      "canvas.mdx": `<DesignBoard title="Board">
+  <Annotation id="anno-html-like">
+    Inspect the <label> before continuing.
+  </Annotation>
+</DesignBoard>
+`,
+    });
+
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
   it("round-trips artboard geometry (x/y/width/height/order)", async () => {
     const content: PlanContent = {
       version: 2,
@@ -1078,6 +1125,50 @@ describe("byte stability and malformed import handling", () => {
     ).rejects.toThrow(/plan-state\.json is not valid/);
   });
 
+  it("reports the source file and VFile location for a raw newline in an MDX JS string", async () => {
+    const error = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Raw newline"
+version: 2
+---
+
+<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />
+`,
+    }).then(
+      () => null,
+      (err) => err,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+    expect(error.message).toBe(
+      "plan.mdx:6:53: Could not parse expression with acorn",
+    );
+  });
+
+  it.each(["canvas.mdx", "prototype.mdx"])(
+    "reports the failing %s file when its MDX does not parse",
+    async (filename) => {
+      const error = await parsePlanMdxFolder({
+        "plan.mdx": `---\ntitle: "Valid plan"\nversion: 2\n---\n\n# Valid\n`,
+        [filename]: `<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />\n`,
+      }).then(
+        () => null,
+        (err) => err,
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+      expect(error.message).toMatch(
+        new RegExp(
+          `^${filename.replace(".", "\\.")}:\\d+:\\d+: Could not parse expression with acorn$`,
+        ),
+      );
+    },
+  );
+
   it("captures loose intro prose alongside a block-level RichText", async () => {
     const parsed = await parsePlanMdxFolder({
       "plan.mdx": `---\ntitle: "x"\nversion: 2\n---\n\nSome intro prose.\n\n<RichText id="known">\n\nReal block\n\n</RichText>\n`,
@@ -1088,6 +1179,242 @@ describe("byte stability and malformed import handling", () => {
       (b) => b.type === "rich-text" && b.id !== "known",
     );
     expect(proseBlock).toBeDefined();
+  });
+
+  it("exports plain top-level rich text as bare markdown with a stable state id", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Bare prose",
+      blocks: [
+        {
+          id: "intro",
+          type: "rich-text",
+          data: { markdown: "## Intro\n\nPlain MDX prose." },
+        },
+      ],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: "Bare prose",
+    });
+    expect(folder["plan.mdx"]).not.toContain("<RichText");
+    expect(folder["plan.mdx"]).toContain("## Intro");
+    expect(JSON.parse(folder[".plan-state.json"] ?? "{}")).toMatchObject({
+      markdownBlockIds: ["intro"],
+    });
+
+    const parsed = await parsePlanMdxFolder(folder);
+    const block = parsed.blocks.find((candidate) => candidate.id === "intro");
+    expect(block?.type).toBe("rich-text");
+    if (block?.type === "rich-text") {
+      expect(block.data.markdown).toContain("Plain MDX prose.");
+    }
+
+    const second = await exportPlanContentToMdxFolder({
+      content: parsed,
+      title: "Bare prose",
+    });
+    expect(second["plan.mdx"]).toBe(folder["plan.mdx"]);
+    expect(second[".plan-state.json"]).toBe(folder[".plan-state.json"]);
+  });
+
+  it("recovers unchanged bare markdown ids by hash when hand edits add a new run", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Hand edited prose",
+        blocks: [
+          {
+            id: "lead-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "lead-item",
+                  label: "Lead with structure",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Intro prose." },
+          },
+          {
+            id: "middle-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "middle-item",
+                  label: "Separate runs",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "tail",
+            type: "rich-text",
+            data: { markdown: "Tail prose." },
+          },
+        ],
+      },
+      title: "Hand edited prose",
+    });
+
+    const editedFolder = {
+      ...folder,
+      "plan.mdx": folder["plan.mdx"].replace(
+        /---\n\n/,
+        "---\n\nNew leading prose.\n\n",
+      ),
+    };
+
+    const parsed = await parsePlanMdxFolder(editedFolder);
+    const richTextBlocks = parsed.blocks.filter(
+      (
+        block,
+      ): block is Extract<
+        PlanContent["blocks"][number],
+        { type: "rich-text" }
+      > => block.type === "rich-text",
+    );
+    expect(
+      richTextBlocks.find((block) => block.id === "intro")?.data.markdown,
+    ).toBe("Intro prose.");
+    expect(
+      richTextBlocks.find((block) => block.id === "tail")?.data.markdown,
+    ).toBe("Tail prose.");
+    const inserted = richTextBlocks.find(
+      (block) => block.data.markdown === "New leading prose.",
+    );
+    expect(inserted?.id).toBeTruthy();
+    expect(inserted?.id).not.toBe("intro");
+    expect(inserted?.id).not.toBe("tail");
+  });
+
+  it("recovers reordered bare markdown ids by hash when the run count stays the same", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Reordered prose",
+        blocks: [
+          {
+            id: "lead-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "lead-item",
+                  label: "Lead with structure",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Intro prose." },
+          },
+          {
+            id: "middle-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "middle-item",
+                  label: "Separate runs",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "tail",
+            type: "rich-text",
+            data: { markdown: "Tail prose." },
+          },
+        ],
+      },
+      title: "Reordered prose",
+    });
+
+    const editedFolder = {
+      ...folder,
+      "plan.mdx": folder["plan.mdx"]
+        .replace("Intro prose.", "TEMP_REORDERED_PROSE")
+        .replace("Tail prose.", "Intro prose.")
+        .replace("TEMP_REORDERED_PROSE", "Tail prose."),
+    };
+
+    const parsed = await parsePlanMdxFolder(editedFolder);
+    const richTextBlocks = parsed.blocks.filter(
+      (
+        block,
+      ): block is Extract<
+        PlanContent["blocks"][number],
+        { type: "rich-text" }
+      > => block.type === "rich-text",
+    );
+
+    expect(
+      richTextBlocks.find((block) => block.id === "intro")?.data.markdown,
+    ).toBe("Intro prose.");
+    expect(
+      richTextBlocks.find((block) => block.id === "tail")?.data.markdown,
+    ).toBe("Tail prose.");
+  });
+
+  it("keeps rich-text wrappers when prose carries metadata or external references", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Wrapped prose",
+      blocks: [
+        {
+          id: "with-title",
+          type: "rich-text",
+          title: "Notes",
+          summary: "Review notes",
+          editable: true,
+          data: { markdown: "Titled prose." },
+        },
+        {
+          id: "commented",
+          type: "rich-text",
+          data: { markdown: "Commented prose." },
+        },
+      ],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: "Wrapped prose",
+      referencedBlockIds: new Set(["commented"]),
+    });
+
+    expect(folder["plan.mdx"]).toContain('<RichText id="with-title"');
+    expect(folder["plan.mdx"]).toContain('title="Notes"');
+    expect(folder["plan.mdx"]).toContain('summary="Review notes"');
+    expect(folder["plan.mdx"]).toContain('<RichText id="commented"');
+    expect(JSON.parse(folder[".plan-state.json"] ?? "{}")).not.toHaveProperty(
+      "markdownBlockIds",
+    );
+
+    const parsed = await parsePlanMdxFolder(folder);
+    expect(
+      parsed.blocks.find((block) => block.id === "with-title"),
+    ).toMatchObject({
+      id: "with-title",
+      type: "rich-text",
+      title: "Notes",
+      summary: "Review notes",
+      editable: true,
+    });
   });
 
   it("rejects malformed plan content that cannot normalize (duplicate block ids)", async () => {
@@ -1144,6 +1471,155 @@ describe("patch-by-stable-id targeting", () => {
     const block = parsed.blocks.find((b) => b.id === "rt-summary");
     if (block?.type !== "rich-text") throw new Error("expected rich-text");
     expect(block.data.markdown).toContain("New summary text");
+  });
+
+  it("replace-markdown-block updates bare markdown runs by state-mapped id", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Bare patch",
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Old intro." },
+          },
+          {
+            id: "todo",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "keep-structured-block",
+                  label: "Keep structured block",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "tail",
+            type: "rich-text",
+            data: { markdown: "Tail prose." },
+          },
+        ],
+      },
+      title: "Bare patch",
+    });
+    expect(folder["plan.mdx"]).not.toContain("<RichText");
+
+    const patched = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "replace-markdown-block",
+        blockId: "intro",
+        markdown: "New intro.",
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).toContain("New intro.");
+    expect(patched["plan.mdx"]).not.toContain("<RichText");
+    expect(JSON.parse(patched[".plan-state.json"] ?? "{}")).toMatchObject({
+      markdownBlockIds: ["intro", "tail"],
+    });
+    const parsed = await parsePlanMdxFolder(patched);
+    const intro = parsed.blocks.find((block) => block.id === "intro");
+    const tail = parsed.blocks.find((block) => block.id === "tail");
+    expect(intro?.type).toBe("rich-text");
+    expect(tail?.type).toBe("rich-text");
+    if (intro?.type === "rich-text") {
+      expect(intro.data.markdown).toBe("New intro.");
+    }
+    if (tail?.type === "rich-text") {
+      expect(tail.data.markdown).toBe("Tail prose.");
+    }
+  });
+
+  it("replace-markdown-block wraps bare prose when metadata is added without shifting later ids", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Bare patch title",
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Old intro." },
+          },
+          {
+            id: "todo",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "keep-structured-block",
+                  label: "Keep structured block",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "tail",
+            type: "rich-text",
+            data: { markdown: "Tail prose." },
+          },
+        ],
+      },
+      title: "Bare patch title",
+    });
+
+    const patched = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "replace-markdown-block",
+        blockId: "intro",
+        markdown: "New titled intro.",
+        title: "Intro",
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).toContain('<RichText id="intro"');
+    expect(patched["plan.mdx"]).toContain('title="Intro"');
+    expect(JSON.parse(patched[".plan-state.json"] ?? "{}")).toMatchObject({
+      markdownBlockIds: ["tail"],
+    });
+
+    const parsed = await parsePlanMdxFolder(patched);
+    const intro = parsed.blocks.find((block) => block.id === "intro");
+    const tail = parsed.blocks.find((block) => block.id === "tail");
+    expect(intro).toMatchObject({ id: "intro", title: "Intro" });
+    expect(tail?.id).toBe("tail");
+  });
+
+  it("replace-markdown-block clears sidecar ids when deleting the last bare prose run", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Delete bare prose",
+        blocks: [
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Old intro." },
+          },
+        ],
+      },
+      title: "Delete bare prose",
+    });
+
+    const patched = await applyPlanMdxSourcePatches(folder, [
+      {
+        op: "replace-markdown-block",
+        blockId: "intro",
+        markdown: "",
+      },
+    ]);
+
+    expect(patched["plan.mdx"]).not.toContain("Old intro.");
+    const state = JSON.parse(patched[".plan-state.json"] ?? "{}");
+    expect(state.markdownBlockIds).toBeUndefined();
+    expect(state.markdownBlocks).toBeUndefined();
+    const parsed = await parsePlanMdxFolder(patched);
+    expect(parsed.blocks.find((block) => block.id === "intro")).toBeUndefined();
   });
 
   it("replace-markdown-block throws for a missing block id", async () => {

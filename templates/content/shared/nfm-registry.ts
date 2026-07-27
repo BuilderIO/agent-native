@@ -34,6 +34,10 @@ import {
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
 
+import { builderDocsBlockConfigs } from "./builder-docs-blocks";
+import { inlineDatabaseBlockConfig } from "./inline-database-block";
+import { sourceComponentBlockConfig } from "./source-component-block";
+
 /**
  * Register the content block library (the dev-doc + OpenAPI + standard
  * structured blocks) into a registry. Server stubs only (`Read: () => null`);
@@ -56,6 +60,11 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registerLibraryBlockConfigs(registry, {
     overrides: { table: { type: "table-block" } },
   });
+  for (const block of builderDocsBlockConfigs) {
+    registry.register(block);
+  }
+  registry.register(sourceComponentBlockConfig);
+  registry.register(inlineDatabaseBlockConfig);
 }
 
 /**

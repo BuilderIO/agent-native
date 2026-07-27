@@ -1,0 +1,70 @@
+---
+title: "Tu primera función en Chat"
+description: "El único archivo que renderiza la pantalla inicial de Chat, lo que hacen sus props reales, y una guía completa para añadir una función de principio a fin."
+---
+
+# Tu primera función en Chat
+
+Esta página es para desarrolladores que amplían la [plantilla de Chat](/docs/template-chat). Cubre el único archivo que renderiza la pantalla de chat inicial y luego recorre todo lo que el agente suele tocar cuando pides una función real.
+
+## Primer código a inspeccionar {#first-code}
+
+- `actions/hello.ts` es el comportamiento inicial que el agente puede llamar. Reemplácelo o
+  Agregue actions al lado.
+- `app/routes/_index.tsx` representa la superficie de chat de página completa. Ajustar el
+  sugerencias, estado vacío, compositor o diseño circundante aquí.
+- `AGENTS.md` le dice al agente integrado cómo trabajar dentro de esta aplicación.
+
+<FileTree
+  id="doc-block-14ngzcm"
+  title="Estructura de la plantilla Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "La action de ejemplo; reemplázala o agrega actions junto a ella",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexto estándar que el agente lee",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navegación estándar",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Renderiza la superficie de chat de página completa; edita sugerencias, estado vacío y composer",
+    },
+    {
+      path: "app/routes/chat.$threadId.tsx",
+      note: "vuelve a exportar _index.tsx para que /chat/:threadId renderice la misma superficie con un id de hilo en la URL",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Guía centrada en chat que lee el agente integrado",
+    },
+  ]}
+/>
+
+El archivo inicial real es más que un simple `<AgentChatSurface />`; consulta `app/routes/_index.tsx` para ver la sincronización de hilo con la URL, la identidad de pestaña y el diseño del composer héroe.
+
+## Utilice su propio agente backend {#own-agent-backend}
+
+La plantilla utiliza el bucle app-agent integrado de forma predeterminada. Para conectar un backend personalizado, intercambie el tiempo de ejecución del chat detrás del complemento de chat del agente en lugar de reescribir el UI. La ruta del chat debe permanecer como un renderizador delgado alrededor de la superficie del chat compartido; la elección del backend pertenece al complemento del servidor/adaptador de tiempo de ejecución.
+
+Utilice esto cuando la orquestación de su modelo ya se encuentre en otro lugar, pero aún desee una aplicación con autenticación, subprocesos, estado actions, UI y páginas desplegables.
+
+## Primeras ediciones {#first-edits}
+
+Después del andamiaje, pregúntele al agente:
+
+> Agregue un modelo de datos para `notes`. Una nota tiene una identificación, título, cuerpo y propietario. Represente una página de notas en `/notes`, agregue crear/listar actions y mantenga el chat capaz de crear notas.
+
+El agente debe agregar un esquema Drizzle, actions, ruta, navegación e instrucciones. Luego podrás usar la función de notas desde UI o desde el chat.
+
+## ¿Qué sigue?
+
+- [**Plantilla de chat**](/docs/template-chat) — qué incluye de forma predeterminada y cuándo elegirla
+- [**Chat — superficies de runtime y administración**](/docs/template-chat-developers) — tablas principales, auth y las páginas de administración
+- [**Actions**](/docs/actions): el chat del sistema de acción y UI llaman
+- [**Native Interfaz de chat**](/docs/native-chat-ui): primitivas de la superficie de chat y opciones de tiempo de ejecución

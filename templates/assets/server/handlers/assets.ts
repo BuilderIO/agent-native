@@ -1,3 +1,7 @@
+import { getSession } from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -7,26 +11,25 @@ import {
   setResponseStatus,
 } from "h3";
 import { nanoid } from "nanoid";
-import { and, eq } from "drizzle-orm";
 import pLimit from "p-limit";
-import { getSession } from "@agent-native/core/server";
-import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+
+import { serializeAsset } from "../../actions/_helpers.js";
+import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
+import type { ImageCategory, ImageRole } from "../../shared/api.js";
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer, mediaTypeFromMime } from "../lib/assets.js";
+import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
+import { getObject } from "../lib/storage.js";
 import {
   filterDuplicateAssetUploads,
   hashAssetBuffer,
 } from "../lib/upload-dedupe.js";
 import {
-  hasRasterImageSignature,
-  hasVideoSignature,
-} from "../lib/image-processing.js";
-import { getObject } from "../lib/storage.js";
-import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
-import { IMAGE_CATEGORIES, MAX_ASSET_UPLOAD_FILES } from "../../shared/api.js";
-import type { ImageCategory, ImageRole } from "../../shared/api.js";
-import { serializeAsset } from "../../actions/_helpers.js";
+  hasAllowedSignature,
+  IMAGE_MIME_TYPES,
+  maxUploadBytesForMediaType,
+  VIDEO_MIME_TYPES,
+} from "../lib/upload-validation.js";
 
 const MIME_BY_EXT: Record<string, string> = {
   png: "image/png",
@@ -39,20 +42,6 @@ const MIME_BY_EXT: Record<string, string> = {
   mov: "video/quicktime",
   webm: "video/webm",
 };
-
-const IMAGE_MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/avif",
-]);
-
-const VIDEO_MIME_TYPES = new Set([
-  "video/mp4",
-  "video/x-m4v",
-  "video/quicktime",
-  "video/webm",
-]);
 
 const UPLOAD_CONCURRENCY = 3;
 
@@ -114,13 +103,6 @@ function defaultUploadTitle(
     return mediaType === "video" ? "Content video" : "Content image";
   }
   return mediaType === "video" ? "Reference video" : "Reference image";
-}
-
-function hasAllowedSignature(mimeType: string, data: Uint8Array): boolean {
-  if (IMAGE_MIME_TYPES.has(mimeType))
-    return hasRasterImageSignature(mimeType, data);
-  if (VIDEO_MIME_TYPES.has(mimeType)) return hasVideoSignature(mimeType, data);
-  return false;
 }
 
 async function assertCollectionBelongsToLibrary(
@@ -212,8 +194,7 @@ export const uploadAssets = defineEventHandler(async (event) =>
     for (const part of files) {
       const mimeType = cleanMime(part.type, part.filename);
       const mediaType = mediaTypeFromMime(mimeType);
-      const maxBytes =
-        mediaType === "video" ? 250 * 1024 * 1024 : 25 * 1024 * 1024;
+      const maxBytes = maxUploadBytesForMediaType(mediaType);
       if (part.data.byteLength > maxBytes) {
         setResponseStatus(event, 413);
         return {
@@ -396,7 +377,10 @@ export const streamAsset = defineEventHandler(async (event) =>
   }),
 );
 
-export async function markAssetSaved(assetId: string) {
+export async function markAssetSaved(
+  assetId: string,
+  folderId?: string | null,
+) {
   const db = getDb();
   const [asset] = await db
     .select()
@@ -405,14 +389,19 @@ export async function markAssetSaved(assetId: string) {
     .limit(1);
   if (!asset) throw new Error("Asset not found.");
   await assertAccess("asset-library", asset.libraryId, "editor");
+  if (folderId !== undefined && folderId !== null) {
+    await assertFolderBelongsToLibrary(folderId, asset.libraryId);
+  }
   const metadata = parseJson<Record<string, unknown>>(asset.metadata, {});
   metadata.savedAt = nowIso();
+  const updates: Record<string, unknown> = {
+    status: "saved",
+    metadata: stringifyJson(metadata),
+    updatedAt: nowIso(),
+  };
+  if (folderId !== undefined) updates.folderId = folderId;
   await db
     .update(schema.assets)
-    .set({
-      status: "saved",
-      metadata: stringifyJson(metadata),
-      updatedAt: nowIso(),
-    })
+    .set(updates)
     .where(eq(schema.assets.id, assetId));
 }

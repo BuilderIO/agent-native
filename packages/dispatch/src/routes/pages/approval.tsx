@@ -1,19 +1,12 @@
-import { useSearchParams } from "react-router";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   isInAgentEmbed,
   postNavigate,
-  appPath,
-} from "@agent-native/core/client";
-import { toast } from "sonner";
-import {
-  ApprovalValueBlock,
-  parseApprovalValue,
-} from "@/components/approval-value-block";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "@agent-native/core/client/navigation";
 import {
   IconCheck,
   IconX,
@@ -22,6 +15,17 @@ import {
   IconClock,
   IconAlertCircle,
 } from "@tabler/icons-react";
+import { useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { ActionQueryError } from "../../components/action-query-error";
+import {
+  ApprovalValueBlock,
+  parseApprovalValue,
+} from "../../components/approval-value-block";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 
 export function meta() {
   return [{ title: "Approval — Dispatch" }];
@@ -65,10 +69,8 @@ export default function ApprovalPreviewRoute() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
 
-  const { data: approvals, isLoading } = useActionQuery(
-    "list-dispatch-approvals",
-    {},
-  );
+  const approvalsQuery = useActionQuery("list-dispatch-approvals", {});
+  const { data: approvals, isLoading } = approvalsQuery;
 
   const approve = useActionMutation("approve-dispatch-change", {
     onSuccess: () => toast.success("Change approved"),
@@ -84,7 +86,7 @@ export default function ApprovalPreviewRoute() {
   if (!id) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center">
+        <div className="w-full max-w-md rounded-2xl bg-card p-6 text-center">
           <IconAlertCircle
             size={32}
             className="mx-auto mb-3 text-muted-foreground"
@@ -105,7 +107,7 @@ export default function ApprovalPreviewRoute() {
     return (
       <div className="flex min-h-screen items-start justify-center bg-background p-6">
         <div className="w-full max-w-md space-y-4">
-          <div className="rounded-2xl border bg-card p-5">
+          <div className="rounded-2xl bg-card p-5">
             <div className="flex items-start gap-3">
               <Skeleton className="h-9 w-9 shrink-0 rounded-xl" />
               <div className="min-w-0 flex-1 space-y-2">
@@ -140,10 +142,23 @@ export default function ApprovalPreviewRoute() {
     );
   }
 
+  if (approvalsQuery.isError) {
+    return (
+      <div className="flex min-h-screen items-start justify-center bg-background p-6">
+        <div className="w-full max-w-md">
+          <ActionQueryError
+            error={approvalsQuery.error}
+            onRetry={() => void approvalsQuery.refetch()}
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (!approval) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center">
+        <div className="w-full max-w-md rounded-2xl bg-card p-6 text-center">
           <IconAlertCircle
             size={32}
             className="mx-auto mb-3 text-muted-foreground"
@@ -178,7 +193,7 @@ export default function ApprovalPreviewRoute() {
   return (
     <div className="flex min-h-screen items-start justify-center bg-background p-6">
       <div className="w-full max-w-2xl space-y-4">
-        <div className="rounded-2xl border bg-card p-5">
+        <div className="rounded-2xl bg-card p-5">
           <div className="flex items-start gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-muted text-foreground">
               <IconShieldCheck size={17} />

@@ -1,16 +1,17 @@
 import {
+  encodeOAuthState,
+  getSession,
+  isElectron,
+  resolveOAuthRedirectUri,
+} from "@agent-native/core/server";
+import {
   defineEventHandler,
   getQuery,
   sendRedirect,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import {
-  encodeOAuthState,
-  getSession,
-  isElectron,
-  resolveOAuthRedirectUri,
-} from "@agent-native/core/server";
+
 import {
   getGitHubOAuthAuthUrl,
   isGitHubOAuthConfigured,

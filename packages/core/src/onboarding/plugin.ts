@@ -15,16 +15,17 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import { appStateGet, appStatePut } from "../application-state/store.js";
+import { getSession } from "../server/auth.js";
 import {
   awaitBootstrap,
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
-import { appStateGet, appStatePut } from "../application-state/store.js";
-import { getSession } from "../server/auth.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { listOnboardingSteps } from "./registry.js";
 import { registerDefaultOnboardingSteps } from "./default-steps.js";
+import { listOnboardingSteps } from "./registry.js";
 import type {
   OnboardingResolveContext,
   OnboardingStepStatus,

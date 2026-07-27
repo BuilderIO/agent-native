@@ -1,10 +1,12 @@
-import { agentNativePath } from "../api-path.js";
-import { useEffect, useState } from "react";
 import { IconLoader2, IconRefresh } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 
 interface UsageBucket {
   key: string;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
   inputTokens: number;
   outputTokens: number;
@@ -15,6 +17,7 @@ interface UsageBucket {
 interface DailyBucket {
   date: string;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
 }
 
@@ -29,7 +32,13 @@ interface UsageRecentEntry {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cents: number;
+  costSource: "reported" | "estimated" | "unavailable";
 }
+
+type UsageCostAggregate =
+  | { status: "known"; knownCents: number; unavailableCalls: 0 }
+  | { status: "partial"; knownCents: number; unavailableCalls: number }
+  | { status: "unavailable"; knownCents: 0; unavailableCalls: number };
 
 interface UsageBillingMode {
   unit: "usd" | "builder-credits";
@@ -43,6 +52,7 @@ interface UsageBillingMode {
 interface UsageSummary {
   billing?: UsageBillingMode;
   totalCents: number;
+  totalCost: UsageCostAggregate;
   totalCalls: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -102,6 +112,15 @@ function formatSpend(cents: number, billing: UsageBillingMode): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function formatAggregateCost(
+  cost: UsageCostAggregate,
+  billing: UsageBillingMode,
+): string {
+  if (cost.status === "known") return formatSpend(cost.knownCents, billing);
+  if (cost.status === "unavailable") return "Unknown";
+  return `${formatSpend(cost.knownCents, billing)} + ${cost.unavailableCalls} unpriced`;
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -138,8 +157,8 @@ function BucketBars({
               {b.key || "(none)"}
             </span>
             <span className="shrink-0 text-muted-foreground tabular-nums">
-              {formatSpend(b.cents, billing)}
-              <span className="ml-1 opacity-60">
+              {formatAggregateCost(b.cost, billing)}
+              <span className="ms-1 opacity-60">
                 · {formatTokens(b.inputTokens + b.outputTokens)} tok
               </span>
             </span>
@@ -182,7 +201,7 @@ function DailySparkline({
               (displayAmountFromCostCents(d.cents, billing) / max) * 100,
             )}%`,
           }}
-          title={`${d.date}: ${formatSpend(d.cents, billing)} (${d.calls} calls)`}
+          title={`${d.date}: ${formatAggregateCost(d.cost, billing)} (${d.calls} calls)`}
         />
       ))}
     </div>
@@ -265,10 +284,10 @@ export function UsageSection() {
                     : "Total spend"}
                 </div>
                 <div className="text-[18px] font-semibold tabular-nums">
-                  {formatSpend(data.totalCents, billing)}
+                  {formatAggregateCost(data.totalCost, billing)}
                 </div>
               </div>
-              <div className="text-right">
+              <div className="text-end">
                 <div className="text-[10px] text-muted-foreground">
                   {data.totalCalls} calls
                 </div>
@@ -350,8 +369,10 @@ export function UsageSection() {
                         {new Date(r.createdAt).toLocaleString()} · {r.model}
                       </div>
                     </div>
-                    <div className="shrink-0 text-right tabular-nums text-muted-foreground">
-                      {formatSpend(r.cents, billing)}
+                    <div className="shrink-0 text-end tabular-nums text-muted-foreground">
+                      {r.costSource === "unavailable"
+                        ? "Unknown"
+                        : formatSpend(r.cents, billing)}
                     </div>
                   </div>
                 ))}
@@ -369,7 +390,8 @@ export function UsageSection() {
             <p className="text-[10px] text-muted-foreground">
               Spend is estimated from published Anthropic pricing and your own
               recorded token counts. Cached input is priced at ~10% of regular
-              input.
+              input. Calls without provider pricing are marked unknown and
+              excluded from known-cost subtotals.
             </p>
           )}
         </>

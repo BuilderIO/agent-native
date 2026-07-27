@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   classifyClipsAsset,
   compareClipsReleaseTags,
@@ -14,9 +15,11 @@ describe("classifyClipsAsset", () => {
     expect(classifyClipsAsset("Clips_0.1.56_x64_en-US.msi")).toBe(
       "windows-msi",
     );
-    expect(classifyClipsAsset("Clips_0.1.56_x64-setup.exe")).toBe(
-      "windows-exe",
+    expect(classifyClipsAsset("Clips_0.1.56_amd64.AppImage")).toBe(
+      "linux-appimage",
     );
+    expect(classifyClipsAsset("Clips_0.1.56_amd64.deb")).toBe("linux-deb");
+    expect(classifyClipsAsset("Clips-0.1.56-1.x86_64.rpm")).toBe("linux-rpm");
   });
 
   it("ignores updater bundles and signatures", () => {
@@ -24,6 +27,7 @@ describe("classifyClipsAsset", () => {
     expect(classifyClipsAsset("Clips_0.1.56_x64_en-US.msi.sig")).toBe(
       "unknown",
     );
+    expect(classifyClipsAsset("Clips_0.1.56_x64-setup.exe")).toBe("unknown");
     expect(classifyClipsAsset("latest.json")).toBe("unknown");
   });
 });

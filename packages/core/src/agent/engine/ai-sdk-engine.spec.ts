@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function drain(iterable: AsyncIterable<unknown>) {
   for await (const _ of iterable) {
@@ -43,6 +43,135 @@ function mockGoogleProvider() {
   return { createGoogleGenerativeAI, provider, googleModel };
 }
 
+function mockAnthropicProvider() {
+  const anthropicModel = { id: "anthropic-model" };
+  const provider = vi.fn().mockReturnValue(anthropicModel);
+  const createAnthropic = vi.fn().mockReturnValue(provider);
+  vi.doMock("@ai-sdk/anthropic", () => ({ createAnthropic }));
+  return { createAnthropic, provider, anthropicModel };
+}
+
+describe("AISDKEngine Anthropic thinking-budget headroom", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("clamps an explicit large thinking budget so it leaves headroom under maxOutputTokens", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-opus-4-8",
+        maxOutputTokens: 32_000,
+        providerOptions: {
+          anthropic: {
+            thinking: { type: "enabled", budgetTokens: 100_000 },
+          },
+        },
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const budgetTokens = call.providerOptions.anthropic.thinking
+      .budgetTokens as number;
+    expect(budgetTokens).toBeLessThan(32_000);
+    expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
+  });
+
+  it("defaults to adaptive thinking at medium effort for a reasoning-capable Claude model", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({ ...BASE_STREAM_OPTIONS, model: "claude-sonnet-5" }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toEqual({
+      effort: "medium",
+    });
+  });
+
+  it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-haiku-4-5-20251001",
+        maxOutputTokens: 32_000,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "enabled",
+      budgetTokens: 4_096,
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("does not add an implicit effort beside explicit Anthropic thinking", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-sonnet-5",
+        providerOptions: {
+          anthropic: {
+            thinking: { type: "enabled", budgetTokens: 4_000 },
+          },
+        },
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toMatchObject({
+      type: "enabled",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("does not default thinking for a non-reasoning-capable Claude model", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-3-5-haiku-20241022",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions?.anthropic).toBeUndefined();
+  });
+});
+
 describe("AISDKEngine Google Gemini thinking config", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -61,6 +190,10 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         ...BASE_STREAM_OPTIONS,
         model: "gemini-2.5-flash",
         reasoningEffort: "medium",
+        // Generous maxOutputTokens (matches the interactive chat floor) so
+        // the headroom clamp below is a no-op and the raw effort->budget
+        // mapping is what's under test here.
+        maxOutputTokens: 32_000,
       }),
     );
 
@@ -73,6 +206,31 @@ describe("AISDKEngine Google Gemini thinking config", () => {
         }),
       }),
     );
+  });
+
+  it("clamps Gemini thinkingBudget so it can't consume a small maxOutputTokens entirely", async () => {
+    const { streamText } = mockAiSdk();
+    mockGoogleProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("google", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "gemini-2.5-flash",
+        reasoningEffort: "medium",
+        // Unclamped, "medium" effort maps to a 4096-token thinkingBudget —
+        // identical to this maxOutputTokens, which would leave zero tokens
+        // for the actual response (the empty-response bug this fixes).
+        maxOutputTokens: 4_096,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    const thinkingBudget = call.providerOptions.google.thinkingConfig
+      .thinkingBudget as number;
+    expect(thinkingBudget).toBeLessThan(4_096);
   });
 
   it("uses thinkingLevel for Gemini 3.x models (low effort → 'low')", async () => {
@@ -101,7 +259,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("uses thinkingLevel 'high' for Gemini 3.x medium effort", async () => {
+  it("uses thinkingLevel 'medium' for Gemini 3.x medium effort", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -120,14 +278,14 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       expect.objectContaining({
         providerOptions: expect.objectContaining({
           google: expect.objectContaining({
-            thinkingConfig: { thinkingLevel: "high" },
+            thinkingConfig: { thinkingLevel: "medium" },
           }),
         }),
       }),
     );
   });
 
-  it("does not emit thinkingConfig when no reasoningEffort is set for Google", async () => {
+  it("defaults to medium reasoning when no reasoningEffort is set for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -141,9 +299,48 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       }),
     );
 
-    // No providerOptions should be emitted when there's no reasoning effort
     const call = streamText.mock.calls[0][0];
-    expect(call.providerOptions?.google?.thinkingConfig).toBeUndefined();
+    expect(call.providerOptions?.google?.thinkingConfig).toEqual({
+      thinkingLevel: "medium",
+    });
+  });
+});
+
+describe("AISDKEngine error tagging", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("tags a 429 APICallError with http_429 + statusCode + providerRetryable", async () => {
+    class MockApiCallError extends Error {
+      statusCode = 429;
+      isRetryable = true;
+      constructor() {
+        super("Too Many Requests");
+      }
+    }
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        throw new MockApiCallError();
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    await expect(async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    }).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("http_429");
+    expect(stopEvent?.statusCode).toBe(429);
+    expect(stopEvent?.providerRetryable).toBe(true);
   });
 });
 
@@ -204,5 +401,266 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({ model: chatModel }),
     );
+    expect(engine.preserveCustomModels).toBe(true);
+  });
+
+  // Real prod incident (Sentry AGENT-NATIVE-BROWSER-94, gpt-5.6-terra): OpenAI
+  // rejects `reasoning_effort` together with function tools on the legacy
+  // Chat Completions surface — "Function tools with reasoning_effort are not
+  // supported for <model> in /v1/chat/completions." `createProviderModel`
+  // forces Chat Completions whenever a custom baseUrl is configured (the test
+  // above), so that combination is reachable in prod whenever the app also
+  // has tools available, not just for one specific model name.
+  const TEST_TOOL = {
+    name: "test-tool",
+    description: "A test tool",
+    inputSchema: { type: "object" as const, properties: {} },
+  };
+
+  it("drops the reasoning-effort override when tools are present on a forced Chat Completions base URL", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://gateway.example/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    const call = streamText.mock.calls[0]?.[0];
+    expect(call.providerOptions?.openai?.reasoningEffort).toBeUndefined();
+  });
+
+  it("still applies reasoning effort on a forced Chat Completions base URL when there are no tools", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", {
+      apiKey: "sk-test",
+      baseUrl: "https://gateway.example/v1",
+    });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
+
+  it("applies reasoning effort with tools present on the default Responses API path (no baseUrl)", async () => {
+    const { streamText } = mockAiSdk();
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        tools: [TEST_TOOL],
+        reasoningEffort: "medium",
+      }),
+    );
+
+    expect(streamText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: expect.objectContaining({
+          openai: expect.objectContaining({ reasoningEffort: "medium" }),
+        }),
+      }),
+    );
+  });
+});
+
+describe("AISDKEngine first-event deadline", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts with a retryable network error when the stream produces no parts within 120s", async () => {
+    const streamText = vi.fn((params: any) => ({
+      fullStream: (async function* () {
+        await new Promise((_resolve, reject) => {
+          const signal: AbortSignal | undefined = params.abortSignal;
+          if (signal?.aborted) {
+            reject(signal.reason ?? new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      })(),
+    }));
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    vi.useFakeTimers();
+
+    const events: any[] = [];
+    let settledEarly = false;
+    const runPromise = (async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    })();
+    void runPromise
+      .catch(() => {})
+      .then(() => {
+        settledEarly = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(runPromise).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+    expect(stopEvent?.error).toContain("120s");
+  });
+
+  it("does not abort once the stream has produced a real part (a synthetic 'start' part alone does not count)", async () => {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "start" };
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("end_turn");
+    expect(stopEvent?.errorCode).toBeUndefined();
+  });
+});
+
+describe("AISDKEngine streamed tool-input reconciliation", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  async function runToolInputStream(parts: unknown[]) {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        for (const part of parts) yield part;
+        yield { type: "finish", finishReason: "tool-calls", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const events: any[] = [];
+    for await (const event of createAISDKEngine("openai", {
+      apiKey: "key",
+    }).stream(BASE_STREAM_OPTIONS)) {
+      events.push(event);
+    }
+    return events;
+  }
+
+  it("assembles a tool call whose arguments arrive across multiple deltas but never lands a tool-call part", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q' },
+      { type: "tool-input-delta", id: "call_1", delta: '3 plan"' },
+      { type: "tool-input-delta", id: "call_1", delta: "}" },
+    ]);
+
+    expect(events.find((e) => e.type === "tool-call")).toEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+    expect(
+      events.find((e) => e.type === "assistant-content")?.parts,
+    ).toContainEqual({
+      type: "tool-call",
+      id: "call_1",
+      name: "create_document",
+      input: { title: "Q3 plan" },
+    });
+  });
+
+  it("reports a tool call truncated mid-arguments as an in-band tool-call error", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q' },
+    ]);
+
+    expect(events.find((e) => e.type === "tool-call-error")).toMatchObject({
+      id: "call_1",
+      name: "create_document",
+      input: '{"title":"Q',
+    });
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+  });
+
+  it("does not re-emit a tool call the SDK already delivered", async () => {
+    const events = await runToolInputStream([
+      {
+        type: "tool-input-start",
+        id: "call_1",
+        toolName: "create_document",
+      },
+      { type: "tool-input-delta", id: "call_1", delta: '{"title":"Q3 plan"}' },
+      {
+        type: "tool-call",
+        toolCallId: "call_1",
+        toolName: "create_document",
+        input: { title: "Q3 plan" },
+      },
+    ]);
+
+    expect(events.filter((e) => e.type === "tool-call")).toHaveLength(1);
+    expect(events.some((e) => e.type === "tool-call-error")).toBe(false);
   });
 });

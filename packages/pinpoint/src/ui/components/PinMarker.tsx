@@ -133,6 +133,7 @@ export class PinMarkerManager {
 
       // Numbered badge
       const badge = document.createElement("div");
+      badge.className = "pp-marker-badge";
       badge.style.cssText = `
         position: absolute;
         top: ${BADGE_OFFSET}px;
@@ -156,7 +157,6 @@ export class PinMarkerManager {
         pointer-events: auto;
         user-select: none;
         z-index: 1;
-        animation: pp-badge-appear 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       `;
 
       // Add keyframes if not yet added
@@ -164,13 +164,32 @@ export class PinMarkerManager {
         const style = document.createElement("style");
         style.id = "pp-marker-keyframes";
         style.textContent = `
+          .pp-marker-badge {
+            animation: pp-badge-appear 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          }
+
           @keyframes pp-badge-appear {
-            from { transform: scale(0); opacity: 0; }
+            from { transform: scale(0.95); opacity: 0; }
             to { transform: scale(1); opacity: 1; }
+          }
+
+          @keyframes pp-badge-appear-reduced {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+
+          @media (prefers-reduced-motion: reduce) {
+            .pp-marker-badge {
+              animation: pp-badge-appear-reduced 0.1s ease-out;
+            }
           }
         `;
         document.head.appendChild(style);
       }
+
+      const prefersReducedMotion =
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ??
+        false;
 
       badge.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -179,10 +198,10 @@ export class PinMarkerManager {
       });
 
       badge.addEventListener("mouseenter", () => {
-        badge.style.transform = "scale(1.15)";
+        if (!prefersReducedMotion) badge.style.transform = "scale(1.15)";
       });
       badge.addEventListener("mouseleave", () => {
-        badge.style.transform = "scale(1)";
+        if (!prefersReducedMotion) badge.style.transform = "scale(1)";
       });
 
       // Selection checkbox

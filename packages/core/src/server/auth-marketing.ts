@@ -4,7 +4,14 @@ export interface AuthMarketingContent {
   description?: string;
   features?: string[];
   runLocalCommand?: string;
+  signupLocalModeNote?: {
+    text: string;
+    command: string;
+  };
 }
+
+const PLAN_LOCAL_FILES_COMMAND =
+  "npx @agent-native/core@latest skills add visual-plan --mode local-files --scope user";
 
 export interface ResolveBuiltInAuthMarketingOptions {
   requestHost?: string;
@@ -55,12 +62,27 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   content: {
     appName: "Agent-Native Content",
     tagline:
-      "Your AI agent creates, edits, and organizes documents alongside you in a Notion-like workspace.",
+      "Open-source Obsidian for MDX: your AI agent edits local docs, creates custom blocks, and organizes everything alongside you.",
     features: [
-      "Create and restructure entire document trees from a single prompt",
-      "Surgical edits that sync live to your editor via real-time collaboration",
-      "Search, summarize, and cross-reference documents instantly",
+      "Edit local Markdown/MDX files directly, with hosted sync when you need it",
+      "Generate rich interactive custom MDX blocks and edit their props visually",
+      "Search, summarize, cross-reference, and restructure document trees instantly",
     ],
+  },
+  plan: {
+    appName: "Agent-Native Plan",
+    tagline:
+      "Visual plans, PR recaps, diagrams, wireframes, and shareable reviews for coding-agent work.",
+    features: [
+      "Turn implementation plans into structured visual artifacts",
+      "Review PR recaps with diagrams, file maps, and annotated code",
+      "Share links for async comments and product review",
+    ],
+    runLocalCommand: PLAN_LOCAL_FILES_COMMAND,
+    signupLocalModeNote: {
+      text: "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
+      command: PLAN_LOCAL_FILES_COMMAND,
+    },
   },
   design: {
     appName: "Agent-Native Design",
@@ -111,7 +133,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Autonomous triage, archiving, and follow-ups",
     ],
     runLocalCommand:
-      "npx @agent-native/core create my-mail-app --template mail",
+      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   slides: {
     appName: "Agent-Native Slides",
@@ -123,41 +145,34 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Real-time collaboration between you and the agent",
     ],
   },
-  starter: {
-    appName: "Blank app",
+  chat: {
+    appName: "Agent-Native Chat",
     tagline:
-      "Build an agent-native app where the AI agent and UI share state, actions, and context.",
+      "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
     features: [
-      "Define once, use everywhere: actions work as agent tools and API endpoints",
-      "The agent always knows what you are looking at and can act on it",
-      "Modify your app's own code, routes, and styles through conversation",
-    ],
-  },
-  videos: {
-    appName: "Agent-Native Videos",
-    tagline:
-      "Your AI agent builds, animates, and refines programmatic videos alongside you.",
-    features: [
-      "Generate animated components and compositions from a description",
-      "Fine-tune tracks, keyframes, and easing without touching code",
-      "Camera moves, interactive elements, and effects the agent wires for you",
+      "Full-page chat with durable threads and tool call history",
+      "Actions work from chat, UI, HTTP, MCP, A2A, and CLI",
+      "Use the built-in app-agent loop or plug in your own agent backend",
     ],
   },
 };
 
 const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
-  "blank-app": "starter",
+  "blank-app": "chat",
+  starter: "chat",
   asset: "assets",
   image: "assets",
   images: "assets",
-  video: "videos",
 };
 
 function cloneMarketing(marketing: AuthMarketingContent): AuthMarketingContent {
   return {
     ...marketing,
     features: marketing.features ? [...marketing.features] : undefined,
+    signupLocalModeNote: marketing.signupLocalModeNote
+      ? { ...marketing.signupLocalModeNote }
+      : undefined,
   };
 }
 
@@ -234,4 +249,12 @@ export function resolveBuiltInAuthMarketing(
     if (marketing) return cloneMarketing(marketing);
   }
   return undefined;
+}
+
+export function resolveBuiltInAuthMarketingByName(
+  value: string | undefined,
+): AuthMarketingContent | undefined {
+  const slug = normalizeSlug(value);
+  const marketing = slug ? BUILT_IN_AUTH_MARKETING[slug] : undefined;
+  return marketing ? cloneMarketing(marketing) : undefined;
 }

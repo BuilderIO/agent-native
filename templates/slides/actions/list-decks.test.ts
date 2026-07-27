@@ -22,7 +22,13 @@ const mockDb = { select: selectFn };
 vi.mock("../server/db/index.js", () => ({
   getDb: () => mockDb,
   schema: {
-    decks: { ownerEmail: "owner_email_col", updatedAt: "updated_at_col" },
+    decks: {
+      id: "id_col",
+      title: "title_col",
+      ownerEmail: "owner_email_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+    },
     deckShares: {},
   },
 }));
@@ -39,6 +45,7 @@ vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
   desc: (value: unknown) => ({ desc: value }),
   eq: (column: unknown, value: unknown) => ({ column, value }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 import action from "./list-decks";
@@ -67,6 +74,20 @@ describe("list-decks", () => {
       id: "deck_123",
       url: "https://slides.agent.test/deck/deck_123",
     });
+  });
+
+  it("projects only metadata columns and never selects the deck body for light mode", async () => {
+    const result = await action.run({ light: "true" });
+
+    // The `data` column (each deck's full slide JSON) must never appear in
+    // the light-mode projection — this is the poll/diff path's whole point.
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+    });
+    expect(result.count).toBe(1);
   });
 
   it("can limit results to decks created by the current user", async () => {

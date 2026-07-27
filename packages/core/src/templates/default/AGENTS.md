@@ -1,144 +1,73 @@
 # {{APP_NAME}} — Agent Guide
 
-This app follows the agent-native core philosophy: the agent and UI are equal partners. Everything the UI can do, the agent can do via actions. The agent always knows what you're looking at via application state. See the root AGENTS.md for full framework documentation.
-
-This is an **@agent-native/core** application -- the AI agent and UI share state through a SQL database, with SSE for in-process live sync and polling as the cross-process/serverless fallback.
-
-### Core Principles
-
-1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
-2. **AI through the right framework surface** -- Product workflows delegate to the agent via `sendToAgentChat()` / `agentChat.submit()`. Use `sendToAgentChat({ message, context, submit })` for simple UI handoffs and prefill/review flows; add `newTab: true, background: true, openSidebar: false` when the agent should work silently without focusing the sidebar. Only use the agent-chat context state helpers (`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`, `removeAgentChatContextItem`, `clearAgentChatContext`) when the UI needs two-way sync with staged context chips. For rare server-side text transforms that intentionally need no tools, chat history, or run state, use `completeText()` from `@agent-native/core/server` inside an action instead of importing provider SDKs directly.
-3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
-4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
-5. **Agent can update code** -- The agent can modify this app's source code directly.
-6. **No hardcoded secrets or private data** -- Never put API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals in source, docs, tests, fixtures, prompts, screenshots, application state, action responses, or generated content. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
-
-### Database Code
-
-- Define tables with `@agent-native/core/db/schema` helpers (`table`, `text`, `integer`, `real`, `now`, sharing helpers), never `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core`.
-- Use Drizzle's query builder (`db.select`, `db.insert`, `db.update`, `db.delete`) plus portable operators from `drizzle-orm` (`eq`, `and`, `or`, `inArray`, `desc`, etc.) for app reads and writes.
-- Keep raw SQL out of normal actions, handlers, and stores. Use it only for additive migrations, health checks, or last-resort maintenance, and keep it parameterized and dialect-agnostic.
-- Do not write SQLite-only or Postgres-only syntax in product code. The same app should run on SQLite, Postgres, libSQL/Turso, D1, and other supported Drizzle backends.
-
-### Authentication
-
-Auth is real Better Auth in every environment — there is **no dev bypass**:
-
-- **Development**: the same Better Auth flow as production. On first run the framework auto-creates a throwaway dev account and signs you in (so you are not stuck at a login wall). `getSession()` returns the signed-in user or `null` — it never returns a `local@localhost` sentinel.
-- **Production**: Better Auth with email/password + social providers; organizations built in.
-
-Use `getSession(event)` server-side and `useSession()` client-side. When there is no session, **throw or return 401** — never fall back to `local@localhost` (that pools every unauthenticated request into one shared tenant).
-
-## Resources
-
-Resources are SQL-backed persistent files for notes, learnings, and context.
-
-**At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
-
-1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
-2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
-
-**Update `LEARNINGS.md` when you learn something important.** Built-in app
-chat agents use the `resources` tool with the `action` argument. External CLI
-agents can use the equivalent `pnpm action resource-*` commands.
-
-| Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
-| `resources` with `action: "read"`, `path`, optional `scope`             | `pnpm action resource-read --path <path> [--scope personal\|shared]`                   | Read a resource         |
-| `resources` with `action: "write"`, `path`, `content`, optional `scope` | `pnpm action resource-write --path <path> --content <text> [--scope personal\|shared]` | Write/update a resource |
-| `resources` with `action: "list"`, optional `prefix`/`scope`            | `pnpm action resource-list [--prefix <path>] [--scope personal\|shared\|all]`          | List resources          |
-| `resources` with `action: "delete"`, `path`, optional `scope`           | `pnpm action resource-delete --path <path> [--scope personal\|shared]`                 | Delete a resource       |
-
-## Application State
-
-Ephemeral UI state is stored in the SQL `application_state` table, accessed via `readAppState(key)` and `writeAppState(key, value)` from `@agent-native/core/application-state`.
-
-| State Key    | Purpose                                   | Direction                  |
-| ------------ | ----------------------------------------- | -------------------------- |
-| `navigation` | Current view                              | UI -> Agent (read-only)    |
-| `navigate`   | Navigate command (one-shot, auto-deleted) | Agent -> UI (auto-deleted) |
-
-The `navigation` key is written by the UI whenever the route changes. The `navigate` key is a one-shot command: the agent writes it, the UI reads and executes the navigation, then deletes it.
-
-UI code should use `useAgentRouteState` / `useSemanticNavigationState` from
-`@agent-native/core/client` for navigation sync instead of hand-written
-`fetch("/_agent-native/application-state/...")` calls. Keep shareable filters
-in URL query params; the framework exposes them as `<current-url>` and the
-built-in agent can update them with `set-search-params`.
-
-## Mounted Workspace Routing
-
-This app may be mounted under `/<app-id>` in a workspace. Inside app source, React Router paths are app-local: use `<Link to="/review">` and `navigate("/review")`, not `/<app-id>/review`. The workspace gateway and `APP_BASE_PATH` add the mounted prefix in the browser; hardcoding it inside React Router links causes doubled URLs such as `/<app-id>/<app-id>/review`.
-
-For raw paths outside React Router, use the core helpers: `appPath()` for static assets or normal hrefs, `appApiPath()` for legitimate route-only `/api/*` endpoints, and `agentNativePath()` for `/_agent-native/*`. Do not use `appApiPath()` to build action-backed CRUD wrappers.
-
-## Agent Operations
-
-**Always know what the user is currently viewing before you edit anything.** The user's view can change mid-conversation. Stale IDs lead to editing the wrong record.
-
-### If you are the built-in agent-chat agent
-
-A `<current-screen>` block is auto-injected into every user message with the current view, IDs, and selected item. You can trust it for the first action of a turn without calling `view-screen`. If the user says "this" or "now do X" after several tool calls, the user may have navigated — call `view-screen` again for a fresh snapshot.
-
-### If you are an external CLI agent (Claude Code, Codex, Cursor, etc.)
-
-You do NOT get auto-injected screen state. **Call `pnpm action view-screen` at the start of every task and before any edit** so you're acting on the IDs the user currently sees, not what was open earlier. Do not rely on cached context from previous turns.
-
-### Actions
-
-Use existing domain actions before reaching for SQL or custom routes. If a
-capability is missing, add or extend a `defineAction` so both the agent and UI
-share the same operation. Do not create `/api/*` routes that only call,
-repackage, or proxy an action.
-
-| Action        | Args                                                                           | Purpose                                                                                 |
-| ------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `view-screen` |                                                                                | See current UI state                                                                    |
-| `navigate`    | `--view <name>` or `--path <url>`                                              | Navigate the UI                                                                         |
-| `hello`       | `[--name <name>]`                                                              | Example script                                                                          |
-| `db-schema`   |                                                                                | Show all tables, columns, types                                                         |
-| `db-query`    | `--sql "SELECT ..."`                                                           | Run a SELECT query                                                                      |
-| `db-exec`     | `--sql "UPDATE ..."`                                                           | Last-resort ad-hoc maintenance; prefer domain actions and Drizzle code for product work |
-| `db-patch`    | `--table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` | Surgical search/replace on a large text column — sends a diff instead of the full value |
-
-**For one-off maintenance, pick the right SQL tool:**
-
-- Use domain actions first. They validate input, enforce access, and refresh the UI.
-- Use `db-exec UPDATE` only when no domain action exists and you need a small ad-hoc change.
-- Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
-- If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
-- **Database admin (dev only):** in development, `db-admin-query` / `db-admin-mutate` / `db-admin-rows` / `db-admin-tables` / `db-admin-schema` give **unscoped, full-database** access to ANY table — including framework tables and tables without `owner_email`/`org_id`. Prefer these over `db-exec`/`db-query` for database-admin work and for any non-owner-scoped table: `db-exec`/`db-query` auto-scope to the current user and return **0 rows** on unscoped tables. These mirror the in-app Database admin UI, so prompts and the UI do the same thing.
+This is an agent-native app: the UI and agent share SQL state and the same
+action surface. Use the app's existing patterns before adding new ones.
 
 ## Skills
 
-Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
+Read the matching skill before implementation. Before building common workspace or agent UI, read `agent-native-toolkit` and `customizing-agent-native` for the
+configure → compose → eject ladder. Start with `actions` for app operations,
+`storing-data` for persistence, `real-time-sync` for live updates, and
+`security` for auth, access, and secrets. Use `adding-a-feature` for new
+cross-cutting work and `self-modifying-code` when changing app source.
 
-| Skill                 | When to read                                                                      |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `adding-a-feature`    | **Read first when adding ANY new feature** — the four-area parity checklist       |
-| `real-time-sync`      | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
-| `storing-data`        | Before storing or reading any app state                                           |
-| `delegate-to-agent`   | Before adding LLM calls or AI delegation                                          |
-| `actions`             | Before creating or modifying actions                                              |
-| `self-modifying-code` | Before editing source, components, or styles                                      |
-| `capture-learnings`   | Before recording user preferences or corrections                                  |
-| `frontend-design`     | Before building or restyling any UI component, page, or layout                    |
-| `shadcn-ui`           | Before adding, updating, or debugging shadcn/ui components                        |
-| `agent-engines`       | Before switching LLM providers or registering a custom engine                     |
-| `notifications`       | Before surfacing alerts/progress to the user or adding channels                   |
-| `progress`            | Before running any task that takes more than a few seconds                        |
+## Core rules
 
-## When Adding Features
+- Store structured state in SQL through Drizzle; store large files in configured
+  file/blob storage and persist only URLs, ids, or opaque handles.
+- Normal app data must flow through actions.
+- Do not create `/api/*` routes that only call, repackage, or proxy an action.
+- Define app operations with `defineAction` in `actions/`. The agent and UI
+  call the same action surface; do not duplicate an action with a JSON route.
+- If you are about to add `server/routes/api/`, stop and write an action
+  instead, except for uploads, streaming, webhooks, OAuth callbacks, public
+  unauthenticated URLs, or non-JSON responses.
+- Keep database code provider-agnostic and migrations additive. Do not use
+  adapter-only database methods or production schema push commands.
+- All AI work goes through the agent chat. UIs do not call model providers.
+- Keep application state in SQL so the agent can read navigation, selection,
+  and focused-object context.
+- Never hardcode keys, tokens, webhook URLs, private data, or credential-like
+  literals. Use secrets, OAuth, or obvious placeholders.
+- A missing or unreadable value must stay distinguishable from success. Throw or
+  return an explicit error instead of silently falling back to an empty value.
 
-**Read the `adding-a-feature` skill first** — it has the full four-area checklist (UI / Action / Skills / App-State). Quick summary:
+## Application state
 
-1. **Add navigation state entries** — extend `app/hooks/use-navigation-state.ts` to track new routes with `useAgentRouteState`
-2. **Enhance view-screen** — make the view-screen script return relevant context for the new view
-3. **Create domain actions** — add actions in `actions/` for CRUD operations on new data models; do not create REST wrappers around those actions
-4. **Wire UI for auto-refresh** — use `useActionQuery` / `useActionMutation` for normal CRUD. If a raw `useQuery` is unavoidable, fold `useChangeVersions([<source>, "action"])` into its key with `placeholderData`. When the agent mutates this data, the UI must reflect the change without a manual refresh. See `real-time-sync` skill.
-5. **Create domain skills** — add `.agents/skills/<feature>/SKILL.md` documenting the data model, storage patterns, and agent operations
-6. **Update this AGENTS.md** — add the new actions, state keys, and common tasks
+Use the existing `application_state` helpers for navigation and selection. Keep
+the shape small and explicit; include the current route/view and the selected
+object id when the UI has one.
 
----
+## Actions
 
-For code editing and development guidance, read `DEVELOPING.md`.
+Actions in `actions/` are callable from the agent, UI hooks, HTTP, MCP, A2A,
+and CLI where enabled. Validate inputs with Zod, return structured data, and
+scope reads and writes to the signed-in user or organization. Prefer
+`useActionQuery` and `useActionMutation` in browser code.
+
+## Authentication and access
+
+Auth is real Better Auth in development and production. Use `getSession()` or
+the shared request context and fail closed when there is no session. Never use a
+sentinel identity such as `local@localhost`. Tables with ownable columns need
+scoped reads and writes through the framework access helpers.
+
+## UI and sync
+
+Use the shared toolkit and shadcn primitives for standard controls. Keep UI
+optimistic where safe, roll back failed mutations, and use `useDbSync()` or
+action query invalidation to reflect agent writes without a manual refresh.
+
+## Documentation lookup
+
+Version-matched docs and source examples ship with `@agent-native/core`. Use
+`pnpm action docs-search --query "<topic>"` and
+`pnpm action source-search --query "<pattern>"`; read the relevant local skill
+before relying on a framework API. Do not edit `node_modules` or deep-import
+private package internals.
+
+## Verification
+
+Match checks to the change: run the existing focused tests, typecheck, and
+formatter. For a user-facing template change, record a changelog entry from
+the app with `agent-native changelog add` when appropriate.

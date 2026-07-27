@@ -1,3 +1,4 @@
+import type { CredentialContext } from "@agent-native/core/credentials";
 /**
  * Lib helpers in `server/lib/*.ts` (bigquery, hubspot, slack, etc.) all need
  * to resolve credentials. Credentials are now per-user / per-org and require
@@ -23,7 +24,6 @@ import {
   getCredentialContext,
   type RequestContext,
 } from "@agent-native/core/server";
-import type { CredentialContext } from "@agent-native/core/credentials";
 
 /**
  * Read the current request's credential context, or throw a helpful error

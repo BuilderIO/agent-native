@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import {
   createSource,
   nanoid,
@@ -25,7 +26,7 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional signed-ingest bearer token; stored only as a hash"),
-    visibility: z.enum(["private", "org", "public"]).default("org"),
+    visibility: z.enum(["private", "org"]).default("org"),
   }),
   run: async (args) => {
     const config = { ...args.config };

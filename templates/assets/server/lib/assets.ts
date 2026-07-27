@@ -1,12 +1,5 @@
 import { nanoid } from "nanoid";
-import { getDb, schema } from "../db/index.js";
-import {
-  extractDominantColors,
-  imageInfo,
-  makeThumbnail,
-} from "./image-processing.js";
-import { nowIso, stringifyJson } from "./json.js";
-import { putObject } from "./storage.js";
+
 import type {
   AssetMediaType,
   AspectRatio,
@@ -17,6 +10,14 @@ import type {
   ImageStatus,
   VideoModel,
 } from "../../shared/api.js";
+import { getDb, schema } from "../db/index.js";
+import {
+  extractDominantColors,
+  imageInfo,
+  makeThumbnail,
+} from "./image-processing.js";
+import { nowIso, stringifyJson } from "./json.js";
+import { putObject } from "./storage.js";
 
 function extFromMime(mimeType: string): string {
   if (mimeType === "image/jpeg") return "jpg";

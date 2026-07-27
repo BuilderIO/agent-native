@@ -1,0 +1,420 @@
+---
+title: "ハーネス エージェント"
+description: "独自のループ、サンドボックス、ネイティブ ツール、および再開可能な SQL バックアップ セッションを使用して、Claude コード、Codex、Pi、およびその他の完全なコーディング ハーネスを Agent-Native 内の組み込みエージェントとして実行します。"
+search: "ハーネス エージェント AgentHarness ai-sdk HarnessAgent Claude コード Codex Pi Cursor Mastra 埋め込みコーディング エージェントsolveAgentHarness startAgentHarnessRun 再開可能なセッション サンドボックス ホスト ツール"
+---
+
+# ハーネスエージェント
+
+> **対象者:** 完全なコーディング ランタイム (Claude コード) を配線するホスト作成者
+> Codex, Pi) をエージェントとして Agent-Native に入力します。アプリを構築しますか?
+> [Creating Templates](/docs/creating-templates).
+
+ハーネス エージェントは、完全なエージェント ランタイム (Claude コード、Codex、Pi など) です。
+独自のループ、ワークスペース、ネイティブ ファイル ツール、セッション状態、圧縮を所有する
+承認モデルとサンドボックスの動作。 Agent-Native は
+**`AgentHarness`** `@agent-native/core/agent/harness` のサブストレート、ストリーミング
+イベントを通常のトランスクリプトに取り込み、スレッドとしてネイティブ セッションを保持します
+一時停止と再開が可能です。
+
+これは、組み込みのチャット エージェントや独自のチャットの導入とは異なります
+ランタイム。組み込みエージェントと `AgentEngine` は 1 つのモデルの往復用です
+`runAgentLoop` の下。ハーネスは `AgentEngine` プロバイダーではありません。
+独自のループをエンドツーエンドで実行するため、Agent-Native はそれを単一ではなくセッションとして駆動します
+モデル呼び出し。
+
+<Diagram id="doc-block-1hwvd6l" title={"ハーネスはそのループを所有します。 Agent-Native がセッションを駆動します"} summary={"AgentHarness 基板 creates/resumes はネイティブ セッションであり、そのイベントを通常のトランスクリプトにストリーミングし、ターン間で SQL のresumeState を保持します。"}>
+
+```html
+<div class="diagram-harness">
+  <div class="diagram-box" data-rough>
+    <strong>AgentHarness substrate</strong
+    ><small class="diagram-muted">@agent-native/core/agent/harness</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Native harness loop</strong
+    ><small class="diagram-muted"
+      >Claude Code · Codex · Pi — own tools, sandbox, compaction</small
+    >
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">events &rarr; transcript</div>
+    <div class="diagram-pill ok">resumeState &rarr; SQL session</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-harness {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-harness .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-harness .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-harness .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## どのコーディング ドキュメントが必要ですか? {#which-doc}
+
+| あなたがしたいのは…                                                                             | 使用                                         |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| 独自のループ + ツールを使用して、**エージェント**として Claude コード / Codex / Pi を実行します | **ハーネス エージェント** (このページ)       |
+| Claude-Code/Codex スタイル **コーディング ワークスペース UI** をレンダリングします              | [Agent-Native Code UI](/docs/code-agents-ui) |
+| エージェントの **`run-code` ツール**を実行するバックエンドを交換します                          | [Adapters](/docs/sandbox-adapters)           |
+| エージェントが呼び出せるように CLI ツール (`gh`、`ffmpeg`) をラップします                       | [Adapters](/docs/sandbox-adapters)           |
+
+隣接するサーフェス: Agent-Native のチャットの背後に別の場所に構築したエージェントを配置します
+UI と [`AgentChatRuntime`](/docs/native-chat-ui#byo-agent-runtimes);させて
+外部 MCP ホストが [External Agents](/docs/external-agents) 経由でアプリを呼び出します。
+スポーンバックグラウンド/サブエージェントは[Custom Agents & Teams](/docs/agent-teams)で実行されます。
+
+## 内蔵ハーネス {#built-in}
+
+`registerBuiltinAgentHarnesses()` は、AI SDK によってサポートされる 3 つのアダプターを登録します
+`HarnessAgent`:
+
+| 名前                         | ランタイム    | サンドボックス | 承認   |
+| ---------------------------- | ------------- | -------------- | ------ |
+| `ai-sdk-harness:claude-code` | Claude コード | はい           | はい   |
+| `ai-sdk-harness:codex`       | Codex         | はい           | いいえ |
+| `ai-sdk-harness:pi`          | 円周率        | いいえ         | はい   |
+
+それらのランタイム パッケージは **オプションのピア依存関係**であり、遅延ロードされるため、
+ハーネスを使用しないアプリには料金がかかりません。各アダプターには、
+`installPackage` ヒント (例: `@ai-sdk/harness@canary
+@ai-sdk/harness-codex@canary`); `resolveAgentHarness` はクリア インストールをスローします
+パッケージが見つからない場合のエラー、および `isAgentHarnessPackageInstalled(entry)`
+最初に確認できます。
+
+`registerBuiltinAgentHarnesses()` は [ACP](#acp) ハーネスも登録します
+(`acp`, `acp:gemini`, `acp:claude-code`).
+
+## ACP エージェント {#acp}
+
+Agent-Native は [ACP](https://agentclientprotocol.com) (エージェント クライアント) として機能できます
+プロトコル) **クライアント** およびローカル コーディング エージェントを駆動します — Gemini CLI、Claude コード、
+または ACP 準拠のエージェント — この同じ基板を介して。エージェントは
+stdio 経由で改行区切りの JSON ～ RPC を話すローカル サブプロセス。 ACP の編集者
+↔ エージェント モデルはまさにこの形状です。
+
+このアダプターのスコープは **ローカル コーディング**です。子プロセスは
+親環境なので、エージェントはすでに持っているローカル CLI ログインを再利用します
+(たとえば、ユーザーのホーム ディレクトリの `gemini` または `claude` 認証)。それは
+ホスト型またはサンドボックス型のトランスポートであり、チャット/A2A トランスポートではありません - それらの場合
+[Agent Surfaces](/docs/agent-surfaces) を参照。
+
+| 名前              | デフォルトのコマンド                           | 再開可能\* |
+| ----------------- | ---------------------------------------------- | ---------- |
+| `acp`             | _(構成経由で `command`/`args` を供給)_         | はい       |
+| `acp:gemini`      | `npx -y @google/gemini-cli --experimental-acp` | はい       |
+| `acp:claude-code` | `npx -y @zed-industries/claude-code-acp`       | はい       |
+
+\*エージェントが `loadSession` 機能をアドバタイズする場合、再開は機能します。
+それ以外の場合は、新しいセッションに低下します。
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+
+// A built-in preset (command/args are overridable through the resolve config):
+const adapter = resolveAgentHarness("acp:gemini");
+
+// Or any ACP agent by command:
+const custom = resolveAgentHarness("acp", {
+  command: "gemini",
+  args: ["--experimental-acp"],
+});
+```
+
+プロトコル トランスポート (`@zed-industries/agent-client-protocol`) はオプションです
+AI SDK と同様に、`installPackage` ヒントを通じて遅延ロードされる依存関係
+ハーネス。エージェント バイナリ自体 (`@google/gemini-cli`、
+`@zed-industries/claude-code-acp`, …) は別の外部 CLI です。プリセット
+`npx` を通じて起動すると、エージェント ACP のためコマンド/引数はオーバーライド可能なままになります
+エントリーフラグはまだ進化しています。
+
+ツール呼び出しを使用して、`permissionMode` を ACP `session/request_permission` にマップします
+エージェントのレポートの種類: 読み取りは常に実行され、編集は `allow-edits` で実行されます。
+`allow-all` を除き、危険なプロンプトはすべて表示されます。承認は通常どおり表面化します
+`approval-request` イベント。アダプターは `fs/read_text_file` と
+セッション ワークスペースに対する `fs/write_text_file` (エスケープするパスを拒否する
+it) と書き込みにより `file-change` イベントが発行されます。ターミナルメソッドはアドバタイズされません。
+したがって、エージェントは独自のシェルを使用します。
+
+## Codex 認証: コード UI とハーネス サンドボックス {#codex-auth}
+
+Codex サーフェスは 2 つあり、それぞれ異なる方法で認証されます。
+
+- **Agent-Native コード / デスクトップ** はユーザーのマシン上で `codex exec` を実行します。もし
+  ユーザーは `codex login` を実行しました。このローカル実行では ChatGPT が再利用されます
+  サブスクリプションまたは API キーは、インストールされた Codex CLI レポートを認証します
+  `codex login status`.
+- **`ai-sdk-harness:codex`** は `@ai-sdk/harness-codex` をロードし、Codex を駆動します
+  `@openai/codex-sdk` を介してハーネス サンドボックス内にあります。黙って行わない
+  サンドボックスがリモートである可能性があるため、ユーザーのデスクトップ `~/.codex` ログインを継承します
+  または孤立しています。信頼できる/プライベート サンドボックスの場合は、`codexCliAuth: true` でオプトインします。
+  Agent-Native は、ローカル Codex CLI 認証ファイルをサンドボックスにコピーしてから、
+  ハーネスが起動します。ホストまたは共有サンドボックスの場合、API キー / ゲートウェイを構成します
+  代わりに認証を行ってください。
+
+誰かが Codex OAuth パスを持つパッケージを尋ねたら: ローカル コーディング用
+セッション、`@agent-native/core` / デスクトップとインストール済みのものを使用します
+`@openai/codex` CLI および `codex login`。サンドボックス化された `ai-sdk-harness:codex` の場合、
+ログインをサンドボックスにコピーするときに、明示的な `codexCliAuth` オプトインを使用します
+許容されます。
+
+```ts
+const adapter = resolveAgentHarness("ai-sdk-harness:codex", {
+  codexCliAuth: true,
+});
+```
+
+`codexCliAuth: true` は、`CODEX_HOME/auth.json` または `~/.codex/auth.json` を読み取ります。へ
+別のローカル ログインをポイントし、パス
+`{ codexCliAuth: { codexHome: "/path/to/.codex" } }` または
+`{ codexCliAuth: { authJsonPath: "/path/to/auth.json" } }`.
+
+## 登録して解決 {#register-resolve}
+
+```ts
+import {
+  registerBuiltinAgentHarnesses,
+  resolveAgentHarness,
+} from "@agent-native/core/agent/harness";
+
+registerBuiltinAgentHarnesses();
+const adapter = resolveAgentHarness("ai-sdk-harness:codex");
+```
+
+`resolveAgentHarness(name, config?)` は `AgentHarnessAdapter` を返します。
+オプションの `config` は、AI SDK アダプター用にアダプター工場に転送されます
+`AiSdkHarnessAdapterOptions` (`label`、`description`) にマッピングされます
+`permissionMode`、`harnessOptions`、`agentOptions`、および Codex のみ
+`codexCliAuth`)。 `listAgentHarnesses()` を使用して、登録されているものを列挙します。
+ピッカー。
+
+## ターンを実行する {#run-a-turn}
+
+`startAgentHarnessRun` はハーネス セッションを共有 run-manager にブリッジします
+ライフサイクル。ネイティブ セッションを作成 (または再利用) し、永続化し、
+ターン、各ハーネス イベントをトランスクリプト イベントに変換し、
+ターン完了時に状態を再開可能。
+
+```ts
+import { startAgentHarnessRun } from "@agent-native/core/agent/harness";
+
+const run = startAgentHarnessRun({
+  runId,
+  threadId,
+  adapter,
+  input: { prompt },
+  createSession: {
+    sessionId,
+    resumeState, // opaque value from a previous turn, if resuming
+    instructions,
+    sandbox, // required for sandboxed harnesses — see Sandbox Adapters
+    permissionMode: "allow-reads",
+    tools, // a narrow, intentional set of host tools (see below)
+  },
+  ownerEmail,
+  orgId,
+});
+```
+
+`startAgentHarnessRun` は実行マネージャーから `ActiveRun` を返します。そのため、ターン
+同様に、既存の実行ルート、トランスクリプト、キャンセルを通じて表示されます
+他のエージェントが実行されます。 `createSession` の代わりに、すでに作成された `session` を渡します
+メモリ内に保持しているセッションを継続します。
+
+## セッションと履歴書 {#sessions}
+
+ハーネスは、存続期間の長いネイティブ セッション状態を所有します。 Agent-Native は SQL に永続化します
+そのため、スレッドはターン、プロセス、デプロイを経ても存続できます。 `resumeState`
+は **不透明** — Agent-Native は保管して返却しますが、検査や
+それを解釈します。
+
+<Diagram id="doc-block-17mj1y9" title={"ターン、プロセス、デプロイをまたいで再開"} summary={"各ターンは、不透明なresumeStateをSQLに切り離します。次のターンでは、チャット履歴を再生する代わりに、それが createSession にフィードバックされます。"}>
+
+```html
+<div class="diagram-resume">
+  <div class="diagram-node" data-rough>
+    ターンN<br /><small class="diagram-muted">streamTurn</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    detach &rarr; resumeState<br /><small class="diagram-muted"
+      >不透明 · SQL harnessセッション</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    ターンN+1<br /><small class="diagram-muted"
+      >createSession.resumeState</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-resume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-resume .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+```ts
+import {
+  getLatestAgentHarnessSessionForThread,
+  listAgentHarnessSessions,
+} from "@agent-native/core/agent/harness";
+
+const last = await getLatestAgentHarnessSessionForThread(threadId);
+// Feed last?.resumeState into createSession.resumeState on the next turn.
+```
+
+このストアでは、`saveAgentHarnessSession`、`updateAgentHarnessSession` も公開しています。
+`getAgentHarnessSession`, `getAgentHarnessSessionByRunId`,
+`markAgentHarnessSessionStopped`、および `ensureAgentHarnessSessionTables`。
+`startAgentHarnessRun` は保存/更新/停止パスを呼び出します。彼らに手を伸ばそう
+カスタム ホスト内でのみ直接。
+
+## ホストツールと権限 {#host-tools}
+
+ハーネスは独自のネイティブ ツール (読み取り、編集、書き込み、シェルなど) を備えているため、
+ファイル編集をホスト ツールとして再公開する**ことはありません**。 **狭い道だけを通過してください。
+Agent-Native actions から `createSession.tools` までの意図的なセット**
+ハーネスが特定のアプリ操作に到達し、`defineAction` を維持できるようにしたい
+認証、リクエスト コンテキスト、タイムアウト、切り捨て、読み取り専用メタデータがそのままの場合
+そうですよね。
+
+`permissionMode` は、承認なしにハーネスが実行できる動作を制限します:
+
+| モード        | 意味                                                                |
+| ------------- | ------------------------------------------------------------------- |
+| `allow-reads` | デフォルト。読み取りが実行されます。編集と危険な actions プロンプト |
+| `allow-edits` | 読み取りと編集が実行されます。その他の危険な actions プロンプト     |
+| `allow-all`   | 承認ゲートなし                                                      |
+
+ハーネスが承認のために一時停止すると、`approval-request` イベントが発行され、
+セッションは `idle` とマークされ、保留中の承認が記録されているため、UI は実行できます
+それを表面化し、ユーザーの決定に従って再開します。参照
+承認画面の場合は [Human Approval](/docs/human-approval)。
+
+## イベント {#events}
+
+ハーネス セッションは `AgentHarnessEvent` 値をストリーミングします。この値は Agent-Native
+次の標準 `AgentChatEvent` ストリームに変換します
+`agentHarnessEventToAgentChatEvents`。イベント ユニオンは `text-delta` をカバーします。
+`thinking-delta`、`activity`、`tool-start`、`tool-done` (
+ネイティブ ウィジェットの `mcpApp` ペイロード)、`approval-request`、`file-change`、
+`compaction`、`usage`、`error`、および `done`。ツールの結果は
+同じ翻訳、アクション宣言されたネイティブ ウィジェットは引き続きレンダリングされます — を参照
+[Native チャット UI](/docs/native-chat-ui).
+
+## バックグラウンド実行と UI {#background-runs}
+
+ハーネスはプロジェクトを共有 `BackgroundAgentRun` 形状に実行します
+`createAgentHarnessBackgroundAgentController()` は、
+既存の実行ルートは `goalId=agent-harness` です。つまり、長期にわたる Claude
+コードまたは Codex セッションが同じバックグラウンド実行およびトランスクリプト サーフェスに表示される
+`listAgentHarnessBackgroundRuns` を使用したエージェント チームおよびその他のアダプターとして
+`listAgentHarnessBackgroundTranscriptEvents`、`getAgentHarnessBackgroundRun`、
+`stopAgentHarnessBackgroundRun` はカスタム ホストで利用可能です。
+
+## カスタム アダプター {#custom-adapters}
+
+組み込みのいずれでもないランタイムをラップするには、
+`AgentHarnessAdapter` を入力して登録します。アダプターはその機能を宣言し、
+セッションを作成します。セッションは `streamTurn` とオプションの `continueTurn` を公開します。
+`approve`、`detach`、`stop`、および `destroy`。
+
+```ts
+import {
+  registerAgentHarness,
+  type AgentHarnessAdapter,
+} from "@agent-native/core/agent/harness";
+
+const myHarness: AgentHarnessAdapter = {
+  name: "acme:my-coder",
+  label: "Acme Coder",
+  description: "Runs the Acme coding agent.",
+  installPackage: "@acme/coder",
+  capabilities: {
+    sandbox: true,
+    resumable: true,
+    approvals: true,
+    hostTools: true,
+    fileEvents: true,
+  },
+  async createSession(opts) {
+    // Build your native session and adapt it to AgentHarnessSession.
+    return createAcmeSession(opts);
+  },
+};
+
+registerAgentHarness({
+  name: myHarness.name,
+  label: myHarness.label,
+  description: myHarness.description,
+  installPackage: myHarness.installPackage,
+  capabilities: myHarness.capabilities,
+  create: () => myHarness,
+});
+```
+
+`createSession` での動的インポートを使用してランタイム パッケージをオプションのままにし、
+`installPackage` ヒント。ブリッジバックコーディングハーネスの場合は、本物の
+で任意のコーディング エージェントを実行するのではなく、サンドボックス/ワークスペース プロバイダー
+ホスト プロセス — [Sandbox Adapters](/docs/sandbox-adapters) を参照。 AI SDK アダプター
+(`createAiSdkHarnessAdapter`、`@ai-sdk/harness` の `HarnessAgent` が支援) は
+パブリック抽象化ではなく、このコントラクトの 1 つの実装。
+
+## しないでください {#donts}
+
+- Claude コード、Codex、カーソル、マストラ、または Pi を `AgentEngine` として追加しないでください。彼ら
+  自分たちのループを所有します。 `AgentEngine.stream()` の下で 1 つを実行すると、ループが 2 回実行されます
+  セッションのライフサイクル セマンティクスが失われます。
+- 毎ターン、完全な Agent-Native チャット履歴をハーネスに再生しないでください。再開
+  代わりに `resumeState` を使用したハーネス セッション。
+- `resumeState` を `application_state` に保存しないでください。それはハーネスに属します
+  セッション SQL テーブル。
+- デフォルトでは、すべてのアプリ アクションをすべてのハーネス セッションに公開しないでください。渡してください
+  意図的に作られた小さなツールセット
+
+## 関連ドキュメント {#related-docs}
+
+- [Native チャット UI](/docs/native-chat-ui) — `AgentChatRuntime` とのチャット UI の背後に独自のエージェントを配置します。
+- [Agent Surfaces](/docs/agent-surfaces) — ヘッドレス、チャット、サイドカー、またはフルアプリを選択します。
+- [Agent-Native Code UI](/docs/code-agents-ui) — 再利用可能なコーディング ワークスペース サーフェス。
+- [Custom Agents & Teams](/docs/agent-teams) — バックグラウンド実行とサブエージェントの委任。
+- [Sandbox Adapters](/docs/sandbox-adapters) — コーディング ハーネス用のプラグ可能な実行バックエンド。
+- [Human Approval](/docs/human-approval) — 承認サーフェス ハーネス実行が使用します。

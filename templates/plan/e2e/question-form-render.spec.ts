@@ -178,4 +178,64 @@ test.describe("question blocks render answer UI in the plan editor", () => {
       await expect(popover.getByText("Mode")).toBeVisible();
     });
   }
+
+  test("copying a question prompt collapses the answered form and allows reopening", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text: string) => {
+            (
+              globalThis as typeof globalThis & {
+                __copiedQuestionPrompt?: string;
+              }
+            ).__copiedQuestionPrompt = text;
+          },
+        },
+      });
+    });
+
+    const { blockId, content } = questionContent("question-form");
+    const planId = await createPlanFixture(page, content);
+    await openPlanForEditing(page, planId);
+
+    const node = blockNode(page, blockId);
+    await expect(node).toBeVisible({ timeout: 20_000 });
+    await node.getByRole("button", { name: /Tables/ }).click();
+    await expect(node.getByText("1/1 answered")).toBeVisible();
+
+    await node.getByRole("button", { name: "Send to agent" }).click();
+    const menu = page.locator(".an-block-menu-popover").last();
+    await expect(menu).toBeVisible({ timeout: 10_000 });
+    await menu.getByRole("button", { name: /Copy for your agent/ }).click();
+
+    await expect(node.getByText("Answers copied for your agent")).toBeVisible();
+    await expect(node.getByText("1/1 answered")).toBeVisible();
+    await expect(
+      node.getByText(
+        "Which inline/container editing surface should get the next polish pass?",
+      ),
+    ).toHaveCount(0);
+
+    const copied = await page.evaluate(
+      () =>
+        (
+          globalThis as typeof globalThis & {
+            __copiedQuestionPrompt?: string;
+          }
+        ).__copiedQuestionPrompt ?? "",
+    );
+    expect(copied).toContain("Tables");
+    expect(copied).toContain("Question block:");
+
+    await node.getByRole("button", { name: "Edit answers" }).click();
+    await expect(
+      node.getByText(
+        "Which inline/container editing surface should get the next polish pass?",
+      ),
+    ).toBeVisible();
+    await expect(node.getByText("1/1 answered")).toBeVisible();
+  });
 });

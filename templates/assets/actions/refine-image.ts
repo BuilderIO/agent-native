@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import generateImage from "./generate-image.js";
+
+import { parseJson } from "../server/lib/json.js";
+import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
 import {
   getAssetOrThrow,
   requireGenerationSessionInLibrary,
 } from "./_helpers.js";
-import { parseJson } from "../server/lib/json.js";
-import { ASPECT_RATIOS, IMAGE_MODELS, IMAGE_SIZES } from "../shared/api.js";
+import generateImage from "./generate-image.js";
 
 export default defineAction({
   description:
@@ -27,6 +28,7 @@ export default defineAction({
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design') so audit logs can filter by app.",
       ),
+    contextModeOverride: z.literal("off").optional(),
   }),
   parallelSafe: true,
   run: async ({
@@ -40,6 +42,7 @@ export default defineAction({
     slotId,
     source,
     callerAppId,
+    contextModeOverride,
   }) => {
     const asset = await getAssetOrThrow(assetId);
     if (sessionId) {
@@ -70,6 +73,7 @@ export default defineAction({
       slotId,
       source,
       callerAppId,
+      contextModeOverride,
     });
   },
 });

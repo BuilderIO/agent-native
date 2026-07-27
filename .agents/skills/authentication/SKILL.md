@@ -4,6 +4,7 @@ description: >-
   How auth works in agent-native apps. Use when wiring login/signup,
   configuring auth modes, setting up organizations, protecting routes, or
   debugging session issues.
+scope: dev
 metadata:
   internal: true
 ---
@@ -12,18 +13,18 @@ metadata:
 
 ## Rule
 
-Auth is powered by **Better Auth** with account-first design. Every new user creates an account on first visit. Use `getSession(event)` to authenticate custom routes; actions are auto-protected.
+Auth is powered by **Better Auth** with account-first design. Every new user creates an account on first visit. Use `getSession(event)` to authenticate custom routes; actions are auto-protected. Normal app HTML and React Router page-data responses are one impersonal, public-cacheable shell for every visitor. The client decides whether to render private UI or redirect to sign-in.
 
 ## Auth Modes
 
 | Mode                      | Behavior                                                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in (credentials printed once to the console; disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
+| **Development (default)** | Real Better Auth — same flow as production. There is **no auth bypass**. On first run the framework auto-creates a throwaway dev account and signs you in without printing its credentials (disable with `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1`), so you are not stuck at a login wall. `getSession()` returns the signed-in user or `null` — it never falls back to a sentinel identity. |
 | **Production (default)**  | Better Auth with email/password + social providers (Google, GitHub). Organizations built in.                                             |
 | **`AUTH_MODE=local`**     | **Not** a browser auth bypass, and never returns `local@localhost`. It only affects CLI/agent identity: it lets `pnpm action` / the local agent loop auto-bind to the single real signed-in dev user from the `sessions` table (see `scripts/dev-session.ts`). Browser login is unchanged. |
 | **`AUTH_SKIP_EMAIL_VERIFICATION=1`** | QA/preview escape hatch for real email/password accounts. Signup skips email verification and does not send the signup verification email. Local dev/test skips verification by default; set `AUTH_SKIP_EMAIL_VERIFICATION=0` only when testing verification itself. Use `+qa` emails for test accounts. |
+| **`AUTH_DISABLED=true`** | Skip login/signup entirely — every request runs as `dev@local.test`. For local dev, cloud previews, and internal demos only; not for production with real users. |
 | **`ACCESS_TOKEN` / `ACCESS_TOKENS`** | Static bearer fallback for MCP/connect clients that cannot use OAuth. Not browser auth and never a token login page.         |
-| **`AUTH_DISABLED=true`**  | Skip auth entirely (for apps behind infrastructure-level auth like Cloudflare Access).                                                   |
 | **Custom**                | Pass your own `getSession` to `autoMountAuth(app, { getSession })`.                                                                     |
 
 > **Never** use `local@localhost` as a fallback identity in app code
@@ -35,18 +36,19 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 
 ## Remote MCP OAuth
 
-Every app's `/_agent-native/mcp` endpoint is also a standard protected MCP
+Every app's `/mcp` endpoint is also a standard protected MCP
 resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
 `WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
 and `/.well-known/oauth-authorization-server`, dynamically register a public
 client, and complete authorization-code + PKCE at
-`/_agent-native/mcp/oauth/authorize` / `/_agent-native/mcp/oauth/token`.
+`/mcp/oauth/authorize` / `/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
-identity plus `mcp:read`, `mcp:write`, and/or `mcp:apps`; refresh tokens are
-stored hashed and rotate. Keep `ACCESS_TOKEN` and `agent-native connect` for
+identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
+advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
+Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
-default; use the Connect page or `agent-native connect --token <token>` when a
+default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
 client needs explicit bearer headers.
 
 ## Local → Real Account Migration
@@ -61,9 +63,48 @@ Organizations are **framework-managed**, not handled by Better Auth's organizati
 
 The active org flows automatically: `session.orgId` — resolved by `getOrgContext` from `org_members` plus the user's `active-org-id` setting (_not_ from a Better Auth session field) — → `AGENT_ORG_ID` → SQL scoping (see `security` skill).
 
-**If your template requires an org to function** (data is scoped by `organization_id`, core features can't run without one), set `AUTO_CREATE_DEFAULT_ORG=1` in your `.env`. The framework will auto-create a default org (named after the user) on first login when no memberships exist. This happens inside `getOrgContext` — no template integration needed.
+When an authenticated user has no org memberships, the framework auto-creates a
+default org (named after the user) the first time `getOrgContext` runs. This
+keeps org-scoped templates from showing a manual "create organization" step.
+The auto-create path skips users with pending invites or a matching
+`allowed_domain` org so they can join the intended team instead. Set
+`AUTO_CREATE_DEFAULT_ORG=0` only for deployments that intentionally want manual
+org creation.
 
-As a safety net, also wrap your app shell in `<RequireActiveOrg>` from `@agent-native/core/client/org`. It blocks the wrapped area with a "Create your organization" pane (and accept-invite CTAs for pending invitations) if auto-create failed or the account predates it. Place it **inside** the agent sidebar so the setup checklist, chat, and CLI stay usable during setup.
+### Stop And Confirm Before Creating Or Switching Organizations
+
+Vault credentials are scoped per organization and are **not** shared between
+them. A second organization therefore orphans every key synced under the first,
+and the only symptom is a missing-credential error somewhere else entirely,
+naming the key rather than the org change that caused it.
+
+So: **do not create an organization, repoint anyone's `active-org-id`, or
+migrate a user/roster/identity list into a new organization on your own
+initiative.** Stop, say plainly that it will orphan the existing organization's
+credentials, and get an explicit yes first — even when the user asked for
+something that seems to imply it ("use the real org user list", "align this to
+the Settings team view", "migrate my users").
+
+The intended pattern is **one organization per workspace**, with every app
+sharing it. When a request needs real org members, add them to the existing
+organization; never provision a parallel one per app. `createOrganization()`
+logs a loud warning when it creates an additional org for an account that
+already belongs to one, and `setActiveOrgId()` logs one whenever it moves an
+account from one org to another, naming both orgs and the orphaned credentials.
+Treat either warning as a bug report against your own change, not as noise.
+
+Write `active-org-id` only through `setActiveOrgId(email, orgId, reason)` from
+`@agent-native/core` (`src/org/active-org.ts`). Calling `putUserSetting(email,
+"active-org-id", ...)` directly is how a roster migration silently repointed 21
+accounts with nothing in the logs; the helper exists so that cannot happen
+again.
+
+Do not wrap normal app shells in `<RequireActiveOrg>` just to force setup. Use
+non-blocking org UI such as `InvitationBanner`, `OrgSwitcher`, and a `/team`
+route so users can accept invites, join domain-matched teams, or switch orgs
+without blocking the primary product experience. Place org UI inside the agent
+sidebar so the setup
+checklist, chat, and CLI stay usable during setup.
 
 ## A2A Identity
 
@@ -117,44 +158,50 @@ window.location.href =
   "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
 ```
 
-After successful sign-in (token / email-password / Google OAuth), the framework 302s to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
+After successful sign-in (token / email-password / Google OAuth), the framework redirects to `return`. The path is validated as same-origin via the URL parser — open-redirect / header-injection inputs fall back to `/`.
 
-Bookmarked private paths already work _when the request reaches the server_ — the auth guard serves the login page at the requested URL and post-login reload returns the user there.
+Bookmarked private paths work through the client session gate: the shared shell hydrates, `AppProviders` redirects the signed-out visitor to the framework sign-in entrypoint with the current path as `return`, and successful sign-in sends them back.
 
 ## Gating the App Shell (avoid the logged-out infinite spinner)
 
-The server auth guard only protects requests that actually reach the Nitro
-function. A statically-served / CDN-cached SPA shell, or a client-side (React
-Router) navigation made after the session expired, never re-hits the guard — so
-the app boots with **no session**, every data query 401s, and the UI sticks on
-its loading state forever. Server-side protection alone is not enough; gate on
-the client too.
+Normal app HTML and React Router page-data responses deliberately bypass the
+server session guard. They are rendered impersonally and cached as one shared,
+public, hard-cached-at-the-CDN shell; APIs, actions, and framework data routes
+remain server-protected. The client session gate is therefore the
+authoritative decision point for whether private app UI renders.
 
-For a fully private app (every page requires auth, like mail), wrap the routed
-shell with the framework's `RequireSession`. It resolves the session on the
-client and redirects signed-out visitors to `/_agent-native/sign-in?return=…`
-instead of spinning:
+**Never**, on the SSR HTML/`.data` path: set `private`, `no-store`, or
+`Vary: Cookie`; call `getSession` or read cookies in the SSR route or the
+login HTML path; or embed tokens/secrets into the rendered HTML — a
+token-bearing page still returns the same anonymous shell and resolves access
+client-side. This has regressed repeatedly (agents "fixing" it back to
+per-user SSR); it is enforced by `guard:ssr-cache-shell` and
+`ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`), and reverts
+will be rejected.
+
+`AppProviders` applies `RequireSession` automatically on its private branch. It
+resolves the session on the client and redirects signed-out visitors to
+`/_agent-native/sign-in?return=…` before mounting the routed shell:
 
 ```tsx
-import { AppProviders, RequireSession } from "@agent-native/core/client";
+import { AppProviders } from "@agent-native/core/client/hooks";
 
 <AppProviders queryClient={queryClient}>
-  <RequireSession bypass={isMcpEmbedSurface()}>
-    <AppLayout>
-      <Outlet />
-    </AppLayout>
-  </RequireSession>
+  <AppLayout>
+    <Outlet />
+  </AppLayout>
 </AppProviders>;
 ```
 
-- Place it **inside** `AppProviders` (so the loading fallback is themed) and
-  **around** the layout/outlet — also around any always-mounted effects (poll,
-  automation trigger) so they don't fire 401s for logged-out visitors.
-- Pass `bypass` for surfaces that authenticate by another mechanism (embed /
-  popout iframes carrying their own token) so they are never bounced to sign-in.
-- Apps with public/anonymous routes (share pages) must **not** wrap the whole
-  app — gate only the private subtree, or use the `redirect={false}` +
-  `signedOut` props to render an inline call-to-action instead of redirecting.
+- Keep the layout/outlet and always-mounted effects (poll, automation trigger)
+  inside `AppProviders` so they do not fire 401s before the gate resolves.
+- Pass `sessionBypass` to `AppProviders` only for a private-looking surface that
+  authenticates by another mechanism (for example, an embed iframe carrying
+  its own scoped token).
+- Pass `isPublicPath` for public/anonymous and SEO routes. That branch does not
+  mount `RequireSession` and SSRs real content.
+- Use `RequireSession` directly only when a nested subtree needs custom
+  `redirect={false}` / `signedOut` behavior.
 
 ## Related Skills
 

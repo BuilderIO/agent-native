@@ -1,9 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { parseDocx } from "../server/handlers/import/docx-parser.js";
 import { convertSectionsToSlides } from "../server/handlers/import/html-converter.js";
-import fs from "fs";
-import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { readUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:
@@ -14,9 +14,7 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe(
-        "Server path to the uploaded DOCX file (e.g. data/uploads/document.docx)",
-      ),
+      .describe("Uploaded DOCX path or opaque hosted upload reference"),
     convertToSlides: z
       .boolean()
       .optional()
@@ -26,9 +24,7 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, convertToSlides }) => {
-    const absPath = resolveUserUploadedFile(filePath);
-
-    const fileBuffer = await fs.promises.readFile(absPath);
+    const { data: fileBuffer } = await readUserUploadedFile(filePath);
     const doc = await parseDocx(fileBuffer);
 
     const result: Record<string, unknown> = {

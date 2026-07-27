@@ -5,7 +5,7 @@
   "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
   "hosted": {
     "url": "https://design.agent-native.com",
-    "mcpUrl": "https://design.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://design.agent-native.com/mcp"
   },
   "mcp": {
     "serverName": "agent-native-design"
@@ -29,13 +29,37 @@
       "id": "design-exploration",
       "action": "present-design-variants",
       "path": "/design"
+    },
+    {
+      "id": "visual-edit",
+      "action": "add-localhost-screens",
+      "path": "/design"
     }
   ],
   "skills": [
     {
+      "path": ".agents/skills/design-templates",
+      "visibility": "both",
+      "exportAs": "design-templates"
+    },
+    {
       "path": ".agents/skills/design-generation",
       "visibility": "both",
       "exportAs": "design-exploration"
+    },
+    {
+      "path": ".agents/skills/visual-edit",
+      "visibility": "both",
+      "exportAs": "visual-edit"
+    },
+    {
+      "path": ".agents/skills/design-review-feedback",
+      "visibility": "both",
+      "exportAs": "design-review-feedback"
+    },
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
     }
   ],
   "hostAdapters": [

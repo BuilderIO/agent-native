@@ -1,17 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type FormEvent,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-} from "react";
-import { IconMinus, IconPlus } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   PlanAnnotation,
   PlanAnnotationPlacement,
@@ -23,7 +10,28 @@ import type {
   PlanContent,
   PlanWireframeSurface,
 } from "@shared/plan-content";
+import { IconMinus, IconPlus } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
+
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+
 import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /* -------------------------------------------------------------------------- */
 /* Pan / zoom feel — recovered from the on-main hardcoded renderer            */
@@ -33,14 +41,15 @@ import { Wireframe, type DesignElementSelection } from "./wireframe/Wireframe";
 const DEFAULT_VIEW = { zoom: 0.72, pan: { x: 96, y: 64 } };
 const MIN_ZOOM = 0.18;
 const MAX_ZOOM = 2.4;
-/** Notched mouse-wheel fixed-ratio step (design-canvas.jsx feel). */
-const WHEEL_ZOOM_STEP = 0.16;
 /** Trackpad pinch sensitivity. */
 const PINCH_ZOOM_SENSITIVITY = 0.01;
 /** Base CSS grid cell, scaled by zoom. */
 const GRID_CELL = 28;
+/** Extra world-space pan range on each side of the board. */
+const CANVAS_OVERSCROLL_PADDING = 5000;
 
 type CanvasView = typeof DEFAULT_VIEW;
+export type CanvasViewport = CanvasView;
 export type CanvasMarkupMode = "none" | "comment" | "text" | "callout";
 
 type CanvasMarkupAnnotationInput = Omit<PlanAnnotation, "id">;
@@ -97,6 +106,8 @@ export function CanvasArea({
   blockLookup,
   markupMode = "none",
   onCanvasMarkupCreate,
+  onViewportChange,
+  onCommentShortcut,
   selectedDesignElementKey,
   onDesignElementSelect,
 }: {
@@ -107,9 +118,12 @@ export function CanvasArea({
     annotation: CanvasMarkupAnnotationInput,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onViewportChange?: (view: CanvasViewport) => void;
+  onCommentShortcut?: () => void;
   selectedDesignElementKey?: string | null;
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
+  const t = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const initialView = useMemo<CanvasView>(
     () => ({
@@ -144,6 +158,47 @@ export function CanvasArea({
   const [frameHeights, setFrameHeights] = useState<Map<string, number>>(
     () => new Map(),
   );
+  const latestViewportChangeRef = useRef<CanvasViewport>(initialView);
+  const viewportChangeFrameRef = useRef<number | null>(null);
+  // Kept current each render so the central pan clamp (in updateView) can read
+  // the live board size without widening updateView's dependencies.
+  const boardRef = useRef({ width: 0, height: 0 });
+  const queueViewportChange = useCallback(
+    (nextView: CanvasViewport) => {
+      latestViewportChangeRef.current = nextView;
+      if (!onViewportChange || typeof window === "undefined") return;
+      if (viewportChangeFrameRef.current !== null) return;
+      viewportChangeFrameRef.current = window.requestAnimationFrame(() => {
+        viewportChangeFrameRef.current = null;
+        onViewportChange(latestViewportChangeRef.current);
+      });
+    },
+    [onViewportChange],
+  );
+  const updateView = useCallback(
+    (resolve: (current: CanvasView) => CanvasView) => {
+      setView((current) => {
+        const next = clampPanToGrid(
+          resolve(current),
+          boardRef.current,
+          viewportRef.current?.getBoundingClientRect() ?? null,
+        );
+        if (sameCanvasView(current, next)) return current;
+        queueViewportChange(next);
+        return next;
+      });
+    },
+    [queueViewportChange],
+  );
+  useEffect(
+    () => () => {
+      if (viewportChangeFrameRef.current !== null) {
+        window.cancelAnimationFrame(viewportChangeFrameRef.current);
+        viewportChangeFrameRef.current = null;
+      }
+    },
+    [],
+  );
   const reportFrameHeight = useCallback((id: string, height: number) => {
     setFrameHeights((prev) => {
       if (Math.abs((prev.get(id) ?? 0) - height) < 1) return prev;
@@ -177,6 +232,10 @@ export function CanvasArea({
     }
     return map;
   }, [frames, frameHeights]);
+  const frameLayoutKey = useMemo(
+    () => canvasFrameLayoutKey(canvas.mode, frames),
+    [canvas.mode, frames],
+  );
   const sections = canvas.sections ?? [];
   const annotations = canvas.annotations ?? [];
   const legacyNotes = canvas.notes ?? [];
@@ -247,9 +306,21 @@ export function CanvasArea({
     [measuredFrameById, sectionRects],
   );
 
-  useEffect(() => {
-    setView(initialView);
-  }, [initialView]);
+  const hasSavedViewport = Boolean(
+    canvas.viewport?.zoom !== undefined ||
+    canvas.viewport?.pan?.x !== undefined ||
+    canvas.viewport?.pan?.y !== undefined,
+  );
+  const savedViewportKey = `${canvas.viewport?.zoom ?? ""}:${
+    canvas.viewport?.pan?.x ?? ""
+  }:${canvas.viewport?.pan?.y ?? ""}`;
+  const lastAppliedSavedViewportKeyRef = useRef<string | null>(null);
+  useIsomorphicLayoutEffect(() => {
+    if (!hasSavedViewport) return;
+    if (lastAppliedSavedViewportKeyRef.current === savedViewportKey) return;
+    lastAppliedSavedViewportKeyRef.current = savedViewportKey;
+    updateView(() => initialView);
+  }, [hasSavedViewport, initialView, savedViewportKey, updateView]);
 
   const board = useMemo(() => {
     const maxX = Math.max(
@@ -272,15 +343,12 @@ export function CanvasArea({
     );
     return { width: maxX + 360, height: maxY + 280 };
   }, [frames, annotations, legacyNotes]);
+  boardRef.current = board;
 
-  const hasSavedViewport = Boolean(
-    canvas.viewport?.zoom !== undefined ||
-    canvas.viewport?.pan?.x !== undefined ||
-    canvas.viewport?.pan?.y !== undefined,
-  );
-
-  useEffect(() => {
+  const lastAutoFitKeyRef = useRef<string | null>(null);
+  useIsomorphicLayoutEffect(() => {
     if (hasSavedViewport) return;
+    if (lastAutoFitKeyRef.current === frameLayoutKey) return;
     const element = viewportRef.current;
     if (!element || frames.length === 0) return;
     // Center the whole content on first view, regardless of canvas mode. The
@@ -314,7 +382,7 @@ export function CanvasArea({
       MIN_ZOOM,
       MAX_ZOOM,
     );
-    setView({
+    const nextView = {
       zoom,
       pan: {
         x: (element.clientWidth - contentWidth * zoom) / 2 - minX * zoom,
@@ -323,10 +391,24 @@ export function CanvasArea({
           (element.clientHeight - contentHeight * zoom) / 2 - minY * zoom,
         ),
       },
-    });
-  }, [canvas.mode, frames, hasSavedViewport]);
+    };
+    updateView(() => nextView);
+    lastAutoFitKeyRef.current = frameLayoutKey;
+  }, [frameLayoutKey, frames, hasSavedViewport, updateView]);
 
   const { zoom, pan } = view;
+  const worldTransform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+  const scaledGridCell = GRID_CELL * zoom;
+  const gridStyle = useMemo<CSSProperties>(
+    () => ({
+      backgroundPosition: `${pan.x % scaledGridCell}px ${pan.y % scaledGridCell}px`,
+      backgroundSize: `${scaledGridCell}px ${scaledGridCell}px`,
+    }),
+    [pan.x, pan.y, scaledGridCell],
+  );
+  useEffect(() => {
+    queueViewportChange(view);
+  }, [queueViewportChange, view]);
   const isCanvasMarkupMode =
     (markupMode === "text" || markupMode === "callout") &&
     Boolean(onCanvasMarkupCreate);
@@ -337,7 +419,7 @@ export function CanvasArea({
       nextZoomFor: (currentZoom: number) => number,
       anchor?: { x: number; y: number },
     ) => {
-      setView((current) => {
+      updateView((current) => {
         const nextZoom = clamp(nextZoomFor(current.zoom), MIN_ZOOM, MAX_ZOOM);
         if (Math.abs(nextZoom - current.zoom) < 0.0001) return current;
         const rect = viewportRef.current?.getBoundingClientRect();
@@ -356,7 +438,7 @@ export function CanvasArea({
         };
       });
     },
-    [],
+    [updateView],
   );
   const zoomByFactor = useCallback(
     (factor: number, anchor?: { x: number; y: number }) => {
@@ -364,6 +446,9 @@ export function CanvasArea({
     },
     [zoomAtAnchor],
   );
+  const resetZoom = useCallback(() => {
+    zoomAtAnchor(() => 1);
+  }, [zoomAtAnchor]);
 
   useEffect(() => {
     if (isCanvasMarkupMode) return;
@@ -447,9 +532,11 @@ export function CanvasArea({
     [buildMarkupContext, onCanvasMarkupCreate, pendingMarkup],
   );
 
-  // Wheel: cursor-over-canvas never scrolls the page. Notched wheel zooms with
-  // a fixed ratio per click; ctrl/cmd/alt (or trackpad pinch) zoom at the
-  // cursor; everything else pans.
+  // Wheel: cursor-over-canvas never scrolls the page. Match Figma's input
+  // contract: unmodified wheel/trackpad gestures always pan, while an explicit
+  // ctrl/cmd modifier (including the ctrlKey emitted by trackpad pinch) zooms
+  // at the cursor. Never infer zoom intent from the delta shape — trackpad pan
+  // momentum can look exactly like a notched mouse wheel near a canvas edge.
   useEffect(() => {
     const element = viewportRef.current;
     if (!element) return;
@@ -472,25 +559,13 @@ export function CanvasArea({
       const deltaX = event.deltaX * lineScale;
       const deltaY = event.deltaY * lineScale;
 
-      // Notched mouse wheel: line-mode, or large integer pixel deltas with no
-      // horizontal component (Chrome/Safari). Fixed-ratio step per click.
-      const isNotchedWheel =
-        event.deltaMode !== 0 ||
-        (event.deltaX === 0 &&
-          Number.isInteger(event.deltaY) &&
-          Math.abs(event.deltaY) >= 40);
-
-      if (event.ctrlKey || event.metaKey || event.altKey) {
+      if (event.ctrlKey || event.metaKey) {
         // Trackpad pinch / explicit zoom modifier — smooth exponential.
         zoomByFactor(Math.exp(-deltaY * PINCH_ZOOM_SENSITIVITY), anchor);
         return;
       }
-      if (isNotchedWheel) {
-        zoomByFactor(Math.exp(-Math.sign(deltaY) * WHEEL_ZOOM_STEP), anchor);
-        return;
-      }
-      // Trackpad two-finger scroll → pan.
-      setView((current) => ({
+      // Mouse wheel / trackpad two-finger scroll -> pan.
+      updateView((current) => ({
         ...current,
         pan: {
           x: current.pan.x - (deltaX || (event.shiftKey ? deltaY : 0)),
@@ -501,13 +576,16 @@ export function CanvasArea({
 
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [zoomByFactor]);
+  }, [updateView, zoomByFactor]);
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
     // Don't start a pan when grabbing interactive chrome (zoom controls etc.).
     if (event.button === 0 && target.closest("[data-plan-interactive]")) return;
+    if (!isEditableShortcutTarget(target)) {
+      event.currentTarget.focus({ preventScroll: true });
+    }
     if (
       event.button === 0 &&
       onDesignElementSelect &&
@@ -543,11 +621,40 @@ export function CanvasArea({
       panY: pan.y,
     });
   };
+  const onViewportKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      event.target === event.currentTarget &&
+      event.key.toLowerCase() === "c" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !event.defaultPrevented &&
+      onCommentShortcut
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onCommentShortcut();
+      return;
+    }
+    if (
+      event.key !== "0" ||
+      !(event.metaKey || event.ctrlKey) ||
+      event.altKey ||
+      event.shiftKey ||
+      isEditableShortcutTarget(event.target)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    resetZoom();
+  };
 
   return (
     <section
       className="plan-canvas relative h-[65vh] overflow-hidden border-b border-plan-line"
-      aria-label="Plan artboard canvas"
+      aria-label={t("raw.canvas.artboardCanvas")}
     >
       <div
         ref={viewportRef}
@@ -556,16 +663,16 @@ export function CanvasArea({
           reviewCursor
             ? "cursor-crosshair active:cursor-crosshair"
             : "cursor-grab active:cursor-grabbing"
-        }`}
+        } focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[hsl(var(--ring)/0.45)]`}
+        tabIndex={0}
         style={
           {
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${GRID_CELL * zoom}px ${GRID_CELL * zoom}px`,
             overscrollBehavior: "contain",
             touchAction: "none",
           } as CSSProperties
         }
         onPointerDown={onPointerDown}
+        onKeyDown={onViewportKeyDown}
         onPointerMove={(event) => {
           if (draftCallout?.pointerId === event.pointerId) {
             const point = clientPointToWorld(event);
@@ -581,7 +688,7 @@ export function CanvasArea({
           }
           if (!drag || drag.pointerId !== event.pointerId) return;
           event.preventDefault();
-          setView((current) => ({
+          updateView((current) => ({
             ...current,
             pan: {
               x: drag.panX + event.clientX - drag.startX,
@@ -621,14 +728,19 @@ export function CanvasArea({
         }}
       >
         <div
+          aria-hidden="true"
+          className="plan-canvas-grid absolute inset-0"
+          data-plan-canvas-grid
+          style={gridStyle}
+        />
+        <div
           data-plan-canvas-world
           className="plan-canvas-world relative origin-top-left"
           style={{
             width: board.width,
             height: board.height,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: worldTransform,
             transformOrigin: "0 0",
-            willChange: "transform",
           }}
         >
           {/* Section containers sit BEHIND the frames (lowest layer) so each
@@ -733,7 +845,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1 / 1.2)}
-          aria-label="Zoom out"
+          aria-label={t("raw.canvas.zoomOut")}
         >
           <IconMinus className="size-3" />
         </Button>
@@ -746,7 +858,7 @@ export function CanvasArea({
           size="icon"
           className="size-6"
           onClick={() => zoomByFactor(1.2)}
-          aria-label="Zoom in"
+          aria-label={t("raw.canvas.zoomIn")}
         >
           <IconPlus className="size-3" />
         </Button>
@@ -800,6 +912,25 @@ function surfaceOf(frame: PlanArtboard): PlanWireframeSurface {
   return frame.surface ?? frame.wireframe?.surface ?? "desktop";
 }
 
+function sameCanvasView(a: CanvasView, b: CanvasView) {
+  return (
+    Math.abs(a.zoom - b.zoom) < 0.0001 &&
+    Math.abs(a.pan.x - b.pan.x) < 0.0001 &&
+    Math.abs(a.pan.y - b.pan.y) < 0.0001
+  );
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "input, textarea, select, [contenteditable='true'], [role='textbox']",
+      ),
+    )
+  );
+}
+
 /**
  * True when a frame actually has wireframe content to render: inline kit-tree
  * data, inline legacy region data, or a `blockId` that resolves to a wireframe /
@@ -814,6 +945,24 @@ function frameHasContent(
   if (!frame.blockId) return false;
   const block = blockLookup.get(frame.blockId);
   return block?.type === "wireframe" || block?.type === "legacy-wireframe";
+}
+
+function canvasFrameLayoutKey(
+  mode: NonNullable<PlanContent["canvas"]>["mode"],
+  frames: PlanArtboard[],
+) {
+  return `${mode ?? "canvas"}:${frames
+    .map((frame) =>
+      [
+        frame.id,
+        surfaceOf(frame),
+        frame.x ?? "",
+        frame.y ?? "",
+        frame.width ?? "",
+        frame.height ?? "",
+      ].join(":"),
+    )
+    .join("|")}`;
 }
 
 /**
@@ -1545,6 +1694,7 @@ function CanvasMarkupComposer({
   onCancel: () => void;
   onSubmit: (text: string) => Promise<void>;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState(false);
   const screenPoint = {
@@ -1605,7 +1755,7 @@ function CanvasMarkupComposer({
       </div>
       {error && (
         <p className="mt-2 px-1 text-xs text-destructive">
-          Couldn't save markup. Try again.
+          {t("raw.canvas.markupSaveFailed")}
         </p>
       )}
     </form>
@@ -2156,4 +2306,30 @@ function resolveMarkupComposerPosition(input: {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Keep the visible viewport close to the board while still allowing generous
+ * overscroll. The grid is viewport-painted, so this is about keeping artboards
+ * discoverable rather than avoiding a finite grid edge.
+ */
+function clampPanToGrid(
+  view: CanvasView,
+  board: { width: number; height: number },
+  rect: DOMRect | null,
+): CanvasView {
+  if (!rect) return view;
+  const { zoom } = view;
+  const minPanX = rect.width - (board.width + CANVAS_OVERSCROLL_PADDING) * zoom;
+  const maxPanX = CANVAS_OVERSCROLL_PADDING * zoom;
+  const minPanY =
+    rect.height - (board.height + CANVAS_OVERSCROLL_PADDING) * zoom;
+  const maxPanY = CANVAS_OVERSCROLL_PADDING * zoom;
+  return {
+    zoom,
+    pan: {
+      x: minPanX <= maxPanX ? clamp(view.pan.x, minPanX, maxPanX) : view.pan.x,
+      y: minPanY <= maxPanY ? clamp(view.pan.y, minPanY, maxPanY) : view.pan.y,
+    },
+  };
 }

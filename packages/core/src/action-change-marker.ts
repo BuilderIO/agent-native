@@ -5,6 +5,7 @@ export interface ActionChangeTarget {
   actionName?: string;
   owner?: string;
   orgId?: string;
+  requestSource?: string;
 }
 
 export function actionChangeMarkerSession(
@@ -23,6 +24,7 @@ export function actionChangeMarkerValue(
     ...(target.actionName ? { actionName: target.actionName } : {}),
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
+    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
   };
 }
 
@@ -42,6 +44,7 @@ export function parseActionChangeMarker(
   let actionName: string | undefined;
   let owner: string | undefined;
   let orgId: string | undefined;
+  let requestSource: string | undefined;
 
   if (parsed && typeof parsed === "object") {
     const record = parsed as Record<string, unknown>;
@@ -49,6 +52,10 @@ export function parseActionChangeMarker(
       typeof record.actionName === "string" ? record.actionName : undefined;
     owner = typeof record.owner === "string" ? record.owner : undefined;
     orgId = typeof record.orgId === "string" ? record.orgId : undefined;
+    requestSource =
+      typeof record.requestSource === "string"
+        ? record.requestSource
+        : undefined;
   }
 
   if (!owner && !orgId && typeof sessionId === "string" && sessionId) {
@@ -63,5 +70,5 @@ export function parseActionChangeMarker(
   }
 
   if (!actionName && !owner && !orgId) return null;
-  return { actionName, owner, orgId };
+  return { actionName, owner, orgId, requestSource };
 }

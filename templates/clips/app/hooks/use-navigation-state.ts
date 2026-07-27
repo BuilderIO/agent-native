@@ -1,12 +1,16 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 export type ClipsView =
   | "library"
+  | "shared"
   | "spaces"
   | "space"
   | "archive"
   | "trash"
   | "record"
+  | "bug-report"
+  | "bug-report-done"
   | "recording"
   | "share"
   | "embed"
@@ -42,11 +46,14 @@ interface NavigateCommand extends Partial<NavigationState> {
  *   /library                    -> library
  *   /library?q=...              -> library (with search)
  *   /library/folder/:folderId   -> library (with folderId)
+ *   /shared                     -> shared
  *   /spaces                     -> spaces
  *   /spaces/:spaceId            -> space
  *   /archive                    -> archive
  *   /trash                      -> trash
  *   /record                     -> record
+ *   /bug-report                 -> bug-report
+ *   /bug-report/done            -> bug-report-done
  *   /r/:recordingId             -> recording
  *   /r/:recordingId/insights    -> insights
  *   /share/:shareId             -> share
@@ -54,7 +61,10 @@ interface NavigateCommand extends Partial<NavigationState> {
  *   /notifications              -> notifications
  *   /settings[/*]               -> settings
  */
-function stateFromLocation(pathname: string, search: string): NavigationState {
+export function stateFromLocation(
+  pathname: string,
+  search: string,
+): NavigationState {
   const params = new URLSearchParams(search);
   const searchTerm = params.get("q") || undefined;
   const p = pathname.replace(/\/+$/, "") || "/";
@@ -113,9 +123,17 @@ function stateFromLocation(pathname: string, search: string): NavigationState {
   }
 
   if (p === "/spaces") return { view: "spaces" };
+  if (p === "/shared") return { view: "shared" };
   if (p === "/archive") return { view: "archive" };
   if (p === "/trash") return { view: "trash" };
   if (p === "/record") return { view: "record" };
+  if (p === "/bug-report") return { view: "bug-report" };
+  if (p === "/bug-report/done") {
+    return {
+      view: "bug-report-done",
+      recordingId: params.get("recordingId") || undefined,
+    };
+  }
   if (p === "/notifications") return { view: "notifications" };
   if (p.startsWith("/settings")) return { view: "settings" };
   if (p === "/library" || p === "/" || p === "") {
@@ -133,7 +151,7 @@ function stateFromLocation(pathname: string, search: string): NavigationState {
  * Turn a navigate-command payload (from the agent) into a URL path.
  * If the command includes `path`, prefer that — otherwise map view+ids.
  */
-function pathFromCommand(cmd: NavigateCommand): string {
+export function pathFromCommand(cmd: NavigateCommand): string {
   if (cmd.path) return cmd.path;
   switch (cmd.view) {
     case "recording":
@@ -148,12 +166,20 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return cmd.spaceId ? `/spaces/${cmd.spaceId}` : "/spaces";
     case "spaces":
       return "/spaces";
+    case "shared":
+      return "/shared";
     case "archive":
       return "/archive";
     case "trash":
       return "/trash";
     case "record":
       return "/record";
+    case "bug-report":
+      return "/bug-report";
+    case "bug-report-done":
+      return cmd.recordingId
+        ? `/bug-report/done?recordingId=${encodeURIComponent(cmd.recordingId)}`
+        : "/bug-report/done";
     case "notifications":
       return "/notifications";
     case "settings":
@@ -173,7 +199,14 @@ function pathFromCommand(cmd: NavigateCommand): string {
 
 export function useNavigationState() {
   useAgentRouteState<NavigationState, NavigateCommand>({
-    writeDebounceMs: 300,
+    // Scope navigation to this browser tab so the agent reads the clip THIS
+    // tab is showing, not whichever tab navigated last. Without this, the
+    // global `navigation` key is shared across tabs and a chat in tab B can
+    // summarize the clip open in tab A.
+    browserTabId: getBrowserTabId(),
+    // Commit navigation immediately so the agent never reads a stale
+    // recordingId after the user switches clips. The only high-frequency URL
+    // change (meetings ?q=) is already debounced where it is written.
     getNavigationState: ({ pathname, search }) =>
       stateFromLocation(pathname, search),
     getCommandPath: (cmd) => pathFromCommand(cmd),

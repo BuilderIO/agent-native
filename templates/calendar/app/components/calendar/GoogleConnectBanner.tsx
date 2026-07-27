@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  isInBuilderFrame,
+  oauthRedirectUri,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCalendarCheck,
   IconX,
@@ -10,19 +15,25 @@ import {
   IconUpload,
   IconAlertTriangle,
   IconLogout,
+  IconInfoCircle,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
-  agentNativePath,
-  isInBuilderFrame,
-  oauthRedirectUri,
-} from "@agent-native/core/client";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   useGoogleAuthStatus,
   useGoogleAuthUrl,
   useGoogleAddAccountUrl,
+  useGoogleDesktopAuth,
   useDisconnectGoogle,
+  type DesktopAuthIssue,
 } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 interface EnvKeyStatus {
   key: string;
@@ -31,53 +42,45 @@ interface EnvKeyStatus {
   configured: boolean;
 }
 
-const STEPS = [
-  {
-    title: "Enable the Google Calendar API",
-    description:
-      "Open Google Cloud Console and click 'Enable' on the Calendar API.",
-    url: "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com",
-    linkText: "Enable Calendar API",
-  },
-  {
-    title: "Configure OAuth consent screen",
-    description:
-      'Set the app name to anything (e.g. "My Calendar"), choose "External" user type, and add your email as a test user. If you see an overview page, consent is already configured — skip to the next step.',
-    url: "https://console.cloud.google.com/apis/credentials/consent",
-    linkText: "Configure consent screen",
-  },
-  {
-    title: "Create OAuth credentials",
-    description:
-      '1) Click "+ Create Credentials" → "OAuth client ID"\n2) Choose "Web application"\n3) Add this redirect URI:',
-    url: "https://console.cloud.google.com/apis/credentials",
-    linkText: "Create credentials",
-    showRedirectUri: true,
-  },
-  {
-    title: "Upload credentials JSON",
-    description:
-      'Click "Download JSON" on the credentials page, then upload it here.',
-    showUpload: true,
-  },
-];
+type CalendarT = ReturnType<typeof useT>;
+
+function getSetupSteps(t: CalendarT) {
+  return [
+    {
+      title: t("googleConnect.steps.enableApi.title"),
+      description: t("googleConnect.steps.enableApi.description"),
+      url: "https://console.cloud.google.com/flows/enableapi?apiid=calendar-json.googleapis.com",
+      linkText: t("googleConnect.steps.enableApi.linkText"),
+    },
+    {
+      title: t("googleConnect.steps.consent.title"),
+      description: t("googleConnect.steps.consent.description"),
+      url: "https://console.cloud.google.com/apis/credentials/consent",
+      linkText: t("googleConnect.steps.consent.linkText"),
+    },
+    {
+      title: t("googleConnect.steps.credentials.title"),
+      description: t("googleConnect.steps.credentials.description"),
+      url: "https://console.cloud.google.com/apis/credentials",
+      linkText: t("googleConnect.steps.credentials.linkText"),
+      showRedirectUri: true,
+    },
+    {
+      title: t("googleConnect.steps.upload.title"),
+      description: t("googleConnect.steps.upload.description"),
+      showUpload: true,
+    },
+  ];
+}
 
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
 
-interface DesktopAuthIssue {
-  error?: string;
-  message?: string;
-  code?: string;
-  accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
-}
-
 export function GoogleConnectBanner({
   variant = "banner",
 }: GoogleConnectBannerProps) {
+  const t = useT();
   const [wantAuthUrl, setWantAuthUrl] = useState(false);
   const [wantAddAccount, setWantAddAccount] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -91,77 +94,25 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
-  const useDesktopAuth = useMemo(
-    () => /AgentNativeDesktop/i.test(navigator.userAgent) && !isBuilderFrame,
-    [isBuilderFrame],
-  );
-  const desktopPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const authPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const addAccountPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const {
+    isDesktopGoogleAuth,
+    isGoogleDesktopAuthPending,
+    startDesktopGoogleAuth,
+  } = useGoogleDesktopAuth({
+    onError: setDesktopAuthIssue,
+    onSuccess: () => window.location.reload(),
+  });
   useEffect(() => {
     return () => {
-      if (desktopPollRef.current) clearInterval(desktopPollRef.current);
       if (authPollRef.current) clearInterval(authPollRef.current);
       if (addAccountPollRef.current) clearInterval(addAccountPollRef.current);
     };
   }, []);
-
-  function signInViaDesktopBrowser(addAccount = false) {
-    setDesktopAuthIssue(null);
-    const flowId =
-      crypto.randomUUID?.() ||
-      Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const origin = window.location.origin;
-    const endpoint = addAccount
-      ? "/_agent-native/google/add-account/auth-url"
-      : "/_agent-native/google/auth-url";
-    const redirectUri = encodeURIComponent(
-      oauthRedirectUri("/_agent-native/google/callback"),
-    );
-    window.open(
-      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-      "_blank",
-    );
-    const start = Date.now();
-    if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-    desktopPollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(
-          agentNativePath(
-            `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-          ),
-        );
-        const data = await res.json();
-        if (data?.error) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          setDesktopAuthIssue(data);
-        } else if (data?.token) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-          await fetch(
-            agentNativePath(
-              `/_agent-native/auth/session?_session=${data.token}`,
-            ),
-            {
-              credentials: "include",
-            },
-          );
-          window.location.reload();
-        } else if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      } catch {
-        if (Date.now() - start > 120_000) {
-          clearInterval(desktopPollRef.current!);
-          desktopPollRef.current = null;
-        }
-      }
-    }, 1500);
-  }
 
   // Wizard state
   const [currentStep, setCurrentStep] = useState(0);
@@ -172,6 +123,7 @@ export function GoogleConnectBanner({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
+  const setupSteps = useMemo(() => getSetupSteps(t), [t]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -182,13 +134,13 @@ export function GoogleConnectBanner({
         const allConfigured = data.every((k) => k.configured);
         if (allConfigured && data.length > 0) {
           setSaved(true);
-          setCurrentStep(STEPS.length - 1);
+          setCurrentStep(setupSteps.length - 1);
         }
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [setupSteps.length]);
 
   // Check if credentials are already configured on mount
   useEffect(() => {
@@ -234,10 +186,28 @@ export function GoogleConnectBanner({
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
-      setShowWizard(true);
-      fetchStatus();
+      if (canOfferOAuthSetup) {
+        setShowWizard(true);
+        fetchStatus();
+      } else {
+        setDesktopAuthIssue({
+          code: "managed_credentials_unavailable",
+          message: t("googleConnect.managedCredentialsUnavailableDescription"),
+        });
+      }
     }
-  }, [authUrl.error, fetchStatus]);
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus, t]);
+
+  useEffect(() => {
+    if (
+      desktopAuthIssue?.code !== "missing_credentials" &&
+      desktopAuthIssue?.error !== "missing_credentials"
+    ) {
+      return;
+    }
+    setShowWizard(true);
+    fetchStatus();
+  }, [desktopAuthIssue, fetchStatus]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
@@ -293,16 +263,19 @@ export function GoogleConnectBanner({
 
   function handleConnect() {
     setDesktopAuthIssue(null);
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser();
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({ previousAccountCount: accounts.length });
       return;
     }
     setWantAuthUrl(true);
   }
 
   function handleAddAccount() {
-    if (useDesktopAuth) {
-      signInViaDesktopBrowser(true);
+    if (isDesktopGoogleAuth) {
+      startDesktopGoogleAuth({
+        addAccount: true,
+        previousAccountCount: accounts.length,
+      });
       return;
     }
     setWantAddAccount(true);
@@ -321,13 +294,14 @@ export function GoogleConnectBanner({
       const clientSecret = creds.client_secret;
 
       if (!clientId || !clientSecret) {
-        throw new Error("Could not find client_id and client_secret in JSON");
+        throw new Error(t("googleConnect.missingClientCredentials"));
       }
 
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: clientId },
             { key: "GOOGLE_CLIENT_SECRET", value: clientSecret },
@@ -337,15 +311,17 @@ export function GoogleConnectBanner({
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
+        throw new Error(data.error || t("googleConnect.failedSaveCredentials"));
       }
 
       setSaved(true);
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to parse JSON");
+      setSaveError(
+        err instanceof Error ? err.message : t("googleConnect.failedParseJson"),
+      );
     } finally {
       setSaving(false);
     }
@@ -368,26 +344,32 @@ export function GoogleConnectBanner({
           <IconCalendarCheck className="h-6 w-6 text-muted-foreground" />
         </div>
         <h2 className="text-[15px] font-medium text-foreground">
-          Connect Google Calendar
+          {t("googleConnect.connectGoogleCalendar")}
         </h2>
         <p className="mt-2 max-w-xs text-[13px] text-muted-foreground leading-relaxed">
-          Sync your events and manage your schedule.
+          {t("googleConnect.syncEventsDescription")}
         </p>
         <Button
           size="sm"
           className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
           onClick={handleConnect}
-          disabled={authUrl.isLoading || authUrl.isFetching}
+          disabled={
+            authUrl.isLoading ||
+            authUrl.isFetching ||
+            isGoogleDesktopAuthPending
+          }
         >
           <GoogleIcon className="h-3.5 w-3.5" />
           {authUrl.isLoading
-            ? "Connecting..."
+            ? t("common.connecting")
             : hasAccounts
-              ? "Add account"
+              ? t("googleConnect.addAccount")
               : allConfigured
-                ? "Connect Google"
-                : "Connect Google"}
+                ? t("googleConnect.connectGoogle")
+                : t("googleConnect.connectGoogle")}
         </Button>
+
+        <GoogleVerificationNotice className="mt-3" />
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -415,8 +397,8 @@ export function GoogleConnectBanner({
           </div>
         )}
 
-        {showWizard && !allConfigured && (
-          <div className="mt-8 w-full max-w-lg text-left">
+        {showWizard && !allConfigured && canOfferOAuthSetup && (
+          <div className="mt-8 w-full max-w-lg text-start">
             <SetupWizard
               currentStep={currentStep}
               setCurrentStep={setCurrentStep}
@@ -429,6 +411,7 @@ export function GoogleConnectBanner({
               handleJsonUpload={handleJsonUpload}
               copiedKey={copiedKey}
               copyToClipboard={copyToClipboard}
+              steps={setupSteps}
             />
           </div>
         )}
@@ -458,10 +441,14 @@ export function GoogleConnectBanner({
             ))}
             <button
               onClick={handleAddAccount}
-              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+              disabled={
+                addAccountUrl.isLoading ||
+                addAccountUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
               className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
             >
-              + Add account
+              {t("googleConnect.addAccountWithPlus")}
             </button>
           </div>
           <Button
@@ -488,19 +475,22 @@ export function GoogleConnectBanner({
     <div className="border-b border-border/30 bg-card">
       {/* Compact banner row */}
       <div className="flex items-center justify-between gap-3 px-4 py-2">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-white/[0.06]">
             <IconCalendarCheck className="h-3 w-3 text-white/40" />
           </div>
-          <p className="text-[13px] font-medium leading-tight text-foreground/80">
-            {allConfigured
-              ? "Ready to connect — sign in with your Google account"
-              : "Connect Google to sync your calendar"}
-          </p>
+          <div className="flex min-w-0 flex-col">
+            <p className="text-[13px] font-medium leading-tight text-foreground/80">
+              {allConfigured
+                ? t("googleConnect.readyToConnect")
+                : t("googleConnect.connectToSync")}
+            </p>
+            <GoogleVerificationNotice className="mt-0.5" />
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured ? (
+          {showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
@@ -508,17 +498,23 @@ export function GoogleConnectBanner({
               onClick={() => setShowWizard(false)}
             >
               <IconChevronUp className="h-3 w-3" />
-              Hide setup
+              {t("googleConnect.hideSetup")}
             </Button>
           ) : allConfigured ? (
             <Button
               size="sm"
               className="gap-1.5 text-xs h-7 font-medium bg-white text-black hover:bg-white/90"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
               <GoogleIcon className="h-3 w-3" />
-              {authUrl.isLoading ? "Connecting..." : "Sign in with Google"}
+              {authUrl.isLoading
+                ? t("common.connecting")
+                : t("googleConnect.signInWithGoogle")}
             </Button>
           ) : (
             <Button
@@ -526,9 +522,13 @@ export function GoogleConnectBanner({
               variant="outline"
               className="gap-1.5 text-xs h-7 font-medium"
               onClick={handleConnect}
-              disabled={authUrl.isLoading || authUrl.isFetching}
+              disabled={
+                authUrl.isLoading ||
+                authUrl.isFetching ||
+                isGoogleDesktopAuthPending
+              }
             >
-              {authUrl.isLoading ? "..." : "Connect Google"}
+              {authUrl.isLoading ? "..." : t("googleConnect.connectGoogle")}
             </Button>
           )}
           <Button
@@ -550,11 +550,10 @@ export function GoogleConnectBanner({
       />
 
       {/* Inline setup wizard */}
-      {showWizard && !allConfigured && (
+      {showWizard && !allConfigured && canOfferOAuthSetup && (
         <div className="px-5 pb-4 pt-1 max-w-2xl">
           <p className="text-xs text-muted-foreground mb-3">
-            Follow these steps to connect your Google account. Takes about 3
-            minutes.
+            {t("googleConnect.followSteps")}
           </p>
           <SetupWizard
             currentStep={currentStep}
@@ -568,10 +567,55 @@ export function GoogleConnectBanner({
             handleJsonUpload={handleJsonUpload}
             copiedKey={copiedKey}
             copyToClipboard={copyToClipboard}
+            steps={setupSteps}
           />
         </div>
       )}
     </div>
+  );
+}
+
+// Heads-up popover: Google shows a "hasn't verified this app" warning during
+// the OAuth consent flow because the connection runs through the user's own
+// Google Cloud project (External + Testing), not a Google-reviewed public app.
+// This explains that the warning is expected and how to safely continue.
+function GoogleVerificationNotice({ className = "" }: { className?: string }) {
+  const t = useT();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={`inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground ${className}`}
+        >
+          <IconInfoCircle className="h-3 w-3" />
+          {t("googleConnect.googleMayShowWarning")}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-72 text-start">
+        <div className="flex items-start gap-2.5">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
+            <IconAlertTriangle className="h-3.5 w-3.5" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-foreground">
+              {t("googleConnect.googleNotVerifiedTitle")}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t("googleConnect.googleWarningBeforeAdvanced")}{" "}
+              <span className="font-medium text-foreground">
+                {t("googleConnect.googleWarningAdvanced")}
+              </span>
+              {t("googleConnect.googleWarningBetweenActions")}{" "}
+              <span className="font-medium text-foreground">
+                {t("googleConnect.googleWarningUnsafe")}
+              </span>{" "}
+              {t("googleConnect.googleWarningAfterUnsafe")}
+            </p>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -586,19 +630,22 @@ function GoogleAuthIssuePanel({
   onDismiss: () => void;
   className?: string;
 }) {
+  const t = useT();
   if (!issue) return null;
-  const account = issue.accountId || "that Google account";
+  const account = issue.accountId || t("googleConnect.thatGoogleAccount");
   const isOwnerMismatch = issue.code === "account_owner_mismatch";
   const detail = isOwnerMismatch
-    ? `Sign out, then sign in with ${account}.`
-    : issue.message || issue.error || `Sign out, then sign in with ${account}.`;
+    ? t("googleConnect.signOutThenSignIn", { account })
+    : issue.message ||
+      issue.error ||
+      t("googleConnect.signOutThenSignIn", { account });
   const shouldOfferSignOut =
     isOwnerMismatch ||
     Boolean(issue.existingOwner || issue.attemptedOwner || issue.accountId);
 
   return (
     <div
-      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-left ${className}`}
+      className={`rounded-lg border border-amber-500/25 bg-amber-500/[0.07] p-3 text-start ${className}`}
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-500/15 text-amber-300">
@@ -607,8 +654,8 @@ function GoogleAuthIssuePanel({
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
             {isOwnerMismatch
-              ? "This account is connected to another login"
-              : "Google connection failed"}
+              ? t("googleConnect.accountConnectedElsewhere")
+              : t("googleConnect.googleConnectionFailed")}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
             {detail}
@@ -620,8 +667,8 @@ function GoogleAuthIssuePanel({
                 className="h-8 gap-1.5 px-3 text-xs font-medium"
                 onClick={onSignOut}
               >
-                <IconLogout className="h-3.5 w-3.5" />
-                Sign out
+                <IconLogout className="h-3.5 w-3.5 rtl:-scale-x-100" />
+                {t("googleConnect.signOut")}
               </Button>
               <Button
                 size="sm"
@@ -629,7 +676,7 @@ function GoogleAuthIssuePanel({
                 className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={onDismiss}
               >
-                Dismiss
+                {t("googleConnect.dismiss")}
               </Button>
             </div>
           )}
@@ -637,7 +684,7 @@ function GoogleAuthIssuePanel({
         <button
           className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/5 hover:text-foreground"
           onClick={onDismiss}
-          aria-label="Dismiss Google sign-in notice"
+          aria-label={t("googleConnect.dismissNotice")}
         >
           <IconX className="h-3.5 w-3.5" />
         </button>
@@ -658,6 +705,7 @@ function SetupWizard({
   handleJsonUpload,
   copiedKey,
   copyToClipboard,
+  steps,
 }: {
   currentStep: number;
   setCurrentStep: (i: number) => void;
@@ -670,20 +718,22 @@ function SetupWizard({
   handleJsonUpload: (file: File) => void;
   copiedKey: string | null;
   copyToClipboard: (text: string, key: string) => void;
+  steps: ReturnType<typeof getSetupSteps>;
 }) {
+  const t = useT();
   return (
     <div className="space-y-3">
-      {STEPS.map((step, i) => {
+      {steps.map((step, i) => {
         const isActive = i === currentStep;
         const isCompleted =
-          i < currentStep || (i === STEPS.length - 1 && saved);
+          i < currentStep || (i === steps.length - 1 && saved);
 
         return (
           <div
             key={i}
             role="button"
             tabIndex={0}
-            className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer ${
+            className={`w-full text-start rounded-lg border p-3 transition-colors cursor-pointer ${
               isActive
                 ? "border-primary/40 bg-primary/5"
                 : isCompleted
@@ -710,7 +760,7 @@ function SetupWizard({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">
-                  <span className="text-muted-foreground mr-1.5">{i + 1}.</span>
+                  <span className="text-muted-foreground me-1.5">{i + 1}.</span>
                   {step.title}
                 </p>
 
@@ -737,10 +787,10 @@ function SetupWizard({
                           {copiedKey === "redirect" ? (
                             <>
                               <IconCheck className="h-3 w-3" />
-                              Copied
+                              {t("googleConnect.copied")}
                             </>
                           ) : (
-                            "Copy"
+                            t("googleConnect.copy")
                           )}
                         </Button>
                       </div>
@@ -759,7 +809,7 @@ function SetupWizard({
                           rel="noopener noreferrer"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (i < STEPS.length - 1) {
+                            if (i < steps.length - 1) {
                               setCurrentStep(i + 1);
                             }
                           }}
@@ -804,7 +854,9 @@ function SetupWizard({
                           ) : (
                             <IconUpload className="h-3 w-3" />
                           )}
-                          {saving ? "Saving..." : "Upload JSON"}
+                          {saving
+                            ? t("common.saving")
+                            : t("googleConnect.uploadJson")}
                         </Button>
                       </div>
                     )}
@@ -812,8 +864,7 @@ function SetupWizard({
                     {step.showUpload && allConfigured && (
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
                         <IconCheck className="h-3.5 w-3.5" />
-                        Credentials configured. Click "Connect Google Calendar"
-                        above to sign in.
+                        {t("googleConnect.credentialsConfiguredSignIn")}
                       </div>
                     )}
                   </div>

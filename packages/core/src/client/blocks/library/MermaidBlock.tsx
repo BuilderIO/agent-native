@@ -1,9 +1,12 @@
-import { useEffect, useId, useMemo, useState } from "react";
 import { IconArrowsMaximize } from "@tabler/icons-react";
+import { useEffect, useId, useMemo, useState } from "react";
+
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
-import type { MermaidData } from "./mermaid.config.js";
+import { useBlockCopy } from "./block-copy.js";
 import { DevInput, DevLabel } from "./dev-doc-ui.js";
 import { DiagramLightbox } from "./diagram.js";
+import type { MermaidData } from "./mermaid.config.js";
 
 /**
  * Read + Edit renderers for a `mermaid` block — a Mermaid diagram definition
@@ -162,6 +165,7 @@ function MermaidDiagram({
   idSeed: string;
 }) {
   const isDark = useIsDark();
+  const copy = useBlockCopy();
   // Only render the diagram after mount: `mermaid` is client-only and SSR has no
   // DOM for it to measure against.
   const [mounted, setMounted] = useState(false);
@@ -224,7 +228,7 @@ function MermaidDiagram({
   if (!mounted) {
     return (
       <div className="mt-2 flex min-h-24 items-center justify-center rounded-lg border border-plan-line bg-plan-code text-sm text-plan-muted">
-        Loading diagram…
+        {copy.loadingDiagram}
       </div>
     );
   }
@@ -236,7 +240,7 @@ function MermaidDiagram({
           {source}
         </pre>
         <p className="text-sm text-plan-muted">
-          Could not render diagram: {state.error}
+          {copy.couldNotRenderDiagram}: {state.error}
         </p>
       </div>
     );
@@ -245,7 +249,7 @@ function MermaidDiagram({
   if (!state.svg) {
     return (
       <div className="mt-2 flex min-h-24 items-center justify-center rounded-lg border border-plan-line bg-plan-code text-sm text-plan-muted">
-        Add a diagram definition to render it.
+        {copy.addDiagramDefinition}
       </div>
     );
   }
@@ -262,9 +266,9 @@ function MermaidDiagram({
         type="button"
         data-plan-interactive
         onClick={() => setExpanded(true)}
-        aria-label="Expand diagram"
-        title="Expand diagram"
-        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/mermaid:opacity-100"
+        aria-label={copy.expandDiagram}
+        title={copy.expandDiagram}
+        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/mermaid:opacity-100"
       >
         <IconArrowsMaximize className="size-4" />
       </button>
@@ -289,7 +293,11 @@ export function MermaidRead({
   summary,
 }: BlockReadProps<MermaidData>) {
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       <MermaidDiagram source={data.source} idSeed={blockId} />
       {data.caption && (

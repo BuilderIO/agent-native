@@ -1,22 +1,15 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconTrash,
+  IconLayoutGrid,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { toast } from "sonner";
+
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,22 +20,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconTrash,
-  IconLayoutGrid,
-} from "@tabler/icons-react";
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
-  useDashboardViews,
-  type DashboardView,
-} from "@/hooks/use-dashboard-views";
-import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useDashboardViews,
+  type DashboardView,
+} from "@/hooks/use-dashboard-views";
+
+import { FILTER_PARAM_PREFIX } from "./DashboardFilterBar";
 
 interface ViewsMenuProps {
   dashboardId: string;
@@ -87,8 +92,10 @@ function filtersMatch(
 }
 
 export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { views, saveView, deleteView } = useDashboardViews(dashboardId);
+  const { views, error, refetch, saveView, deleteView } =
+    useDashboardViews(dashboardId);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -141,6 +148,15 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       });
       setViewName("");
       setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveFailed"),
+        }),
+      );
     } finally {
       setSavingView(false);
     }
@@ -152,7 +168,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
     setDeleteTarget(null);
   };
 
-  const triggerLabel = activeView ? activeView.name : "Views";
+  const triggerLabel = activeView ? activeView.name : t("sqlDashboard.views");
 
   return (
     <>
@@ -167,15 +183,22 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent>Saved views</TooltipContent>
+          <TooltipContent>{t("sqlDashboard.savedViews")}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-60">
           <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Saved views
+            {t("sqlDashboard.savedViews")}
           </DropdownMenuLabel>
-          {views.length === 0 ? (
+          {error ? (
+            <ResourceLoadError
+              inline
+              message={t("commandPalette.loadFailed")}
+              retryLabel={t("sidebar.retry")}
+              onRetry={() => void refetch()}
+            />
+          ) : views.length === 0 ? (
             <div className="px-2 py-2 text-xs text-muted-foreground">
-              No saved views yet.
+              {t("sqlDashboard.noSavedViews")}
             </div>
           ) : (
             views.map((v) => (
@@ -205,7 +228,9 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                         <IconTrash className="h-3 w-3" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{`Delete ${v.name}`}</TooltipContent>
+                    <TooltipContent>
+                      {t("sqlDashboard.deleteView", { name: v.name })}
+                    </TooltipContent>
                   </Tooltip>
                 ) : null}
               </DropdownMenuItem>
@@ -222,7 +247,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
                 }}
               >
                 <IconDeviceFloppy className="h-4 w-4 mr-2" />
-                Save current view
+                {t("sqlDashboard.saveCurrentView")}
               </DropdownMenuItem>
             </>
           ) : null}
@@ -232,11 +257,11 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       <Dialog open={canEdit && saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Save view</DialogTitle>
+            <DialogTitle>{t("sqlDashboard.saveView")}</DialogTitle>
           </DialogHeader>
           <div className="py-2">
             <Input
-              placeholder="View name (e.g. 'Enterprise only')"
+              placeholder={t("sqlDashboard.viewNameEnterprisePlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => {
@@ -246,8 +271,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             />
             {Object.keys(currentFilters).length === 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                No filters are currently active — this view will apply the
-                default filter state.
+                {t("sqlDashboard.noActiveFilters")}
               </p>
             )}
           </div>
@@ -258,14 +282,14 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
               onClick={() => setSaveDialogOpen(false)}
               disabled={savingView}
             >
-              Cancel
+              {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={handleSaveView}
               disabled={!viewName.trim() || savingView}
             >
-              {savingView ? "Saving..." : "Save"}
+              {savingView ? t("sqlDashboard.saving") : t("sqlDashboard.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -277,15 +301,19 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete view?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("sqlDashboard.deleteViewTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Delete view "{deleteTarget?.name}"? This cannot be undone.
+              {t("sqlDashboard.deleteViewDescription", {
+                name: deleteTarget?.name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteView}>
-              Delete
+              {t("sidebar.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

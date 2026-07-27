@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -264,5 +265,22 @@ describe("@agent-native/skills", () => {
     expect(content.match(new RegExp(MANAGED_BLOCK_START, "g"))).toHaveLength(1);
     expect(content).toContain("second");
     expect(content).not.toContain("first");
+  });
+
+  it("collapses pre-existing duplicate managed blocks into a single one", () => {
+    const root = tmpDir();
+    const file = path.join(root, "AGENTS.md");
+    const dup = `${MANAGED_BLOCK_START}\nfirst\n<!-- END @agent-native/skills managed block -->\n`;
+    // Simulate a file that already accumulated two blocks (older buggy runs).
+    fs.writeFileSync(file, `# Project\n\n${dup}\n${dup}`, "utf-8");
+
+    const next = `${MANAGED_BLOCK_START}\nthird\n<!-- END @agent-native/skills managed block -->\n`;
+    expect(upsertManagedBlock(file, next)).toBe(true);
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content.match(new RegExp(MANAGED_BLOCK_START, "g"))).toHaveLength(1);
+    expect(content).toContain("third");
+    expect(content).not.toContain("first");
+    expect(content).toContain("# Project");
   });
 });

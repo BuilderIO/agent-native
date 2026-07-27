@@ -5,11 +5,12 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
@@ -19,7 +20,15 @@ export default defineAction({
     fullText: z.string().optional(),
     cleanedText: z.string().nullable().optional(),
     source: z
-      .enum(["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"])
+      .enum([
+        "fn-hold",
+        "cmd-shift-space",
+        "manual",
+        "mobile",
+        "other",
+        "fn",
+        "custom",
+      ])
       .optional(),
     targetApp: z.string().nullable().optional(),
   }),

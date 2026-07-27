@@ -1,7 +1,9 @@
-import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getCallbackOrigin } from "../frame.js";
+
+import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
+import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
 
 export interface BuilderStatus {
@@ -24,6 +26,13 @@ export interface BuilderStatus {
   privateKeyConfigured: boolean;
   userId?: string;
   orgName?: string;
+  /**
+   * Builder space(s) the effective credential can reach, with real display
+   * names derived from the Admin API. One entry today (a `bpk-` key is
+   * space-scoped); the list shape lets the Sources drill-down show multiple
+   * spaces later. Absent/empty when undeducible — fall back to `orgName`.
+   */
+  spaces?: Array<{ id: string; name: string }>;
   orgKind?: string;
   subscription?: string;
   subscriptionLevel?: string;
@@ -45,10 +54,14 @@ export interface BuilderStatus {
 }
 
 /**
- * Fetches Builder connection status from /_agent-native/builder/status.
+ * Fetches Builder connection status from the neutral connection-status route.
+ * The legacy /_agent-native/builder/status route remains available for older
+ * clients.
  * Re-fetches on window focus to detect post-redirect state changes.
  */
-export function useBuilderStatus() {
+export function useBuilderStatus({
+  enabled = true,
+}: { enabled?: boolean } = {}) {
   const [status, setStatus] = useState<BuilderStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +69,7 @@ export function useBuilderStatus() {
   const lastGoodStatusRef = useRef<BuilderStatus | null>(null);
 
   const fetchStatus = useCallback(async () => {
+    if (!enabled) return;
     const keepLastGoodStatus = (message: string) => {
       const lastGoodStatus = lastGoodStatusRef.current;
       setStatus(lastGoodStatus);
@@ -64,7 +78,9 @@ export function useBuilderStatus() {
     };
 
     try {
-      const res = await fetch(agentNativePath("/_agent-native/builder/status"));
+      const res = await fetch(
+        agentNativePath("/_agent-native/connection-status/builder"),
+      );
       if (!res.ok) {
         keepLastGoodStatus(`Builder status unavailable (${res.status})`);
         return;
@@ -83,9 +99,18 @@ export function useBuilderStatus() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus(null);
+      setLoading(false);
+      setError(null);
+      setStale(false);
+      lastGoodStatusRef.current = null;
+      return;
+    }
+    setLoading(true);
     fetchStatus();
 
     function onFocus() {
@@ -107,7 +132,7 @@ export function useBuilderStatus() {
         fetchStatus,
       );
     };
-  }, [fetchStatus]);
+  }, [enabled, fetchStatus]);
 
   return { status, loading, error, stale, refetch: fetchStatus };
 }
@@ -115,7 +140,7 @@ export function useBuilderStatus() {
 // ─── useBuilderConnectFlow ──────────────────────────────────────────────────
 //
 // Shared state machine for the "open Builder CLI-auth popup + poll
-// /builder/status until credentials land" interaction. Replaces three
+// /connection-status/builder until credentials land" interaction. Replaces three
 // near-duplicate inline implementations: `BuilderCliAuthMethod` in
 // OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
 // AssistantChat. Each consumer supplies its own popup URL / completion
@@ -150,6 +175,8 @@ export interface BuilderConnectStartOptions {
 
 export interface BuilderConnectFlow {
   configured: boolean;
+  /** True after at least one successful Builder connection-status response. */
+  statusResolved: boolean;
   /**
    * True when the deploy has BUILDER_PRIVATE_KEY set as a fallback. Connect
    * is still available so users can override the fallback with their own
@@ -166,7 +193,7 @@ export interface BuilderConnectFlow {
   connecting: boolean;
   error: string | null;
   /**
-   * True once the first `/builder/status` fetch has completed (successfully
+   * True once the first Builder connection-status fetch has completed (successfully
    * or not). Consumers that accept an `initialConfigured` prop (e.g. agent
    * tool-call results rendered with server-side state) should treat
    * `configured`/`orgName` as authoritative only once this flips true —
@@ -180,7 +207,6 @@ export interface BuilderConnectFlow {
 
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-const POPUP_CLOSED_CONFIRMATION_GRACE_MS = 5000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -188,6 +214,8 @@ const BUILDER_STATE_PARAM = "_an_state";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
+const BUILDER_AGENT_NATIVE_APP_PARAM = "agentNativeApp";
+const BUILDER_AGENT_NATIVE_TEMPLATE_PARAM = "agentNativeTemplate";
 const BUILDER_SIGNUP_SOURCE = "agent-native";
 const STATUS_CONNECT_URL_TTL_MS = 9 * 60 * 1000;
 
@@ -217,44 +245,106 @@ function inferBuilderConnectTrackingFlow(source: string | undefined): string {
   return "connect_llm";
 }
 
+function normalizeTrackingSlug(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const unscoped = trimmed.startsWith("@")
+    ? (trimmed.split("/").pop() ?? trimmed)
+    : trimmed;
+  const slug = unscoped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || null;
+}
+
+function inferBuilderConnectTrackingIdentity(options: {
+  app?: string;
+  template?: string;
+}): { app: string | null; template: string | null } {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const app =
+    normalizeTrackingSlug(options.app) ??
+    normalizeTrackingSlug(env.VITE_AGENT_NATIVE_APP) ??
+    (typeof window !== "undefined"
+      ? normalizeTrackingSlug(window.location.hostname.split(".")[0])
+      : null);
+  const template =
+    normalizeTrackingSlug(options.template) ??
+    normalizeTrackingSlug(env.VITE_AGENT_NATIVE_TEMPLATE) ??
+    normalizeTrackingSlug(env.VITE_APP_TEMPLATE) ??
+    (app?.startsWith("agent-native-")
+      ? normalizeTrackingSlug(app.slice("agent-native-".length))
+      : app && app !== "localhost"
+        ? app
+        : null);
+
+  return { app, template };
+}
+
+function applyBuilderConnectTrackingParams(
+  params: URLSearchParams,
+  tracking: {
+    source?: string | null;
+    flow: string;
+    app?: string | null;
+    template?: string | null;
+  },
+) {
+  params.set(BUILDER_SIGNUP_SOURCE_PARAM, BUILDER_SIGNUP_SOURCE);
+  params.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, tracking.flow);
+  if (tracking.source) {
+    params.set(BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM, tracking.source);
+  }
+  if (tracking.app) {
+    params.set(BUILDER_AGENT_NATIVE_APP_PARAM, tracking.app);
+  }
+  if (tracking.template) {
+    params.set(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM, tracking.template);
+  }
+}
+
 export function withBuilderConnectTrackingParams(
   url: string,
-  options: { source?: string; flow?: string } = {},
+  options: {
+    source?: string;
+    flow?: string;
+    app?: string;
+    template?: string;
+  } = {},
 ): string {
   const source = cleanTrackingParam(options.source);
   const flow =
     cleanTrackingParam(options.flow) ??
     inferBuilderConnectTrackingFlow(source ?? undefined);
+  const { app, template } = inferBuilderConnectTrackingIdentity(options);
   const origin =
     typeof window !== "undefined" ? window.location.origin : "http://localhost";
 
   try {
     const parsed = new URL(url, origin);
-    parsed.searchParams.set(BUILDER_SIGNUP_SOURCE_PARAM, BUILDER_SIGNUP_SOURCE);
-    parsed.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
-    if (source) {
-      parsed.searchParams.set(
-        BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
-        source,
-      );
-    }
+    applyBuilderConnectTrackingParams(parsed.searchParams, {
+      source,
+      flow,
+      app,
+      template,
+    });
 
     const redirectUrl = parsed.searchParams.get("redirect_url");
     if (redirectUrl) {
       const parsedRedirect = new URL(redirectUrl);
-      parsedRedirect.searchParams.set(
-        BUILDER_SIGNUP_SOURCE_PARAM,
-        BUILDER_SIGNUP_SOURCE,
-      );
-      parsedRedirect.searchParams.set(BUILDER_AGENT_NATIVE_FLOW_PARAM, flow);
-      if (source) {
-        parsedRedirect.searchParams.set(
-          BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM,
-          source,
-        );
-      }
+      applyBuilderConnectTrackingParams(parsedRedirect.searchParams, {
+        source,
+        flow,
+        app,
+        template,
+      });
       parsed.searchParams.set("redirect_url", parsedRedirect.toString());
     }
+
+    applyBuilderUtmTrackingParams(parsed.searchParams, { content: source });
 
     return parsed.toString();
   } catch {
@@ -377,15 +467,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isPopupClosed(opened: Window | null): boolean {
-  if (!opened) return false;
-  try {
-    return opened.closed === true;
-  } catch {
-    return false;
-  }
-}
-
 function isTrustedBuilderConnectMessageOrigin(origin: string): boolean {
   if (typeof window !== "undefined" && origin === window.location.origin) {
     return true;
@@ -488,6 +569,7 @@ export function useBuilderConnectFlow(
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasFetchedStatus, setHasFetchedStatus] = useState(false);
+  const [statusResolved, setStatusResolved] = useState(false);
   const [statusConnectUrl, setStatusConnectUrl] = useState<string | null>(null);
   // When statusConnectUrl was last fetched. The server signs the embedded
   // _an_connect token with a 10-minute TTL; using an older URL fails the
@@ -516,7 +598,10 @@ export function useBuilderConnectFlow(
     const origin = getCallbackOrigin() || window.location.origin;
     try {
       const r = await fetch(
-        new URL(agentNativePath("/_agent-native/builder/status"), origin).href,
+        new URL(
+          agentNativePath("/_agent-native/connection-status/builder"),
+          origin,
+        ).href,
       );
       if (!r.ok) return null;
       return (await r.json()) as {
@@ -549,6 +634,7 @@ export function useBuilderConnectFlow(
       setConnecting(false);
       setError(null);
       setHasFetchedStatus(false);
+      setStatusResolved(false);
       setStatusConnectUrl(null);
       statusConnectUrlAtRef.current = null;
       stopPoll();
@@ -564,6 +650,7 @@ export function useBuilderConnectFlow(
       // stop waiting after we've tried, regardless of network outcome.
       setHasFetchedStatus(true);
       if (!s) return;
+      setStatusResolved(true);
       setConfigured(!!s.configured);
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
@@ -623,8 +710,6 @@ export function useBuilderConnectFlow(
       const clickTrackingSource =
         startOptions?.trackingSource ?? trackingSource;
       const clickTrackingFlow = startOptions?.trackingFlow ?? trackingFlow;
-      let openedPopup: Window | null = null;
-      let popupClosedAt: number | null = null;
       connectStartedAtRef.current = started;
       setConnecting(true);
       setError(null);
@@ -660,7 +745,6 @@ export function useBuilderConnectFlow(
           source: clickTrackingSource,
           flow: clickTrackingFlow,
         });
-        openedPopup = opened;
         if (!opened) {
           // Agent Native Desktop handles the popup in Electron and reports
           // null to the embedded webview, so null is not a blocker here.
@@ -713,7 +797,6 @@ export function useBuilderConnectFlow(
             );
           })();
         } else {
-          openedPopup = opened;
           showBuilderConnectPopupPlaceholder(opened);
           void (async () => {
             const s = await fetchStatus();
@@ -814,25 +897,6 @@ export function useBuilderConnectFlow(
           setError(
             `Couldn't save Builder credentials: ${s.connectError.message}. Try again or contact support.`,
           );
-        } else if (isPopupClosed(openedPopup)) {
-          popupClosedAt ??= Date.now();
-          if (Date.now() - popupClosedAt > POPUP_CLOSED_CONFIRMATION_GRACE_MS) {
-            stopPoll();
-            connectStartedAtRef.current = null;
-            setConnecting(false);
-            trackEvent("builder connect failed", {
-              feature: "builder",
-              stage: "client",
-              reason: "popup_closed_without_status",
-              source: clickTrackingSource,
-              flow:
-                cleanTrackingParam(clickTrackingFlow) ??
-                inferBuilderConnectTrackingFlow(clickTrackingSource),
-            });
-            setError(
-              "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
-            );
-          }
         } else if (Date.now() - started > POLL_TIMEOUT_MS) {
           stopPoll();
           connectStartedAtRef.current = null;
@@ -902,7 +966,6 @@ export function useBuilderConnectFlow(
         )
           ? s?.connectError
           : null;
-        stopPoll();
         setHasFetchedStatus(true);
         if (s) {
           setConfigured(false);
@@ -913,13 +976,14 @@ export function useBuilderConnectFlow(
           statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           setOrgName(s.orgName ?? null);
         }
-        connectStartedAtRef.current = null;
-        setConnecting(false);
-        setError(
-          connectError
-            ? `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`
-            : "Builder finished, but this workspace couldn't confirm the saved credentials. Refresh this page or try Connect Builder.io again.",
-        );
+        if (connectError) {
+          stopPoll();
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          setError(
+            `Couldn't save Builder credentials: ${connectError.message}. Try again or contact support.`,
+          );
+        }
         return;
       }
       stopPoll();
@@ -982,6 +1046,7 @@ export function useBuilderConnectFlow(
 
   return {
     configured,
+    statusResolved,
     envManaged,
     builderEnabled,
     orgName,

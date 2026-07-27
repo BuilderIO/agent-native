@@ -1,10 +1,11 @@
+import { getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "@agent-native/core/server";
+
 import {
   searchPeopleForUser,
   type PeopleSearchScope,

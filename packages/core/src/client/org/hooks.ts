@@ -1,8 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+import {
+  canInviteOrgMembers,
+  canManageOrg,
+  canManageOrgDomain,
+} from "../../org/permissions.js";
 import type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
+  OrgRole,
 } from "../../org/types.js";
 import { agentNativePath } from "../api-path.js";
 
@@ -45,6 +52,32 @@ export function useOrg() {
     queryFn: () => apiFetch(`${ORG_BASE}/me`),
     staleTime: 30_000,
   });
+}
+
+export interface UseOrgRoleResult {
+  org: OrgInfo | undefined;
+  role: OrgRole | null;
+  isOwner: boolean;
+  canManageOrg: boolean;
+  canInviteMembers: boolean;
+  canManageDomain: boolean;
+  isLoading: boolean;
+  error: Error | null;
+}
+
+export function useOrgRole(): UseOrgRoleResult {
+  const query = useOrg();
+  const role = query.data?.role ?? null;
+  return {
+    org: query.data,
+    role,
+    isOwner: role === "owner",
+    canManageOrg: canManageOrg(role),
+    canInviteMembers: canInviteOrgMembers(role),
+    canManageDomain: canManageOrgDomain(role),
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }
 
 export function useOrgMembers() {
@@ -241,6 +274,22 @@ export function useSwitchOrg() {
   });
 }
 
+export function useDeleteOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "DELETE",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      // Deleting an org drops the user into a different active org (or none),
+      // so every org-scoped query is stale — same reasoning as create/switch.
+      await qc.invalidateQueries();
+    },
+  });
+}
+
 export function useJoinByDomain() {
   const qc = useQueryClient();
   return useMutation({
@@ -266,6 +315,17 @@ export function useSetOrgDomain() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
     },
+  });
+}
+
+/**
+ * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
+ * request from `useOrg()` so the secret only reaches the browser when the
+ * operator asks to reveal or copy it.
+ */
+export function useRevealA2ASecret() {
+  return useMutation<{ a2aSecret: string | null }, Error, void>({
+    mutationFn: () => apiFetch(`${ORG_BASE}/a2a-secret`),
   });
 }
 

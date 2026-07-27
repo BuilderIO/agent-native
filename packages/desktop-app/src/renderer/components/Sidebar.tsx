@@ -1,3 +1,4 @@
+import type { AppDefinition } from "@shared/app-registry";
 import {
   IconMail,
   IconCalendar,
@@ -5,12 +6,10 @@ import {
   IconChartBar,
   IconPresentation,
   IconStack2,
-  IconVideo,
   IconBrandJira,
   IconClipboardList,
   IconUsers,
   IconCode,
-  IconContract,
   IconMessageCircle,
   IconSettings,
   IconScreenShare,
@@ -20,11 +19,14 @@ import {
   IconNote,
   IconMicrophone,
   IconCalendarTime,
+  IconLayoutBoard,
   IconPlus,
+  IconRoute,
   IconWorld,
   IconPhoto,
+  IconListCheck,
 } from "@tabler/icons-react";
-import type { AppDefinition } from "@shared/app-registry";
+
 import { UpdateIndicator } from "./UpdateIndicator.js";
 
 const agentNativeIconUrl = new URL(
@@ -37,15 +39,15 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Mail: IconMail,
   CalendarDays: IconCalendar,
   FileText: IconFileText,
+  LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
-  Video: IconVideo,
   BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  Contract: IconContract,
   MessageCircle: IconMessageCircle,
+  Route: IconRoute,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
   Brain: IconBrain,
@@ -55,12 +57,14 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   CalendarTime: IconCalendarTime,
   Globe: IconWorld,
   Photo: IconPhoto,
+  ListCheck: IconListCheck,
 };
 
 interface SidebarProps {
   apps: AppDefinition[];
   activeAppId: string;
   onTabChange: (appId: string) => void;
+  onAppContextMenu?: (appId: string) => void;
   onAddAppClick?: () => void;
   isCodeAgentsActive?: boolean;
   onCodeAgentsClick?: () => void;
@@ -71,18 +75,12 @@ export default function Sidebar({
   apps,
   activeAppId,
   onTabChange,
+  onAppContextMenu,
   onAddAppClick,
   isCodeAgentsActive = false,
   onCodeAgentsClick,
   onSettingsClick,
 }: SidebarProps) {
-  const pinnedBottomOrder = ["dispatch"];
-  const pinnedBottom = pinnedBottomOrder
-    .map((id) => apps.find((app) => app.id === id))
-    .filter((app): app is AppDefinition => !!app);
-  const mainApps = apps.filter((app) => !pinnedBottomOrder.includes(app.id));
-  const orderedApps = [...mainApps, ...pinnedBottom];
-
   return (
     <aside className="sidebar">
       {/* Windows/Linux custom traffic lights */}
@@ -109,12 +107,13 @@ export default function Sidebar({
 
       {/* App tabs */}
       <nav className="sidebar-nav">
-        {orderedApps.map((app) => (
+        {apps.map((app) => (
           <SidebarItem
             key={app.id}
             app={app}
             isActive={app.id === activeAppId}
             onClick={() => onTabChange(app.id)}
+            onContextMenu={() => onAppContextMenu?.(app.id)}
           />
         ))}
         {onAddAppClick && <SidebarAddButton onClick={onAddAppClick} />}
@@ -128,8 +127,8 @@ export default function Sidebar({
             className={`sidebar-item${isCodeAgentsActive ? " sidebar-item--active" : ""}`}
             tabIndex={-1}
             onClick={onCodeAgentsClick}
-            title="Agent-Native Code"
-            aria-label="Agent-Native Code"
+            title="Agent"
+            aria-label="Agent"
             aria-current={isCodeAgentsActive ? "page" : undefined}
           >
             <span className="icon-wrapper">
@@ -140,7 +139,7 @@ export default function Sidebar({
                 className="sidebar-agent-native-icon"
               />
             </span>
-            <span className="item-label">Code</span>
+            <span className="item-label">Agent</span>
           </button>
         )}
         {onSettingsClick && (
@@ -168,13 +167,13 @@ function SidebarAddButton({ onClick }: { onClick: () => void }) {
       className="sidebar-item sidebar-item--add"
       tabIndex={-1}
       onClick={onClick}
-      title="Add an app"
-      aria-label="Add an app"
+      title="Create a new app"
+      aria-label="Create a new app"
     >
       <span className="icon-wrapper">
         <IconPlus size={18} strokeWidth={1.75} />
       </span>
-      <span className="item-label">Add</span>
+      <span className="item-label">New</span>
     </button>
   );
 }
@@ -185,9 +184,15 @@ interface SidebarItemProps {
   app: AppDefinition;
   isActive: boolean;
   onClick: () => void;
+  onContextMenu?: () => void;
 }
 
-function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
+function SidebarItem({
+  app,
+  isActive,
+  onClick,
+  onContextMenu,
+}: SidebarItemProps) {
   const Icon = ICON_MAP[app.icon] ?? IconStack2;
 
   return (
@@ -195,6 +200,10 @@ function SidebarItem({ app, isActive, onClick }: SidebarItemProps) {
       className={`sidebar-item${isActive ? " sidebar-item--active" : ""}`}
       tabIndex={-1}
       onClick={onClick}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContextMenu?.();
+      }}
       title={app.description}
       aria-label={app.name}
       aria-current={isActive ? "page" : undefined}

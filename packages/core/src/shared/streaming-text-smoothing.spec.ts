@@ -41,7 +41,10 @@ describe("streaming text smoothing helpers", () => {
   });
 
   it("reveals at least one grapheme while respecting backlog and burst limits", () => {
-    expect(smoothStreamingRevealCount({ backlog: 12, elapsedMs: 16 })).toBe(1);
+    expect(smoothStreamingRevealCount({ backlog: 12, elapsedMs: 16 })).toBe(3);
+    expect(smoothStreamingRevealCount({ backlog: 200, elapsedMs: 100 })).toBe(
+      38,
+    );
     expect(
       smoothStreamingRevealCount({
         backlog: 3,
@@ -51,12 +54,12 @@ describe("streaming text smoothing helpers", () => {
     ).toBe(3);
     expect(
       smoothStreamingRevealCount({ backlog: 2000, elapsedMs: 1000 }),
-    ).toBeLessThanOrEqual(120);
+    ).toBeLessThanOrEqual(240);
   });
 
   it("pauses slightly on punctuation only when backlog is small", () => {
-    expect(smoothStreamingPunctuationDelayMs(".", 8)).toBeGreaterThan(0);
-    expect(smoothStreamingPunctuationDelayMs(",", 8)).toBeGreaterThan(0);
+    expect(smoothStreamingPunctuationDelayMs(".", 8)).toBe(35);
+    expect(smoothStreamingPunctuationDelayMs(",", 8)).toBe(17.5);
     expect(smoothStreamingPunctuationDelayMs(".", 500)).toBe(0);
   });
 

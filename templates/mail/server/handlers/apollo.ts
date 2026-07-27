@@ -1,15 +1,15 @@
 import {
-  defineEventHandler,
-  getQuery,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-import {
   appStateGet,
   appStatePut,
   appStateDelete,
 } from "@agent-native/core/application-state";
 import { readBody, getSession } from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
 
 async function getSessionId(event: H3Event): Promise<string> {
   const session = await getSession(event);

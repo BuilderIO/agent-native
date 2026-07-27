@@ -1,3 +1,8 @@
+import { getDbExec } from "../db/client.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   deleteOrgSetting,
   deleteUserSetting,
@@ -6,11 +11,6 @@ import {
   putOrgSetting,
   putUserSetting,
 } from "../settings/index.js";
-import { getDbExec } from "../db/client.js";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../server/request-context.js";
 
 export const AGENT_APP_MODEL_DEFAULT_KEY_PREFIX = "agent-app-model-default";
 

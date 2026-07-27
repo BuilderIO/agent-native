@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
 import { agentNativePath } from "../api-path.js";
 import type { McpServerScope } from "./use-mcp-servers.js";
 
 export type BuiltinCapabilityId =
   | "browser-chrome-devtools"
   | "browser-playwright"
-  | "computer-use";
+  | "computer-use"
+  | "screen-memory";
 
 export interface BuiltinCapability {
   id: BuiltinCapabilityId;
@@ -102,7 +104,8 @@ export function parseMcpBuiltinVirtualId(
   if (
     capabilityId !== "browser-chrome-devtools" &&
     capabilityId !== "browser-playwright" &&
-    capabilityId !== "computer-use"
+    capabilityId !== "computer-use" &&
+    capabilityId !== "screen-memory"
   ) {
     return null;
   }

@@ -5,6 +5,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 
 export default defineAction({
@@ -16,7 +17,7 @@ export default defineAction({
       .optional()
       .describe("Optional template category filter"),
     dataSource: z
-      .enum(["first-party", "ga4", "prometheus"])
+      .enum(["demo", "first-party", "ga4", "prometheus"])
       .optional()
       .describe("Optional data source filter"),
   }),

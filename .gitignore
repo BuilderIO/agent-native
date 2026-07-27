@@ -5,18 +5,23 @@ dist
 docs/superpowers
 .DS_Store
 
+.idea/
+
 /*.png
 tmp/
 
 # Playwright MCP logs
 .playwright-mcp/
+.playwright-cli/
 
 # Screenshot artifacts from design iterations
 packages/docs/*.png
 
 # Copied at publish time via prepack
 packages/core/README.md
-packages/dispatch/README.md
+
+# Generated at core build/prepack time for npm package agent lookup
+packages/core/corpus/
 
 # Internal notes
 RAMBLINGS.md
@@ -65,6 +70,9 @@ templates/slides/data/exports/
 # Playwright/vitest test run state
 test-results/
 e2e/.auth/
+**/.auth/
+**/.auth-debug/
+**/.auth-*/
 
 # Wrangler local state
 .wrangler
@@ -77,13 +85,18 @@ wrangler.toml
 
 # Agent session scratch / plan draft notes
 .claude/plan-drafts/
+advisor-plans/
 
 # Builder writing agent scratch (edit-plan.md, edit-state.json)
 **/.builder-writing/
 
-# Regenerable plan artifacts (plan.mdx/canvas.mdx are kept; these are not)
+# Local scratch files from ad hoc repo/video tooling
+**/scratch/
+.video-bakeoff/
+
+# Regenerable plan artifacts. Keep plans/*/.plan-state.json tracked: it carries
+# stable IDs for bare Markdown runs in repo-backed visual plan folders.
 plans/*/preview.html
-plans/*/.plan-state.json
 
 # Shell `script` command log artifacts
 db-exec
@@ -97,3 +110,10 @@ templates/*/.env.local
 templates/*/.env.*.local
 test-reports/
 *.tsbuildinfo
+
+# tsup transient bundled config artifacts
+tsup.config.bundled_*.mjs
+packages/core/corpus.tmp-*/
+
+# Temporary trusted document exports can contain internal workspace content.
+/.tmp-docs-trusted-*/

@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 @source "../../../code-agents-ui/src/**/*.{ts,tsx}";
@@ -8,24 +9,25 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --sidebar-bg: #0a0a0a;
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --item-hover-bg: rgba(255, 255, 255, 0.05);
-  --icon-inactive: #555;
-  --icon-hover: rgba(255, 255, 255, 0.55);
+  --macos-traffic-light-safe-area: 100px;
+  --sidebar-bg: #121212;
+  --app-surface-radius: 12px;
+  --item-hover-bg: rgba(255, 255, 255, 0.1);
+  --icon-inactive: rgba(255, 255, 255, 0.52);
+  --icon-hover: rgba(255, 255, 255, 0.8);
   --icon-active: #ffffff;
-  --label-inactive: #444;
-  --label-hover: rgba(255, 255, 255, 0.4);
-  --label-active: rgba(255, 255, 255, 0.7);
-  --shell-bg: #0a0a0a;
-  --separator: rgba(255, 255, 255, 0.06);
-  --tabbar-bg: #0e0e0e;
+  --label-inactive: rgba(255, 255, 255, 0.48);
+  --label-hover: rgba(255, 255, 255, 0.72);
+  --label-active: rgba(255, 255, 255, 0.88);
+  --shell-bg: #121212;
+  --separator: rgba(255, 255, 255, 0.1);
+  --tabbar-bg: #121212;
   --tab-bg: transparent;
   --tab-active-bg: #1a1a1a;
-  --tab-hover-bg: rgba(255, 255, 255, 0.04);
+  --tab-hover-bg: rgba(255, 255, 255, 0.06);
   --tab-text: #666;
   --tab-active-text: #ccc;
-  --tab-close-hover: rgba(255, 255, 255, 0.1);
+  --tab-close-hover: rgba(255, 255, 255, 0.12);
 
   /* Transition */
   --ease: 0.15s ease;
@@ -127,22 +129,34 @@ body {
   height: var(--tabbar-height);
   min-height: var(--tabbar-height);
   background: var(--tabbar-bg);
-  border-bottom: 1px solid var(--separator);
   display: flex;
   align-items: stretch;
+  overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+.tabbar-window-spacer {
+  flex: 0 0 var(--macos-traffic-light-safe-area);
+  align-self: stretch;
+  background: var(--tabbar-bg);
+  -webkit-app-region: drag;
+}
+
+.tabbar-strip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -webkit-app-region: drag;
 }
 
-.tabbar::-webkit-scrollbar {
+.tabbar-strip::-webkit-scrollbar {
   display: none;
-}
-
-/* macOS: pad for traffic lights in the far top-left */
-.platform-darwin .tabbar {
-  padding-left: 78px;
 }
 
 .tab {
@@ -150,10 +164,10 @@ body {
   align-items: center;
   gap: 6px;
   padding: 0 14px;
-  height: 100%;
+  height: 28px;
   background: var(--tab-bg);
   border: none;
-  border-right: 1px solid var(--separator);
+  border-radius: 7px;
   color: var(--tab-text);
   font-size: 12px;
   font-weight: 450;
@@ -182,7 +196,8 @@ body {
   text-overflow: ellipsis;
 }
 
-.tab-close {
+.tab-close,
+.tab-refresh {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
@@ -209,14 +224,36 @@ body {
   background: var(--tab-close-hover);
 }
 
+/* Refresh reveals — and is clickable — only on the active tab, so it isn't an
+   accidental click target when you're reaching for another tab to switch to.
+   pointer-events:none lets clicks on the (invisible) slot fall through to the
+   tab button on non-active tabs. */
+.tab-refresh {
+  pointer-events: none;
+}
+
+.tab--active .tab-refresh {
+  pointer-events: auto;
+}
+
+.tab--active:hover .tab-refresh {
+  opacity: 0.5;
+}
+
+.tab--active .tab-refresh:hover {
+  opacity: 1 !important;
+  background: var(--tab-close-hover);
+}
+
 .tab-new {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   min-width: 32px;
-  height: 100%;
+  height: 28px;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: var(--tab-text);
   cursor: pointer;
@@ -245,7 +282,6 @@ body {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -289,7 +325,6 @@ body {
   align-items: center;
   gap: 2px;
   padding: 8px 0 12px;
-  border-top: 1px solid var(--separator);
 }
 
 /* ─── Sidebar item ───────────────────────────────────────────── */
@@ -307,24 +342,6 @@ body {
   background: none;
   color: inherit;
   -webkit-app-region: no-drag;
-}
-
-/* Active indicator — colored pill on the left edge */
-.sidebar-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 0;
-  border-radius: 0 3px 3px 0;
-  background: #888;
-  transition: height var(--ease);
-}
-
-.sidebar-item.sidebar-item--active::before {
-  height: 28px;
 }
 
 /* ─── Icon wrapper ───────────────────────────────────────────── */
@@ -455,6 +472,8 @@ body {
   background: var(--shell-bg);
   height: 100%;
   min-width: 0;
+  border-radius: var(--app-surface-radius) 0 0 var(--app-surface-radius);
+  isolation: isolate;
 }
 
 .code-agents-shell-surface {
@@ -466,6 +485,12 @@ body {
   background: var(--shell-bg);
   isolation: isolate;
   transform: translate3d(0, 0, 0);
+}
+
+.code-agents-shell-surface--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
 }
 
 .code-agents-embedded-app-surface {
@@ -817,10 +842,11 @@ body {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
+  animation: settings-overlay-in 180ms ease-out both;
 }
 
 .settings-panel {
-  width: 480px;
+  width: min(560px, calc(100vw - 32px));
   max-height: 80vh;
   background: #141414;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -829,6 +855,51 @@ body {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  animation: settings-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.settings-overlay--closing {
+  pointer-events: none;
+  animation: settings-overlay-out 160ms ease-out both;
+}
+
+.settings-overlay--closing .settings-panel {
+  animation: settings-panel-out 160ms ease-out both;
+}
+
+@keyframes settings-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes settings-panel-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-panel,
+  .settings-overlay--closing,
+  .settings-overlay--closing .settings-panel {
+    animation: none;
+  }
 }
 
 .settings-header {
@@ -1099,7 +1170,7 @@ body {
   gap: 6px;
   border: 0;
   border-radius: 7px;
-  background: #f4f4f5;
+  background: #f5f5f5;
   color: #09090b;
   cursor: pointer;
   font-size: 11px;
@@ -1126,6 +1197,36 @@ body {
 
 .settings-builder-connect-spinner {
   animation: spin 0.8s linear infinite;
+}
+
+.settings-codex-status-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-codex-status {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.settings-codex-status--ok {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.1);
+  color: #bbf7d0;
+}
+
+.settings-codex-status svg {
+  flex: 0 0 auto;
 }
 
 .settings-provider-text-button,
@@ -1547,16 +1648,40 @@ body {
 
 .settings-shortcut-form {
   display: grid;
-  grid-template-columns:
-    minmax(128px, 1.15fr) minmax(96px, 0.9fr) minmax(82px, 0.7fr)
-    auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(132px, 0.6fr);
+  grid-template-areas:
+    "recorder app"
+    "view behavior"
+    "actions actions";
   gap: 8px;
   align-items: start;
 }
 
 .settings-shortcut-recorder-wrap {
+  grid-area: recorder;
   display: grid;
   gap: 5px;
+  min-width: 0;
+}
+
+.settings-shortcut-form select {
+  grid-area: app;
+}
+
+.settings-shortcut-view-input {
+  grid-area: view;
+}
+
+.settings-shortcut-behavior {
+  grid-area: behavior;
+  justify-self: start;
+}
+
+.settings-shortcut-form-actions {
+  grid-area: actions;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -1637,6 +1762,28 @@ body {
   margin-bottom: 0;
   padding: 0 11px;
   white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .settings-shortcut-form {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "recorder"
+      "app"
+      "view"
+      "behavior"
+      "actions";
+  }
+
+  .settings-shortcut-behavior,
+  .settings-shortcut-form-actions {
+    justify-self: stretch;
+  }
+
+  .settings-shortcut-form-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 .settings-shortcut-list {
@@ -1884,6 +2031,104 @@ body {
 
 .settings-add-form {
   width: 440px;
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+}
+
+.settings-create-prompt {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  outline: none;
+  background: #111;
+  padding: 11px 12px;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color var(--ease);
+}
+
+.settings-create-prompt::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.settings-create-prompt:focus {
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.settings-create-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
+}
+
+.settings-create-location > span {
+  flex: 0 0 auto;
+}
+
+.settings-create-location input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.52);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.settings-create-location input:focus {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-create-location-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 3px;
+  color: rgba(255, 255, 255, 0.42);
+  cursor: pointer;
+}
+
+.settings-create-location-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.settings-create-actions {
+  margin-top: 12px;
+}
+
+.settings-advanced-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 18px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-advanced-trigger:hover {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.settings-advanced-trigger + .settings-choice-grid {
+  margin-top: 12px;
 }
 
 .settings-choice-grid {
@@ -2092,18 +2337,18 @@ body {
 }
 
 .update-indicator--ready .icon-wrapper {
-  background: rgba(34, 197, 94, 0.18);
-  color: #4ade80;
-  box-shadow: 0 0 0 1px rgba(74, 222, 128, 0.35);
+  background: transparent;
+  color: #60a5fa;
+  box-shadow: none;
 }
 
 .update-indicator--ready .item-label {
-  color: #4ade80;
+  color: #60a5fa;
   font-weight: 600;
 }
 
 .update-indicator--ready:hover .icon-wrapper {
-  background: rgba(34, 197, 94, 0.28);
+  background: transparent;
 }
 
 @keyframes update-spin {

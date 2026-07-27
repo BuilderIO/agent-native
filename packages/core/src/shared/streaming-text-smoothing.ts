@@ -1,6 +1,7 @@
 export const SMOOTH_STREAMING_COMMIT_INTERVAL_MS = 16;
 export const SMOOTH_STREAMING_LONG_TEXT_THRESHOLD_GRAPHEMES = 640;
 export const SMOOTH_STREAMING_LONG_TEXT_TAIL_GRAPHEMES = 180;
+const SMOOTH_STREAMING_SPEED_MULTIPLIER = 2;
 
 type SegmenterInstance = {
   segment(input: string): Iterable<{ segment: string }>;
@@ -137,7 +138,7 @@ export function smoothStreamingRevealCount({
     return 0;
   }
 
-  const charactersPerSecond = inputDone
+  const baseCharactersPerSecond = inputDone
     ? backlog > 800
       ? 900
       : 420
@@ -148,8 +149,12 @@ export function smoothStreamingRevealCount({
         : backlog > 180
           ? 190
           : 95;
+  const charactersPerSecond =
+    baseCharactersPerSecond * SMOOTH_STREAMING_SPEED_MULTIPLIER;
 
-  const maxBurst = inputDone ? 160 : backlog > 1400 ? 120 : 72;
+  const maxBurst =
+    (inputDone ? 160 : backlog > 1400 ? 120 : 72) *
+    SMOOTH_STREAMING_SPEED_MULTIPLIER;
   const count = Math.floor((elapsedMs / 1000) * charactersPerSecond);
 
   return Math.min(backlog, Math.max(1, count), maxBurst);
@@ -164,15 +169,15 @@ export function smoothStreamingPunctuationDelayMs(
   }
 
   if (grapheme === "\n") {
-    return 80;
+    return 80 / SMOOTH_STREAMING_SPEED_MULTIPLIER;
   }
 
   if (/[.!?)]/.test(grapheme)) {
-    return 70;
+    return 70 / SMOOTH_STREAMING_SPEED_MULTIPLIER;
   }
 
   if (/[,;:]/.test(grapheme)) {
-    return 35;
+    return 35 / SMOOTH_STREAMING_SPEED_MULTIPLIER;
   }
 
   return 0;

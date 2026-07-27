@@ -31,7 +31,7 @@
 
 .agent-conversation__scroll-bottom {
   position: absolute;
-  right: 18px;
+  inset-inline-end: 18px;
   bottom: 92px;
   z-index: 2;
   display: flex;
@@ -115,12 +115,12 @@
 
 .agent-conversation-markdown ul,
 .agent-conversation-markdown ol {
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 
 .agent-conversation-markdown li {
   margin: 3px 0;
-  padding-left: 2px;
+  padding-inline-start: 2px;
 }
 
 .agent-conversation-markdown li > p {
@@ -248,7 +248,7 @@
 }
 
 .agent-conversation-tool__summary {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 11px;
 }
 
@@ -325,6 +325,27 @@
   font-size: 12px;
 }
 
+.agent-mcp-app__error {
+  flex-direction: column;
+  text-align: center;
+}
+
+.agent-mcp-app__open {
+  min-height: 28px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+.agent-mcp-app__open:hover {
+  background: hsl(var(--muted));
+}
+
 .agent-mcp-app__error,
 .agent-mcp-app--error {
   color: hsl(var(--destructive));
@@ -389,7 +410,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
+  margin-inline-start: auto;
   color: hsl(var(--muted-foreground));
   text-decoration: none;
 }
@@ -455,6 +476,56 @@
   }
 }
 
+/* ─── ReasoningCell streaming tail clamp ────────────────────────────────────── */
+/* While a reasoning cell is actively streaming and open, clamp the body to
+   roughly the last ~6 lines instead of letting it grow and push the rest of
+   the transcript around (the Claude Code "tail view" behavior). The reversed
+   column anchors the box to its bottom edge, so overflow is clipped off the
+   top while the newest lines stay pinned in view — pure CSS, no scroll/rAF
+   tracking needed. A soft fade masks the clipped edge in both themes since
+   it only touches alpha, not color. */
+.reasoning-cell-tail {
+  display: flex;
+  flex-direction: column-reverse;
+  overflow: hidden;
+  max-height: 8rem;
+  mask-image: linear-gradient(to bottom, transparent, black 1.5rem);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 1.5rem);
+}
+
+.agent-chat-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 200ms var(--ease-collapse),
+    opacity 150ms ease-out;
+}
+
+@starting-style {
+  .agent-chat-collapse[data-state="open"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+.agent-chat-collapse[data-state="closed"] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.agent-chat-collapse__content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-collapse {
+    transition-duration: 0.01ms;
+  }
+}
+
 /* ─── Agent-Markdown (AssistantChat react-markdown render surface) ─────────── */
 /* These classes are applied by the SmoothMarkdownText/MarkdownText components  */
 /* in the AssistantChat/AssistantChatInner tree. The shiki dual-theme rules      */
@@ -475,7 +546,7 @@
 .agent-markdown ul,
 .agent-markdown ol {
   margin: 0.5em 0;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 
 .agent-markdown li {
@@ -555,8 +626,8 @@
 }
 
 .agent-markdown blockquote {
-  border-left: 2px solid hsl(var(--border, 0 0% 20%));
-  padding-left: 0.75em;
+  border-inline-start: 2px solid hsl(var(--border, 0 0% 20%));
+  padding-inline-start: 0.75em;
   margin: 0.5em 0;
   opacity: 0.8;
 }
@@ -571,7 +642,7 @@
 .agent-markdown td {
   border: 1px solid hsl(var(--border, 0 0% 20%));
   padding: 0.35em 0.65em;
-  text-align: left;
+  text-align: start;
 }
 
 .agent-markdown th {
@@ -587,7 +658,7 @@
   display: inline-block;
   width: 0.42em;
   height: 1em;
-  margin-left: 0.12em;
+  margin-inline-start: 0.12em;
   border-radius: 999px;
   background: currentColor;
   opacity: 0.35;
@@ -663,7 +734,7 @@
   }
 }
 
-/* Tool-code viewer that uses shiki inside the ToolDetailViewer. */
+/* Tool-code viewer that uses shiki inside the Codex-style gray box. */
 .agent-tool-code .agent-markdown-shiki {
   margin: 0;
   border-radius: 0;

@@ -1,11 +1,15 @@
+import { CodeSurface } from "@agent-native/core/blocks";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconLink } from "@tabler/icons-react";
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
 import { isValidElement, useCallback, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { IconLink } from "@tabler/icons-react";
-import { CodeSurface } from "@agent-native/core/blocks";
+
 import { cn } from "@/lib/utils";
+
 import { PlanImageViewer } from "./PlanImageViewer";
+import { detectPlanTextDirection } from "./planTextDirection";
 
 type PlanMarkdownReaderProps = {
   markdown: string;
@@ -30,6 +34,21 @@ function extractText(node: ReactNode): string {
     );
   }
   return "";
+}
+
+export function buildPlanMarkdownSectionCopyUrl(
+  href: string,
+  sectionId: string,
+): string {
+  try {
+    const url = new URL(href);
+    url.searchParams.delete("bridge");
+    url.hash = sectionId;
+    return url.toString();
+  } catch {
+    const [base] = href.split("#", 1);
+    return `${base || href}#${sectionId}`;
+  }
 }
 
 /**
@@ -59,6 +78,8 @@ export function PlanMarkdownReader({
   const headingIndexRef = useRef(0);
   // Reset the counter each render (new markdown / blockId) so ids are stable.
   headingIndexRef.current = 0;
+  const textDirection = detectPlanTextDirection(markdown);
+  const t = useT();
 
   const makeHeading = useCallback(
     (Tag: ElementType, { children }: { children?: ReactNode }) => {
@@ -73,13 +94,17 @@ export function PlanMarkdownReader({
           {children}
           <a
             href={`#${id}`}
-            aria-label="Copy link to this section"
+            aria-label={t("raw.markdown.copySectionLink")}
             className="plan-heading-anchor ml-2 inline-flex size-4 cursor-pointer items-center justify-center rounded opacity-0 transition-opacity group-hover/heading:opacity-60 hover:!opacity-100"
             onClick={(event) => {
               event.preventDefault();
               try {
+                const copyUrl = buildPlanMarkdownSectionCopyUrl(
+                  window.location.href,
+                  id,
+                );
                 history.pushState(null, "", `#${id}`);
-                void navigator.clipboard.writeText(window.location.href);
+                void navigator.clipboard.writeText(copyUrl);
               } catch {
                 // Clipboard or history not available — ignore.
               }
@@ -90,7 +115,7 @@ export function PlanMarkdownReader({
         </Tag>
       );
     },
-    [blockId],
+    [blockId, t],
   );
 
   return (
@@ -100,7 +125,7 @@ export function PlanMarkdownReader({
         className,
       )}
     >
-      <div className="an-rich-md-prose">
+      <div className="an-rich-md-prose" dir={textDirection}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -120,6 +145,20 @@ export function PlanMarkdownReader({
                 {...props}
                 className={cn("an-rich-md-table", tableClassName)}
               />
+            ),
+            code: ({
+              className: codeClassName,
+              children,
+              node: _node,
+              ...props
+            }: ComponentPropsWithoutRef<"code"> & { node?: unknown }) => (
+              <code
+                {...props}
+                className={codeClassName}
+                dir={codeClassName ? undefined : "ltr"}
+              >
+                {children}
+              </code>
             ),
             img: ({ src, alt }) => (
               <PlanImageViewer

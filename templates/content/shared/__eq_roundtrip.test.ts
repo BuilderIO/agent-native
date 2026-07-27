@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { parseNfmForEditor, serializeEditorToNfm } from "./notion-markdown";
 
 describe("equation roundtrip", () => {

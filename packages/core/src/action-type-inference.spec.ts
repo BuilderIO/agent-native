@@ -9,6 +9,7 @@
  */
 import { describe, it, expectTypeOf } from "vitest";
 import { z } from "zod";
+
 import { defineAction } from "./action.js";
 import type { ActionDefinition } from "./action.js";
 import type { ActionRegistry } from "./client/use-action.js";

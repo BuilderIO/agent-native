@@ -1,10 +1,18 @@
+import type { ChildProcess, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import type { ChildProcess, spawn } from "node:child_process";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const sentryMock = vi.hoisted(() => ({
+  captureException: vi.fn(),
+}));
+
+vi.mock("@sentry/node", () => sentryMock);
+
 import {
   initialWorkspaceAppIds,
   isWorkspaceWatcherLimitError,
@@ -22,6 +30,7 @@ let handle: WorkspaceDevHandle | undefined;
 afterEach(() => {
   handle?.shutdown();
   handle = undefined;
+  sentryMock.captureException.mockClear();
   if (tmpDir) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = undefined;
@@ -465,6 +474,48 @@ describe("workspace dev startup", () => {
     expect(fake.startedApps()).toEqual(["dispatch", "todo"]);
   });
 
+  it("does not report permission-denied app discovery syncs to Sentry", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: testEnv(),
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const appsDir = path.join(tmpDir, "apps");
+    const originalReaddirSync = fs.readdirSync.bind(fs);
+    const permissionError = Object.assign(
+      new Error("EPERM: operation not permitted, scandir"),
+      {
+        code: "EPERM",
+        errno: -1,
+        path: appsDir,
+        syscall: "scandir",
+      },
+    );
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readdirSpy = vi.spyOn(fs, "readdirSync").mockImplementation(((
+      dir: fs.PathLike,
+      options?: unknown,
+    ) => {
+      if (dir === appsDir) throw permissionError;
+      return originalReaddirSync(dir, options as never) as unknown;
+    }) as typeof fs.readdirSync);
+
+    try {
+      await fetch(`${url}/_workspace/apps`);
+      await fetch(`${url}/_workspace/apps`);
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(sentryMock.captureException).not.toHaveBeenCalled();
+    } finally {
+      readdirSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
   it("marks a cold app ready while serving the loading page", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();
@@ -491,6 +542,53 @@ describe("workspace dev startup", () => {
       upstream.listen(app!.port, "127.0.0.1", resolve);
     });
     try {
+      await waitUntil(() => app!.ready === true);
+
+      const second = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+      });
+      expect(await second.text()).toContain("Dispatch ready");
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
+  it("keeps probing while a cold app returns a Nitro startup 503", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "2000" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps.find((candidate) => candidate.id === "dispatch");
+    expect(app).toBeDefined();
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    let requests = 0;
+    const upstream = http.createServer((_req, res) => {
+      requests += 1;
+      if (requests < 3) {
+        res.writeHead(503, { "content-type": "text/plain" });
+        res.end("Vite environment nitro is unavailable");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<h1>Dispatch ready</h1>");
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(app!.port, "127.0.0.1", resolve);
+    });
+
+    try {
+      await waitUntil(() => requests >= 2);
+      expect(app!.ready).not.toBe(true);
       await waitUntil(() => app!.ready === true);
 
       const second = await fetch(`${url}/dispatch`, {

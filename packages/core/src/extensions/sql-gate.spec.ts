@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   DESTRUCTIVE_SQL_RE,
   SENSITIVE_SQL_RE,
@@ -56,6 +57,14 @@ describe("extension SQL gate — comment-evasion resistance", () => {
     it("blocks a comment-split sensitive table name", () => {
       expect(
         matchesSqlGate(SENSITIVE_SQL_RE, "SELECT * FROM app/**/_secrets"),
+      ).toBe(true);
+    });
+    it("blocks framework settings so extensions cannot bypass guarded configuration actions", () => {
+      expect(
+        matchesSqlGate(
+          SENSITIVE_SQL_RE,
+          "UPDATE settings SET value = ? WHERE key = ?",
+        ),
       ).toBe(true);
     });
     it("does not flag a legitimate tool_data query with a real comment", () => {

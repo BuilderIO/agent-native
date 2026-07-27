@@ -1,3 +1,4 @@
+import fs from "fs";
 /**
  * Vite plugin that resolves `virtual:agents-bundle` to a statically-inlined
  * ES module containing the template's AGENTS.md + .agents/skills/ content.
@@ -13,13 +14,14 @@
  * without restarting the server.
  */
 import path from "path";
-import fs from "fs";
+
 import type { Plugin } from "vite";
+
+import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 import {
   readAgentsBundleFromFs,
   type WorkspaceAgentsSource,
 } from "../server/agents-bundle.js";
-import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
 
 const VIRTUAL_ID = "virtual:agents-bundle";
 const RESOLVED_ID = "\0" + VIRTUAL_ID;
@@ -27,6 +29,18 @@ const TEMPLATE_SKILLS_DIRS = [
   path.join(".agents", "skills"),
   path.join(".agent", "skills"),
 ] as const;
+
+/**
+ * Coalesce window for the dev-server full-reload sent after AGENTS.md /
+ * SKILL.md changes. Agents (and Fusion editing sessions) frequently write
+ * several skill files back-to-back, and editor atomic saves surface as
+ * unlink+add pairs — without coalescing, every one of those watcher events
+ * triggered its own full page reload, which reads as the app "constantly
+ * refreshing" while an agent works. Module invalidation still happens per
+ * event (it's cheap and keeps the next request fresh); only the browser
+ * reload is batched.
+ */
+const FULL_RELOAD_COALESCE_MS = 500;
 
 async function emitBundleModule(projectRoot: string): Promise<string> {
   // If the project is inside an enterprise monorepo with a workspace core,
@@ -104,10 +118,12 @@ export function agentsBundlePlugin(): Plugin {
         const rel = path.relative(projectRoot, file);
         if (!rel.startsWith("..")) {
           if (rel === "AGENTS.md") return true;
-          if (rel.endsWith("SKILL.md")) {
-            for (const skillsDir of TEMPLATE_SKILLS_DIRS) {
-              if (rel.startsWith(skillsDir + path.sep)) return true;
-            }
+          for (const skillsDir of TEMPLATE_SKILLS_DIRS) {
+            // Any file under a skills directory can affect the bundle now —
+            // `readSkillsDir` reads reference sub-files (not just SKILL.md)
+            // into `Skill.files`, so dev HMR must match that or reference
+            // edits go stale until a manual restart.
+            if (rel.startsWith(skillsDir + path.sep)) return true;
           }
         }
         // Workspace-core files
@@ -116,20 +132,32 @@ export function agentsBundlePlugin(): Plugin {
         }
         if (
           workspaceSkillsDir &&
-          file.startsWith(workspaceSkillsDir + path.sep) &&
-          file.endsWith("SKILL.md")
+          file.startsWith(workspaceSkillsDir + path.sep)
         ) {
           return true;
         }
         return false;
       };
 
+      let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleFullReload = () => {
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = setTimeout(() => {
+          reloadTimer = null;
+          server.ws.send({ type: "full-reload" });
+        }, FULL_RELOAD_COALESCE_MS);
+      };
+      server.httpServer?.once("close", () => {
+        if (reloadTimer) clearTimeout(reloadTimer);
+        reloadTimer = null;
+      });
+
       const invalidate = (file: string) => {
         if (!shouldInvalidate(file)) return;
         const mod = server.moduleGraph.getModuleById(RESOLVED_ID);
         if (mod) {
           server.moduleGraph.invalidateModule(mod);
-          server.ws.send({ type: "full-reload" });
+          scheduleFullReload();
         }
       };
 

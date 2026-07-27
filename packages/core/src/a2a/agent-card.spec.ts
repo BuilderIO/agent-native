@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+
 import { generateAgentCard } from "./agent-card.js";
 import type { A2AConfig } from "./types.js";
 

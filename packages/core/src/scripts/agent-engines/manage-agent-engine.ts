@@ -5,10 +5,6 @@
  * tools into a single tool with an `action` discriminator.
  */
 
-import type { ActionTool } from "../../agent/types.js";
-import { run as runList } from "./list-agent-engines.js";
-import { run as runSet } from "./set-agent-engine.js";
-import { run as runTest } from "./test-agent-engine.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -19,12 +15,18 @@ import {
 import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
+  normalizeModelForEngine,
+  resolveEnginePreservesCustomModels,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
+import type { ActionTool } from "../../agent/types.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
+import { run as runList } from "./list-agent-engines.js";
+import { run as runSet } from "./set-agent-engine.js";
+import { run as runTest } from "./test-agent-engine.js";
 
 export const tool: ActionTool = {
   description:
@@ -53,7 +55,12 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-4-6', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
+          "Model ID (e.g. 'gpt-5.6-sol', 'claude-sonnet-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
+      },
+      baseUrl: {
+        type: "string",
+        description:
+          'Optional OpenAI-compatible endpoint URL for action="test" with engine="ai-sdk:openai". Saved endpoint settings are used when omitted.',
       },
       appId: {
         type: "string",
@@ -107,6 +114,10 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!isAgentEnginePackageInstalled(entry)) {
     return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
   }
+  const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
+  const normalizedModel = normalizeModelForEngine(entry, model, {
+    preserveCustomModels,
+  });
 
   const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
@@ -121,14 +132,18 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
 
   const settings = await writeAgentAppModelDefaultSettings(ctx, appId, {
     engine,
-    model,
+    model: normalizedModel,
     updatedBy: ctx.userEmail,
   });
+  const normalizedNote =
+    normalizedModel === model
+      ? ""
+      : ` Requested model "${model}" is no longer supported, so "${normalizedModel}" was saved instead.`;
   return JSON.stringify(
     {
       ok: true,
       ...settings,
-      message: `Default model for ${appId} set to ${model} via ${entry.label}.`,
+      message: `Default model for ${appId} set to ${normalizedModel} via ${entry.label}.${normalizedNote}`,
     },
     null,
     2,

@@ -1,9 +1,16 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
 import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
 } from "./agent/types.js";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
+import type { ActionAuditConfig } from "./audit/types.js";
 
 /**
  * How an action's `run` was invoked. Tagged at each dispatch site so the action
@@ -17,10 +24,30 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
  *   `callAction` (tagged with the `X-Request-Source` header).
  * - `"cli"` — `pnpm action <name>` (the CLI runner).
  * - `"mcp"` — an external agent over the MCP `tools/call` endpoint.
- * - `"a2a"` — a direct A2A action dispatch (currently unused: A2A runs through
- *   the agent loop, so those calls are `"tool"`). Reserved for completeness.
+ * - `"a2a"` — a direct, explicitly exposed read-only A2A action dispatch.
+ *   Natural-language A2A delegation still runs through the agent loop and its
+ *   selected actions are attributed as `"tool"`.
+ * - `"automation"` — an event-triggered automation dispatched from a stored
+ *   workspace trigger with trusted trigger lineage.
  */
-export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
+export type ActionCaller =
+  | "tool"
+  | "http"
+  | "frontend"
+  | "cli"
+  | "mcp"
+  | "a2a"
+  | "automation";
+
+/**
+ * Trusted automation lineage added by the trigger dispatcher. Action inputs
+ * must never be used to create or override this context.
+ */
+export interface ActionAutomationContext {
+  triggerId: string;
+  triggerName: string;
+  policyId?: string;
+}
 
 /**
  * Context passed as the optional second argument to an action's `run`.
@@ -48,6 +75,12 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Present only for trigger-dispatched automation calls. */
+  automation?: ActionAutomationContext;
+  /** Verified network lineage for direct delegated action calls. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,
@@ -71,6 +104,23 @@ export interface ActionRunContext {
    * attaching an `"abort"` listener is always safe.
    */
   signal?: AbortSignal;
+  /**
+   * Name of the action being invoked (the registry key, e.g.
+   * `delete-recording`). Set at each dispatch site so cross-cutting concerns —
+   * notably the audit log — can attribute the call. `undefined` for direct
+   * programmatic `run()` calls that bypass the dispatcher.
+   */
+  actionName?: string;
+  /**
+   * Agent conversation thread + turn that triggered this call, populated only
+   * inside the agent tool loop (`caller: "tool"`). Lets the audit log link a
+   * mutation to the specific agent run/turn that caused it. `undefined` on
+   * every human/programmatic surface.
+   */
+  threadId?: string;
+  /** Concrete execution id for this agent-loop attempt. */
+  runId?: string;
+  turnId?: string;
 }
 
 export interface AgentActionStopOptions {
@@ -256,6 +306,19 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What to do when an action's RETURN value fails `outputSchema` validation.
+ *
+ * - `"strict"` — throw a clear error so a buggy action surfaces loudly.
+ * - `"warn"` (default) — `console.warn` the issues and return the ORIGINAL
+ *   result unchanged. Non-breaking: behavior never changes unless the dev
+ *   opts into `"strict"` or `"fallback"`.
+ * - `"fallback"` — return `outputFallback` in place of the invalid result.
+ *
+ * Mirrors Mastra/Flue structured-output handling, kept on the action layer.
+ */
+export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
 // ---------------------------------------------------------------------------
 // Schema-based action options (new: Zod / Valibot / ArkType via Standard Schema)
 // ---------------------------------------------------------------------------
@@ -263,6 +326,7 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
 interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
 > {
   description: string;
   /** Standard Schema-compatible schema (Zod, Valibot, ArkType). Provides runtime
@@ -271,11 +335,48 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /**
+   * Optional alternate Standard Schema (Zod, Valibot, ArkType) used ONLY to
+   * build the tool definition advertised to the model — the JSON Schema that
+   * lands in the Claude `tools` array (and MCP/A2A tool listings, which read
+   * the same `tool.parameters`). Runtime validation always runs against
+   * `schema` above via the normal `wrapWithValidation` path; setting this
+   * never weakens validation and never changes `run()`'s argument type.
+   *
+   * Use this when the full input schema is much richer than what the model
+   * needs to see up front — the canonical example is a deep discriminated
+   * union of block/shape types where a per-call catalog lookup tool (e.g.
+   * `get-plan-blocks`) already teaches the full field shapes. Advertise a
+   * compact version (e.g. an enum of valid `type` values plus a note to call
+   * the lookup tool) instead of embedding every variant's fields in every
+   * request. Invalid calls still get the full, actionable validation error
+   * (missing/invalid fields, received args) from `schema` — this only trims
+   * what is proactively shown, not what is accepted or checked.
+   */
+  agentInputSchema?: StandardSchemaV1;
+  /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
+   *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
+   *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte
+   *  unchanged. The mismatch handling is governed by `outputErrorStrategy`. */
+  outputSchema?: TOutputSchema;
+  /** What to do when the result fails `outputSchema`. Default: `"warn"`. */
+  outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value returned in place of an invalid result when `outputErrorStrategy` is
+   *  `"fallback"`. Ignored for the other strategies. */
+  outputFallback?: TReturn;
   run: (
     args: StandardSchemaV1.InferOutput<TSchema>,
     ctx?: ActionRunContext,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether the HTTP/frontend action route must have an authenticated owner.
+   *  Defaults to true. Set to false only for metadata/read actions that safely
+   *  handle `ctx.userEmail` / `getRequestUserEmail()` being undefined. */
+  requiresAuth?: boolean;
+  /** Max HTTP request body in bytes. When set, the route 413s on the declared
+   *  `Content-Length` before parsing. Use for public, no-auth POST actions;
+   *  unset = no route-level cap. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent — the in-app assistant and the
    *  app's MCP/A2A tool surfaces — as a callable tool. **Default-allow opt-out**:
    *  `undefined` / `true` expose it; only an explicit `false` hides it from every
@@ -284,20 +385,32 @@ interface DefineActionWithSchema<
    *  this for UI-only or purely programmatic actions you want behind the
    *  framework's auth + action surface WITHOUT spending a slot in the model's
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
-   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.md`. */
+   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode because they perform substantive work
+   *  rather than lightweight inspection. Defaults to allowed when read-only. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn.
    *  Only set this for mutating actions that are internally concurrency-safe
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the agent loop's duplicate
+   *  read-only call guard (per-turn result cache + "Skipped duplicate..."
+   *  repeat detection). Default true (deduped). Use this for volatile/polling
+   *  reads where an identical call is expected to return a different result
+   *  each time — e.g. polling a code-execution status by id, or re-fetching
+   *  current on-screen state. Has no effect on non-read-only actions, which
+   *  are never deduped in the first place. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
-   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
+   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
    *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
    *  `false` for high-blast-radius admin operations (account deletion, org
@@ -321,6 +434,46 @@ interface DefineActionWithSchema<
    *  interactive app iframes. Text/deep-link tool results remain the fallback
    *  for CLI and non-UI hosts. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer for this action's structured
+   *  result. This is first-party React UI, not arbitrary HTML/JS. */
+  chatUI?: ActionChatUIConfig;
+  /**
+   * Per-tool timeout override in milliseconds for agent-loop tool calls. Use
+   * sparingly for actions that legitimately wait on slow provider work.
+   */
+  timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  maxResultChars?: number;
+  /**
+   * Opt-in human-in-the-loop approval gate. **Default off** — the framework
+   * intentionally keeps HITL approvals rare; almost every action should run
+   * without one. Set this only for high-consequence, outward-facing,
+   * hard-to-undo operations (the canonical example is actually sending an
+   * email). When `needsApproval` resolves truthy and the agent calls this
+   * action, the loop does NOT execute `run()`: it emits an `approval_required`
+   * event and stops the turn, waiting for a human to approve. The action runs
+   * only once the human re-issues the turn approving this specific call.
+   *
+   * - `true` — always require approval.
+   * - `(args, ctx) => boolean | Promise<boolean>` — require approval only when
+   *   the predicate returns true (e.g. only for external recipients, only
+   *   above a dollar threshold). Keep it pure + fast; thrown errors are treated
+   *   as "approval required" (fail closed).
+   */
+  needsApproval?:
+    | boolean
+    | ((
+        args: StandardSchemaV1.InferOutput<TSchema>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
+  /**
+   * Audit-log configuration. **Default-on for mutating actions** — you only
+   * need this to tune capture: declare the mutated `target` (so the change
+   * shows up in the owner's audit trail) and/or a `summary`, opt a read-only
+   * action in via `onRead`, or opt a noisy action out via `enabled: false`.
+   * See the `audit-log` skill.
+   */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -339,11 +492,30 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Advertised-only schema override — not used in this overload (no runtime
+   *  schema to advertise a compact alternative for). See the schema overload
+   *  above. */
+  agentInputSchema?: never;
+  /** Optional Standard Schema-compatible schema the action's RETURN value is
+   *  validated against AFTER `run()` resolves. See the schema overload above.
+   *  When omitted, behavior is byte-for-byte unchanged. */
+  outputSchema?: StandardSchemaV1;
+  /** What to do when the result fails `outputSchema`. Default: `"warn"`. */
+  outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value returned in place of an invalid result when `outputErrorStrategy` is
+   *  `"fallback"`. Ignored for the other strategies. */
+  outputFallback?: TReturn;
   run: (
     args: InferParams<TParams>,
     ctx?: ActionRunContext,
   ) => Promise<TReturn> | TReturn;
   http?: ActionHttpConfig | false;
+  /** Whether the HTTP/frontend action route must have an authenticated owner.
+   *  Defaults to true. See the schema overload above. */
+  requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
+   *  See the schema overload above. */
+  maxBodyBytes?: number;
   /** Whether this action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
@@ -351,9 +523,15 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode. See the schema overload above. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the duplicate read-only call
+   *  guard. Default true. See the schema overload above. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
@@ -364,6 +542,23 @@ interface DefineActionWithParams<
   link?: ActionLinkBuilder;
   /** Optional MCP Apps UI resource. See schema overload above. */
   mcpApp?: ActionMcpAppConfig;
+  /** Optional native Agent-Native chat renderer. See schema overload above. */
+  chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds. See schema overload above. */
+  timeoutMs?: number;
+  /** Per-tool result truncation override. See schema overload above. */
+  maxResultChars?: number;
+  /** Opt-in human-in-the-loop approval gate (default off). See the schema
+   *  overload above for full semantics. */
+  needsApproval?:
+    | boolean
+    | ((
+        args: InferParams<TParams>,
+        ctx?: ActionRunContext,
+      ) => boolean | Promise<boolean>);
+  /** Audit-log configuration (default-on for mutations). See the schema
+   *  overload above and the `audit-log` skill. */
+  audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,13 +590,40 @@ export interface ActionDefinition<TInput, TReturn> {
   /** @internal Framework use only — do not call directly. */
   readonly tool: import("./agent/types.js").ActionTool;
   readonly http?: ActionHttpConfig | false;
+  readonly requiresAuth?: boolean;
+  readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly allowInPlanMode?: boolean;
   readonly parallelSafe?: boolean;
+  readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
   readonly mcpApp?: ActionMcpAppConfig;
+  readonly chatUI?: ActionChatUIConfig;
+  /** Per-tool timeout override in milliseconds for agent-loop tool calls. */
+  readonly timeoutMs?: number;
+  /** Per-tool result truncation override for agent-loop tool calls. */
+  readonly maxResultChars?: number;
+  /** Standard Schema the action's RETURN value is validated against after
+   *  `run()` resolves. Present only when the caller passed `outputSchema`. */
+  readonly outputSchema?: StandardSchemaV1;
+  /** Resolved output-mismatch strategy. Present only when `outputSchema` is
+   *  set; defaults to `"warn"`. */
+  readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** Value substituted for an invalid result under the `"fallback"` strategy. */
+  readonly outputFallback?: TReturn;
+  /** Opt-in human-in-the-loop approval gate (default off). When truthy, the
+   *  agent loop emits `approval_required` and pauses instead of executing this
+   *  action until a human approves the specific call. */
+  readonly needsApproval?:
+    | boolean
+    | ((args: TInput, ctx?: ActionRunContext) => boolean | Promise<boolean>);
+  /** Resolved audit-log configuration. Present only when the caller passed
+   *  `audit`. The audit capture wrapper is baked into `run`; this field is for
+   *  introspection. */
+  readonly audit?: ActionAuditConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -445,8 +667,12 @@ export interface ActionDefinition<TInput, TReturn> {
  * });
  * ```
  */
-export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
-  options: DefineActionWithSchema<TSchema, TReturn>,
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TReturn,
+  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+>(
+  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
@@ -469,12 +695,53 @@ export function defineAction(options: any) {
     };
   }
 
-  // Wrap run() with validation when schema is provided.
+  // `agentInputSchema` swaps in a compact JSON Schema for the ADVERTISED tool
+  // definition only (what the model/MCP/A2A tool listings see). It never
+  // touches validation below — `wrapWithValidation` is always called with
+  // `options.schema`, the full schema, as the source of truth for what's
+  // accepted. Passing the same (compact) `toolParameters` into it only
+  // affects the top-level "Expected: { ... }" hint text and gateway string
+  // coercion, both of which only look at top-level property names/types —
+  // unaffected by trimming a nested union, so this stays safe either way.
+  if (
+    hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+  ) {
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema,
+      options.description,
+    );
+  }
+
+  // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
-  const run = hasSchema
+  const inputValidatedRun = hasSchema
     ? wrapWithValidation(options.schema, options.run, toolParameters)
     : options.run;
+
+  // Then wrap with OUTPUT validation when an outputSchema is provided. This
+  // composes AROUND the input-validated run so the order is: validate input →
+  // run() → validate output. When no outputSchema is present, the run is passed
+  // through untouched and behavior is byte-for-byte unchanged.
+  const hasOutputSchema =
+    options.outputSchema && "~standard" in options.outputSchema;
+  const outputErrorStrategy: ActionOutputErrorStrategy =
+    options.outputErrorStrategy === "strict" ||
+    options.outputErrorStrategy === "warn" ||
+    options.outputErrorStrategy === "fallback"
+      ? options.outputErrorStrategy
+      : "warn";
+  const run = hasOutputSchema
+    ? wrapWithOutputValidation(
+        options.outputSchema,
+        inputValidatedRun,
+        outputErrorStrategy,
+        options.outputFallback,
+        options.description,
+      )
+    : inputValidatedRun;
 
   // Auto-infer readOnly from http.method === "GET" unless explicitly set.
   // GET actions are idempotent reads; their completion should NOT trigger a
@@ -496,6 +763,16 @@ export function defineAction(options: any) {
         ? true
         : undefined;
 
+  // Audit: wrap the validated run so every mutating call records an audit
+  // event (who/what/when/from-where, and for the agent which run). Default-on
+  // for mutations; read-only actions opt in via `audit.onRead`. The wrapper
+  // lazily imports the DB-touching recorder so `action.ts` keeps no static DB
+  // dependency.
+  const auditConfig = normalizeAuditConfig(options.audit);
+  const finalRun = resolveAuditAttach(auditConfig, readOnly)
+    ? wrapRunWithAudit(run, auditConfig)
+    : run;
+
   // toolCallable: thread through whatever the caller declared. We DO NOT
   // default to `true` here — the absence of an explicit field is meaningful
   // to the tools bridge: it lets us emit a one-shot warning when an action
@@ -515,6 +792,8 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const dedupe: boolean | undefined =
+    typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
     options.publicAgent &&
     typeof options.publicAgent === "object" &&
@@ -547,28 +826,170 @@ export function defineAction(options: any) {
     }
     return undefined;
   })();
+  const chatUI = normalizeActionChatUIConfig(options.chatUI);
 
   return {
     tool: {
       description: options.description,
       parameters: toolParameters,
     },
-    run,
+    run: finalRun,
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
+    ...(typeof options.requiresAuth === "boolean"
+      ? { requiresAuth: options.requiresAuth }
+      : {}),
+    ...(typeof options.maxBodyBytes === "number"
+      ? { maxBodyBytes: options.maxBodyBytes }
+      : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.allowInPlanMode === "boolean"
+      ? { allowInPlanMode: options.allowInPlanMode }
+      : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),
     ...(mcpApp ? { mcpApp } : {}),
+    ...(chatUI ? { chatUI } : {}),
+    ...(typeof options.timeoutMs === "number"
+      ? { timeoutMs: options.timeoutMs }
+      : {}),
+    ...(typeof options.maxResultChars === "number"
+      ? { maxResultChars: options.maxResultChars }
+      : {}),
+    ...(hasOutputSchema
+      ? {
+          outputSchema: options.outputSchema,
+          outputErrorStrategy,
+          ...(outputErrorStrategy === "fallback"
+            ? { outputFallback: options.outputFallback }
+            : {}),
+        }
+      : {}),
+    ...(typeof options.needsApproval === "boolean" ||
+    typeof options.needsApproval === "function"
+      ? { needsApproval: options.needsApproval }
+      : {}),
+    ...(auditConfig ? { audit: auditConfig } : {}),
+  };
+}
+
+/**
+ * Wrap an action's (already input/output-validated) run so each call records an
+ * audit event after it resolves — on success and on error. Best-effort: the
+ * recorder swallows its own failures and the original result/throw is always
+ * preserved, so auditing can never change an action's behavior. The DB-touching
+ * recorder is imported lazily so merely defining an action pulls in no DB code.
+ */
+function wrapRunWithAudit(
+  run: (args: any, ctx?: ActionRunContext) => any,
+  auditConfig: ActionAuditConfig | undefined,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  return async function auditedRun(args: any, ctx?: ActionRunContext) {
+    let result: any;
+    let error: unknown;
+    let threw = false;
+    try {
+      result = await run(args, ctx);
+    } catch (err) {
+      error = err;
+      threw = true;
+    }
+    try {
+      const { recordActionAudit } = await import("./audit/record.js");
+      await recordActionAudit(
+        threw
+          ? { config: auditConfig, args, ctx, status: "error", error }
+          : { config: auditConfig, args, ctx, status: "success", result },
+      );
+    } catch {
+      // Recorder failed to load/run — never affect the action.
+    }
+    if (threw) throw error;
+    return result;
   };
 }
 
 // ---------------------------------------------------------------------------
 // Schema → JSON Schema conversion
 // ---------------------------------------------------------------------------
+
+// Keywords whose value is a single subschema.
+const SUBSCHEMA_VALUE_KEYS = [
+  "items",
+  "additionalItems",
+  "contains",
+  "additionalProperties",
+  "not",
+  "if",
+  "then",
+  "else",
+] as const;
+// Keywords whose value is an array of subschemas.
+const SUBSCHEMA_ARRAY_KEYS = [
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "prefixItems",
+] as const;
+// Keywords whose value is a map of name → subschema.
+const SUBSCHEMA_MAP_KEYS = [
+  "properties",
+  "patternProperties",
+  "$defs",
+  "definitions",
+  "dependentSchemas",
+] as const;
+
+/**
+ * Remove JSON Schema keywords that some providers' function-calling schema
+ * validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
+ * `400 invalid_function_parameters` error, causing the model turn to produce no
+ * content (surfacing as an empty assistant response). Anthropic ignores the
+ * keyword, so stripping it is safe across providers and keeps action schemas
+ * portable. `propertyNames` only constrained object *keys*; the value/shape of
+ * the object is unaffected by its removal.
+ *
+ * Only descends through actual subschema positions (properties, items, union
+ * branches, definitions, etc.) — never through value-bearing keywords like
+ * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
+ * contain a `propertyNames` data key that must be preserved.
+ */
+function stripUnsupportedSchemaKeywords<T>(node: T): T {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const obj = node as Record<string, unknown>;
+
+  delete obj.propertyNames;
+
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    // `items`/`additionalItems` may also be an array of subschemas.
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    } else {
+      stripUnsupportedSchemaKeywords(value);
+    }
+  }
+  for (const key of SUBSCHEMA_ARRAY_KEYS) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    const value = obj[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      for (const sub of Object.values(value)) {
+        stripUnsupportedSchemaKeywords(sub);
+      }
+    }
+  }
+  return node;
+}
 
 /**
  * Convert a Standard Schema to JSON Schema for the Claude API.
@@ -593,7 +1014,7 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return result as ActionTool["parameters"];
+      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
     } catch {
       // Fall through to manual converter
     }
@@ -601,7 +1022,7 @@ function schemaToJsonSchema(
 
   // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
-    return zodDefToJsonSchema(s._zod.def);
+    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
   }
 
   // Last resort: empty object schema
@@ -769,6 +1190,105 @@ function zodDefToJsonSchema(def: any): any {
 // Runtime validation wrapper
 // ---------------------------------------------------------------------------
 
+const NO_COERCE = Symbol("no-coerce");
+
+/**
+ * Coerce a single stringified value to one of the JSON-schema types the field
+ * expects. Returns NO_COERCE when nothing safe applies, so the caller leaves
+ * the original value untouched and the normal validation error still surfaces.
+ */
+function coerceStringToSchemaType(raw: string, types: string[]): unknown {
+  const trimmed = raw.trim();
+  if (types.includes("boolean")) {
+    if (trimmed === "true") return true;
+    if (trimmed === "false") return false;
+  }
+  if (
+    (types.includes("array") &&
+      trimmed.startsWith("[") &&
+      trimmed.endsWith("]")) ||
+    (types.includes("object") &&
+      trimmed.startsWith("{") &&
+      trimmed.endsWith("}"))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (types.includes("array") && Array.isArray(parsed)) return parsed;
+      if (
+        types.includes("object") &&
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed;
+      }
+    } catch {
+      // fall through — leave the original so validation reports the real error
+    }
+  }
+  if (
+    (types.includes("number") || types.includes("integer")) &&
+    trimmed !== "" &&
+    Number.isFinite(Number(trimmed))
+  ) {
+    const n = Number(trimmed);
+    if (types.includes("number") || Number.isInteger(n)) return n;
+  }
+  return NO_COERCE;
+}
+
+/**
+ * Defensively coerce stringified action arguments to the types the schema
+ * expects. Two callers depend on this:
+ *
+ *   1. Model gateways (notably Builder's Gemini-backed gateway) hand back
+ *      structured tool-call arguments as JSON strings — an array param arrives
+ *      as `"[{...}]"`, a boolean as `"true"`.
+ *   2. GET actions called from the browser via `useActionQuery` / `callAction`.
+ *      Those serialize params into the query string, where `URLSearchParams`
+ *      stringifies everything — so `includeSeries: true` arrives as the string
+ *      `"true"` and `limit: 5` as `"5"` (see `action-routes.ts`).
+ *
+ * In both cases Standard Schema (zod) `validate` does not coerce, so the call
+ * fails validation ("expected boolean, received string") — the agent thrashes
+ * retrying shapes and the frontend query errors. We only touch a string value
+ * when the schema expects a non-string type and the string parses cleanly to
+ * it; anything ambiguous (schema also allows string) or unparseable is left
+ * as-is. Operates on top-level properties only — once an array/object param is
+ * parsed, its nested members are already native and validate normally.
+ *
+ * Do NOT narrow this to "gateway-only": the GET query-string path relies on it
+ * too, and `action-routes.spec.ts` guards that round-trip.
+ */
+function coerceGatewayStringifiedArgs(
+  args: unknown,
+  parameters?: ActionTool["parameters"],
+): unknown {
+  const properties = parameters?.properties as
+    | Record<string, { type?: string | string[] }>
+    | undefined;
+  if (!properties) return args;
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  let out: Record<string, unknown> | null = null;
+  for (const [key, raw] of Object.entries(args as Record<string, unknown>)) {
+    if (typeof raw !== "string") continue;
+    const spec = properties[key];
+    if (!spec) continue;
+    const types = Array.isArray(spec.type)
+      ? spec.type
+      : spec.type
+        ? [spec.type]
+        : [];
+    // No declared type, or the field legitimately accepts a string → leave it.
+    if (types.length === 0 || types.includes("string")) continue;
+    const coerced = coerceStringToSchemaType(raw, types);
+    if (coerced === NO_COERCE) continue;
+    if (!out) out = { ...(args as Record<string, unknown>) };
+    out[key] = coerced;
+  }
+  return out ?? args;
+}
+
 /**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
@@ -780,6 +1300,7 @@ function wrapWithValidation(
   toolParameters?: ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
+    args = coerceGatewayStringifiedArgs(args, toolParameters);
     const result = await schema["~standard"].validate(args);
     if (result.issues) {
       // Split issues into "missing required field" vs other validation errors
@@ -847,5 +1368,60 @@ function wrapWithValidation(
       );
     }
     return run((result as StandardSchemaV1.SuccessResult<any>).value, ctx);
+  };
+}
+
+/**
+ * Wrap an action's run function with RETURN-value validation. Runs AFTER the
+ * (already input-validated) `run` resolves and validates the result against
+ * `outputSchema` using the Standard Schema `~standard.validate` contract.
+ *
+ * Behavior is governed by `strategy`:
+ * - `"strict"`  — throw a clear error when the result doesn't match.
+ * - `"warn"`    — `console.warn` the issues and return the ORIGINAL result
+ *                 unchanged (default; never alters runtime behavior).
+ * - `"fallback"`— return `fallback` in place of the invalid result.
+ *
+ * On success the validated value is returned (so schema-applied coercion /
+ * defaults take effect, mirroring the input path).
+ */
+function wrapWithOutputValidation(
+  outputSchema: StandardSchemaV1,
+  run: (args: any, ctx?: ActionRunContext) => any,
+  strategy: ActionOutputErrorStrategy,
+  fallback: unknown,
+  description?: string,
+): (args: any, ctx?: ActionRunContext) => any {
+  return async (args: any, ctx?: ActionRunContext) => {
+    const output = await run(args, ctx);
+    const result = await outputSchema["~standard"].validate(output);
+
+    if (!result.issues) {
+      // Return the validated value so coercion / defaults defined on the
+      // outputSchema are applied, consistent with the input path.
+      return (result as StandardSchemaV1.SuccessResult<any>).value;
+    }
+
+    const issues = result.issues
+      .map((issue) => {
+        const pathStr = issue.path
+          ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
+          : "";
+        const msg = String(issue.message ?? "");
+        return pathStr ? `${pathStr}: ${msg}` : msg;
+      })
+      .join("; ");
+    const label = description ? ` (${description})` : "";
+    const summary = `Action output did not match outputSchema${label}: ${issues}`;
+
+    if (strategy === "strict") {
+      throw new Error(summary);
+    }
+    if (strategy === "fallback") {
+      return fallback;
+    }
+    // "warn" (default): surface the mismatch but never change behavior.
+    console.warn(summary);
+    return output;
   };
 }

@@ -1,6 +1,5 @@
 #!/usr/bin/env tsx
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -10,8 +9,6 @@ interface Options {
   ownerEmail?: string;
   a2aSecret?: string;
   envPath: string;
-  force: boolean;
-  dryRun: boolean;
   setDispatchDefaultOwner: boolean;
 }
 
@@ -22,10 +19,10 @@ Options:
   --name <value>                 Sets WORKSPACE_ORG_NAME
   --domain <value>               Sets WORKSPACE_ORG_DOMAIN
   --owner-email <value>          Sets WORKSPACE_OWNER_EMAIL
-  --a2a-secret <value>           Sets A2A_SECRET (generated when omitted)
-  --env <path>                   Env file to update (default: .env)
-  --force                        Overwrite existing non-empty values
-  --dry-run                      Print the changes without writing
+  --a2a-secret <value>           Reads A2A_SECRET for validation
+  --env <path>                   Env file to read for fallback values (default: .env)
+  --force                        Accepted for compatibility; no file is written
+  --dry-run                      Accepted for compatibility; no file is written
   --set-dispatch-default-owner   Also set DISPATCH_DEFAULT_OWNER_EMAIL
 `;
 
@@ -41,8 +38,6 @@ type RequiredKey = (typeof REQUIRED_KEYS)[number];
 function parseArgs(argv: string[]): Options {
   const opts: Options = {
     envPath: ".env",
-    force: false,
-    dryRun: false,
     setDispatchDefaultOwner: false,
   };
 
@@ -78,10 +73,8 @@ function parseArgs(argv: string[]): Options {
         opts.envPath = value();
         break;
       case "--force":
-        opts.force = true;
         break;
       case "--dry-run":
-        opts.dryRun = true;
         break;
       case "--set-dispatch-default-owner":
         opts.setDispatchDefaultOwner = true;
@@ -147,47 +140,6 @@ function validateEmail(email: string): void {
   }
 }
 
-function formatEnvValue(value: string): string {
-  if (/^[A-Za-z0-9_@./:+-]+$/.test(value)) return value;
-  return JSON.stringify(value);
-}
-
-function upsertEnvValue(
-  content: string,
-  key: string,
-  value: string,
-  force: boolean,
-): { content: string; changed: boolean; skipped: boolean } {
-  const lines = content.length > 0 ? content.split(/\r?\n/) : [];
-  let found = false;
-  let changed = false;
-  let skipped = false;
-
-  const next = lines.map((line) => {
-    const match = line.match(/^(\s*)([A-Z0-9_]+)(\s*=\s*)(.*)$/);
-    if (!match || match[2] !== key) return line;
-
-    found = true;
-    const existing = unquote(match[4]);
-    if (existing && !force) {
-      skipped = true;
-      return line;
-    }
-
-    const replacement = `${match[1]}${key}${match[3]}${formatEnvValue(value)}`;
-    if (replacement !== line) changed = true;
-    return replacement;
-  });
-
-  if (!found) {
-    if (next.length > 0 && next[next.length - 1] !== "") next.push("");
-    next.push(`${key}=${formatEnvValue(value)}`);
-    changed = true;
-  }
-
-  return { content: next.join("\n"), changed, skipped };
-}
-
 function firstValue(...values: Array<string | undefined>): string | undefined {
   return values.map((v) => v?.trim()).find(Boolean);
 }
@@ -213,13 +165,21 @@ function main(): void {
     process.env.WORKSPACE_OWNER_EMAIL,
     current.WORKSPACE_OWNER_EMAIL,
   )?.toLowerCase();
-  const a2aSecret =
-    firstValue(opts.a2aSecret, process.env.A2A_SECRET, current.A2A_SECRET) ??
-    crypto.randomBytes(32).toString("hex");
+  const a2aSecret = firstValue(
+    opts.a2aSecret,
+    process.env.A2A_SECRET,
+    current.A2A_SECRET,
+  );
 
   if (!name) fail("--name or WORKSPACE_ORG_NAME is required.");
   if (!rawDomain) fail("--domain or WORKSPACE_ORG_DOMAIN is required.");
   if (!ownerEmail) fail("--owner-email or WORKSPACE_OWNER_EMAIL is required.");
+  if (!a2aSecret) {
+    fail(
+      "--a2a-secret or A2A_SECRET is required. This script reads existing " +
+        "configuration but does not write env files.",
+    );
+  }
 
   const domain = normalizeDomain(rawDomain);
   validateDomain(domain);
@@ -232,52 +192,31 @@ function main(): void {
     A2A_SECRET: a2aSecret,
   };
 
-  let next = original.trimEnd();
-  const changed: string[] = [];
-  const skipped: string[] = [];
-
-  for (const key of REQUIRED_KEYS) {
-    const result = upsertEnvValue(next, key, desired[key], opts.force);
-    next = result.content;
-    if (result.changed) changed.push(key);
-    if (result.skipped) skipped.push(key);
-  }
-
+  const displayEntries: Array<[string, string]> = REQUIRED_KEYS.map((key) => [
+    key,
+    key === "A2A_SECRET" ? "[configured]" : desired[key],
+  ]);
   if (opts.setDispatchDefaultOwner) {
-    const result = upsertEnvValue(
-      next,
-      "DISPATCH_DEFAULT_OWNER_EMAIL",
-      ownerEmail,
-      opts.force,
-    );
-    next = result.content;
-    if (result.changed) changed.push("DISPATCH_DEFAULT_OWNER_EMAIL");
-    if (result.skipped) skipped.push("DISPATCH_DEFAULT_OWNER_EMAIL");
-  }
-
-  next = next.trimEnd() + "\n";
-
-  if (opts.dryRun) {
-    console.log(next);
-  } else {
-    fs.writeFileSync(envPath, next);
+    displayEntries.push(["DISPATCH_DEFAULT_OWNER_EMAIL", ownerEmail]);
   }
 
   console.log(
-    `${opts.dryRun ? "Validated" : "Updated"} ${path.relative(process.cwd(), envPath) || envPath}.`,
+    `Validated workspace org settings from ${path.relative(process.cwd(), envPath) || envPath}.`,
   );
-  if (changed.length > 0) console.log(`Changed: ${changed.join(", ")}`);
-  if (skipped.length > 0) {
-    console.log(
-      `Kept existing values: ${skipped.join(", ")} (use --force to overwrite)`,
-    );
+  console.log("No env files were written.");
+  console.log("");
+  console.log("Resolved configuration:");
+  for (const [key, value] of displayEntries) {
+    console.log(`- ${key}: ${value}`);
   }
   console.log("");
   console.log("Next steps:");
   console.log("1. Sign in as WORKSPACE_OWNER_EMAIL.");
   console.log("2. Create or select the org named by WORKSPACE_ORG_NAME.");
   console.log("3. Set the org allowed domain to WORKSPACE_ORG_DOMAIN.");
-  console.log("4. Set or sync the org A2A secret from A2A_SECRET across apps.");
+  console.log(
+    "4. Configure A2A_SECRET through the scoped secret/deployment secret manager for apps that need cross-app A2A.",
+  );
 }
 
 main();

@@ -1,87 +1,106 @@
 # Design — Agent Guide
 
-Design is an agent-native prototyping app. The agent creates and edits complete
-interactive HTML prototypes, design systems, variants, and handoff exports
-through actions against the shared SQL state.
-
-Keep this file essential. Detailed generation, design-system, export, and UI
-patterns live in `.agents/skills/`.
-
-## Core Rules
-
-- Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
-- Use the app actions for designs, files, versions, design systems, variants,
-  export, and sharing. Do not write design rows directly with SQL.
-- In dev, call actions with `pnpm action <name>`; in production, call the native
-  tool. The action schema is the source of truth for parameters.
-- Call `view-screen` before editing a specific design if the current design or
-  selected file is not already clear from context.
-- Generated files must be complete, standalone HTML unless the user asks for a
-  different export format. They should render in the iframe without a build step.
-- Use Alpine.js and Tailwind CDN for interactive prototypes. Prefer Alpine
-  directives over raw inline event handlers.
-- Navigate between prototype screens with Alpine state (`x-show`), a
-  `data-screen="file.html"` attribute, or `#` anchors — never real/relative
-  URLs, which would navigate the preview iframe to the app itself.
-- To refine an existing design, make the smallest change: read it with
-  `get-design-snapshot`, then use `edit-design` (search/replace). Reserve
-  `generate-design` for new files or large structural rewrites; never resend
-  files you aren't changing.
-- When the user asks to add tweak controls, preserve existing useful tweaks,
-  add or update the requested `tweaks` definitions, and make sure each control
-  is backed by a CSS custom property the rendered file actually uses. If source
-  edits are needed, use `get-design-snapshot` first and persist the complete
-  updated tweak definition list through `generate-design`.
-- Follow linked design-system tokens and `customInstructions` whenever present;
-  explicit user instructions in the current turn still win.
-- Persist useful work early: create/update the design and files as soon as a
-  coherent candidate exists, then iterate.
-- For non-trivial new design prompts, ask before generating: create/open the
-  design shell, call `show-design-questions`, stop while the main canvas shows
-  the questions, then continue from the user's answers.
-- For multi-variant work, write candidates incrementally so the UI can preview
-  progress. External MCP hosts should use `present-design-variants` so the same
-  picker opens inline instead of writing `application_state` directly.
-- Use framework sharing actions for design and design-system visibility/grants.
-- When the user asks to download/export, use export actions or point to the
-  editor download menu.
-
-## Application State
-
-- `navigation` tells you the current view, design id, file id, and related UI
-  state.
-- `navigate` moves the UI and is auto-deleted after the client consumes it.
-- `show-design-questions` opens focused pre-generation questions in the main
-  design canvas (`show-questions` application state).
-- `design-variants` contains in-progress candidates for the variant picker.
-
-## App-Backed Skill Distribution
-
-- The preferred hosted install path is
-  `npx @agent-native/core@latest skills add design-exploration` (or `design`).
-  It installs the exported Design exploration instructions and registers the
-  hosted Design MCP connector together.
-- The open Skills CLI path
-  `npx skills add BuilderIO/agent-native --skill design-exploration` installs
-  the exported instructions only.
-- For human-in-the-loop UI exploration, create a design shell, call
-  `present-design-variants` with 2-5 complete HTML directions (three by
-  default), wait for the user to pick one, then use `get-design-snapshot` and
-  `generate-design` for follow-up refinements.
-- Inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) carry the
-  pick back over the chat bridge automatically. If the Design app instead opens
-  as a browser link (CLI hosts like Codex / Claude Code, deep link carries
-  `handoff=chat`), the user picks there and the editor shows a copyable summary
-  (also in `present-design-variants` result `fallbackInstructions`) — ask them
-  to paste it back into chat so you can continue from the chosen direction.
+Design is an agent-native prototyping app. The agent creates and edits
+complete interactive HTML prototypes, design systems, variants, and handoff
+exports through actions against the shared SQL state.
 
 ## Skills
 
-Read the relevant skill before deeper work:
+Keep this file essential — it is loaded into the agent's context every turn.
+Real depth lives in `.agents/skills/`; read the relevant skill before deeper
+work in that area.
 
-- `design-generation` for creating/editing prototype HTML and variant flows.
-- `design-systems` for tokens, brand extraction, and linked systems.
-- `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
-- `frontend-design` and `shadcn-ui` for app UI changes.
-- `actions`, `delegate-to-agent`, `security`, and `self-modifying-code` for
-  framework patterns.
+- `design-generation` — 5-phase generation flow, aesthetic quality bar, code
+  layers/code workspace, editor extensions, breakpoints/screen
+  states/components, motion, imagery, locked subtrees, generation state.
+- `design-templates` — resolving, saving, copying, adapting templates or prior
+  Design work without fresh generation.
+- `responsive-breakpoints` — Framer-style breakpoint editing.
+- `design-systems` — tokens, brand extraction, Figma import/read/paste, and the
+  real Figma fidelity contract.
+- `creative-context` — cross-app source reuse, pinned packs, provenance,
+  context opt-out, submitting a design to a governed Context.
+- `design-review-feedback` — persisted, element-anchored review comments to a
+  verified close, one root thread at a time.
+- `export-handoff` — HTML/PNG/SVG/ZIP/code and coding-handoff export.
+- `visual-edit` — editing a real local app visually (localhost bridge, Code
+  tab, reprompt write boundary).
+- `full-app-build` — design source modes and flag-gated fusion-backed full app
+  building.
+- `shader-fills` — code-backed GLSL shader fills/effects.
+- `sharing` — design and design-system visibility/grants.
+- `frontend-design`, `shadcn-ui` for UI; `actions`, `delegate-to-agent`,
+  `security`, `self-modifying-code` for framework patterns.
+
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
+## Actions
+
+- Resolve templates or prior designs with `list-design-templates` and
+  `list-designs`, copy with `create-design-from-template`, then inspect and
+  adapt copied files with `get-design-snapshot` and `edit-design`.
+
+## Core Rules
+
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
+- Never hardcode API keys, tokens, webhook URLs, signing secrets, private
+  Builder/internal data, customer data, or credential-looking literals. Use
+  secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- Use the app actions for designs, files, versions, design systems, variants,
+  export, and sharing. Do not write design rows directly with SQL.
+- A message beginning with `[Reprompt selection]` is preview-only: the only
+  mutation path is `propose-node-rewrite`; never call a content writer. See
+  `visual-edit`'s "Select And Reprompt". `[Selection question]` is read-only:
+  answer about the captured element and subtree without calling
+  content-writing actions.
+- Call `view-screen` before editing a specific design if the current design or
+  selected file is not already clear from context.
+- Generated files must be complete, standalone HTML (Alpine.js + Tailwind CDN)
+  that renders in the iframe without a build step. See `design-generation` for
+  the phases, quality bar, and the audit/screenshot pass required before
+  calling a design "ready".
+- Treat `data-agent-native-locked="true"` as authoritative — see
+  `design-generation` for locked-subtree rules.
+- Figma import/read/paste and design-system/token workflows are fully covered in
+  `design-systems` — read it before guessing the calling convention, and never
+  promise lossless Figma import/export.
+- Persist useful work early: create/update the design and files as soon as a
+  coherent candidate exists, then iterate.
+- In dev, call actions with `pnpm action <name>`; in production, call the
+  native tool.
+- For shared prototype feedback, use the persisted review actions — read
+  `design-review-feedback` for the loop.
+- Follow linked design-system tokens and `customInstructions` whenever
+  present; explicit user instructions in the current turn still win. Before
+  generation, follow the `creative-context` reuse ladder and respect
+  `contextMode: "off"`.
+- When the user references a template or prior design, resolve it first — see
+  `design-templates` for the lookup and reuse order.
+- Design source modes are `inline`, `localhost`, and `fusion` — see
+  `full-app-build`. Public `/visual-edit` and `/design/:id` links can render
+  read-only without a session — never run anonymous write actions
+  (save/share/generate/localhost connect); send signed-out visitors through
+  `buildSignInReturnHref()` first.
+- For multi-variant exploration, use `present-design-variants` (2-5, three by
+  default) — see `design-generation` Phase 2 for the pick → refine flow.
+- When the user asks to download/export, see `export-handoff`.
+
+## Application State
+
+- `navigation` — current view, design id, file id, and related UI state.
+- `navigate` — moves the UI; auto-deleted after the client consumes it.
+- `design-selection` — active screen, selected element, overview mode,
+  inspector tab, zoom, and screen list for the current tab.
+- `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
+  generation planning, pre-generation questions, and the variant chat choice;
+  see `design-generation`.
+- `design-reprompt-pending:<designId>:<fileId>` /
+  `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` — the
+  compare-and-set reprompt request/proposal pair; see `visual-edit`'s
+  "Select And Reprompt" for the full lifecycle.

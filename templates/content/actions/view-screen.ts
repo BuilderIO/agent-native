@@ -1,14 +1,18 @@
 import { defineAction } from "@agent-native/core";
-import { readAppState } from "@agent-native/core/application-state";
-import { and, asc, inArray } from "drizzle-orm";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import { and, asc, inArray, isNull } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { z } from "zod";
 import type {
   ContentDatabaseColumnCalculation,
   ContentDatabaseFilterMode,
@@ -26,16 +30,17 @@ import {
   isEmptyPropertyValue,
 } from "../shared/properties.js";
 import {
-  listPropertiesForDocument,
-  serializeDatabase,
-} from "./_property-utils.js";
-import {
   filterDatabaseContainedDocuments,
   getContentDatabaseResponse,
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
+  getDocumentContextPath,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
+import {
+  listPropertiesForDocument,
+  serializeDatabase,
+} from "./_property-utils.js";
 
 type ScreenTreeDocument = Pick<
   typeof schema.documents.$inferSelect,
@@ -120,7 +125,8 @@ function databaseViewTypeValue(
     value === "list" ||
     value === "gallery" ||
     value === "calendar" ||
-    value === "timeline"
+    value === "timeline" ||
+    value === "form"
   ) {
     return value;
   }
@@ -616,6 +622,8 @@ export function databaseCurrentViewSnapshot(
       openPagesInValue(nav.databaseOpenPagesIn) ??
       activeView?.openPagesIn ??
       "preview",
+    formQuestions:
+      arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
     visibleItemCount:
       numberValue(nav.databaseVisibleItemCount) ?? response.items.length,
     totalItemCount:
@@ -641,13 +649,29 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const navigation = await readAppState("navigation");
+    const navigation = await readAppStateForCurrentTab("navigation");
+    const localFilesState = await readAppState("local-files");
+    const contentSpaceState = await readAppState("content-space");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;
     const db = getDb();
+
+    if (nav?.view === "local-files") {
+      screen.localFiles = {
+        view: "local-files",
+        actions: ["export-content-source", "import-content-source"],
+        sourceRoot: "content/",
+        fileTypes: [".md", ".mdx"],
+        selectedFolders:
+          localFilesState && typeof localFilesState === "object"
+            ? localFilesState
+            : undefined,
+      };
+    }
 
     if (nav?.documentId) {
       const access = await resolveAccess("document", nav.documentId);
@@ -660,18 +684,22 @@ export default defineAction({
           parentId: doc.parentId,
           title: doc.title,
           content: doc.content,
+          description: doc.description,
           icon: doc.icon,
           position: doc.position,
           isFavorite: parseDocumentFavorite(doc.isFavorite),
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           visibility: doc.visibility,
-          database: database ? serializeDatabase(database) : undefined,
+          database: database
+            ? serializeDatabase(database, doc.description)
+            : undefined,
           databaseMembership: databaseMembership
             ? serializeDatabaseMembership(databaseMembership)
             : undefined,
           properties: await listPropertiesForDocument(doc),
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
+          contextPath: await getDocumentContextPath(doc),
         };
         if (database) {
           const databaseResponse = await getContentDatabaseResponse(
@@ -709,6 +737,7 @@ export default defineAction({
                   parentId: previewDoc.parentId,
                   title: previewDoc.title,
                   content: previewDoc.content,
+                  description: previewDoc.description,
                   icon: previewDoc.icon,
                   position: previewDoc.position,
                   isFavorite: parseDocumentFavorite(previewDoc.isFavorite),
@@ -721,6 +750,7 @@ export default defineAction({
                   properties: await listPropertiesForDocument(previewDoc),
                   createdAt: previewDoc.createdAt,
                   updatedAt: previewDoc.updatedAt,
+                  contextPath: await getDocumentContextPath(previewDoc),
                 },
               };
             }
@@ -735,6 +765,7 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
         ),
       )

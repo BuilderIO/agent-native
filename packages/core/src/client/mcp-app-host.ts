@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from "react";
-import { getFrameOrigin } from "./frame.js";
+
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   getEmbedAuthToken,
   isEmbedAuthActive,
@@ -7,11 +12,7 @@ import {
   isEmbedMcpChatBridgeActive,
   readEmbedMcpChatBridgeFlagFromUrl,
 } from "./embed-auth.js";
-import {
-  EMBED_MODE_QUERY_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-} from "../shared/embed-auth.js";
+import { getFrameOrigin } from "./frame.js";
 
 export const AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES = {
   HOST_CONTEXT: "agentNative.mcpHostContext",
@@ -36,11 +37,15 @@ export interface McpAppModelContextUpdate {
   structuredContent?: unknown;
 }
 
+export type McpAppHostRequestMode = "act" | "plan";
+
 export interface McpAppHostChatMessage {
   message: string;
   context?: string;
   content?: McpAppModelContextContentPart[];
   structuredContent?: unknown;
+  mode?: McpAppHostRequestMode;
+  requestMode?: McpAppHostRequestMode;
 }
 
 export interface McpAppHostCapabilities {
@@ -347,6 +352,9 @@ function postHostRequest(
 function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
   ensureListener();
   const id = requestId();
+  const requestMode = normalizeMcpAppHostRequestMode(
+    chat.requestMode ?? chat.mode,
+  );
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
       pending.delete(id);
@@ -363,6 +371,7 @@ function postWrapperHostChat(chat: McpAppHostChatMessage): Promise<boolean> {
             message: chat.message,
             context: chat.context?.trim() || "",
             submit: true,
+            ...(requestMode ? { mode: requestMode, requestMode } : {}),
             ...(chat.content?.length ? { content: chat.content } : {}),
             ...(chat.structuredContent !== undefined
               ? { structuredContent: chat.structuredContent }
@@ -391,6 +400,8 @@ interface OpenAiAppBridge {
   sendFollowUpMessage?: (args: {
     prompt: string;
     scrollToBottom?: boolean;
+    mode?: McpAppHostRequestMode;
+    requestMode?: McpAppHostRequestMode;
   }) => unknown | Promise<unknown>;
   openExternal?: (args: {
     href: string;
@@ -413,6 +424,12 @@ function objectValue(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
+function normalizeMcpAppHostRequestMode(
+  value: unknown,
+): McpAppHostRequestMode | undefined {
+  return value === "act" || value === "plan" ? value : undefined;
+}
+
 function postJsonRpcNotification(method: string, params?: unknown): void {
   if (!isInChildFrame()) return;
   try {
@@ -420,6 +437,10 @@ function postJsonRpcNotification(method: string, params?: unknown): void {
   } catch {
     // Best-effort lifecycle notification.
   }
+}
+
+function waitForHostLifecycleTurn(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 function postJsonRpcRequest(
@@ -468,6 +489,8 @@ async function ensureDirectMcpAppInitialized(): Promise<boolean> {
       });
       updateSnapshotFromInitialize(result);
       postJsonRpcNotification("ui/notifications/initialized", {});
+      await waitForHostLifecycleTurn();
+      await waitForHostLifecycleTurn();
       return true;
     })().catch(() => {
       // Reset so the next call retries the handshake. Otherwise one timed-out
@@ -557,6 +580,12 @@ export function sendMcpAppHostMessage(
   return (async () => {
     const openAiBridge = readOpenAiBridge();
     const context = chat.context?.trim() || null;
+    const requestMode = normalizeMcpAppHostRequestMode(
+      chat.requestMode ?? chat.mode,
+    );
+    const requestModePayload = requestMode
+      ? { mode: requestMode, requestMode }
+      : {};
     const content = chat.content?.length
       ? chat.content
       : [{ type: "text", text: chat.message }];
@@ -577,6 +606,7 @@ export function sendMcpAppHostMessage(
           agentNativeChatContext: context,
           agentNativeModelContext: {
             content: contextContent,
+            ...requestModePayload,
             ...(chat.structuredContent !== undefined
               ? { structuredContent: chat.structuredContent }
               : {}),
@@ -586,6 +616,7 @@ export function sendMcpAppHostMessage(
       await openAiBridge.sendFollowUpMessage({
         prompt: chat.message,
         scrollToBottom: true,
+        ...requestModePayload,
       });
       return true;
     }
@@ -594,6 +625,7 @@ export function sendMcpAppHostMessage(
     try {
       await postJsonRpcRequest("ui/update-model-context", {
         content: contextContent,
+        ...requestModePayload,
         ...(chat.structuredContent !== undefined
           ? { structuredContent: chat.structuredContent }
           : {}),
@@ -605,6 +637,7 @@ export function sendMcpAppHostMessage(
     await postJsonRpcRequest("ui/message", {
       role: "user",
       content,
+      ...requestModePayload,
     });
     return true;
   })().catch(() => false);

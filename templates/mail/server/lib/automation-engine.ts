@@ -1,31 +1,34 @@
-import { eq, and } from "drizzle-orm";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   registerBuiltinEngines,
   resolveEngine,
 } from "@agent-native/core/agent/engine";
-import { runWithRequestContext } from "@agent-native/core/server";
+import { emit } from "@agent-native/core/event-bus";
 import {
   listOAuthAccounts,
   listOAuthAccountsByOwner,
   getOAuthTokens,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { emit } from "@agent-native/core/event-bus";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import type { AutomationAction } from "@shared/types.js";
+import { eq, and } from "drizzle-orm";
+
 import { db, schema } from "../db/index.js";
-import {
-  createOAuth2Client,
-  gmailListMessages,
-  gmailGetMessage,
-  gmailListHistory,
-  gmailGetProfile,
-} from "./google-api.js";
 import {
   buildLabelCache,
   executeActions,
   type ActionContext,
 } from "./automation-actions.js";
-import type { AutomationAction } from "@shared/types.js";
+import {
+  createOAuth2Client,
+  gmailListMessages,
+  gmailGetMessage,
+  gmailBatchGetMessages,
+  gmailListHistory,
+  gmailGetProfile,
+} from "./google-api.js";
+import { getOAuth2Credentials } from "./google-auth.js";
 
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const MAX_EMAILS_PER_RUN = 50;
@@ -90,8 +93,8 @@ async function getAccessToken(accountEmail: string): Promise<string | null> {
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
     try {
-      const clientId = process.env.GOOGLE_CLIENT_ID!;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const { clientId, clientSecret } =
+        await getOAuth2Credentials(accountEmail);
       const oauth = createOAuth2Client(
         clientId,
         clientSecret,
@@ -270,32 +273,59 @@ async function fetchNewInboxMessages(
     return { messages: [], newHistoryId };
   }
 
-  // Fetch metadata for each message
-  const messages: EmailSummary[] = [];
-  for (const id of messageIds) {
-    try {
-      const msg = await gmailGetMessage(accessToken, id, "metadata");
-      const headers = msg.payload?.headers || [];
-      const getHeader = (name: string) =>
-        headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())
-          ?.value || "";
+  // Fetch metadata for all messages in one batched call instead of one
+  // request per message.
+  const batchResults = await gmailBatchGetMessages(
+    accessToken,
+    messageIds,
+    "metadata",
+  );
 
-      messages.push({
-        id: msg.id,
-        threadId: msg.threadId || msg.id,
-        from: getHeader("From"),
-        to: getHeader("To"),
-        subject: getHeader("Subject"),
-        snippet: msg.snippet || "",
-        labelIds: msg.labelIds || [],
-        date: getHeader("Date"),
-      });
-    } catch (err: any) {
-      console.error(
-        `[automation-engine] Failed to fetch message ${id}:`,
-        err.message,
-      );
+  // Gmail's batch endpoint can return fewer sub-responses than sub-requests
+  // when it rate-limits mid-batch. Refill any gaps with individual gets so a
+  // transient partial batch doesn't drop messages a full per-message loop
+  // would have caught.
+  const missing = batchResults.filter((r) => !r.data).map((r) => r.id);
+  if (missing.length > 0) {
+    const refills = await Promise.all(
+      missing.map(async (id) => {
+        try {
+          const data = await gmailGetMessage(accessToken, id, "metadata");
+          return { id, data };
+        } catch (err: any) {
+          console.error(
+            `[automation-engine] Failed to fetch message ${id}:`,
+            err.message,
+          );
+          return { id, data: null as any };
+        }
+      }),
+    );
+    const byId = new Map(refills.map((r) => [r.id, r.data]));
+    for (const r of batchResults) {
+      if (!r.data && byId.has(r.id)) r.data = byId.get(r.id);
     }
+  }
+
+  const messages: EmailSummary[] = [];
+  for (const r of batchResults) {
+    if (!r.data) continue;
+    const msg = r.data;
+    const headers = msg.payload?.headers || [];
+    const getHeader = (name: string) =>
+      headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())
+        ?.value || "";
+
+    messages.push({
+      id: msg.id,
+      threadId: msg.threadId || msg.id,
+      from: getHeader("From"),
+      to: getHeader("To"),
+      subject: getHeader("Subject"),
+      snippet: msg.snippet || "",
+      labelIds: msg.labelIds || [],
+      date: getHeader("Date"),
+    });
   }
 
   return { messages, newHistoryId };

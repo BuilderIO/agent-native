@@ -1,17 +1,54 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { H3Event } from "h3";
-import {
-  resolveBuilderOwnerContextForRequest,
-  resolveFrameworkSseRoutes,
-  resolveLegacyToolsRedirect,
-  AVATAR_RASTER_MIME,
-} from "./core-routes-plugin.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   BUILDER_CONNECT_PARAM,
   BUILDER_STATE_PARAM,
   signBuilderCallbackState,
   signBuilderConnectToken,
 } from "./builder-browser.js";
+import {
+  buildBuilderWaitlistFormPayload,
+  checkBuilderWaitlistRateLimit,
+  resolveBuilderOwnerContextForRequest,
+  resolveBuilderWaitlistFormTargetForRequest,
+  resolveWaitlistEmail,
+  resetBuilderWaitlistRateLimitForTests,
+  resolveFrameworkSseRoutes,
+  resolveLegacyToolsRedirect,
+  normalizeAgentEngineStatusModel,
+  runDbHealthProbe,
+  AVATAR_RASTER_MIME,
+  resolveAvatarEmailParam,
+  getFrameworkRouteRequestUrl,
+  getFrameworkEnvKeys,
+  readLegacyCoreRouteInitSettings,
+} from "./core-routes-plugin.js";
+
+describe("readLegacyCoreRouteInitSettings", () => {
+  it("starts independent setting reads in parallel and isolates failures", async () => {
+    let resolvePersisted: (
+      value: Record<string, unknown> | null,
+    ) => void = () => {};
+    const persisted = new Promise<Record<string, unknown> | null>((resolve) => {
+      resolvePersisted = resolve;
+    });
+    const calls: string[] = [];
+
+    const resultPromise = readLegacyCoreRouteInitSettings(async (key) => {
+      calls.push(key);
+      if (key === "persisted-env-vars") return persisted;
+      throw new Error("builder setting unavailable");
+    });
+
+    expect(calls).toEqual(["persisted-env-vars", "builder-disconnected"]);
+    resolvePersisted({ OTHER_KEY: "value" });
+    await expect(resultPromise).resolves.toEqual({
+      persistedEnvVars: { OTHER_KEY: "value" },
+      builderDisconnected: null,
+    });
+  });
+});
 
 function createMockEvent(url: string): H3Event {
   const parsed = new URL(url);
@@ -26,6 +63,7 @@ function createMockEvent(url: string): H3Event {
       req: {
         headers: { host: parsed.host },
         method: "GET",
+        socket: { remoteAddress: "203.0.113.10" },
         url: `${parsed.pathname}${parsed.search}`,
       },
     },
@@ -56,6 +94,31 @@ describe("resolveFrameworkSseRoutes", () => {
       "/_agent-native/poll-events",
       "/_agent-native/events",
     ]);
+  });
+});
+
+describe("getFrameworkEnvKeys", () => {
+  it("allows settings to save framework email provider keys", () => {
+    const keys = getFrameworkEnvKeys().map((entry) => entry.key);
+
+    expect(keys).toContain("RESEND_API_KEY");
+    expect(keys).toContain("SENDGRID_API_KEY");
+    expect(keys).toContain("EMAIL_FROM");
+  });
+});
+
+describe("normalizeAgentEngineStatusModel", () => {
+  it("normalizes removed model ids before reporting current status", () => {
+    expect(
+      normalizeAgentEngineStatusModel(
+        {
+          name: "builder",
+          defaultModel: "claude-sonnet-5",
+          supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5"],
+        },
+        "claude-opus-4-7",
+      ),
+    ).toBe("claude-opus-4-8");
   });
 });
 
@@ -139,6 +202,35 @@ describe("resolveLegacyToolsRedirect", () => {
   });
 });
 
+describe("getFrameworkRouteRequestUrl", () => {
+  it("preserves the raw query when a mounted event URL was normalized", () => {
+    const event = createMockEvent(
+      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=signed-state&api-key=public-key`,
+    );
+    event.url = new URL(
+      "https://www.agent-native.com/_agent-native/builder/callback",
+    );
+
+    const requestUrl = getFrameworkRouteRequestUrl(event);
+
+    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe(
+      "signed-state",
+    );
+    expect(requestUrl.searchParams.get("api-key")).toBe("public-key");
+  });
+
+  it("keeps the canonical event URL when it already has a query", () => {
+    const event = createMockEvent(
+      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=from-event`,
+    );
+    event.node.req.url = "/_agent-native/builder/callback?_an_state=from-raw";
+
+    const requestUrl = getFrameworkRouteRequestUrl(event);
+
+    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe("from-event");
+  });
+});
+
 describe("resolveBuilderOwnerContextForRequest", () => {
   const originalEnv = { ...process.env };
 
@@ -215,6 +307,274 @@ describe("resolveBuilderOwnerContextForRequest", () => {
   });
 });
 
+describe("resolveBuilderWaitlistFormTargetForRequest", () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    for (const key of Object.keys(process.env)) {
+      if (!(key in originalEnv)) delete process.env[key];
+    }
+    Object.assign(process.env, originalEnv);
+  });
+
+  it("uses the Builder-org waitlist form on hosted Agent Native domains", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "DYTHuM0jlV",
+      formsOrigin: "https://forms.agent-native.com",
+    });
+  });
+
+  it("does not submit local waitlist clicks to the hosted form by default", () => {
+    const event = createMockEvent(
+      "http://localhost:8080/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toBeNull();
+  });
+
+  it("allows self-hosted deployments to opt into a form target explicitly", () => {
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORM_ID = "custom-form";
+    process.env.AGENT_NATIVE_BUILDER_WAITLIST_FORMS_ORIGIN =
+      "https://forms.example.com/path";
+    const event = createMockEvent(
+      "https://app.example.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(resolveBuilderWaitlistFormTargetForRequest(event)).toEqual({
+      formId: "custom-form",
+      formsOrigin: "https://forms.example.com",
+    });
+  });
+});
+
+describe("buildBuilderWaitlistFormPayload", () => {
+  it("flags the existing Builder waitlist as background coding by default", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        prompt: "Change the app header",
+        source: "connect_builder_card",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "steve@builder.io",
+        prompt: "Change the app header",
+        source: "connect_builder_card",
+        useCase: "builder_agent_background_coding",
+      },
+      _meta: {
+        source: "connect_builder_card",
+        useCase: "builder_agent_background_coding",
+      },
+    });
+  });
+
+  it("preserves an explicit waitlist use case for downstream Forms and Slack routing", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        prompt: "Publish design",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      }),
+    ).toMatchObject({
+      data: {
+        appUrl: "https://design.agent-native.com/design/abc",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      },
+      _meta: {
+        pageUrl: "https://design.agent-native.com/design/abc",
+        source: "design_editor_publish_app_menu",
+        useCase: "design_publish_app",
+      },
+    });
+  });
+
+  it("falls back to the default use case for unknown waitlist values", () => {
+    const event = createMockEvent(
+      "https://forms.agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "steve@builder.io", {
+        source: "connect_builder_card",
+        useCase: "totally_wrong_branch",
+      }),
+    ).toMatchObject({
+      data: {
+        useCase: "builder_agent_background_coding",
+      },
+      _meta: {
+        useCase: "builder_agent_background_coding",
+      },
+    });
+  });
+
+  it("preserves the docs build-online waitlist use case", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+      _meta: {
+        source: "docs_build_from_scratch",
+        useCase: "docs_build_online_waitlist",
+      },
+    });
+  });
+
+  it("preserves template context for docs customization waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+      _meta: {
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+    });
+  });
+
+  it("normalizes valid template slugs and drops unsafe values", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "  clips  ",
+      }).data.template,
+    ).toBe("clips");
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "clips\n<!channel>",
+      }).data.template,
+    ).toBeUndefined();
+  });
+});
+
+describe("resolveWaitlistEmail", () => {
+  it("prefers an explicit email over anonymous docs sessions", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", "reader@example.com"),
+    ).toBe("reader@example.com");
+  });
+
+  it("uses a signed-in session email when no explicit email is provided", () => {
+    expect(resolveWaitlistEmail("steve@builder.io", undefined)).toBe(
+      "steve@builder.io",
+    );
+  });
+
+  it("rejects anonymous sessions without an explicit email", () => {
+    expect(
+      resolveWaitlistEmail("anon-123@agent-native.com", undefined),
+    ).toBeNull();
+  });
+});
+
+describe("checkBuilderWaitlistRateLimit", () => {
+  afterEach(() => {
+    resetBuilderWaitlistRateLimitForTests();
+  });
+
+  it("allows a small burst of public waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it("throttles repeated submissions for the same email", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("throttles repeated submissions from the same peer across emails", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      expect(
+        checkBuilderWaitlistRateLimit(event, `reader-${i}@example.com`, 1_000),
+      ).toEqual({ ok: true });
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "another-reader@example.com", 1_000),
+    ).toEqual({ ok: false, retryAfterSeconds: 60 });
+  });
+
+  it("resets the throttle window after the retry period", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    for (let i = 0; i < 5; i += 1) {
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 1_000);
+    }
+
+    expect(
+      checkBuilderWaitlistRateLimit(event, "reader@example.com", 61_001),
+    ).toEqual({ ok: true });
+  });
+});
+
 describe("AVATAR_RASTER_MIME", () => {
   // Accepted raster types
   it("accepts data:image/png", () => {
@@ -276,5 +636,58 @@ describe("AVATAR_RASTER_MIME", () => {
 
   it("rejects a plain data:image/ prefix with no subtype", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
+  });
+});
+
+describe("resolveAvatarEmailParam", () => {
+  it("extracts the encoded email after the avatar route", () => {
+    expect(
+      resolveAvatarEmailParam("/_agent-native/avatar/user%40example.com", ""),
+    ).toBe("user%40example.com");
+  });
+
+  it("extracts the encoded email under an app base path", () => {
+    expect(
+      resolveAvatarEmailParam(
+        "/design/_agent-native/avatar/user%40example.com",
+        "/design",
+      ),
+    ).toBe("user%40example.com");
+  });
+
+  it("extracts the encoded email from an h3 mount-stripped path", () => {
+    expect(resolveAvatarEmailParam("/user%40example.com", "")).toBe(
+      "user%40example.com",
+    );
+  });
+
+  it("does not confuse the namespace for the email", () => {
+    expect(resolveAvatarEmailParam("/_agent-native/avatar", "")).toBe("");
+  });
+});
+
+describe("runDbHealthProbe", () => {
+  it("reports db:true when SELECT 1 succeeds", async () => {
+    let ran: string | undefined;
+    const result = await runDbHealthProbe(() => ({
+      execute: async (sql: string) => {
+        ran = sql;
+        return { rows: [], rowsAffected: 0 };
+      },
+    }));
+    expect(ran).toBe("SELECT 1");
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(true);
+    expect(result.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("stays live with db:false when the query throws (no DB / unreachable)", async () => {
+    const result = await runDbHealthProbe(() => ({
+      execute: async () => {
+        throw new Error("connection refused");
+      },
+    }));
+    expect(result.ok).toBe(true);
+    expect(result.db).toBe(false);
   });
 });

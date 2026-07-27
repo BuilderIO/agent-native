@@ -1,14 +1,15 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
+import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   createPrototypeFromPlanContent,
   serializePlanContent,
 } from "../server/plan-content.js";
-import { isLocalPlanRuntime } from "../server/lib/local-identity.js";
-import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -21,7 +22,7 @@ import {
 
 export default defineAction({
   description:
-    "Convert an existing visual plan's HTML canvas wireframes into a clickable prototype. Use this when the plan already has canvas wireframes; to create a prototype from scratch use create-prototype-plan. The prototype viewer appears above the document; canvas/mocks remain available unless removeCanvas is true. Publish via this tool; never reproduce the prototype as inline chat text.",
+    "Legacy conversion for existing visual plan HTML canvas wireframes. It creates a navigable review draft from static mocks; for a functional prototype with local state and realistic controls, use create-prototype-plan instead. The prototype viewer appears above the document; canvas/mocks remain available unless removeCanvas is true. Publish via this tool; never reproduce the prototype as inline chat text.",
   schema: z.object({
     planId: z.string().describe("Visual plan ID to convert"),
     title: z
@@ -45,19 +46,19 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Convert To Prototype Plan",
+    title: "Create Navigable Wireframe Draft",
     description:
-      "Turn an existing visual plan's canvas mockups into a clickable prototype review surface.",
+      "Turn existing canvas mockups into a navigable draft; use create-prototype-plan for functional prototypes.",
   },
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Prototype Plan",
+      title: "Visual Plan",
       description:
         "Open the converted Agent-Native Plan prototype review surface.",
       iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Prototype Plan",
-      height: 860,
+      openLabel: "Open Visual Plan",
+      height: 900,
     }),
   },
   run: async (args) => {
@@ -66,7 +67,7 @@ export default defineAction({
     if (!bundle.plan.content) {
       throw Object.assign(
         new Error(
-          "Only structured visual plans can be converted to prototype plans.",
+          "Only structured visual plans can be converted into navigable prototypes.",
         ),
         { statusCode: 400 },
       );
@@ -78,7 +79,7 @@ export default defineAction({
     if (!prototype) {
       throw Object.assign(
         new Error(
-          "No HTML canvas wireframes were found to convert. Add HTML wireframe frames first, or create a prototype plan directly with create-prototype-plan.",
+          "No HTML canvas wireframes were found to convert. Add HTML wireframe frames first, or create a visual plan with create-prototype-plan.",
         ),
         { statusCode: 400 },
       );
@@ -115,7 +116,7 @@ export default defineAction({
         id: newId("evt"),
         planId: args.planId,
         type: "plan.prototype_converted",
-        message: "Visual plan converted to a prototype plan.",
+        message: "Visual plan converted to a navigable prototype.",
         payload: JSON.stringify({
           screenCount: prototype.screens.length,
           transitionCount: prototype.transitions?.length ?? 0,
@@ -149,7 +150,7 @@ export default defineAction({
     if (!plan?.id) return null;
     return {
       url: planDeepLink(plan.id),
-      label: "Open Prototype Plan",
+      label: "Open Visual Plan",
       view: "plan",
     };
   },

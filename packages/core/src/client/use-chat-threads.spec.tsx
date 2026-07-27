@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -118,6 +119,69 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("loads older chat history pages into All Chats", async () => {
+    const firstPage: ChatThreadSummary[] = Array.from(
+      { length: 50 },
+      (_, index) => ({
+        id: `thread-${index}`,
+        title: `Thread ${index}`,
+        preview: `Preview ${index}`,
+        messageCount: 1,
+        createdAt: 1_000 - index,
+        updatedAt: 1_000 - index,
+        scope: null,
+      }),
+    );
+    const olderThread: ChatThreadSummary = {
+      id: "thread-50",
+      title: "Older thread",
+      preview: "older preview",
+      messageCount: 1,
+      createdAt: 900,
+      updatedAt: 900,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: firstPage });
+      }
+      if (url === "/chat/threads?offset=50" && !init) {
+        return jsonResponse({ threads: [olderThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "paged-history", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads).toHaveLength(50);
+    expect(hook!.hasMoreThreads).toBe(true);
+
+    await act(async () => {
+      await hook!.loadMoreThreads();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads?offset=50");
+    expect(hook!.threads.map((thread) => thread.id)).toContain("thread-50");
+    expect(hook!.threads).toHaveLength(51);
+    expect(hook!.hasMoreThreads).toBe(false);
+  });
+
   it("does not reclassify a saved thread as new when the initial thread list fails", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:thread-list-failure",
@@ -152,6 +216,54 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("thread-1");
     expect(hook!.threads).toEqual([]);
     expect(hook!.isNewThread("thread-1")).toBe(false);
+  });
+
+  it("reclassifies a saved missing thread as a new empty tab after the thread list loads", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms",
+      "empty-sidebar-tab",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:forms:seen",
+      String(Date.now()),
+    );
+    const existingThread: ChatThreadSummary = {
+      id: "real-thread",
+      title: "Previous form work",
+      preview: "add a rating field",
+      messageCount: 2,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [existingThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "forms");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
+    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "empty-sidebar-tab",
+      "real-thread",
+    ]);
   });
 
   it("can ignore a saved active thread and start fresh immediately", async () => {
@@ -199,6 +311,178 @@ describe("useChatThreads", () => {
       "forked-thread",
       "old-brain-thread",
     ]);
+  });
+
+  it("does not clear the saved active thread for a list-only reader", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:shared-chat",
+      "current-thread",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Harness() {
+      useChatThreads("/chat", "shared-chat", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:shared-chat"),
+    ).toBe("current-thread");
+  });
+
+  it("persists a switched thread before the next render", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:shared-chat",
+      "current-thread",
+    );
+    const currentThread: ChatThreadSummary = {
+      id: "current-thread",
+      title: "Current",
+      preview: "current preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [currentThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "shared-chat");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      hook!.switchThread("next-thread");
+      expect(
+        window.localStorage.getItem("agent-chat-active-thread:shared-chat"),
+      ).toBe("next-thread");
+    });
+  });
+
+  it("lets a route thread override the saved active thread", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:route-test",
+      "saved-thread",
+    );
+    const savedThread: ChatThreadSummary = {
+      id: "saved-thread",
+      title: "Saved",
+      preview: "saved preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const routeThread: ChatThreadSummary = {
+      id: "route-thread",
+      title: "Route",
+      preview: "route preview",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [savedThread, routeThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-test", null, {
+        routeThreadId: "route-thread",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("route-thread");
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:route-test"),
+    ).toBe("route-thread");
+  });
+
+  it("treats a route without a thread as create mode and clears saved active thread", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:route-create-test",
+      "saved-thread",
+    );
+    const savedThread: ChatThreadSummary = {
+      id: "saved-thread",
+      title: "Saved",
+      preview: "saved preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [savedThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "route-create-test", null, {
+        routeThreadId: null,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("forked-thread");
+    expect(hook!.isNewThread("forked-thread")).toBe(true);
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:route-create-test"),
+    ).toBeNull();
   });
 
   it("keeps the active general chat visible when entering a scoped surface", async () => {
@@ -618,6 +902,132 @@ describe("useChatThreads", () => {
     });
   });
 
+  it("materializes a new thread before saving a passive voice transcript", async () => {
+    let putCount = 0;
+    const scope: ChatThreadScope = {
+      type: "brain-source",
+      id: "source-1",
+      label: "Source one",
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/forked-thread" && init?.method === "PUT") {
+        putCount += 1;
+        return putCount === 1
+          ? new Response(JSON.stringify({ error: "Thread not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            })
+          : jsonResponse({ ok: true });
+      }
+      if (url === "/chat/threads" && init?.method === "POST") {
+        return jsonResponse({ id: "forked-thread" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "voice-thread-test", scope);
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await hook!.saveThreadData("forked-thread", {
+        threadData: JSON.stringify({ messages: [{ id: "voice-1" }] }),
+        title: "Open sources",
+        preview: "Opening Sources.",
+        messageCount: 1,
+      });
+    });
+
+    expect(putCount).toBe(2);
+    const createCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/chat/threads" && init?.method === "POST",
+    );
+    expect(JSON.parse(createCall![1]!.body as string)).toEqual({
+      id: "forked-thread",
+      title: "Open sources",
+      scope,
+    });
+  });
+
+  it("moves a saved thread to the top of the local recency order", async () => {
+    const olderThread: ChatThreadSummary = {
+      id: "thread-1",
+      title: "Older thread",
+      preview: "old",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const newerThread: ChatThreadSummary = {
+      id: "thread-2",
+      title: "Newer thread",
+      preview: "new",
+      messageCount: 1,
+      createdAt: 3,
+      updatedAt: 4,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [newerThread, olderThread] });
+      }
+      if (url === "/chat/threads/thread-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "recency-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-2",
+      "thread-1",
+    ]);
+
+    await act(async () => {
+      await hook!.saveThreadData("thread-1", {
+        threadData: "{}",
+        title: "Older thread",
+        preview: "now active",
+        messageCount: 2,
+      });
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+  });
+
   it("renames a thread optimistically", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "thread-1",
@@ -929,6 +1339,63 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("thread-2");
   });
 
+  it("drops an archived thread created this session once the server resync omits it", async () => {
+    // The store now excludes archived threads from `GET /threads` by
+    // default (see chat-threads/store.ts `listThreads`/`searchThreads`).
+    // A thread created client-side this session lives in `newlyCreatedRef`
+    // so it survives a resync even before the server has seen it — but once
+    // it's archived, the server will never return it again, and the client
+    // must not keep treating "missing from the server list" as "not yet
+    // synced" forever.
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        // The server never returns the archived thread, whether because it
+        // was never synced or because it's now excluded as archived.
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/thread-1/archive" && init?.method === "POST") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "archive-resync-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await hook!.createThread("thread-1");
+    });
+    expect(hook!.threads.map((t) => t.id)).toEqual(["thread-1"]);
+
+    let archived = false;
+    await act(async () => {
+      archived = await hook!.archiveThread("thread-1");
+    });
+    expect(archived).toBe(true);
+
+    await act(async () => {
+      hook!.refreshThreads();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.find((t) => t.id === "thread-1")).toBeUndefined();
+  });
+
   it("does not switch away from the current thread when a deleted thread request finishes late", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:delete-navigation-test",
@@ -1149,5 +1616,81 @@ describe("useChatThreads", () => {
     expect(
       hook!.threads.find((thread) => thread.id === "thread-1")?.title,
     ).toBe("User title");
+  });
+
+  it("creates, reads, and revokes thread share links through the client helper", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/thread-1/share" && !init) {
+        return jsonResponse({
+          share: {
+            enabled: false,
+            createdAt: null,
+            updatedAt: null,
+            revokedAt: null,
+          },
+        });
+      }
+      if (url === "/chat/threads/thread-1/share" && init?.method === "POST") {
+        return jsonResponse({
+          share: {
+            enabled: true,
+            token: "share-token",
+            createdAt: 10,
+            updatedAt: 20,
+            revokedAt: null,
+          },
+          url: "https://app.example/shared/share-token",
+        });
+      }
+      if (url === "/chat/threads/thread-1/share" && init?.method === "DELETE") {
+        return jsonResponse({
+          share: {
+            enabled: false,
+            createdAt: 10,
+            updatedAt: 30,
+            revokedAt: 30,
+          },
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "share-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await expect(hook!.getThreadShareState("thread-1")).resolves.toMatchObject({
+      enabled: false,
+    });
+    await expect(hook!.createThreadShareLink("thread-1")).resolves.toEqual({
+      enabled: true,
+      token: "share-token",
+      createdAt: 10,
+      updatedAt: 20,
+      revokedAt: null,
+      url: "https://app.example/shared/share-token",
+    });
+    await expect(hook!.revokeThreadShareLink("thread-1")).resolves.toEqual({
+      enabled: false,
+      createdAt: 10,
+      updatedAt: 30,
+      revokedAt: 30,
+    });
   });
 });

@@ -1,11 +1,7 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useCallback, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconChevronDown,
   IconPlus,
-  IconSettings,
+  IconFilter,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -15,20 +11,15 @@ import {
   IconTool,
   IconEye,
   IconEyeOff,
+  IconHelpCircle,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "../components/ui/hover-card.js";
+import { agentNativePath } from "../api-path.js";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -41,25 +32,38 @@ import {
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
 import {
-  applyToolsOrder,
-  getToolsOrder,
-  setToolsOrder,
-} from "./extension-order.js";
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "../components/ui/hover-card.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import {
-  extensionPopularityOf,
-  useExtensionPopularity,
-} from "./extension-popularity.js";
+import { PromptComposer } from "../composer/index.js";
+import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import {
+  applyToolsOrder,
+  getToolsOrder,
+  setToolsOrder,
+} from "./extension-order.js";
+import {
+  extensionPopularityOf,
+  useExtensionPopularity,
+} from "./extension-popularity.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -68,6 +72,10 @@ interface Extension {
   icon?: string;
   canDelete?: boolean;
   globallyHidden?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+  };
 }
 
 const FAVORITES_KEY = "extensions-favorites";
@@ -76,6 +84,421 @@ const EXTENSIONS_OPEN_KEY = "extensions-sidebar-open";
 const EXTENSIONS_SORT_MODE_KEY = "extensions-sort-mode";
 
 type ExtensionSortMode = "most-used" | "alphabetical" | "manual";
+
+type ExtensionsCopy = {
+  title: string;
+  description: string;
+  open: string;
+  learnMore: string;
+  sortOptions: string;
+  sortTooltip: string;
+  sortBy: string;
+  mostUsed: string;
+  alphabetical: string;
+  manualOrder: string;
+  showHidden: string;
+  newExtension: string;
+  createPlaceholder: string;
+  collapse: string;
+  expand: string;
+  reorder: (name: string) => string;
+  dragToReorder: string;
+  hiddenFromEveryone: string;
+  file: string;
+  unfavorite: string;
+  favorite: string;
+  actions: string;
+  editInFiles: string;
+  rename: string;
+  unhideForEveryone: string;
+  hideFromEveryone: string;
+  removeFromMyList: string;
+  delete: string;
+  showLess: string;
+  showMore: string;
+  loadError: string;
+};
+
+const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
+  "en-US": {
+    title: "Extensions",
+    description:
+      "Build small sandboxed apps that can read app data, call actions, and save their own state.",
+    open: "Open extensions",
+    learnMore: "Learn more",
+    sortOptions: "Extensions sort options",
+    sortTooltip: "Extensions sort",
+    sortBy: "Sort by",
+    mostUsed: "Most used",
+    alphabetical: "Alphabetical",
+    manualOrder: "Manual order",
+    showHidden: "Show hidden",
+    newExtension: "New extension",
+    createPlaceholder: "Describe what you'd like to build...",
+    collapse: "Collapse extensions",
+    expand: "Expand extensions",
+    reorder: (name) => `Reorder ${name}`,
+    dragToReorder: "Drag to reorder",
+    hiddenFromEveryone: "Hidden from everyone",
+    file: "File",
+    unfavorite: "Unfavorite",
+    favorite: "Favorite",
+    actions: "Extension actions",
+    editInFiles: "Edit in files",
+    rename: "Rename",
+    unhideForEveryone: "Unhide for everyone",
+    hideFromEveryone: "Hide from everyone",
+    removeFromMyList: "Remove from my list",
+    delete: "Archive",
+    showLess: "show less",
+    showMore: "show more",
+    loadError: "Couldn't load extensions.",
+  },
+  "zh-CN": {
+    title: "扩展",
+    description: "构建可读取应用数据、调用操作并保存自身状态的小型沙盒应用。",
+    open: "打开扩展",
+    learnMore: "了解更多",
+    sortOptions: "扩展排序选项",
+    sortTooltip: "扩展排序",
+    sortBy: "排序方式",
+    mostUsed: "最常用",
+    alphabetical: "按字母顺序",
+    manualOrder: "手动排序",
+    showHidden: "显示隐藏项",
+    newExtension: "新建扩展",
+    createPlaceholder: "描述你想构建的内容...",
+    collapse: "收起扩展",
+    expand: "展开扩展",
+    reorder: (name) => `重新排序 ${name}`,
+    dragToReorder: "拖动以重新排序",
+    hiddenFromEveryone: "已对所有人隐藏",
+    file: "文件",
+    unfavorite: "取消收藏",
+    favorite: "收藏",
+    actions: "扩展操作",
+    editInFiles: "在文件中编辑",
+    rename: "重命名",
+    unhideForEveryone: "对所有人取消隐藏",
+    hideFromEveryone: "对所有人隐藏",
+    removeFromMyList: "从我的列表中移除",
+    delete: "归档",
+    showLess: "收起",
+    showMore: "显示更多",
+    loadError: "无法加载扩展。",
+  },
+  "zh-TW": {
+    title: "擴充功能",
+    description:
+      "建立可讀取應用程式資料、呼叫動作並儲存自身狀態的小型沙盒應用程式。",
+    open: "開啟擴充功能",
+    learnMore: "了解更多",
+    sortOptions: "擴充功能排序選項",
+    sortTooltip: "擴充功能排序",
+    sortBy: "排序方式",
+    mostUsed: "最常用",
+    alphabetical: "依字母排序",
+    manualOrder: "手動排序",
+    showHidden: "顯示隱藏項目",
+    newExtension: "新增擴充功能",
+    createPlaceholder: "描述你想建立的內容...",
+    collapse: "收合擴充功能",
+    expand: "展開擴充功能",
+    reorder: (name) => `重新排序 ${name}`,
+    dragToReorder: "拖曳以重新排序",
+    hiddenFromEveryone: "已對所有人隱藏",
+    file: "檔案",
+    unfavorite: "取消最愛",
+    favorite: "加入最愛",
+    actions: "擴充功能動作",
+    editInFiles: "在檔案中編輯",
+    rename: "重新命名",
+    unhideForEveryone: "對所有人取消隱藏",
+    hideFromEveryone: "對所有人隱藏",
+    removeFromMyList: "從我的清單移除",
+    delete: "封存",
+    showLess: "顯示較少",
+    showMore: "顯示更多",
+    loadError: "無法載入擴充功能。",
+  },
+  "es-ES": {
+    title: "Extensiones",
+    description:
+      "Crea pequeñas apps aisladas que pueden leer datos de la app, llamar acciones y guardar su propio estado.",
+    open: "Abrir extensiones",
+    learnMore: "Más información",
+    sortOptions: "Opciones de orden de extensiones",
+    sortTooltip: "Orden de extensiones",
+    sortBy: "Ordenar por",
+    mostUsed: "Más usadas",
+    alphabetical: "Alfabético",
+    manualOrder: "Orden manual",
+    showHidden: "Mostrar ocultas",
+    newExtension: "Nueva extensión",
+    createPlaceholder: "Describe lo que quieres crear...",
+    collapse: "Contraer extensiones",
+    expand: "Expandir extensiones",
+    reorder: (name) => `Reordenar ${name}`,
+    dragToReorder: "Arrastra para reordenar",
+    hiddenFromEveryone: "Oculta para todos",
+    file: "Archivo",
+    unfavorite: "Quitar de favoritos",
+    favorite: "Favorito",
+    actions: "Acciones de extensión",
+    editInFiles: "Editar en archivos",
+    rename: "Renombrar",
+    unhideForEveryone: "Mostrar para todos",
+    hideFromEveryone: "Ocultar para todos",
+    removeFromMyList: "Quitar de mi lista",
+    delete: "Archivar",
+    showLess: "mostrar menos",
+    showMore: "mostrar más",
+    loadError: "No se pudieron cargar las extensiones.",
+  },
+  "fr-FR": {
+    title: "Extensions",
+    description:
+      "Créez de petites apps sandboxées capables de lire les données de l'app, d'appeler des actions et d'enregistrer leur propre état.",
+    open: "Ouvrir les extensions",
+    learnMore: "En savoir plus",
+    sortOptions: "Options de tri des extensions",
+    sortTooltip: "Tri des extensions",
+    sortBy: "Trier par",
+    mostUsed: "Les plus utilisées",
+    alphabetical: "Alphabétique",
+    manualOrder: "Ordre manuel",
+    showHidden: "Afficher les masquées",
+    newExtension: "Nouvelle extension",
+    createPlaceholder: "Décrivez ce que vous voulez créer...",
+    collapse: "Replier les extensions",
+    expand: "Déplier les extensions",
+    reorder: (name) => `Réordonner ${name}`,
+    dragToReorder: "Faire glisser pour réordonner",
+    hiddenFromEveryone: "Masquée pour tout le monde",
+    file: "Fichier",
+    unfavorite: "Retirer des favoris",
+    favorite: "Favori",
+    actions: "Actions de l'extension",
+    editInFiles: "Modifier dans les fichiers",
+    rename: "Renommer",
+    unhideForEveryone: "Afficher pour tout le monde",
+    hideFromEveryone: "Masquer pour tout le monde",
+    removeFromMyList: "Retirer de ma liste",
+    delete: "Archiver",
+    showLess: "afficher moins",
+    showMore: "afficher plus",
+    loadError: "Impossible de charger les extensions.",
+  },
+  "de-DE": {
+    title: "Erweiterungen",
+    description:
+      "Erstelle kleine Sandbox-Apps, die App-Daten lesen, Aktionen aufrufen und ihren eigenen Zustand speichern können.",
+    open: "Erweiterungen öffnen",
+    learnMore: "Mehr erfahren",
+    sortOptions: "Sortieroptionen für Erweiterungen",
+    sortTooltip: "Erweiterungen sortieren",
+    sortBy: "Sortieren nach",
+    mostUsed: "Am häufigsten genutzt",
+    alphabetical: "Alphabetisch",
+    manualOrder: "Manuelle Reihenfolge",
+    showHidden: "Ausgeblendete anzeigen",
+    newExtension: "Neue Erweiterung",
+    createPlaceholder: "Beschreibe, was du erstellen möchtest...",
+    collapse: "Erweiterungen einklappen",
+    expand: "Erweiterungen ausklappen",
+    reorder: (name) => `${name} neu anordnen`,
+    dragToReorder: "Zum Neuordnen ziehen",
+    hiddenFromEveryone: "Für alle ausgeblendet",
+    file: "Datei",
+    unfavorite: "Aus Favoriten entfernen",
+    favorite: "Favorisieren",
+    actions: "Erweiterungsaktionen",
+    editInFiles: "In Dateien bearbeiten",
+    rename: "Umbenennen",
+    unhideForEveryone: "Für alle einblenden",
+    hideFromEveryone: "Für alle ausblenden",
+    removeFromMyList: "Aus meiner Liste entfernen",
+    delete: "Archivieren",
+    showLess: "weniger anzeigen",
+    showMore: "mehr anzeigen",
+    loadError: "Erweiterungen konnten nicht geladen werden.",
+  },
+  "ja-JP": {
+    title: "拡張機能",
+    description:
+      "アプリデータを読み取り、アクションを呼び出し、独自の状態を保存できる小さなサンドボックスアプリを作成します。",
+    open: "拡張機能を開く",
+    learnMore: "詳しく見る",
+    sortOptions: "拡張機能の並べ替えオプション",
+    sortTooltip: "拡張機能の並べ替え",
+    sortBy: "並べ替え",
+    mostUsed: "よく使う順",
+    alphabetical: "アルファベット順",
+    manualOrder: "手動順",
+    showHidden: "非表示を表示",
+    newExtension: "新しい拡張機能",
+    createPlaceholder: "作りたいものを説明してください...",
+    collapse: "拡張機能を折りたたむ",
+    expand: "拡張機能を展開",
+    reorder: (name) => `${name} を並べ替え`,
+    dragToReorder: "ドラッグして並べ替え",
+    hiddenFromEveryone: "全員に非表示",
+    file: "ファイル",
+    unfavorite: "お気に入り解除",
+    favorite: "お気に入り",
+    actions: "拡張機能の操作",
+    editInFiles: "ファイルで編集",
+    rename: "名前を変更",
+    unhideForEveryone: "全員に表示",
+    hideFromEveryone: "全員に非表示",
+    removeFromMyList: "自分のリストから削除",
+    delete: "アーカイブ",
+    showLess: "少なく表示",
+    showMore: "さらに表示",
+    loadError: "拡張機能を読み込めませんでした。",
+  },
+  "ko-KR": {
+    title: "확장",
+    description:
+      "앱 데이터를 읽고, 액션을 호출하고, 자체 상태를 저장할 수 있는 작은 샌드박스 앱을 만듭니다.",
+    open: "확장 열기",
+    learnMore: "자세히 알아보기",
+    sortOptions: "확장 정렬 옵션",
+    sortTooltip: "확장 정렬",
+    sortBy: "정렬 기준",
+    mostUsed: "가장 많이 사용",
+    alphabetical: "가나다순",
+    manualOrder: "수동 순서",
+    showHidden: "숨김 항목 표시",
+    newExtension: "새 확장",
+    createPlaceholder: "만들고 싶은 것을 설명하세요...",
+    collapse: "확장 접기",
+    expand: "확장 펼치기",
+    reorder: (name) => `${name} 순서 변경`,
+    dragToReorder: "드래그하여 순서 변경",
+    hiddenFromEveryone: "모두에게 숨김",
+    file: "파일",
+    unfavorite: "즐겨찾기 해제",
+    favorite: "즐겨찾기",
+    actions: "확장 작업",
+    editInFiles: "파일에서 편집",
+    rename: "이름 변경",
+    unhideForEveryone: "모두에게 표시",
+    hideFromEveryone: "모두에게 숨기기",
+    removeFromMyList: "내 목록에서 제거",
+    delete: "보관",
+    showLess: "덜 보기",
+    showMore: "더 보기",
+    loadError: "확장 프로그램을 불러올 수 없습니다.",
+  },
+  "pt-BR": {
+    title: "Extensões",
+    description:
+      "Crie pequenos apps isolados que podem ler dados do app, chamar ações e salvar o próprio estado.",
+    open: "Abrir extensões",
+    learnMore: "Saiba mais",
+    sortOptions: "Opções de ordenação das extensões",
+    sortTooltip: "Ordenação das extensões",
+    sortBy: "Ordenar por",
+    mostUsed: "Mais usadas",
+    alphabetical: "Alfabética",
+    manualOrder: "Ordem manual",
+    showHidden: "Mostrar ocultas",
+    newExtension: "Nova extensão",
+    createPlaceholder: "Descreva o que você quer criar...",
+    collapse: "Recolher extensões",
+    expand: "Expandir extensões",
+    reorder: (name) => `Reordenar ${name}`,
+    dragToReorder: "Arraste para reordenar",
+    hiddenFromEveryone: "Oculta para todos",
+    file: "Arquivo",
+    unfavorite: "Remover dos favoritos",
+    favorite: "Favoritar",
+    actions: "Ações da extensão",
+    editInFiles: "Editar em arquivos",
+    rename: "Renomear",
+    unhideForEveryone: "Mostrar para todos",
+    hideFromEveryone: "Ocultar para todos",
+    removeFromMyList: "Remover da minha lista",
+    delete: "Arquivar",
+    showLess: "mostrar menos",
+    showMore: "mostrar mais",
+    loadError: "Não foi possível carregar as extensões.",
+  },
+  "hi-IN": {
+    title: "एक्सटेंशन",
+    description:
+      "छोटे सैंडबॉक्स ऐप बनाएं जो ऐप डेटा पढ़ सकते हैं, कार्रवाइयां चला सकते हैं और अपना स्टेट सहेज सकते हैं।",
+    open: "एक्सटेंशन खोलें",
+    learnMore: "और जानें",
+    sortOptions: "एक्सटेंशन क्रम विकल्प",
+    sortTooltip: "एक्सटेंशन क्रम",
+    sortBy: "इसके अनुसार क्रमबद्ध करें",
+    mostUsed: "सबसे अधिक उपयोग",
+    alphabetical: "वर्णानुक्रम",
+    manualOrder: "मैन्युअल क्रम",
+    showHidden: "छिपे हुए दिखाएं",
+    newExtension: "नया एक्सटेंशन",
+    createPlaceholder: "बताएं कि आप क्या बनाना चाहते हैं...",
+    collapse: "एक्सटेंशन समेटें",
+    expand: "एक्सटेंशन फैलाएं",
+    reorder: (name) => `${name} का क्रम बदलें`,
+    dragToReorder: "क्रम बदलने के लिए खींचें",
+    hiddenFromEveryone: "सभी से छिपा हुआ",
+    file: "फ़ाइल",
+    unfavorite: "पसंदीदा से हटाएं",
+    favorite: "पसंदीदा",
+    actions: "एक्सटेंशन कार्रवाइयां",
+    editInFiles: "फ़ाइलों में संपादित करें",
+    rename: "नाम बदलें",
+    unhideForEveryone: "सभी के लिए दिखाएं",
+    hideFromEveryone: "सभी से छिपाएं",
+    removeFromMyList: "मेरी सूची से हटाएं",
+    delete: "संग्रहित करें",
+    showLess: "कम दिखाएं",
+    showMore: "और दिखाएं",
+    loadError: "एक्सटेंशन लोड नहीं हो सके।",
+  },
+  "ar-SA": {
+    title: "الإضافات",
+    description:
+      "أنشئ تطبيقات صغيرة معزولة يمكنها قراءة بيانات التطبيق واستدعاء الإجراءات وحفظ حالتها الخاصة.",
+    open: "فتح الإضافات",
+    learnMore: "معرفة المزيد",
+    sortOptions: "خيارات ترتيب الإضافات",
+    sortTooltip: "ترتيب الإضافات",
+    sortBy: "ترتيب حسب",
+    mostUsed: "الأكثر استخدامًا",
+    alphabetical: "أبجديًا",
+    manualOrder: "ترتيب يدوي",
+    showHidden: "إظهار المخفية",
+    newExtension: "إضافة جديدة",
+    createPlaceholder: "صف ما تريد إنشاءه...",
+    collapse: "طي الإضافات",
+    expand: "توسيع الإضافات",
+    reorder: (name) => `إعادة ترتيب ${name}`,
+    dragToReorder: "اسحب لإعادة الترتيب",
+    hiddenFromEveryone: "مخفية عن الجميع",
+    file: "ملف",
+    unfavorite: "إزالة من المفضلة",
+    favorite: "إضافة إلى المفضلة",
+    actions: "إجراءات الإضافة",
+    editInFiles: "تحرير في الملفات",
+    rename: "إعادة تسمية",
+    unhideForEveryone: "إظهار للجميع",
+    hideFromEveryone: "إخفاء عن الجميع",
+    removeFromMyList: "إزالة من قائمتي",
+    delete: "أرشفة",
+    showLess: "إظهار أقل",
+    showMore: "إظهار المزيد",
+    loadError: "تعذر تحميل الإضافات.",
+  },
+};
+
+function useExtensionsCopy() {
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
+  return EXTENSIONS_COPY[locale] ?? EXTENSIONS_COPY[DEFAULT_LOCALE];
+}
 
 function getFavorites(): Set<string> {
   try {
@@ -143,11 +566,13 @@ function ExtensionSortMenu({
   onChange,
   showHidden,
   onShowHiddenChange,
+  copy,
 }: {
   value: ExtensionSortMode;
   onChange: (value: ExtensionSortMode) => void;
   showHidden: boolean;
   onShowHiddenChange: (next: boolean) => void;
+  copy: ExtensionsCopy;
 }) {
   return (
     <DropdownMenu>
@@ -156,17 +581,17 @@ function ExtensionSortMenu({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
-              aria-label="Extensions sort options"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              aria-label={copy.sortOptions}
             >
-              <IconSettings className="h-3.5 w-3.5" />
+              <IconFilter className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent>Extensions sort</TooltipContent>
+        <TooltipContent>{copy.sortTooltip}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent side="right" align="start" className="w-44">
-        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+        <DropdownMenuLabel>{copy.sortBy}</DropdownMenuLabel>
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) => {
@@ -180,14 +605,13 @@ function ExtensionSortMenu({
           }}
         >
           <DropdownMenuRadioItem value="most-used">
-            Most used
+            {copy.mostUsed}
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="alphabetical">
-            Alphabetical
+            {copy.alphabetical}
           </DropdownMenuRadioItem>
-          <DropdownMenuSeparator />
           <DropdownMenuRadioItem value="manual">
-            Manual order
+            {copy.manualOrder}
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
@@ -195,7 +619,7 @@ function ExtensionSortMenu({
           checked={showHidden}
           onCheckedChange={(checked) => onShowHiddenChange(Boolean(checked))}
         >
-          Show hidden
+          {copy.showHidden}
         </DropdownMenuCheckboxItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -203,6 +627,7 @@ function ExtensionSortMenu({
 }
 
 export function ExtensionsSidebarSection() {
+  const copy = useExtensionsCopy();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -227,7 +652,7 @@ export function ExtensionsSidebarSection() {
   const [showAllExtensions, setShowAllExtensions] = useState(false);
   const [showGloballyHidden, setShowGloballyHidden] = useState(false);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -237,10 +662,11 @@ export function ExtensionsSidebarSection() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toggleFavorite = useCallback((id: string) => {
     setFavoriteIds((prev) => {
@@ -459,7 +885,7 @@ export function ExtensionsSidebarSection() {
       <div className="relative min-w-0 py-1">
         <div
           className={cn(
-            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-all hover:text-primary",
+            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-[opacity,color,background-color] hover:text-primary",
             location.pathname.startsWith("/extensions")
               ? "text-sidebar-accent-foreground"
               : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -470,9 +896,7 @@ export function ExtensionsSidebarSection() {
             type="button"
             onClick={toggleExtensionsOpen}
             className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={
-              extensionsOpen ? "Collapse extensions" : "Expand extensions"
-            }
+            aria-label={extensionsOpen ? copy.collapse : copy.expand}
             aria-expanded={extensionsOpen}
           />
           <div className="pointer-events-none relative z-10 flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 pr-20">
@@ -483,7 +907,7 @@ export function ExtensionsSidebarSection() {
                   className="pointer-events-auto min-w-0 select-none truncate"
                   onClick={toggleExtensionsOpen}
                 >
-                  Extensions
+                  {copy.title}
                 </span>
               </HoverCardTrigger>
               <HoverCardContent
@@ -494,11 +918,10 @@ export function ExtensionsSidebarSection() {
               >
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    Extensions
+                    {copy.title}
                   </p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Build small sandboxed apps that can read app data, call
-                    actions, and save their own state.
+                    {copy.description}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -506,7 +929,7 @@ export function ExtensionsSidebarSection() {
                     to="/extensions"
                     className="inline-flex h-8 items-center rounded-md border px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
                   >
-                    Open extensions
+                    {copy.open}
                   </Link>
                   <a
                     href="https://agent-native.com/docs/extensions"
@@ -514,7 +937,7 @@ export function ExtensionsSidebarSection() {
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    Learn more
+                    {copy.learnMore}
                   </a>
                 </div>
               </HoverCardContent>
@@ -526,13 +949,14 @@ export function ExtensionsSidebarSection() {
               onChange={setExtensionSortMode}
               showHidden={showGloballyHidden}
               onShowHiddenChange={setShowGloballyHidden}
+              copy={copy}
             />
             <Popover open={showCreate} onOpenChange={setShowCreate}>
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
-                  aria-label="New extension"
+                  className="pointer-events-none inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/extensions-section:pointer-events-auto group-hover/extensions-section:opacity-100 group-focus-within/extensions-section:pointer-events-auto group-focus-within/extensions-section:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
+                  aria-label={copy.newExtension}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
                 </button>
@@ -540,14 +964,31 @@ export function ExtensionsSidebarSection() {
               <PopoverContent
                 side="right"
                 align="start"
-                className="w-[420px] p-3"
+                collisionPadding={8}
+                className="relative z-[360] w-[min(420px,calc(100vw-16px))] px-2 pb-2 pt-3"
               >
-                <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                  New extension
-                </p>
+                <div className="flex items-center justify-between gap-2 ps-1 pb-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {copy.newExtension}
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href="https://agent-native.com/docs/extensions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={copy.learnMore}
+                      >
+                        <IconHelpCircle className="size-4" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>{copy.learnMore}</TooltipContent>
+                  </Tooltip>
+                </div>
                 <PromptComposer
                   autoFocus
-                  placeholder="Describe what you'd like to build..."
+                  placeholder={copy.createPlaceholder}
                   draftScope="extensions:sidebar-create"
                   onSubmit={handleCreate}
                 />
@@ -557,9 +998,7 @@ export function ExtensionsSidebarSection() {
               type="button"
               onClick={toggleExtensionsOpen}
               className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-              aria-label={
-                extensionsOpen ? "Collapse extensions" : "Expand extensions"
-              }
+              aria-label={extensionsOpen ? copy.collapse : copy.expand}
               aria-expanded={extensionsOpen}
             >
               <IconChevronDown
@@ -573,7 +1012,7 @@ export function ExtensionsSidebarSection() {
         </div>
 
         {extensionsOpen &&
-          (isLoading ? (
+          (extensionsQuery.isLoading ? (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {[1, 2, 3].map((i) => (
                 <div
@@ -587,6 +1026,13 @@ export function ExtensionsSidebarSection() {
                 </div>
               ))}
             </div>
+          ) : extensionsQuery.isError ? (
+            <ExtensionQueryErrorState
+              compact
+              message={copy.loadError}
+              onRetry={() => void extensionsQuery.refetch()}
+              retrying={extensionsQuery.isFetching}
+            />
           ) : sortedTools.length === 0 ? null : (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {visibleTools.map((extension) => {
@@ -596,6 +1042,8 @@ export function ExtensionsSidebarSection() {
                 );
                 const isFav = favoriteIds.has(extension.id);
                 const isRenamingThis = renamingId === extension.id;
+                const isLocalExtension =
+                  extension.source?.mode === "local-files";
                 const actionsVisible =
                   menuOpenId === extension.id || isRenamingThis;
 
@@ -644,13 +1092,13 @@ export function ExtensionsSidebarSection() {
                             setDraggingId(null);
                             setDragOverId(null);
                           }}
-                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
-                          aria-label={`Reorder ${extension.name}`}
+                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                          aria-label={copy.reorder(extension.name)}
                         >
                           <IconGripVertical className="h-3 w-3" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent>Drag to reorder</TooltipContent>
+                      <TooltipContent>{copy.dragToReorder}</TooltipContent>
                     </Tooltip>
                     <Link
                       to={extensionPath(extension.id, extension.name)}
@@ -683,12 +1131,17 @@ export function ExtensionsSidebarSection() {
                           {extension.globallyHidden && (
                             <IconEyeOff
                               className="h-3 w-3 shrink-0 text-muted-foreground/60"
-                              aria-label="Hidden from everyone"
+                              aria-label={copy.hiddenFromEveryone}
                             />
                           )}
                           <span className="block truncate">
                             {extension.name}
                           </span>
+                          {isLocalExtension && (
+                            <span className="shrink-0 rounded border border-border px-1 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                              {copy.file}
+                            </span>
+                          )}
                         </span>
                       )}
                     </Link>
@@ -712,7 +1165,7 @@ export function ExtensionsSidebarSection() {
                             ? "text-yellow-500"
                             : "text-muted-foreground/40 hover:text-yellow-500",
                         )}
-                        aria-label={isFav ? "Unfavorite" : "Favorite"}
+                        aria-label={isFav ? copy.unfavorite : copy.favorite}
                       >
                         {isFav ? (
                           <IconStarFilled className="h-3 w-3" />
@@ -731,7 +1184,7 @@ export function ExtensionsSidebarSection() {
                           <button
                             type="button"
                             className="pointer-events-auto cursor-pointer rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-foreground"
-                            aria-label="Extension actions"
+                            aria-label={copy.actions}
                           >
                             <IconDots className="h-3 w-3" />
                           </button>
@@ -741,37 +1194,47 @@ export function ExtensionsSidebarSection() {
                           sideOffset={4}
                           className="min-w-[140px]"
                         >
-                          <DropdownMenuItem
-                            onSelect={() => startRename(extension)}
-                          >
-                            <IconPencil className="h-3.5 w-3.5" />
-                            Rename
-                          </DropdownMenuItem>
-                          {extension.canDelete !== false &&
+                          {isLocalExtension ? (
+                            <DropdownMenuItem disabled>
+                              <IconPencil className="h-3.5 w-3.5" />
+                              {copy.editInFiles}
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem
+                              onSelect={() => startRename(extension)}
+                            >
+                              <IconPencil className="h-3.5 w-3.5" />
+                              {copy.rename}
+                            </DropdownMenuItem>
+                          )}
+                          {!isLocalExtension &&
+                            extension.canDelete !== false &&
                             (extension.globallyHidden ? (
                               <DropdownMenuItem
                                 onSelect={() => handleGlobalUnhide(extension)}
                               >
                                 <IconEye className="h-3.5 w-3.5" />
-                                Unhide for everyone
+                                {copy.unhideForEveryone}
                               </DropdownMenuItem>
                             ) : (
                               <DropdownMenuItem
                                 onSelect={() => handleGlobalHide(extension)}
                               >
                                 <IconEyeOff className="h-3.5 w-3.5" />
-                                Hide from everyone
+                                {copy.hideFromEveryone}
                               </DropdownMenuItem>
                             ))}
-                          <DropdownMenuItem
-                            onSelect={() => handleDelete(extension)}
-                            className="text-destructive focus:text-destructive"
-                          >
-                            <IconTrash className="h-3.5 w-3.5" />
-                            {extension.canDelete === false
-                              ? "Remove from my list"
-                              : "Delete"}
-                          </DropdownMenuItem>
+                          {!isLocalExtension && (
+                            <DropdownMenuItem
+                              onSelect={() => handleDelete(extension)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <IconTrash className="h-3.5 w-3.5" />
+                              {extension.canDelete === false
+                                ? copy.removeFromMyList
+                                : copy.delete}
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -785,7 +1248,7 @@ export function ExtensionsSidebarSection() {
                   onClick={() => setShowAllExtensions((current) => !current)}
                   className="ml-5 mt-1 inline-flex h-5 items-center rounded px-1.5 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
-                  {showAllExtensions ? "show less" : "show more"}
+                  {showAllExtensions ? copy.showLess : copy.showMore}
                 </button>
               )}
             </div>

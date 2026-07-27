@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { startOfDay, set, addMinutes } from "date-fns";
 import type { CalendarEvent } from "@shared/api";
+import { startOfDay, set, addMinutes } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const SNAP_MINUTES = 15;
 
@@ -49,7 +49,6 @@ export interface UseEventDragOptions {
   onEventTimeChange: (eventId: string, newStart: Date, newEnd: Date) => void;
   /** All events (to find the event being dragged) */
   events: CalendarEvent[];
-  /** Timezone used by the calendar grid */
   timezone: string;
 }
 
@@ -66,6 +65,9 @@ export function useEventDrag({
   const dragStateRef = useRef<DragState | null>(null);
   /** Tracks if a drag just ended - used to suppress popover click */
   const justDraggedRef = useRef(false);
+  /** Latest native pointermove event, flushed to state at most once per frame */
+  const pendingMoveEventRef = useRef<PointerEvent | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   const getScrollTop = useCallback(() => {
     return scrollContainerRef.current?.scrollTop ?? 0;
@@ -173,15 +175,12 @@ export function useEventDrag({
       getScrollTop,
       startHour,
       hourHeight,
-      timezone,
     ],
   );
 
-  const onPointerMove = useCallback(
-    (e: PointerEvent) => {
-      const state = dragStateRef.current;
-      if (!state) return;
-
+  /** Pure computation from the latest pointer event + current drag state to the next drag state */
+  const computeNextDragState = useCallback(
+    (state: DragState, e: PointerEvent): DragState => {
       const gridTop = getGridTop();
       const scrollTop = getScrollTop();
       const pointerYInGrid = e.clientY - gridTop + scrollTop;
@@ -222,20 +221,57 @@ export function useEventDrag({
         newTop = originalBottom - newHeight;
       }
 
-      const updated: DragState = {
+      return {
         ...state,
         currentTop: newTop,
         currentHeight: newHeight,
         currentDayIndex: newDayIndex,
         hasMoved,
       };
-      dragStateRef.current = updated;
-      setDragState(updated);
     },
     [getGridTop, getScrollTop, pxToMinutes, hourHeight, days, getDayIndexFromX],
   );
 
+  /** Flush the latest pending pointer event into drag state — runs at most once per animation frame */
+  const flushPendingMove = useCallback(() => {
+    rafIdRef.current = null;
+    const pending = pendingMoveEventRef.current;
+    pendingMoveEventRef.current = null;
+    const state = dragStateRef.current;
+    if (!pending || !state) return;
+
+    const updated = computeNextDragState(state, pending);
+    dragStateRef.current = updated;
+    setDragState(updated);
+  }, [computeNextDragState]);
+
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
+      if (!dragStateRef.current) return;
+      pendingMoveEventRef.current = e;
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(flushPendingMove);
+      }
+    },
+    [flushPendingMove],
+  );
+
+  /** Cancel any scheduled rAF flush and apply the latest pending pointer position synchronously */
+  const flushAndCancelPendingMove = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    const pending = pendingMoveEventRef.current;
+    pendingMoveEventRef.current = null;
+    const state = dragStateRef.current;
+    if (pending && state) {
+      dragStateRef.current = computeNextDragState(state, pending);
+    }
+  }, [computeNextDragState]);
+
   const onPointerUp = useCallback(() => {
+    flushAndCancelPendingMove();
     const state = dragStateRef.current;
     if (!state) return;
 
@@ -279,9 +315,20 @@ export function useEventDrag({
 
     dragStateRef.current = null;
     setDragState(null);
-  }, [pxToMinutes, days, startHour, onEventTimeChange, timezone]);
+  }, [
+    flushAndCancelPendingMove,
+    pxToMinutes,
+    days,
+    startHour,
+    onEventTimeChange,
+  ]);
 
   const cancelDrag = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    pendingMoveEventRef.current = null;
     dragStateRef.current = null;
     setDragState(null);
   }, []);
@@ -302,6 +349,11 @@ export function useEventDrag({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("keydown", onKeyDown);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      pendingMoveEventRef.current = null;
     };
   }, [dragState, onPointerMove, onPointerUp, cancelDrag]);
 

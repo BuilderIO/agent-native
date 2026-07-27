@@ -59,7 +59,8 @@ describe("show-design-questions", () => {
       "design_123",
       "editor",
     );
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.writeAppState).toHaveBeenNthCalledWith(
+      1,
       "show-questions:design_123",
       {
         designId: "design_123",
@@ -68,11 +69,26 @@ describe("show-design-questions", () => {
           "Pick what matters. Use Other for specifics, or let the agent decide.",
         skipLabel: "Decide for me",
         submitLabel: "Continue",
-        questions: expect.arrayContaining([
-          expect.objectContaining({ id: "form_factor" }),
-        ]),
+        questions: [
+          expect.objectContaining({
+            id: "form_factor",
+            includeExplore: false,
+            includeDecide: false,
+          }),
+          expect.objectContaining({
+            id: "features",
+            includeExplore: false,
+            includeDecide: false,
+          }),
+        ],
       },
     );
+    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+      view: "editor",
+      designId: "design_123",
+      editorView: "overview",
+      path: "/design/design_123?view=overview",
+    });
     expect(result).toMatchObject({
       designId: "design_123",
       count: 2,
@@ -114,6 +130,30 @@ describe("show-design-questions", () => {
         questions: Array.from({ length: 9 }, (_, i) => question(i + 1)),
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects duplicate question ids, which would silently collide into one answer slot", () => {
+    const duplicateId = (n: number) => ({
+      id: "shared_id",
+      type: "freeform" as const,
+      question: `Question ${n}?`,
+    });
+
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        questions: [duplicateId(1), duplicateId(2)],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        questions: [
+          { ...duplicateId(1), id: "q1" },
+          { ...duplicateId(2), id: "q2" },
+        ],
+      }).success,
+    ).toBe(true);
   });
 
   it("returns an editor deep link for external hosts", () => {

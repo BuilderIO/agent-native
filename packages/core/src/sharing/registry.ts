@@ -57,6 +57,31 @@ export interface ShareableResourceRegistration {
    */
   allowPublic?: boolean;
   /**
+   * Optional role granted by a public-by-link read. Most resources should omit
+   * this so public visibility remains viewer-only. Use narrowly for local or
+   * otherwise constrained resources where the resource owner intentionally wants
+   * unauthenticated link holders to do more than view.
+   *
+   * When this is a function, it may read arbitrary fields on the resource row
+   * (not just the ownership/visibility columns). Because of that,
+   * `resolveAccess`/`assertAccess`'s opt-in `{ skipResourceBody: true }`
+   * projected load (see `access.ts`) is automatically ignored for this
+   * registration and always loads the full row instead — a fixed role string
+   * has no such requirement and is compatible with the projection.
+   */
+  publicAccessRole?:
+    | "viewer"
+    | "editor"
+    | "admin"
+    | ((
+        resource: any,
+        ctx: { userEmail?: string; orgId?: string },
+      ) =>
+        | "viewer"
+        | "editor"
+        | "admin"
+        | Promise<"viewer" | "editor" | "admin">);
+  /**
    * When `true`, individual user shares (`principalType: "user"`) must target
    * an email that is already a member of the same org as the resource, OR has
    * a pending invitation to that org. Cross-org user shares are rejected.
@@ -78,6 +103,34 @@ export interface ShareableResourceRegistration {
     userEmail?: string;
     orgId?: string;
   };
+  /**
+   * When true, direct ownership is recognized by owner_email regardless of the
+   * caller's active org. Use this only for resource types where the template's
+   * own actions already treat owner_email as the cross-org authority and list
+   * views add their own org filters.
+   *
+   * Default: `false`.
+   */
+  ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Optional external-agent read handoff. When set, the framework-level
+   * `create-agent-resource-link` action can mint a short-lived, read-only
+   * `agent_access` URL for this resource. The context endpoint is owned by the
+   * template so it can expose the same intentionally shareable shape as the
+   * public page, not a generic raw database row.
+   */
+  agentReadable?:
+    | false
+    | {
+        /** Token scope. Include the app name to avoid cross-app collisions. */
+        resourceKind: string;
+        /** App-relative JSON endpoint that accepts `id` + `agent_access`. */
+        getContextPath: (resource: any) => string | undefined;
+        /** Optional override for the page URL. Defaults to getResourcePath. */
+        getPagePath?: (resource: any) => string | undefined;
+        /** Optional override for the default two-hour token lifetime. */
+        ttlSeconds?: number;
+      };
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.
@@ -92,6 +145,22 @@ const REGISTRY_KEY = "__agentNativeShareableResources__";
 type RegistryStore = Map<string, ShareableResourceRegistration>;
 const globalRegistry: { [K in typeof REGISTRY_KEY]?: RegistryStore } =
   globalThis as any;
+
+function isTestRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1"
+  );
+}
+
+function registrationCameFromTestFile(): boolean {
+  const stack = new Error().stack ?? "";
+  return /[./\\](?:[^/\\]+[.-])(?:test|spec)\.[cm]?[jt]sx?(?::\d+)?(?::\d+)?/.test(
+    stack,
+  );
+}
+
 function getRegistry(): RegistryStore {
   let r = globalRegistry[REGISTRY_KEY];
   if (!r) {
@@ -104,6 +173,7 @@ function getRegistry(): RegistryStore {
 export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
+  if (!isTestRuntime() && registrationCameFromTestFile()) return;
   getRegistry().set(entry.type, entry);
 }
 

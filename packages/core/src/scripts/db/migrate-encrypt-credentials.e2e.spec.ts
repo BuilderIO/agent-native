@@ -1,3 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { createClient, type Client } from "@libsql/client";
 /**
  * End-to-end test for the `db-migrate-encrypt-credentials` script against a
  * REAL (temp-file) SQLite database. Validates the command we tell operators to
@@ -6,10 +11,7 @@
  * to run without an encryption key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { createClient, type Client } from "@libsql/client";
+
 import {
   encryptSecretValue,
   decryptSecretValue,

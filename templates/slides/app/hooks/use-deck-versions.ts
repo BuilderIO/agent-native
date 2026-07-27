@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+
 import type { DeckVersion, DeckVersionListResponse } from "../../shared/api";
 
 export function useDeckVersions(deckId: string | null) {

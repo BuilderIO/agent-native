@@ -6,9 +6,17 @@ import {
   getRequestURL,
   type H3Event,
 } from "h3";
-import { resolveBuiltInAuthMarketing } from "./auth-marketing.js";
+
 import { getAppName } from "./app-name.js";
-import { OG_FONT_FAMILY, resolveOgFontFiles } from "./og-fonts.js";
+import {
+  resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingByName,
+} from "./auth-marketing.js";
+import {
+  OG_ARABIC_FONT_FAMILY,
+  OG_FONT_FAMILY,
+  resolveOgFontFiles,
+} from "./og-fonts.js";
 
 export interface AgentNativeOgImageInput {
   appName?: string | null;
@@ -29,7 +37,9 @@ const BRAND_BLUE = "#00B5FF";
 const BRAND_MINT = "#48FFE4";
 const BG = "#000000";
 const FG = "#f5f5f5";
-const FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
+const GRID_SIZE = 48;
+const DEFAULT_FONT_FAMILY = `${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
+const ARABIC_FONT_FAMILY = `${OG_ARABIC_FONT_FAMILY}, ${OG_FONT_FAMILY}, Arial, Helvetica, system-ui, sans-serif`;
 const DEFAULT_ACCENT_TEXT = "100% free and open source";
 
 const LOGO_MARK = `
@@ -96,6 +106,16 @@ function estimateTextWidth(value: string, fontSize: number): number {
     }
   }
   return units * fontSize;
+}
+
+function containsArabicText(value: string): boolean {
+  return /[\u0600-\u06ff\u0750-\u077f\u0870-\u089f\ufb50-\ufdff\ufe70-\ufeff]/u.test(
+    value,
+  );
+}
+
+function fontFamilyForText(value: string): string {
+  return containsArabicText(value) ? ARABIC_FONT_FAMILY : DEFAULT_FONT_FAMILY;
 }
 
 function trimTextToWidth(
@@ -202,6 +222,8 @@ function textBlock({
   weight,
   fill,
   anchor = "start",
+  direction,
+  fontFamily = DEFAULT_FONT_FAMILY,
 }: {
   lines: string[];
   x: number;
@@ -210,9 +232,14 @@ function textBlock({
   lineHeight: number;
   weight: number;
   fill: string;
-  anchor?: "start" | "middle";
+  anchor?: "start" | "middle" | "end";
+  direction?: "ltr" | "rtl";
+  fontFamily?: string;
 }): string {
-  return `<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${FONT_FAMILY}" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
+  const directionAttrs = direction
+    ? ` direction="${direction}" unicode-bidi="plaintext"`
+    : "";
+  return `<text x="${x}" y="${y}" text-anchor="${anchor}"${directionAttrs} font-family="${fontFamily}" font-size="${fontSize}" font-weight="${weight}" fill="${fill}">${lines
     .map(
       (line, index) =>
         `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeSvg(line)}</tspan>`,
@@ -220,16 +247,31 @@ function textBlock({
     .join("")}</text>`;
 }
 
-function resolveDefaultAppName(event?: H3Event): string {
+export function resolveAgentNativeOgImageAppName(event?: H3Event): string {
+  const explicitAppName = cleanText(process.env.APP_NAME);
+  if (explicitAppName) {
+    return (
+      resolveBuiltInAuthMarketingByName(explicitAppName)?.appName ??
+      explicitAppName
+    );
+  }
+
   const requestHost = event
     ? (getHeader(event, "x-forwarded-host") ?? getHeader(event, "host"))
     : undefined;
   const requestPath = event ? getRequestURL(event).pathname : undefined;
-  return (
-    getAppName() ??
-    resolveBuiltInAuthMarketing({ requestHost, requestPath })?.appName ??
-    "Agent-Native"
-  );
+  const builtInAppName = resolveBuiltInAuthMarketing({
+    requestHost,
+    requestPath,
+  })?.appName;
+  if (builtInAppName) return builtInAppName;
+
+  const appName = getAppName();
+  if (appName) {
+    return resolveBuiltInAuthMarketingByName(appName)?.appName ?? appName;
+  }
+
+  return "Agent-Native";
 }
 
 function queryStringValue(
@@ -266,10 +308,15 @@ export function isResvgRuntimeUnavailableError(error: unknown): boolean {
 export function renderAgentNativeOgImageSvg(
   input: AgentNativeOgImageInput = {},
 ): string {
-  const appName = cleanText(input.appName) || resolveDefaultAppName();
+  const appName =
+    cleanText(input.appName) || resolveAgentNativeOgImageAppName();
   const title = cleanText(input.title) || titleFromAppName(appName);
   const accentText = cleanText(input.accentText) || DEFAULT_ACCENT_TEXT;
   const titleLayout = getTitleLayout(title);
+  const titleIsRtl = containsArabicText(title);
+  const textX = titleIsRtl ? WIDTH - 80 : 80;
+  const accentX = titleIsRtl ? WIDTH - 84 : 84;
+  const textAnchor = titleIsRtl ? "end" : "start";
   const titleY = titleLayout.lines.length > 1 ? 288 : 330;
   const accentY =
     titleY + titleLayout.lineHeight * (titleLayout.lines.length - 1) + 70;
@@ -281,8 +328,8 @@ export function renderAgentNativeOgImageSvg(
       <stop stop-color="${BRAND_BLUE}"/>
       <stop offset="1" stop-color="${BRAND_MINT}"/>
     </linearGradient>
-    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
-      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
+    <pattern id="grid" width="${GRID_SIZE}" height="${GRID_SIZE}" patternUnits="userSpaceOnUse">
+      <path d="M 0 0.5 H ${GRID_SIZE} M 0.5 0 V ${GRID_SIZE}" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
     </pattern>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
@@ -293,7 +340,7 @@ export function renderAgentNativeOgImageSvg(
   <g>
     ${textBlock({
       lines: titleLayout.lines,
-      x: 80,
+      x: textX,
       y: titleY,
       fontSize: titleLayout.fontSize,
       lineHeight: titleLayout.lineHeight,
@@ -302,8 +349,21 @@ export function renderAgentNativeOgImageSvg(
       // bundle, which is the intended look for the display title.
       weight: 800,
       fill: FG,
+      anchor: textAnchor,
+      direction: titleIsRtl ? "rtl" : undefined,
+      fontFamily: fontFamilyForText(title),
     })}
-    <text x="84" y="${accentY}" font-family="${FONT_FAMILY}" font-size="34" font-weight="800" fill="${BRAND_BLUE}">${escapeSvg(accentText)}</text>
+    ${textBlock({
+      lines: [accentText],
+      x: accentX,
+      y: accentY,
+      fontSize: 34,
+      lineHeight: 40,
+      weight: 800,
+      fill: BRAND_BLUE,
+      anchor: textAnchor,
+      fontFamily: fontFamilyForText(accentText),
+    })}
   </g>
 </svg>`;
 }
@@ -311,7 +371,12 @@ export function renderAgentNativeOgImageSvg(
 export async function renderAgentNativeOgImagePng(
   input: AgentNativeOgImageInput = {},
 ): Promise<Uint8Array> {
-  const { Resvg } = await import(/* @vite-ignore */ "@resvg/resvg-js");
+  const overridePackage =
+    typeof process !== "undefined"
+      ? process.env.AGENT_NATIVE_RESVG_PACKAGE
+      : undefined;
+  const resvgPackage = overridePackage || "@resvg/resvg-js";
+  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
   // Feed resvg the embedded Liberation Sans font explicitly. System fonts can't
   // be relied on: Linux serverless runtimes (Netlify/Lambda) ship neither Arial
   // nor Inter, so without a bundled font every `<text>` rendered blank.
@@ -358,7 +423,8 @@ export function createAgentNativeOgImageHandler(
     }
 
     const query = getQuery(event);
-    const appName = cleanText(options.appName) || resolveDefaultAppName(event);
+    const appName =
+      cleanText(options.appName) || resolveAgentNativeOgImageAppName(event);
     const input = {
       ...options,
       appName,

@@ -73,3 +73,93 @@ registerRequiredSecret({
     }
   },
 });
+
+registerRequiredSecret({
+  key: "GOOGLE_API_KEY",
+  label: "Google API Key",
+  description: "Required for image search with Google Custom Search.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_SEARCH_CX",
+  label: "Google Search Engine ID",
+  description: "Required with GOOGLE_API_KEY for image search.",
+  docsUrl: "https://programmablesearchengine.google.com/controlpanel/all",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "LOGO_DEV_SECRET_KEY",
+  label: "Logo.dev Search Key",
+  description: "Optional server-side key for company and domain logo search.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "LOGO_DEV_TOKEN",
+  label: "Logo.dev Publishable Token",
+  description: "Optional publishable token for rendering Logo.dev images.",
+  docsUrl: "https://www.logo.dev/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "BRANDFETCH_CLIENT_ID",
+  label: "Brandfetch Client ID",
+  description: "Optional public client ID for Brandfetch logo rendering.",
+  docsUrl: "https://developers.brandfetch.com/",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_CLIENT_ID",
+  label: "Google OAuth Client ID",
+  description: "Required for Google Docs import.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_CLIENT_SECRET",
+  label: "Google OAuth Client Secret",
+  description: "Required for Google Docs import.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_PICKER_API_KEY",
+  label: "Google Picker API Key",
+  description: "Required for the Google Docs picker.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "GOOGLE_PICKER_APP_ID",
+  label: "Google Picker App ID",
+  description: "Required for the Google Docs picker.",
+  docsUrl: "https://console.cloud.google.com/apis/credentials",
+  scope: "user",
+  kind: "api-key",
+  required: false,
+});

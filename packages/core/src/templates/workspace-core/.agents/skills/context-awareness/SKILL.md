@@ -4,6 +4,7 @@ description: >-
   How the agent knows what the user is looking at. Use when exposing UI state to
   the agent, implementing view-screen or navigate actions, wiring navigation
   state, or debugging agent context issues.
+scope: dev
 metadata:
   internal: true
 ---
@@ -28,7 +29,7 @@ The UI writes a `navigation` key to application-state on every route change. Thi
 
 ```tsx
 // app/hooks/use-navigation-state.ts
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -63,6 +64,10 @@ const navigation = await readAppState("navigation");
 - Any durable selection — focused item, selected text range, active tab
 
 Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
+
+Keep `application_state` values small. Do not store pasted files, base64 images,
+recording chunks, screenshots, or other large blobs in navigation or app-state
+keys; upload them and store only a URL or storage handle.
 
 ### 2. Current URL (`__url__` key)
 
@@ -125,6 +130,15 @@ await writeAppState("navigate", { view: "inbox", threadId: "abc123" });
 **UI side** — use `useAgentRouteState`, shown above. It polls command keys,
 dedupes `_writeId`, deletes consumed commands, and applies app-local routing.
 
+When a destination has a real URL, let the `navigate` command carry that local
+`path` (plus semantic fields when useful) and have the UI prefer `path` before
+falling back to semantic routing. Keep app navigation single-channel: do not
+also write `__set_url__` for the same navigation. `__set_url__` belongs to the
+framework URL tools (`set-url-path`, `set-search-params`) and URL-only filter
+changes. If a command can arrive while a chat stream is rendering, prefer
+`navigate(path, { replace: true, flushSync: true })` over a view-transition
+wrapper so the URL and visible route commit together.
+
 ## Jitter Prevention
 
 When the agent writes to application-state via script helpers (`writeAppState`), the write is tagged with `requestSource: "agent"`. The UI uses the `ignoreSource` option on `useDbSync()` with a per-tab ID so it ignores its own writes while still picking up changes from agents, other tabs, and scripts.
@@ -171,7 +185,7 @@ The mail template demonstrates these patterns working together:
 - Keep shareable filters in URL query params so `<current-url>` and `set-search-params` work
 - Update `view-screen` when adding new features — it should return data for every view
 - Use `useAgentRouteState` or `useSemanticNavigationState` for UI-side navigation sync and command consumption
-- Use the one-shot `navigate` command pattern for semantic agent-initiated navigation
+- Use the one-shot `navigate` command pattern for app navigation; include a same-origin `path` when the target URL is known
 - Tag agent writes with `requestSource: "agent"` (the script helpers do this automatically)
 
 ## Don't
@@ -179,6 +193,7 @@ The mail template demonstrates these patterns working together:
 - Don't assume the user is on a specific page — always check navigation state
 - Don't hardcode navigation paths in scripts — read the current state and branch
 - Don't write to the `navigation` key from the agent — it belongs to the UI. Use `navigate` instead.
+- Don't write both `navigate` and `__set_url__` for one app navigation; competing consumers can make the browser URL change before React Router commits the page.
 - Don't ignore the `<current-screen>` block — it tells you where the user is
 - Don't duplicate whole URL query strings into `navigation` when `<current-url>` already exposes them
 - Don't store fetched data in navigation state — it holds IDs and semantic UI state only. The `view-screen` script fetches the actual data.

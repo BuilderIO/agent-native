@@ -1,0 +1,50 @@
+{
+  "name": "@agent-native/recap-cli",
+  "version": "0.5.1",
+  "description": "Dependency-light PR visual recap CLI for Agent-Native workflows.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/recap-cli"
+  },
+  "bin": {
+    "agent-native": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc && node dist/copy-recap-workflow.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  },
+  "optionalDependencies": {
+    "@playwright/test": "^1.61.1",
+    "playwright": "^1.61.1"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  }
+}

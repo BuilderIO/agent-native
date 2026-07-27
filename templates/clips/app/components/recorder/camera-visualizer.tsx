@@ -1,7 +1,14 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  createBackgroundBlurStream,
+  DEFAULT_BLUR_PX,
+  type CameraBlurHandle,
+} from "@/lib/camera-blur";
 import { cn } from "@/lib/utils";
+
 import type { CameraBubbleSize } from "./camera-bubble";
 
 export type CameraTestStatus = "idle" | "starting" | "live" | "error";
@@ -9,8 +16,11 @@ export type CameraTestStatus = "idle" | "starting" | "live" | "error";
 export interface CameraVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
-  selectedLabel?: string | null;
   className?: string;
+  /** Mirror the recording's background-blur setting in the live test preview. */
+  blur?: boolean;
+  /** Background blur radius (px) reflected live in the test preview. */
+  blurRadius?: number;
   size?: CameraBubbleSize;
   onSizeChange?: (size: CameraBubbleSize) => void;
   onStatusChange?: (
@@ -119,17 +129,25 @@ async function friendlyCameraError(err: unknown): Promise<string> {
 export function CameraVisualizer({
   deviceId,
   disabled,
-  selectedLabel,
   className,
+  blur = false,
+  blurRadius = DEFAULT_BLUR_PX,
   size = "md",
   onSizeChange,
   onStatusChange,
   onPreviewChange,
 }: CameraVisualizerProps) {
+  const t = useT();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const blurHandleRef = useRef<CameraBlurHandle | null>(null);
+  // Bumped per attachPreview() so a stale segmenter build (blur toggled mid-load)
+  // bails instead of clobbering the preview.
+  const attachGenRef = useRef(0);
+  const blurRadiusRef = useRef(blurRadius);
   const runIdRef = useRef(0);
   const previousDeviceIdRef = useRef(deviceId);
+  const previousBlurRef = useRef(blur);
 
   const [status, setStatus] = useState<CameraTestStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -146,10 +164,44 @@ export function CameraVisualizer({
   }, [onPreviewChange]);
 
   const stopCurrent = useCallback(() => {
+    blurHandleRef.current?.cleanup();
+    blurHandleRef.current = null;
     stopStream(streamRef.current);
     streamRef.current = null;
     clearVideo();
   }, [clearVideo]);
+
+  // Bind the raw camera or its blurred derivative to the <video> per the current
+  // `blur` setting, so the preview matches what recording bakes in. Each call
+  // claims a generation and bails if a newer attach superseded it during an await.
+  const attachPreview = useCallback(async () => {
+    const gen = ++attachGenRef.current;
+    const raw = streamRef.current;
+    const video = videoRef.current;
+    if (!raw || !video) return;
+
+    let display: MediaStream = raw;
+    if (blur) {
+      blurHandleRef.current?.cleanup();
+      blurHandleRef.current = null;
+      const handle = await createBackgroundBlurStream(raw, {
+        blurPx: blurRadiusRef.current,
+      });
+      if (gen !== attachGenRef.current || streamRef.current !== raw) {
+        handle.cleanup();
+        return;
+      }
+      blurHandleRef.current = handle;
+      display = handle.stream;
+    } else {
+      blurHandleRef.current?.cleanup();
+      blurHandleRef.current = null;
+    }
+
+    if (gen !== attachGenRef.current) return;
+    if (video.srcObject !== display) video.srcObject = display;
+    await video.play().catch(() => {});
+  }, [blur]);
 
   const stopTest = useCallback(() => {
     runIdRef.current += 1;
@@ -218,12 +270,15 @@ export function CameraVisualizer({
       }
 
       streamRef.current = stream;
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        await video.play().catch(() => {});
+      // Webcam unplugged mid-test: tear down so the preview + blur pipeline
+      // don't keep running frozen. runId guard skips our own stop().
+      for (const track of stream.getVideoTracks()) {
+        track.addEventListener("ended", () => {
+          if (runIdRef.current === runId) stopTest();
+        });
       }
-      // Re-check after play()'s await so a newer startTest can't be clobbered.
+      await attachPreview();
+      // Re-check after the async attach so a newer startTest can't be clobbered.
       if (runIdRef.current !== runId) {
         stopCurrent();
         return;
@@ -241,7 +296,15 @@ export function CameraVisualizer({
       onStatusChange?.("error", { error: message });
       clearVideo();
     }
-  }, [clearVideo, deviceId, disabled, onStatusChange, stopCurrent]);
+  }, [
+    attachPreview,
+    clearVideo,
+    deviceId,
+    disabled,
+    onStatusChange,
+    stopCurrent,
+    stopTest,
+  ]);
 
   useEffect(() => {
     if (disabled) {
@@ -272,10 +335,10 @@ export function CameraVisualizer({
   useEffect(() => {
     if (status !== "live" && status !== "starting") return;
     const video = videoRef.current;
-    const stream = streamRef.current;
-    if (!video || !stream) return;
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
+    const display = blurHandleRef.current?.stream ?? streamRef.current;
+    if (!video || !display) return;
+    if (video.srcObject !== display) {
+      video.srcObject = display;
     }
     const tryPlay = () => {
       video.play().catch(() => undefined);
@@ -287,52 +350,43 @@ export function CameraVisualizer({
     };
   }, [status]);
 
+  // Toggle blur while live: swap the preview source in place (startTest already
+  // binds the initial value, so skip mount).
+  useEffect(() => {
+    if (previousBlurRef.current === blur) return;
+    previousBlurRef.current = blur;
+    if (status !== "live" && status !== "starting") return;
+    if (!streamRef.current) return;
+    void attachPreview();
+  }, [blur, status, attachPreview]);
+
+  // Slider drags adjust the live pipeline without rebuilding the segmenter.
+  useEffect(() => {
+    blurRadiusRef.current = blurRadius;
+    blurHandleRef.current?.setBlurPx(blurRadius);
+  }, [blurRadius]);
+
   const live = status === "live";
   const starting = status === "starting";
   const showBubble = live || starting;
   const sizePx = CAMERA_BUBBLE_SIZE_PX[size];
-  const helper = disabled
-    ? "Camera is off for this recording mode."
-    : error
-      ? error
-      : live
-        ? hasFrame
-          ? "Preview is live in the bottom-left bubble — this size carries into recording."
-          : "Camera is connected. Waiting for the first frame…"
-        : starting
-          ? "Opening camera…"
-          : "Click Test camera to show the camera bubble before recording.";
-
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-muted/25 p-3",
-        disabled && "opacity-70",
-        className,
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground">
-            Camera check
-          </div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {selectedLabel ?? "Selected camera"}
-          </div>
+    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2 rounded-full border border-border bg-muted/20 py-0.5 ps-2 pe-0.5">
+          <span className="text-[11px] text-muted-foreground">
+            {t("cameraVisualizer.bubble")}
+          </span>
+          {live || starting ? (
+            <span className="rounded-full bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
+              {live
+                ? hasFrame
+                  ? t("cameraVisualizer.live")
+                  : t("cameraVisualizer.waiting")
+                : t("cameraVisualizer.opening")}
+            </span>
+          ) : null}
         </div>
-        <Button
-          type="button"
-          variant={live ? "outline" : "secondary"}
-          size="sm"
-          disabled={disabled || starting}
-          onClick={live ? stopTest : startTest}
-          className="h-8 px-2.5 text-xs"
-        >
-          {live ? "Stop" : starting ? "Starting…" : "Test camera"}
-        </Button>
-      </div>
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-background px-2 py-1.5">
-        <span className="text-[11px] text-muted-foreground">Bubble size</span>
         <div className="flex rounded-md bg-muted p-0.5">
           {CAMERA_SIZE_OPTIONS.map((option) => (
             <button
@@ -351,6 +405,20 @@ export function CameraVisualizer({
             </button>
           ))}
         </div>
+        <Button
+          type="button"
+          variant={live ? "outline" : "secondary"}
+          size="sm"
+          disabled={disabled || starting}
+          onClick={live ? stopTest : startTest}
+          className="ms-auto h-7 shrink-0 px-2.5 text-xs"
+        >
+          {live
+            ? t("cameraVisualizer.stop")
+            : starting
+              ? t("cameraVisualizer.openingEllipsis")
+              : t("cameraVisualizer.test")}
+        </Button>
       </div>
       {showBubble && (
         <div className="fixed bottom-4 left-4 z-40 flex flex-col items-start gap-2">
@@ -370,7 +438,7 @@ export function CameraVisualizer({
                 setHasFrame(true);
                 onPreviewChange?.(true);
               }}
-              aria-label="Selected camera preview"
+              aria-label={t("cameraVisualizer.selectedPreview")}
               className={cn(
                 "h-full w-full rounded-full object-cover [transform:scaleX(-1)]",
                 !live && "opacity-0",
@@ -378,7 +446,7 @@ export function CameraVisualizer({
             />
             {!live && (
               <div className="absolute inset-0 flex items-center justify-center rounded-full bg-gradient-to-br from-muted/70 to-background px-5 text-center text-[11px] text-muted-foreground">
-                Camera preview
+                {t("cameraVisualizer.preview")}
               </div>
             )}
             {live && (
@@ -395,7 +463,9 @@ export function CameraVisualizer({
               <button
                 key={option.value}
                 type="button"
-                aria-label={`Set camera bubble size ${option.label}`}
+                aria-label={t("cameraVisualizer.setBubbleSize", {
+                  size: option.label,
+                })}
                 aria-pressed={size === option.value}
                 onClick={() => onSizeChange?.(option.value)}
                 className={cn(
@@ -410,14 +480,9 @@ export function CameraVisualizer({
           </div>
         </div>
       )}
-      <p
-        className={cn(
-          "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-foreground",
-        )}
-      >
-        {helper}
-      </p>
+      {error ? (
+        <p className="text-[11px] leading-snug text-foreground">{error}</p>
+      ) : null}
     </div>
   );
 }

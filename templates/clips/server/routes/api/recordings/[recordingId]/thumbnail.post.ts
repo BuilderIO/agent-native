@@ -8,6 +8,10 @@
  * Body: raw JPEG (or PNG) bytes. Content-Type: image/jpeg | image/png.
  */
 
+import { writeAppState } from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -17,13 +21,17 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
+
 import { parseEdits } from "../../../../../app/lib/timestamp-mapping.js";
+import { getDb, schema } from "../../../../db/index.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
+import {
+  requiresConfiguredVideoStorage,
+  STORAGE_SETUP_REQUIRED_REASON,
+} from "../../../../lib/video-storage.js";
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
@@ -84,7 +92,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 
@@ -150,17 +158,15 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Thumbnail bytes do not match Content-Type" };
     }
 
-    // Try the configured file-upload provider first (Builder.io or a
-    // user-registered one). In dev / solo mode no provider is usually
-    // configured and `uploadFile()` returns `null` — in that case we fall
-    // back to a base64 `data:` URL inline in the `recordings.thumbnail_url`
-    // column. It's not glamorous but it unblocks the library grid
-    // immediately and mirrors what `set-thumbnail` does.
+    // Try the configured file-upload provider first. Hosted/persistent SQL
+    // must not store base64 data URLs in recordings.thumbnail_url; local dev can
+    // still fall back inline to keep the first-frame preview flow lightweight.
     const uploaded = await uploadFile({
       data: bytes,
       mimeType,
       filename: `thumb-${recordingId}.${ext}`,
       ownerEmail,
+      recordAsset: false,
     });
 
     let url: string;
@@ -172,15 +178,20 @@ export default defineEventHandler(async (event: H3Event) => {
         bytes: bytes.byteLength,
       });
     } else {
+      if (requiresConfiguredVideoStorage()) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: STORAGE_SETUP_REQUIRED_REASON,
+          storageSetupRequired: true,
+        };
+      }
       const base64 = Buffer.from(bytes).toString("base64");
       url = `data:${mimeType};base64,${base64}`;
-      console.log(
-        "[thumbnail] no provider configured, stored inline data URL",
-        {
-          recordingId,
-          bytes: bytes.byteLength,
-        },
-      );
+      console.log("[thumbnail] local storage fallback stored inline data URL", {
+        recordingId,
+        bytes: bytes.byteLength,
+      });
     }
 
     await db

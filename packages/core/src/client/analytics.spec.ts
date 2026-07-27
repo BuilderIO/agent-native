@@ -14,12 +14,33 @@ const sentryMock = vi.hoisted(() => ({
   captureException: vi.fn(() => "event_id"),
 }));
 
+const amplitudeMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  setOptOut: vi.fn(),
+  track: vi.fn(),
+}));
+
+const replayMock = vi.hoisted(() => ({
+  emitSessionReplayAgentChatEvent: vi.fn(),
+  emitSessionReplayException: vi.fn(),
+  getSessionReplayId: vi.fn(() => undefined),
+  getSessionReplayContext: vi.fn(() => null),
+  getSessionReplayUrl: vi.fn(() => null),
+  maybeStartSessionReplay: vi.fn(async () => ({ started: false })),
+  startSessionReplay: vi.fn(async () => ({ started: false })),
+  stopSessionReplay: vi.fn(async () => undefined),
+}));
+
 vi.mock("@sentry/browser", () => sentryMock);
+vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
+vi.mock("./session-replay.js", () => replayMock);
 
 const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
+const agentChatStateKey = Symbol.for("agent-native.client.agentChatTracking");
 
 function resetPageviewState() {
   delete (globalThis as any)[pageviewStateKey];
+  delete (globalThis as any)[agentChatStateKey];
 }
 
 function setLocation(
@@ -62,13 +83,20 @@ function installFetch({
     model: "claude-sonnet-4-6",
     source: "app_secrets",
   },
+  session = { error: "not authenticated" },
 }: {
   status?: Record<string, unknown>;
+  session?: Record<string, unknown>;
 } = {}) {
   const analyticsCalls: Array<[unknown, RequestInit]> = [];
   const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (String(url).includes("/_agent-native/agent-engine/status")) {
       return new Response(JSON.stringify(status), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (String(url).includes("/_agent-native/auth/session")) {
+      return new Response(JSON.stringify(session), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -100,10 +128,11 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
       },
     ),
   };
+  const gtag = vi.fn();
   const windowMock = {
     location,
     history,
-    gtag: vi.fn(),
+    gtag,
     addEventListener: vi.fn((event: string, listener: () => void) => {
       listeners[event] = [...(listeners[event] ?? []), listener];
     }),
@@ -118,6 +147,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
 
   return {
     fetchMock: vi.fn().mockResolvedValue(new Response("{}")),
+    gtag,
     history,
     listeners,
     location,
@@ -132,6 +162,13 @@ describe("browser analytics pageviews", () => {
     sentryMock.setUser.mockClear();
     sentryMock.withScope.mockClear();
     sentryMock.captureException.mockClear();
+    amplitudeMock.init.mockClear();
+    amplitudeMock.setOptOut.mockClear();
+    amplitudeMock.track.mockClear();
+    replayMock.maybeStartSessionReplay.mockClear();
+    replayMock.startSessionReplay.mockClear();
+    replayMock.stopSessionReplay.mockClear();
+    replayMock.emitSessionReplayAgentChatEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -180,6 +217,127 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("can skip the authenticated engine-status probe on public routes", async () => {
+    installBrowser("https://design.agent-native.com/present/public-design");
+    const { fetchMock } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({ llmConnectionStatus: false });
+    await tick();
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps sanitized tracking but disables content capture on local Plan routes", async () => {
+    const { gtag } = installBrowser(
+      "https://plan.agent-native.com/local-plans/local#bridge=secret",
+    );
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const {
+      captureClientException,
+      configureTracking,
+      setTrackingContentCaptureEnabled,
+    } = await freshAnalytics();
+
+    configureTracking({
+      contentCapture: false,
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    setTrackingContentCaptureEnabled(false);
+    expect(captureClientException(new Error("Renderer failed"))).toBe(
+      "event_id",
+    );
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body).toMatchObject({
+      event: "pageview",
+      properties: {
+        url: "https://plan.agent-native.com/local-plans/local",
+        path: "/local-plans/local",
+      },
+    });
+    expect(body.properties).not.toHaveProperty("title");
+    expect(JSON.stringify(body)).not.toContain("bridge");
+    expect(JSON.stringify(body)).not.toContain("bridge=secret");
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "pageview",
+      expect.objectContaining({ path: "/local-plans/local" }),
+    );
+    expect(amplitudeMock.init).toHaveBeenCalledWith("amplitude_test", {
+      autocapture: false,
+    });
+    expect(amplitudeMock.track).toHaveBeenCalledWith(
+      "pageview",
+      expect.objectContaining({ path: "/local-plans/local" }),
+    );
+    expect(replayMock.stopSessionReplay).toHaveBeenCalled();
+    expect(sentryMock.captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts the first-party public key and endpoint at configure time", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/api/analytics/track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_configured",
+      event: "pageview",
+    });
+  });
+
+  it("attaches the signed-in session identity to first-party analytics", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        name: "Dev User",
+        orgId: "org_123",
+      },
+    });
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body.userId).toBe("dev@example.com");
+    expect(body.properties).toMatchObject({
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      userName: "Dev User",
+      orgId: "org_123",
+      app: "agent-native-clips",
+      template: "clips",
+    });
+  });
+
   it("tracks client-side URL changes once per URL", async () => {
     const { history } = installBrowser();
     const { analyticsCalls } = installFetch();
@@ -202,6 +360,179 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+  });
+
+  it("initializes a chat surface and de-duplicates repeated run observation", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        orgId: "org_123",
+      },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    replayMock.getSessionReplayContext.mockReturnValue({
+      active: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+      startedAt: "2026-07-17T17:00:00.000Z",
+      startedAtMs: 1784307600000,
+      linkBaseUrl: "https://analytics.agent-native.com",
+    });
+    const { configureTracking, trackAgentChatLifecycle } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    const surfaceEvent = {
+      phase: "surface-mounted" as const,
+      surface: "sidebar",
+      threadId: "thread-1",
+      tabId: "tab-1",
+    };
+    const event = {
+      phase: "run-observed" as const,
+      surface: "sidebar",
+      threadId: "thread-1",
+      runId: "run-1",
+      tabId: "tab-1",
+    };
+    trackAgentChatLifecycle(surfaceEvent);
+    trackAgentChatLifecycle(surfaceEvent);
+    trackAgentChatLifecycle(event);
+    trackAgentChatLifecycle(event);
+    await tick();
+
+    const lifecycleEvents = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .filter((body) => body.event === "agent_chat_lifecycle");
+    expect(lifecycleEvents).toHaveLength(2);
+    expect(lifecycleEvents[0]).toMatchObject({
+      sessionId: expect.any(String),
+      event: "agent_chat_lifecycle",
+      properties: {
+        phase: "surface-mounted",
+        chat_surface: "sidebar",
+        thread_id: "thread-1",
+        chat_tab_id: "tab-1",
+        replay_status: "active",
+        sessionReplayId: "replay-1",
+      },
+    });
+    expect(lifecycleEvents[1]).toMatchObject({
+      sessionId: expect.any(String),
+      event: "agent_chat_lifecycle",
+      properties: {
+        phase: "run-observed",
+        chat_surface: "sidebar",
+        thread_id: "thread-1",
+        run_id: "run-1",
+        chat_tab_id: "tab-1",
+        replay_status: "active",
+        sessionReplayId: "replay-1",
+      },
+    });
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledTimes(2);
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
+      surfaceEvent,
+    );
+    expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
+      event,
+    );
+  });
+
+  it("switches content capture before emitting client-side pageviews", async () => {
+    const { history } = installBrowser("https://plan.agent-native.com/plans");
+    const { analyticsCalls } = installFetch({
+      session: { email: "dev@example.com", userId: "user-1" },
+    });
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
+      sessionReplay: true,
+    });
+    await tick();
+
+    history.pushState(
+      {},
+      "",
+      "/local-plans/local#bridge=http%3A%2F%2F127.0.0.1%3A60166%2Flocal-plan.json%3Ftoken%3Dprivate-token",
+    );
+    await tick();
+    history.pushState({}, "", "/plans");
+    await tick();
+
+    const events = analyticsCalls.map(([, init]) =>
+      JSON.parse(String(init.body)),
+    );
+    expect(events).toHaveLength(3);
+    expect(events[1]).toMatchObject({
+      event: "pageview",
+      properties: {
+        url: "https://plan.agent-native.com/local-plans/local",
+        path: "/local-plans/local",
+      },
+    });
+    expect(events[1].properties).not.toHaveProperty("title");
+    expect(JSON.stringify(events[1])).not.toContain("private-token");
+    expect(events[2].properties).toMatchObject({
+      path: "/plans",
+      title: "Inbox",
+    });
+    expect(replayMock.stopSessionReplay).toHaveBeenCalledWith(
+      "content-capture-disabled",
+    );
+    expect(replayMock.startSessionReplay).toHaveBeenCalled();
+  });
+
+  it("preserves replay options while initial route capture is disabled", async () => {
+    const { history } = installBrowser(
+      "https://plan.agent-native.com/local-plans/local#bridge=private-token",
+    );
+    installFetch({
+      session: { email: "dev@example.com", userId: "user-1" },
+    });
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      contentCaptureForPath: (pathname) =>
+        !pathname.startsWith("/local-plans/"),
+      sessionReplay: {
+        enabled: true,
+        endpoint: "https://replay.example.test/ingest",
+        publicKey: "replay_public_key",
+        requireSignedInUser: true,
+        sampleRate: 0.25,
+      },
+    });
+    await tick();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+
+    history.pushState({}, "", "/plans");
+    await tick();
+
+    expect(replayMock.startSessionReplay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint: "https://replay.example.test/ingest",
+        publicKey: "replay_public_key",
+        requireSignedInUser: true,
+        sampleRate: 0.25,
+        shouldStart: expect.any(Function),
+      }),
+    );
   });
 
   it("normalizes AI SDK engine names into provider connection labels", async () => {
@@ -262,6 +593,22 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
   });
 
+  it("initializes browser Sentry from Vite key/project/host env vars", async () => {
+    installBrowser();
+    vi.stubEnv("VITE_SENTRY_CLIENT_KEY", "public_key");
+    vi.stubEnv("VITE_SENTRY_PROJECT_ID", "4511270423822336");
+    vi.stubEnv("VITE_SENTRY_INGEST_HOST", "o1.ingest.us.sentry.io");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+
+    expect(sentryMock.init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: "https://public_key@o1.ingest.us.sentry.io/4511270423822336",
+      }),
+    );
+  });
+
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {
@@ -289,6 +636,41 @@ describe("browser analytics pageviews", () => {
     expect(result).toBeNull();
   });
 
+  it("drops rrweb autoplay-policy rejections only on session replay pages", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const replayEvent = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value:
+              "NotAllowedError: play() failed because the user didn't interact with the document first. https://goo.gl/xX8pDD",
+            stacktrace: { frames: [] },
+          },
+        ],
+      },
+      tags: {
+        url: "https://analytics.agent-native.com/sessions/sr_example",
+      },
+    };
+
+    expect(options.beforeSend(replayEvent)).toBeNull();
+
+    const appEvent = {
+      ...replayEvent,
+      tags: { url: "https://analytics.agent-native.com/dashboards/example" },
+    };
+    expect(options.beforeSend(appEvent)).toBe(appEvent);
+  });
+
   it("drops bare browser auth noise from Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {
@@ -305,6 +687,191 @@ describe("browser analytics pageviews", () => {
       },
       request: {
         url: "https://mail.agent-native.com/inbox/message-1",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops source-less EmptyRanges reference noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "Can't find variable: EmptyRanges",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/",
+      },
+    });
+
+    expect(result).toBeNull();
+
+    const eventWithAppFrame = {
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "Can't find variable: EmptyRanges",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "/assets/app.js",
+                  function: "render",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/",
+      },
+    };
+    expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+  });
+
+  it("drops iOS WebKit scroll bridge noise from docs Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "undefined is not an object (evaluating 'window.webkit.messageHandlers.scrollEventHandler.postMessage')",
+            stacktrace: {
+              frames: [{ filename: "/assets/analytics.js", function: "r" }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/ja-JP",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops source-less public docs stack overflow noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    });
+
+    expect(result).toBeNull();
+
+    const eventWithAppFrame = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "/assets/app.js",
+                  function: "render",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    };
+    expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+
+    const nonDocsEvent = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://mail.agent-native.com/inbox",
+      },
+    };
+    expect(options.beforeSend(nonDocsEvent)).toBe(nonDocsEvent);
+  });
+
+  it("uses Sentry's url tag for public docs noise filtering", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      tags: {
+        url: "https://www.agent-native.com/templates/clips",
+      },
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
       },
     });
 
@@ -336,6 +903,83 @@ describe("browser analytics pageviews", () => {
     });
 
     expect(result).toBeNull();
+  });
+
+  it("drops reasonless signal abort browser requests from Sentry", async () => {
+    installBrowser("https://www.agent-native.com/templates");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "AbortError",
+            value: "signal is aborted without reason",
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/templates",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops recoverable server run_timeout transitions from Sentry", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [{ type: "Error", value: "agent-chat:run_timeout" }],
+      },
+      tags: {
+        context: "agent-native-chat",
+        errorCode: "run_timeout",
+        reconnectTimedOut: "false",
+        reconnectTerminalReason: "run_timeout",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps locally timed-out chat reconnects visible in Sentry", async () => {
+    installBrowser("https://analytics.agent-native.com/ask");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const event = {
+      exception: {
+        values: [{ type: "Error", value: "agent-chat:run_timeout" }],
+      },
+      tags: {
+        context: "agent-native-chat",
+        errorCode: "run_timeout",
+        reconnectTimedOut: "true",
+        reconnectTerminalReason: "run_timeout",
+      },
+    };
+
+    expect(options.beforeSend(event)).toBe(event);
   });
 
   it("captures browser errors through the generic captureError helper", async () => {

@@ -62,10 +62,18 @@ beforeEach(() => {
     cache_read_tokens INTEGER NOT NULL DEFAULT 0,
     cache_write_tokens INTEGER NOT NULL DEFAULT 0,
     cost_cents_x100 INTEGER NOT NULL DEFAULT 0,
+    cost_source TEXT NOT NULL DEFAULT 'estimated',
     model TEXT NOT NULL DEFAULT '',
     label TEXT NOT NULL DEFAULT 'chat',
     app TEXT NOT NULL DEFAULT '',
     ref_id TEXT NOT NULL DEFAULT '',
+    org_id TEXT,
+    run_id TEXT,
+    thread_id TEXT,
+    task_id TEXT,
+    integration_scope_id TEXT,
+    source_platform TEXT,
+    source_id TEXT,
     created_at INTEGER NOT NULL
   )`);
   delete process.env.AGENT_APP;
@@ -221,6 +229,44 @@ describe("recordUsage", () => {
     expect(summary.byLabel.map((b) => b.key)).toEqual(["automation"]);
     expect(summary.byApp.map((b) => b.key)).toEqual(["calendar"]);
   });
+
+  it("persists run/thread/task attribution onto the row", async () => {
+    // Every one of 701 prod rows on analytics had NULL run_id/thread_id/task_id
+    // despite the columns existing, so no spend could be tied to a run, thread,
+    // or outcome. Pin that a supplied id actually lands in the INSERT.
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+      runId: "run-abc",
+      threadId: "thread-xyz",
+      taskId: "task-42",
+      orgId: "org-7",
+    });
+    const row = sqlite
+      .prepare(`SELECT run_id, thread_id, task_id, org_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({
+      run_id: "run-abc",
+      thread_id: "thread-xyz",
+      task_id: "task-42",
+      org_id: "org-7",
+    });
+  });
+
+  it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+    const row = sqlite
+      .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
+  });
 });
 
 describe("getUserUsageCents scoping", () => {
@@ -375,11 +421,53 @@ describe("getUsageSummary", () => {
     const summary = await getUsageSummary({ ownerEmail: "ghost@example.com" });
     expect(summary.totalCalls).toBe(0);
     expect(summary.totalCents).toBe(0);
+    expect(summary.totalCost).toEqual({
+      status: "known",
+      knownCents: 0,
+      unavailableCalls: 0,
+    });
     expect(summary.byLabel).toEqual([]);
     expect(summary.byModel).toEqual([]);
     expect(summary.byApp).toEqual([]);
     expect(summary.byDay).toEqual([]);
     expect(summary.recent).toEqual([]);
+  });
+
+  it("keeps unavailable provider cost visible in every aggregate", async () => {
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 0,
+      model: "claude-sonnet-4-5",
+      label: "chat",
+    });
+    await recordUsage({
+      ownerEmail: "mixed@example.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "openai/gpt-oss-120b",
+      label: "visual-recap",
+      costSource: "unavailable",
+    });
+
+    const summary = await getUsageSummary({
+      ownerEmail: "mixed@example.com",
+    });
+
+    expect(summary.totalCost).toEqual({
+      status: "partial",
+      knownCents: 300,
+      unavailableCalls: 1,
+    });
+    expect(
+      summary.byModel.find((bucket) => bucket.key === "openai/gpt-oss-120b")
+        ?.cost,
+    ).toEqual({
+      status: "unavailable",
+      knownCents: 0,
+      unavailableCalls: 1,
+    });
+    expect(summary.byDay[0]?.cost.status).toBe("partial");
   });
 });
 
@@ -389,7 +477,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 100,
       outputTokens: 10,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-1",
     });
@@ -397,7 +485,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 200,
       outputTokens: 20,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-1",
     });
@@ -415,7 +503,7 @@ describe("recordUsage refId + cost override", () => {
       ownerEmail: "u@x.com",
       inputTokens: 1_000_000,
       outputTokens: 0,
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       label: "visual-recap",
       refId: "recap-2",
       costCentsX100: 4242,
@@ -427,6 +515,25 @@ describe("recordUsage refId + cost override", () => {
       .get() as { c: number };
     // Derived cost would be 50000 centicents ($5/1M); the override wins.
     expect(row.c).toBe(4242);
+  });
+
+  it("records token counts without fabricated spend when cost is unavailable", async () => {
+    await recordUsage({
+      ownerEmail: "u@x.com",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      model: "deepseek-chat",
+      label: "visual-recap",
+      refId: "recap-compatible",
+      costSource: "unavailable",
+    });
+    const row = sqlite
+      .prepare(
+        "SELECT cost_cents_x100 AS cost, cost_source AS source FROM token_usage WHERE ref_id = 'recap-compatible'",
+      )
+      .get() as { cost: number; source: string };
+
+    expect(row).toEqual({ cost: 0, source: "unavailable" });
   });
 
   it("does not dedup rows that carry no refId", async () => {

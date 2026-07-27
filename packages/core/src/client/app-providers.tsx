@@ -22,10 +22,12 @@
  *       ...
  *     </AppProviders>
  *
- *   When `isPublicPath` is true the providers render without `<ClientOnly>`,
- *   streaming real markup to the client. When false (the default) the standard
- *   `<ClientOnly fallback={clientOnlyFallback}>` gate wraps everything.
- *   When `clientOnlyFallback` is omitted, `<DefaultSpinner />` is used.
+ *   When `isPublicPath` is true the providers render without `<ClientOnly>` or
+ *   a session gate, streaming real markup to the client. When false (the
+ *   default), `<ClientOnly>` hydrates the shared SSR shell and
+ *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
+ *   page before private app chrome mounts. When `clientOnlyFallback` is
+ *   omitted, `<DefaultSpinner />` is used.
  *
  * Customisation props:
  *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
@@ -46,13 +48,19 @@
  *                              intentionally animates theme changes (e.g. content).
  */
 
-import React from "react";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
-import { TooltipProvider } from "@radix-ui/react-tooltip";
-import { Toaster } from "sonner";
+import React from "react";
+
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
+import {
+  AgentNativeI18nProvider,
+  type AgentNativeI18nProviderProps,
+} from "./i18n.js";
+import { RequireSession } from "./require-session.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -60,8 +68,8 @@ export interface AppProvidersProps {
 
   /**
    * Default theme passed to next-themes `ThemeProvider`.
-   * Defaults to `"system"`.  Dark-first templates (videos, slides, macros,
-   * analytics) pass `"dark"`.
+   * Defaults to `"system"`.  Dark-first templates (slides, macros, analytics)
+   * pass `"dark"`.
    */
   defaultTheme?: string;
 
@@ -95,6 +103,13 @@ export interface AppProvidersProps {
   disableThemeTransitions?: boolean;
 
   /**
+   * Optional localization runtime configuration. When omitted, AppProviders
+   * still mounts the i18n provider with an English fallback so templates can
+   * call useT/useLocale before they add catalogs. Pass false to opt out.
+   */
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
+
+  /**
    * When true the providers render without a `<ClientOnly>` gate so SSR
    * streams real markup for public/unauthenticated paths.
    * Defaults to false (authenticated app shell, ClientOnly-gated).
@@ -106,6 +121,13 @@ export interface AppProvidersProps {
    * Defaults to `<DefaultSpinner />`.
    */
   clientOnlyFallback?: React.ReactNode;
+
+  /**
+   * Skip the default client-side session gate on a private path. Use only for
+   * surfaces that authenticate by another mechanism, such as an MCP embed with
+   * its own scoped token. Public/SEO routes should use `isPublicPath` instead.
+   */
+  sessionBypass?: boolean;
 
   children: React.ReactNode;
 }
@@ -119,6 +141,7 @@ function ProvidersInner({
   tooltipDelayDuration,
   toaster = DEFAULT_TOASTER,
   disableThemeTransitions = true,
+  i18n,
   children,
 }: {
   queryClient: QueryClient;
@@ -127,8 +150,18 @@ function ProvidersInner({
   tooltipDelayDuration?: number;
   toaster?: React.ReactNode | null;
   disableThemeTransitions?: boolean;
+  i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   children: React.ReactNode;
 }) {
+  const localizedChildren =
+    i18n === false ? (
+      children
+    ) : (
+      <AgentNativeI18nProvider {...(i18n ?? {})}>
+        {children}
+      </AgentNativeI18nProvider>
+    );
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider
@@ -138,7 +171,7 @@ function ProvidersInner({
         disableTransitionOnChange={disableThemeTransitions}
       >
         <TooltipProvider delayDuration={tooltipDelayDuration}>
-          {children}
+          {localizedChildren}
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -150,11 +183,13 @@ export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
+  sessionBypass = false,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,
   toaster,
   disableThemeTransitions,
+  i18n,
   children,
 }: AppProvidersProps) {
   const fallback = clientOnlyFallback ?? <DefaultSpinner />;
@@ -168,6 +203,7 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
+        i18n={i18n}
       >
         {children}
       </ProvidersInner>
@@ -183,8 +219,11 @@ export function AppProviders({
         tooltipDelayDuration={tooltipDelayDuration}
         toaster={toaster}
         disableThemeTransitions={disableThemeTransitions}
+        i18n={i18n}
       >
-        {children}
+        <RequireSession bypass={sessionBypass} fallback={fallback}>
+          {children}
+        </RequireSession>
       </ProvidersInner>
     </ClientOnly>
   );

@@ -7,7 +7,12 @@ import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 
 const NOTION_API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";
-const CONTENT_DB_ID = "db4ae46c822443ba96e51a6a352e0fbe";
+const CONTENT_DATABASE_REQUIRED_PROPERTIES = [
+  "Topic",
+  "Status",
+  "Publish Date",
+] as const;
+const MAX_DATABASE_DISCOVERY_PAGES = 10;
 
 // Cache for Notion data (refreshed less frequently)
 const contentCalendarCache = new Map<
@@ -15,6 +20,10 @@ const contentCalendarCache = new Map<
   { entries: ContentCalendarEntry[]; ts: number }
 >();
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const contentDatabaseCache = new Map<
+  string,
+  { databaseId: string; ts: number }
+>();
 
 // Page block cache
 const pageCache = new Map<string, { data: NotionPageData; ts: number }>();
@@ -30,6 +39,19 @@ async function getApiKey(): Promise<string> {
   return credential.value;
 }
 
+// The name Notion reports for a token is whatever label its creator typed in, so it
+// routinely names an unrelated product. Never restate it as the current workspace.
+const NOTION_ACCESS_HINT =
+  "This usually means the page or database was never shared with the Notion integration behind NOTION_API_KEY, not that the id is wrong. Fix it in Notion: open the page, then ••• → Connections → add the integration. The integration's Notion-side label may not match this app or workspace.";
+
+function notionApiError(status: number, body: string): Error {
+  const suffix =
+    status === 401 || status === 403 || status === 404
+      ? ` ${NOTION_ACCESS_HINT}`
+      : "";
+  return new Error(`Notion API error ${status}: ${body}${suffix}`);
+}
+
 async function notionGet(path: string): Promise<unknown> {
   const res = await fetch(`${NOTION_API}${path}`, {
     headers: {
@@ -38,8 +60,7 @@ async function notionGet(path: string): Promise<unknown> {
     },
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion API error ${res.status}: ${text}`);
+    throw notionApiError(res.status, await res.text());
   }
   return res.json();
 }
@@ -55,8 +76,7 @@ async function notionPost(path: string, body: unknown): Promise<unknown> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Notion API error ${res.status}: ${text}`);
+    throw notionApiError(res.status, await res.text());
   }
   return res.json();
 }
@@ -116,6 +136,66 @@ function extractProp(props: any, name: string): string {
   }
 }
 
+async function resolveContentDatabaseId(
+  requestedDatabaseId?: string,
+): Promise<string> {
+  const requested = requestedDatabaseId?.trim();
+  if (requested) return requested;
+
+  const scope = credentialCacheScope("NOTION_API_KEY");
+  const cached = contentDatabaseCache.get(scope);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return cached.databaseId;
+  }
+
+  const candidates: Array<{ id: string; score: number }> = [];
+  let startCursor: string | undefined;
+  for (let page = 0; page < MAX_DATABASE_DISCOVERY_PAGES; page += 1) {
+    const result = (await notionPost("/search", {
+      filter: { property: "object", value: "database" },
+      page_size: 100,
+      ...(startCursor ? { start_cursor: startCursor } : {}),
+    })) as any;
+
+    for (const database of result.results ?? []) {
+      const properties = database.properties ?? {};
+      if (
+        !CONTENT_DATABASE_REQUIRED_PROPERTIES.every(
+          (name) => name in properties,
+        )
+      ) {
+        continue;
+      }
+      const title = richTextToString(database.title ?? []).toLowerCase();
+      const titleScore = /content/.test(title) ? 2 : 0;
+      const calendarScore = /calendar/.test(title) ? 1 : 0;
+      candidates.push({ id: database.id, score: titleScore + calendarScore });
+    }
+
+    startCursor = result.next_cursor ?? undefined;
+    if (!result.has_more || !startCursor) break;
+  }
+
+  candidates.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  const best = candidates[0];
+  if (!best) {
+    throw new Error(
+      "No accessible Notion database has the required Topic, Status, and Publish Date properties. Pass databaseId explicitly or share the content calendar database with the integration.",
+    );
+  }
+  if (candidates[1]?.score === best.score) {
+    throw new Error(
+      "Multiple Notion databases match the content calendar schema. Pass databaseId explicitly to choose one.",
+    );
+  }
+
+  contentDatabaseCache.set(scope, {
+    databaseId: best.id,
+    ts: Date.now(),
+  });
+  return best.id;
+}
+
 export interface ContentCalendarEntry {
   id: string;
   title: string;
@@ -135,8 +215,11 @@ export interface ContentCalendarEntry {
 }
 
 // Fetch all content calendar entries, paginating through results
-export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
-  const calendarCacheKey = credentialCacheScope("NOTION_API_KEY");
+export async function getContentCalendar(
+  requestedDatabaseId?: string,
+): Promise<ContentCalendarEntry[]> {
+  const databaseId = await resolveContentDatabaseId(requestedDatabaseId);
+  const calendarCacheKey = `${credentialCacheScope("NOTION_API_KEY")}:${databaseId}`;
   const cached = contentCalendarCache.get(calendarCacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return cached.entries;
@@ -151,7 +234,7 @@ export async function getContentCalendar(): Promise<ContentCalendarEntry[]> {
     if (startCursor) body.start_cursor = startCursor;
 
     const result = (await notionPost(
-      `/databases/${CONTENT_DB_ID}/query`,
+      `/databases/${encodeURIComponent(databaseId)}/query`,
       body,
     )) as any;
 
@@ -290,10 +373,13 @@ export async function getNotionPage(pageId: string): Promise<NotionPageData> {
   return data;
 }
 
-export async function getContentCalendarSchema(): Promise<
-  { name: string; type: string }[]
-> {
-  const db = (await notionGet(`/databases/${CONTENT_DB_ID}`)) as any;
+export async function getContentCalendarSchema(
+  requestedDatabaseId?: string,
+): Promise<{ name: string; type: string }[]> {
+  const databaseId = await resolveContentDatabaseId(requestedDatabaseId);
+  const db = (await notionGet(
+    `/databases/${encodeURIComponent(databaseId)}`,
+  )) as any;
   const props = db.properties ?? {};
   return Object.entries(props).map(([name, def]: [string, any]) => ({
     name,

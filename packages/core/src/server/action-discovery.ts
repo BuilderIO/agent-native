@@ -1,3 +1,5 @@
+import nodePath from "node:path";
+
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
@@ -27,7 +29,6 @@
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
-import nodePath from "node:path";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -39,7 +40,7 @@ async function getFs(): Promise<typeof import("fs")> {
   }
   return _fs;
 }
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 /** Files to skip during auto-discovery (no extension). */
 const SKIP_FILES = new Set([
@@ -67,7 +68,23 @@ function isRuntimeSourceFile(filename: string): boolean {
  * consumers can override a packaged action by dropping a same-named file
  * in their own `actions/` dir.
  */
-const packageActionRegistry: Record<string, ActionEntry> = {};
+const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core.package-action-registry",
+);
+
+function getPackageActionRegistry(): Record<string, ActionEntry> {
+  const sharedGlobal = globalThis as typeof globalThis & {
+    [key: symbol]: unknown;
+  };
+  const existing = sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY];
+  if (existing && typeof existing === "object") {
+    return existing as Record<string, ActionEntry>;
+  }
+
+  const registry: Record<string, ActionEntry> = {};
+  sharedGlobal[PACKAGE_ACTION_REGISTRY_KEY] = registry;
+  return registry;
+}
 
 /**
  * Register a map of actions contributed by a published package.
@@ -86,15 +103,27 @@ const packageActionRegistry: Record<string, ActionEntry> = {};
 export function registerPackageActions(
   actions: Record<string, ActionEntry>,
 ): void {
+  const packageActionRegistry = getPackageActionRegistry();
   for (const [name, entry] of Object.entries(actions)) {
     if (packageActionRegistry[name]) continue;
     packageActionRegistry[name] = entry;
   }
 }
 
-/** Internal — used by `autoDiscoverActions`. Returns a shallow copy. */
-function getPackageActions(): Record<string, ActionEntry> {
-  return { ...packageActionRegistry };
+/**
+ * Merge package-contributed actions without replacing app-local actions.
+ *
+ * This is intentionally callable even when the app passes an explicit static
+ * action registry. Published packages register through import side effects,
+ * while generated app registries only contain app-local action files.
+ */
+export function mergePackageActions(
+  registry: Record<string, ActionEntry>,
+): void {
+  for (const [name, entry] of Object.entries(getPackageActionRegistry())) {
+    if (registry[name]) continue;
+    registry[name] = entry;
+  }
 }
 
 /**
@@ -181,9 +210,18 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
+  if (typeof entry.requiresAuth === "boolean") {
+    out.requiresAuth = entry.requiresAuth;
+  }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.allowInPlanMode === "boolean") {
+    out.allowInPlanMode = entry.allowInPlanMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
+  }
+  if (typeof entry.dedupe === "boolean") {
+    out.dedupe = entry.dedupe;
   }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
@@ -205,7 +243,47 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.mcpApp = entry.mcpApp;
   }
+  if (
+    entry.chatUI &&
+    typeof entry.chatUI === "object" &&
+    !Array.isArray(entry.chatUI)
+  ) {
+    out.chatUI = entry.chatUI;
+  }
+  if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
+  if (typeof entry.maxResultChars === "number") {
+    out.maxResultChars = entry.maxResultChars;
+  }
+  if (
+    typeof entry.needsApproval === "boolean" ||
+    typeof entry.needsApproval === "function"
+  ) {
+    out.needsApproval = entry.needsApproval;
+  }
   return out;
+}
+
+function shouldRetryWithJiti(filePath: string, err: unknown): boolean {
+  if (!filePath.endsWith(".ts")) return false;
+  const candidate = err as { code?: unknown; message?: unknown } | undefined;
+  if (candidate?.code === "ERR_UNKNOWN_FILE_EXTENSION") return true;
+  return /Unknown file extension ".ts"/.test(String(candidate?.message ?? ""));
+}
+
+async function importRuntimeSourceModule(
+  filePath: string,
+): Promise<Record<string, any>> {
+  try {
+    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
+  } catch (err) {
+    if (!shouldRetryWithJiti(filePath, err)) throw err;
+
+    const { createJiti } = await import("jiti");
+    const jiti = createJiti(pathToFileURL(filePath).href, {
+      interopDefault: true,
+    });
+    return (await jiti.import(filePath)) as Record<string, any>;
+  }
 }
 
 /**
@@ -287,7 +365,7 @@ async function loadActionsIntoRegistry(
 
     const filePath = nodePath.join(actionsDir, file);
     try {
-      const mod = await import(/* @vite-ignore */ filePath);
+      const mod = await importRuntimeSourceModule(filePath);
 
       if (mod.tool && typeof mod.run === "function") {
         registry[name] = {
@@ -468,10 +546,7 @@ export async function autoDiscoverActions(
   //     (e.g. @agent-native/dispatch) via `registerPackageActions()` from
   //     import side effects. Merged with skip-existing so the template's
   //     own actions/ files always win on name collision.
-  for (const [name, entry] of Object.entries(getPackageActions())) {
-    if (registry[name]) continue;
-    registry[name] = entry;
-  }
+  mergePackageActions(registry);
 
   // 2. Workspace-core actions — merged in with skipExisting so they can't
   //    overwrite template entries.
@@ -515,10 +590,49 @@ export async function mergeCoreSharingActions(
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
+    [
+      "create-agent-resource-link",
+      () => import("../sharing/actions/create-agent-resource-link.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "get-feature-flags",
+      () => import("../feature-flags/actions/get-feature-flags.js"),
+    ],
+    [
+      "list-feature-flags",
+      () => import("../feature-flags/actions/list-feature-flags.js"),
+    ],
+    [
+      "set-feature-flag",
+      () => import("../feature-flags/actions/set-feature-flag.js"),
+    ],
+    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
+    // recurring jobs and personal automations. The agent-facing native tools
+    // remain the canonical conversational surface.
+    [
+      "list-recurring-jobs",
+      () => import("../jobs/actions/list-recurring-jobs.js"),
+    ],
+    [
+      "manage-recurring-job",
+      () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "list-automations",
+      () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "manage-automation",
+      () => import("../triggers/actions/manage-automation.js"),
+    ],
     [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-preview-get",
+      () => import("../agent/context-xray/actions/context-preview-get.js"),
     ],
     [
       "context-pin",
@@ -537,10 +651,93 @@ export async function mergeCoreSharingActions(
       () => import("../agent/context-xray/actions/context-report.js"),
     ],
     [
+      "get-localization-preference",
+      () => import("../localization/actions/get-localization-preference.js"),
+    ],
+    [
+      "set-localization-preference",
+      () => import("../localization/actions/set-localization-preference.js"),
+    ],
+    [
+      "get-user-profile",
+      () => import("../user-profile/actions/get-user-profile.js"),
+    ],
+    [
+      "update-user-profile",
+      () => import("../user-profile/actions/update-user-profile.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
+    // Audit log — read surface (who changed what, when, agent vs human).
+    [
+      "list-audit-events",
+      () => import("../audit/actions/list-audit-events.js"),
+    ],
+    ["get-audit-event", () => import("../audit/actions/get-audit-event.js")],
+    [
+      "export-audit-events",
+      () => import("../audit/actions/export-audit-events.js"),
+    ],
+    // History kit — reusable version snapshots and restore surface.
+    [
+      "create-resource-version",
+      () => import("../history/actions/create-resource-version.js"),
+    ],
+    [
+      "list-resource-versions",
+      () => import("../history/actions/list-resource-versions.js"),
+    ],
+    [
+      "get-resource-version",
+      () => import("../history/actions/get-resource-version.js"),
+    ],
+    [
+      "restore-resource-version",
+      () => import("../history/actions/restore-resource-version.js"),
+    ],
+    [
+      "list-resource-history",
+      () => import("../history/actions/list-resource-history.js"),
+    ],
+    // Comments/review kit — reusable inline comments, feedback, and review status.
+    [
+      "list-review-comments",
+      () => import("../review/actions/list-review-comments.js"),
+    ],
+    [
+      "create-review-comment",
+      () => import("../review/actions/create-review-comment.js"),
+    ],
+    [
+      "reply-review-comment",
+      () => import("../review/actions/reply-review-comment.js"),
+    ],
+    [
+      "resolve-review-thread",
+      () => import("../review/actions/resolve-review-thread.js"),
+    ],
+    [
+      "delete-review-comment",
+      () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "consume-review-feedback",
+      () => import("../review/actions/consume-review-feedback.js"),
+    ],
+    [
+      "get-review-feedback",
+      () => import("../review/actions/get-review-feedback.js"),
+    ],
+    [
+      "set-review-status",
+      () => import("../review/actions/set-review-status.js"),
+    ],
+    [
+      "send-review-thread-to-agent",
+      () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [
@@ -555,6 +752,8 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
+    ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;
@@ -567,7 +766,7 @@ export async function mergeCoreSharingActions(
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
           // Carry security-relevant flags (toolCallable, publicAgent, link,
-          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),

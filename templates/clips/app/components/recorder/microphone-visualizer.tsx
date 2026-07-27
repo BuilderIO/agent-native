@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,8 @@ export type MicrophoneTestStatus = "idle" | "starting" | "live" | "error";
 export interface MicrophoneVisualizerProps {
   deviceId: string | null;
   disabled?: boolean;
-  selectedLabel?: string;
+  idleActionLabel?: string;
+  idleHelper?: string;
   className?: string;
   onStatusChange?: (
     status: MicrophoneTestStatus,
@@ -38,6 +40,26 @@ function stopStream(stream: MediaStream | null): void {
 }
 
 type MicrophonePermissionState = PermissionState | "unknown";
+
+function isDesktopShell(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as typeof window & {
+    electronAPI?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+    __TAURI__?: unknown;
+  };
+  if (w.electronAPI || w.__TAURI_INTERNALS__ || w.__TAURI__) return true;
+  return (
+    typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent)
+  );
+}
+
+function micBlockedMessage(): string {
+  if (isDesktopShell()) {
+    return "Microphone access is blocked for this app. Enable the microphone for the app in your system Privacy settings, then reopen the recorder.";
+  }
+  return "Your browser has blocked microphone access for this site, so it won't prompt. Allow the microphone in this site's settings, then reload.";
+}
 
 function isMicrophoneBlockedByPolicy(): boolean {
   const policy =
@@ -72,7 +94,7 @@ async function getMicrophonePermissionState(): Promise<MicrophonePermissionState
   }
 }
 
-async function friendlyMicError(err: unknown): Promise<string> {
+export async function friendlyMicError(err: unknown): Promise<string> {
   const name = (err as { name?: string } | null)?.name ?? "";
   const message = err instanceof Error ? err.message : String(err ?? "");
   const combined = `${name} ${message}`;
@@ -94,10 +116,10 @@ async function friendlyMicError(err: unknown): Promise<string> {
     return "Microphone prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
   }
   if (permissionState === "denied") {
-    return "Brave already has Microphone set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Microphone → Allow, then reload.";
+    return micBlockedMessage();
   }
   if (/NotAllowedError|Permission denied|denied|blocked/i.test(combined)) {
-    return "The browser or macOS denied microphone access. If no popup appeared, check Brave site settings and macOS System Settings → Privacy & Security → Microphone for Brave, then reload.";
+    return "The browser or operating system denied microphone access. Check this site's microphone setting and your system privacy settings for this browser, then reload.";
   }
   if (
     /NotFoundError|DevicesNotFoundError|no device|not found/i.test(combined)
@@ -113,11 +135,13 @@ async function friendlyMicError(err: unknown): Promise<string> {
 export function MicrophoneVisualizer({
   deviceId,
   disabled,
-  selectedLabel,
+  idleActionLabel = "Test mic",
+  idleHelper,
   className,
   onStatusChange,
   onSignalChange,
 }: MicrophoneVisualizerProps) {
+  const t = useT();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const runIdRef = useRef(0);
@@ -324,8 +348,7 @@ export function MicrophoneVisualizer({
     const permissionState = await getMicrophonePermissionState();
     if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
-      const message =
-        "Brave already has Microphone set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Microphone → Allow, then reload.";
+      const message = micBlockedMessage();
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });
@@ -436,32 +459,42 @@ export function MicrophoneVisualizer({
 
   const live = status === "live";
   const starting = status === "starting";
-  const helper = disabled
-    ? "Microphone is disabled for this recording."
+  const statusLabel = disabled
+    ? "Off"
     : error
-      ? error
+      ? "Needs access"
       : live
         ? hasSignal
-          ? "Signal detected — your selected microphone is picking you up."
-          : "Speak now — the waveform should move with your voice."
+          ? "Signal"
+          : "Listening"
         : starting
-          ? "Opening microphone…"
-          : "Click Test mic, then speak to verify input before recording.";
+          ? "Opening"
+          : null;
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-muted/25 p-3",
-        disabled && "opacity-70",
-        className,
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-foreground">Mic check</div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {selectedLabel ?? "Selected microphone"}
-          </div>
+    <div className={cn("space-y-2", disabled && "opacity-70", className)}>
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "relative h-7 min-w-0 flex-1 overflow-hidden rounded-full border bg-muted/20",
+            live && hasSignal ? "border-foreground/35" : "border-border",
+          )}
+        >
+          <canvas
+            ref={canvasRef}
+            aria-label={t("clipsFinalRaw.selectedMicrophoneWaveform")}
+            className="h-full w-full opacity-75"
+          />
+          {statusLabel ? (
+            <span
+              className={cn(
+                "pointer-events-none absolute end-2 top-1/2 -translate-y-1/2 rounded-full bg-background/85 px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm",
+                error && "text-foreground",
+              )}
+            >
+              {statusLabel}
+            </span>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -469,39 +502,18 @@ export function MicrophoneVisualizer({
           size="sm"
           disabled={disabled || starting}
           onClick={live ? stopTest : startTest}
-          className="h-8 px-2.5 text-xs"
+          className="h-7 shrink-0 px-2.5 text-xs"
         >
-          {live ? "Stop" : starting ? "Listening…" : "Test mic"}
+          {live ? "Stop" : starting ? "Opening..." : idleActionLabel}
         </Button>
       </div>
-      <div
-        className={cn(
-          "relative overflow-hidden rounded-lg border bg-background",
-          live && hasSignal ? "border-foreground/45" : "border-border",
-        )}
-      >
-        <canvas
-          ref={canvasRef}
-          aria-label="Selected microphone waveform"
-          className="h-12 w-full"
-        />
-        {live && (
-          <div
-            className={cn(
-              "pointer-events-none absolute right-2 top-2 h-2 w-2 rounded-full",
-              hasSignal ? "bg-foreground" : "bg-muted-foreground/40",
-            )}
-          />
-        )}
-      </div>
-      <p
-        className={cn(
-          "mt-2 text-[11px] leading-snug text-muted-foreground",
-          error && "text-foreground",
-        )}
-      >
-        {helper}
-      </p>
+      {error ? (
+        <p className="text-[11px] leading-snug text-foreground">{error}</p>
+      ) : idleHelper && !live && !starting ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          {idleHelper}
+        </p>
+      ) : null}
     </div>
   );
 }

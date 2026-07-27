@@ -1,4 +1,3 @@
-import React, { useState, useCallback, useEffect } from "react";
 import {
   IconPlus,
   IconBrandSlack,
@@ -12,17 +11,22 @@ import {
   IconChevronLeft,
   IconExternalLink,
   IconCircleCheck,
+  IconInfoCircle,
 } from "@tabler/icons-react";
-import {
-  useIntegrationStatus,
-  type IntegrationStatus,
-} from "./useIntegrationStatus.js";
+import React, { useState, useCallback, useEffect } from "react";
+
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
+import {
+  useIntegrationStatus,
+  type IntegrationStatus,
+} from "./useIntegrationStatus.js";
+import { isNonPublicWebhookUrl } from "./webhook-url.js";
 
 // ─── Platform config ─────────────────────────────────────────────────────────
 
@@ -43,14 +47,15 @@ const PLATFORMS: PlatformInfo[] = [
     id: "slack",
     label: "Slack",
     icon: IconBrandSlack,
-    description: "Message your agent from any Slack channel or DM.",
+    description:
+      "@mention the agent in a Slack thread or DM it, and it replies in that thread.",
     envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
-      "Create a Slack app at api.slack.com/apps",
-      'Enable "Event Subscriptions" and point to your webhook URL',
-      "Subscribe to message.im and app_mention events",
-      "Install the app to your workspace",
-      "Copy the Bot Token and Signing Secret into your environment",
+      "At api.slack.com/apps, create an app for your workspace, then under OAuth & Permissions add the bot scopes app_mentions:read, chat:write, channels:history, and im:history",
+      "Click Install to Workspace, then copy the Bot User OAuth Token and the Signing Secret (Basic Information → App Credentials) into the two secrets listed below",
+      "Under Event Subscriptions, turn events on, paste the webhook URL below as the Request URL, and subscribe to the bot events app_mention and message.im",
+      "Invite the bot to a channel, @mention it in a thread, and confirm it replies in that same thread",
+      "Running inside a Dispatch workspace instead? Connect Slack from Settings → Messaging there — it stores workspace tokens for you and this page is not needed.",
     ],
     docsUrl: "https://api.slack.com/apps",
   },
@@ -133,7 +138,8 @@ const PLATFORMS: PlatformInfo[] = [
       "Builder.io discovers each agent's skills via A2A",
       "Chat with one agent that can trigger actions across all your apps",
     ],
-    docsUrl: "https://www.builder.io",
+    docsUrl:
+      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
   },
 ];
 
@@ -174,6 +180,7 @@ function IntegrationDetail({
   onBack: () => void;
   onRefresh: () => void;
 }) {
+  const t = useT();
   const [toggling, setToggling] = useState(false);
   const [copied, setCopied] = useState(false);
   const [toggleError, setToggleError] = useState<string | null>(null);
@@ -205,9 +212,7 @@ function IntegrationDetail({
       );
     } catch (err) {
       setToggleError(
-        err instanceof Error
-          ? err.message
-          : "Network error reaching the server",
+        err instanceof Error ? err.message : t("integrations.networkError"),
       );
     } finally {
       setToggling(false);
@@ -243,8 +248,8 @@ function IntegrationDetail({
         onClick={onBack}
         className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
       >
-        <IconChevronLeft size={12} />
-        Back
+        <IconChevronLeft size={12} className="rtl:-scale-x-100" />
+        {t("integrations.back")}
       </button>
 
       <div className="flex items-center gap-2 mb-2">
@@ -264,11 +269,12 @@ function IntegrationDetail({
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[10px] font-medium text-foreground">
-                Agent engine required
+                {t("integrations.agentEngineRequired")}
               </div>
               <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                Connect Builder.io or an LLM key before {platform.label} can
-                answer.
+                {t("integrations.agentEngineDescription", {
+                  platform: platform.label,
+                })}
               </p>
             </div>
             <button
@@ -276,7 +282,7 @@ function IntegrationDetail({
               onClick={handleOpenLlmSettings}
               className="shrink-0 rounded border border-border bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
             >
-              Open LLM
+              {t("integrations.openLlm")}
             </button>
           </div>
         </div>
@@ -285,7 +291,7 @@ function IntegrationDetail({
       {/* Setup steps */}
       <div className="mb-3">
         <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
-          Setup
+          {t("integrations.setup")}
         </div>
         <ol className="space-y-1">
           {platform.setupSteps.map((step, i) => (
@@ -305,7 +311,7 @@ function IntegrationDetail({
       {serviceAccountEmail && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
-            Share documents with
+            {t("integrations.shareDocumentsWith")}
           </div>
           <div className="flex items-center gap-1">
             <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
@@ -320,7 +326,9 @@ function IntegrationDetail({
                   {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Copy service account email</TooltipContent>
+              <TooltipContent>
+                {t("integrations.copyServiceAccountEmail")}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -330,7 +338,7 @@ function IntegrationDetail({
       {platform.envVars.length > 0 && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
-            Required secrets
+            {t("integrations.requiredSecrets")}
           </div>
           <div className="space-y-0.5">
             {platform.envVars.map((v) => (
@@ -349,7 +357,7 @@ function IntegrationDetail({
           </div>
           {!isConfigured && (
             <p className="text-[10px] text-amber-500 mt-1">
-              Set these in your .env file or environment to connect.
+              {t("integrations.envHelp")}
             </p>
           )}
         </div>
@@ -359,24 +367,36 @@ function IntegrationDetail({
       {serverStatus?.webhookUrl && !platform.isClient && (
         <div className="mb-3">
           <div className="text-[10px] font-medium text-muted-foreground mb-1">
-            Webhook URL
+            {t("integrations.webhookUrl")}
           </div>
-          <div className="flex items-center gap-1">
-            <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
-              {serverStatus.webhookUrl}
-            </code>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleCopy(serverStatus.webhookUrl!)}
-                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                >
-                  {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Copy</TooltipContent>
-            </Tooltip>
-          </div>
+          {isNonPublicWebhookUrl(serverStatus.webhookUrl) ? (
+            <div className="flex gap-1.5 rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
+              <IconInfoCircle size={12} className="mt-px shrink-0" />
+              <span>
+                {t("integrations.webhookUrlLocalOnly", {
+                  platform: platform.label,
+                  url: serverStatus.webhookUrl,
+                })}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <code className="flex-1 truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground">
+                {serverStatus.webhookUrl}
+              </code>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleCopy(serverStatus.webhookUrl!)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  >
+                    {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("integrations.copy")}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
         </div>
       )}
 
@@ -388,7 +408,7 @@ function IntegrationDetail({
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 mb-3"
         >
-          Documentation
+          {t("integrations.documentation")}
           <IconExternalLink size={10} />
         </a>
       )}
@@ -404,15 +424,18 @@ function IntegrationDetail({
               : "border-green-600/50 text-green-400 hover:bg-green-900/20"
           }`}
         >
-          {toggling ? "..." : isEnabled ? "Disable" : "Enable"}
+          {toggling
+            ? t("integrations.toggling")
+            : isEnabled
+              ? t("integrations.disable")
+              : t("integrations.enable")}
         </button>
       )}
 
       {/* Status for client integrations */}
       {platform.isClient && (
         <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
-          This agent's A2A endpoint is automatically available. No configuration
-          needed.
+          {t("integrations.clientAvailable")}
         </div>
       )}
 
@@ -444,7 +467,7 @@ function AddIntegrationPicker({
         <button
           key={platform.id}
           onClick={() => onSelect(platform)}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
         >
           <platform.icon size={14} className="shrink-0 text-muted-foreground" />
           <div className="flex-1 min-w-0">
@@ -464,6 +487,7 @@ function AddIntegrationPicker({
 // ─── Main panel ──────────────────────────────────────────────────────────────
 
 export function IntegrationsPanel() {
+  const t = useT();
   const { statuses, loading, refetch } = useIntegrationStatus();
   const [selectedPlatform, setSelectedPlatform] = useState<PlatformInfo | null>(
     null,
@@ -498,11 +522,11 @@ export function IntegrationsPanel() {
           onClick={() => setShowPicker(false)}
           className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground mb-2"
         >
-          <IconChevronLeft size={12} />
-          Back
+          <IconChevronLeft size={12} className="rtl:-scale-x-100" />
+          {t("integrations.back")}
         </button>
         <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
-          Add a chat integration
+          {t("integrations.addChatIntegration")}
         </div>
         <AddIntegrationPicker
           connectedIds={connectedIds}
@@ -520,23 +544,25 @@ export function IntegrationsPanel() {
       <div className="flex items-center justify-between mb-1.5">
         <div>
           <div className="text-xs font-medium text-foreground">
-            Chat Integrations
+            {t("integrations.chatIntegrations")}
           </div>
           <div className="text-[10px] text-muted-foreground">
-            Talk to this agent from other platforms
+            {t("integrations.chatIntegrationsDescription")}
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setShowPicker(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconPlus size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>Add integration</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <IconPlus size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {loading ? (
@@ -551,11 +577,10 @@ export function IntegrationsPanel() {
             className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent/30"
           >
             <IconPlus size={12} className="shrink-0" />
-            Add integration
+            {t("integrations.addIntegration")}
           </button>
           <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
-            For a central Slack or Telegram entrypoint that can route work
-            across multiple apps, use the{" "}
+            {t("integrations.dispatchEntrypoint")}{" "}
             <a
               href="https://dispatch.agent-native.com"
               target="_blank"
@@ -575,7 +600,7 @@ export function IntegrationsPanel() {
               <button
                 key={platform.id}
                 onClick={() => setSelectedPlatform(platform)}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent/50"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
               >
                 <platform.icon
                   size={14}
@@ -591,7 +616,7 @@ export function IntegrationsPanel() {
                         ? "bg-green-500"
                         : s.configured
                           ? "bg-yellow-500"
-                          : "bg-gray-400"
+                          : "bg-muted-foreground/55"
                     }`}
                   />
                 )}
@@ -599,9 +624,7 @@ export function IntegrationsPanel() {
             );
           })}
           <div className="rounded-md border border-border bg-muted/30 px-2.5 py-2 text-[10px] text-muted-foreground">
-            Need one shared messaging surface for your workspace? Connect Slack
-            or Telegram to a dispatch app and let it delegate to other agents
-            over A2A.
+            {t("integrations.sharedMessaging")}
           </div>
         </div>
       )}

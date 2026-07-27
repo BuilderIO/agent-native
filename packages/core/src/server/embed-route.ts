@@ -6,14 +6,8 @@ import {
   getQuery,
   setResponseHeader,
 } from "h3";
-import {
-  consumeEmbedSessionTicket,
-  normalizeEmbedTargetPath,
-  setEmbedSessionCookie,
-  signEmbedSessionToken,
-} from "./embed-session.js";
-import type { AuthSession } from "./auth.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+
+import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
@@ -24,7 +18,14 @@ import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
-import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import type { AuthSession } from "./auth.js";
+import {
+  consumeEmbedSessionTicket,
+  normalizeEmbedTargetPath,
+  setEmbedSessionCookie,
+  signEmbedSessionToken,
+} from "./embed-session.js";
 
 function withConfiguredBasePath(path: string): string {
   const base = getConfiguredAppBasePath();

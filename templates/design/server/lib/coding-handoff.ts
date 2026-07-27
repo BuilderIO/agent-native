@@ -82,6 +82,23 @@ export function buildRawHandoffUrl({
   return normalizedOrigin ? `${normalizedOrigin}${path}` : path;
 }
 
+export function buildHandoffZipUrl({
+  id,
+  token,
+  origin,
+}: {
+  id: string;
+  token: string;
+  origin?: string | null;
+}): string {
+  const params = new URLSearchParams({ token });
+  const path = appPath(
+    `/api/design-handoff/${encodeURIComponent(id)}.zip?${params.toString()}`,
+  );
+  const normalizedOrigin = normalizeHandoffOrigin(origin);
+  return normalizedOrigin ? `${normalizedOrigin}${path}` : path;
+}
+
 function parseDesignData(data?: string | null): Record<string, unknown> {
   if (!data) return {};
   try {
@@ -114,7 +131,10 @@ function injectResolvedTokensIntoHtml(
 ): string {
   const entries = Object.entries(resolvedCssVars);
   if (entries.length === 0) return content;
-  if (/applied-design-tokens/.test(content)) return content;
+  if (
+    /data-applied-design-tokens|\/\* applied-design-tokens \*\//.test(content)
+  )
+    return content;
 
   const decls = entries
     .map(([name, value]) => `  ${name}: ${value}; /* applied-design-tokens */`)
@@ -124,9 +144,35 @@ function injectResolvedTokensIntoHtml(
   const rootOpen = content.lastIndexOf(":root");
   if (rootOpen !== -1) {
     const braceOpen = content.indexOf("{", rootOpen);
-    const braceClose = content.indexOf("}", braceOpen);
-    if (braceOpen !== -1 && braceClose !== -1) {
-      return `${content.slice(0, braceClose)}\n${decls}\n${content.slice(braceClose)}`;
+    if (braceOpen !== -1) {
+      // Walk forward with a brace-depth counter so values containing `}`
+      // (e.g. url("}"), attr() fallbacks) don't fool us into injecting inside
+      // the value rather than at the end of the :root block.
+      let depth = 0;
+      let braceClose = -1;
+      let inSingle = false;
+      let inDouble = false;
+      for (let i = braceOpen; i < content.length; i++) {
+        const ch = content[i];
+        if (ch === "'" && !inDouble) {
+          inSingle = !inSingle;
+        } else if (ch === '"' && !inSingle) {
+          inDouble = !inDouble;
+        } else if (!inSingle && !inDouble) {
+          if (ch === "{") {
+            depth++;
+          } else if (ch === "}") {
+            depth--;
+            if (depth === 0) {
+              braceClose = i;
+              break;
+            }
+          }
+        }
+      }
+      if (braceClose !== -1) {
+        return `${content.slice(0, braceClose)}\n${decls}\n${content.slice(braceClose)}`;
+      }
     }
   }
 
@@ -272,20 +318,127 @@ export function buildDesignHandoffMarkdown(
   return `${lines.join("\n")}\n`;
 }
 
+function safeZipBaseName(title?: string | null): string {
+  const safe = (title || "design")
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return safe || "design";
+}
+
+export function buildHandoffZipFilename(title?: string | null): string {
+  return `${safeZipBaseName(title)}-agent-handoff.zip`;
+}
+
+function safeZipPath(filename: string, fallback: string): string {
+  const normalized = filename
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== "." && part !== "..")
+    .join("/");
+  const withoutControlCharacters = normalized.replace(/[\x00-\x1f\x7f]/g, "");
+  return withoutControlCharacters || fallback;
+}
+
+function uniqueZipPath(path: string, seen: Set<string>): string {
+  if (!seen.has(path)) {
+    seen.add(path);
+    return path;
+  }
+  const slash = path.lastIndexOf("/");
+  const dir = slash === -1 ? "" : `${path.slice(0, slash + 1)}`;
+  const base = slash === -1 ? path : path.slice(slash + 1);
+  const dot = base.lastIndexOf(".");
+  const name = dot === -1 ? base : base.slice(0, dot);
+  const ext = dot === -1 ? "" : base.slice(dot);
+  let index = 2;
+  while (seen.has(`${dir}${name}-${index}${ext}`)) index += 1;
+  const next = `${dir}${name}-${index}${ext}`;
+  seen.add(next);
+  return next;
+}
+
+export async function buildDesignHandoffZip(
+  payload: DesignHandoffPayload,
+): Promise<Uint8Array> {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  const seenPaths = new Set<string>();
+
+  const readme = [
+    `# ${payload.design.title}`,
+    "",
+    "This archive contains the source files exported from Agent-Native Design.",
+    "Use the files as the source of truth for layout, typography, colors, spacing, copy, and interactions.",
+    "",
+    `Design ID: ${payload.design.id}`,
+    `Exported: ${payload.exportedAt}`,
+    payload.design.projectType
+      ? `Project type: ${payload.design.projectType}`
+      : null,
+    "",
+    "## Files",
+    "",
+    ...payload.files.map((file) => `- ${file.filename} (${file.fileType})`),
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+
+  zip.file(uniqueZipPath("README.md", seenPaths), readme);
+  zip.file(
+    uniqueZipPath("design-handoff.json", seenPaths),
+    JSON.stringify(
+      {
+        exportedAt: payload.exportedAt,
+        design: payload.design,
+        files: payload.files.map((file) => ({
+          filename: file.filename,
+          fileType: file.fileType,
+        })),
+        appliedDesignTokens: payload.appliedDesignTokens,
+      },
+      null,
+      2,
+    ),
+  );
+
+  payload.files.forEach((file, index) => {
+    const path = uniqueZipPath(
+      safeZipPath(file.filename, `file-${index + 1}.${file.fileType || "txt"}`),
+      seenPaths,
+    );
+    zip.file(path, file.content);
+  });
+
+  return zip.generateAsync({ type: "uint8array" });
+}
+
 export function buildCodingHandoffPrompt({
   rawUrl,
+  zipUrl,
   title,
   fileCount,
 }: {
   rawUrl: string;
+  zipUrl?: string;
   title: string;
   fileCount: number;
 }): string {
-  return [
+  const lines = [
     `Build this design as production code: ${title}`,
     "",
     `Fetch the raw design bundle here: ${rawUrl}`,
+  ];
+  if (zipUrl) {
+    lines.push(
+      "",
+      `If you prefer files, download the ZIP bundle here: ${zipUrl}`,
+    );
+  }
+  lines.push(
     "",
     `The bundle contains ${fileCount} file${fileCount === 1 ? "" : "s"} with the exact HTML/CSS/JSX source from the Design app. Use it as the source of truth for layout, typography, colors, spacing, responsive behavior, copy, and interactions. Convert it into the target project stack or Builder.io page/component while preserving the visual intent. If multiple screens are included, implement the primary page first and map the rest to routes, sections, or components as appropriate.`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 }

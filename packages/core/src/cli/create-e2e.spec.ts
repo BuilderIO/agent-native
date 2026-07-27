@@ -1,3 +1,9 @@
+import { spawnSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { fileURLToPath } from "url";
+
 /**
  * E2E regression tests for `agent-native create`.
  *
@@ -11,10 +17,8 @@
  *   - postinstall scripts missing for required packages
  *   - dist/catalog.json not embedded in the built package
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "fs";
-import path from "path";
-import os from "os";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
   _scaffoldWorkspaceRoot,
@@ -26,13 +30,18 @@ import {
   _rewriteNetlifyToml,
   _getCoreDependencyVersion,
   _getDispatchDependencyVersion,
+  _getToolkitDependencyVersion,
+  _getCorePackageVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
+  _githubTarballUrl,
+  _findLocalTemplateFrom,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
-import { workspacifyApp } from "./workspacify.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { runSkills } from "./skills.js";
+import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
 let origCwd: string;
@@ -45,13 +54,48 @@ beforeEach(() => {
 
 afterEach(() => {
   process.chdir(origCwd);
-  fs.rmSync(tmpDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100,
-  });
-});
+  removeTmpDir(tmpDir);
+}, 30_000);
+
+function removeTmpDir(dir: string): void {
+  const maxAttempts = 10;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      fs.rmSync(dir, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 100,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableRmError(error) || attempt === maxAttempts - 1) {
+        throw error;
+      }
+      sleepSync(100 * (attempt + 1));
+    }
+  }
+
+  throw lastError;
+}
+
+function isRetryableRmError(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  return (
+    code === "ENOTEMPTY" ||
+    code === "EBUSY" ||
+    code === "EPERM" ||
+    code === "EMFILE" ||
+    code === "ENFILE"
+  );
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
 
 function readPkg(dir: string): Record<string, any> {
   return JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));
@@ -85,21 +129,32 @@ function readAllTextFiles(dir: string): string {
  * Standalone scaffold with a real template
  * ───────────────────────────────────────────────────────────────────────── */
 
-describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
-  it("rewrites the copied starter tracking app id to the generated app id", async () => {
-    await createApp("test-app", { template: "starter" });
+describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
+  it("rewrites the copied chat tracking app id to the generated app id", async () => {
+    await createApp("test-app", { template: "chat" });
     const root = fs.readFileSync(
       path.join(tmpDir, "test-app", "app", "root.tsx"),
       "utf-8",
     );
 
     expect(root).toContain('app: "test-app"');
-    expect(root).toContain('template: "starter"');
-    expect(root).not.toContain('app: "agent-native-starter"');
+    expect(root).toContain('template: "chat"');
+    expect(root).not.toContain('app: "chat"');
   });
 
-  it("brands a generated starter app as the generated app, not the starter", async () => {
-    await createApp("test-app", { template: "starter" });
+  it("keeps starter as a legacy input alias for chat", async () => {
+    await createApp("legacy-app", { template: "starter" });
+    const root = fs.readFileSync(
+      path.join(tmpDir, "legacy-app", "app", "root.tsx"),
+      "utf-8",
+    );
+
+    expect(root).toContain('app: "legacy-app"');
+    expect(root).toContain('template: "chat"');
+  });
+
+  it("brands a generated chat app as the generated app, not the source template", async () => {
+    await createApp("test-app", { template: "chat" });
 
     const appConfig = fs.readFileSync(
       path.join(tmpDir, "test-app", "app", "lib", "app-config.ts"),
@@ -138,8 +193,56 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
     expect(pkg.description).toBe("Workspace app for Test App.");
   });
 
+  it("teaches generated chat apps to discover and customize Toolkit features", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    const pkg = readPkg(root);
+    const toolkitSkill = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
+
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(pkg["agent-native"]?.scaffold).toEqual({
+      template: "chat",
+      frameworkSkills: "default",
+      templateRef: expect.any(String),
+      templateSource: expect.stringMatching(
+        /^(github|bundled|local-checkout)$/,
+      ),
+      coreVersion: expect.any(String),
+      shape: "standalone",
+    });
+    expect(fs.existsSync(toolkitSkill)).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+
+    fs.writeFileSync(toolkitSkill, "outdated framework guidance\n");
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+    expect(fs.readFileSync(toolkitSkill, "utf-8")).toContain(
+      "# Agent-Native Toolkit",
+    );
+  });
+
   it("resolves all workspace:* deps for standalone install", async () => {
-    await createApp("test-app", { template: "starter" });
+    await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     for (const [key, val] of Object.entries(deps)) {
@@ -150,7 +253,7 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
   });
 
   it("resolves all catalog: refs to actual versions", async () => {
-    await createApp("test-app", { template: "starter" });
+    await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     for (const [key, val] of Object.entries(deps)) {
@@ -158,8 +261,26 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
     }
   });
 
+  it("pins React Router packages to tested exact versions for standalone installs", async () => {
+    await createApp("test-app", { template: "chat" });
+    const pkg = readPkg(path.join(tmpDir, "test-app"));
+    const deps = allDeps(pkg);
+
+    expect(deps["@react-router/dev"]).toBe("8.1.0");
+    expect(deps["@react-router/fs-routes"]).toBe("8.1.0");
+    expect(deps["react-router"]).toBe("8.1.0");
+    expect(pkg.dependencies["@react-router/dev"]).toBe("8.1.0");
+    expect(pkg.dependencies["@react-router/fs-routes"]).toBe("8.1.0");
+    expect(pkg.dependencies["react-router"]).toBe("8.1.0");
+    expect(pkg.dependencies.vite).toBeDefined();
+    expect(pkg.devDependencies?.["@react-router/dev"]).toBeUndefined();
+    expect(pkg.devDependencies?.["@react-router/fs-routes"]).toBeUndefined();
+    expect(pkg.devDependencies?.["react-router"]).toBeUndefined();
+    expect(pkg.devDependencies?.vite).toBeUndefined();
+  });
+
   it("catalog: refs resolve to semver-like strings", async () => {
-    await createApp("test-app", { template: "starter" });
+    await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     const catalogKeys = ["tailwindcss", "@tailwindcss/vite", "vite"];
@@ -171,11 +292,278 @@ describe("standalone scaffold — starter template", { timeout: 60000 }, () => {
   });
 
   it("includes the Postgres runtime for hosted SQL databases", async () => {
-    await createApp("test-app", { template: "starter" });
+    await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 });
+
+describe("installed package template discovery", () => {
+  it("finds source templates included in an installed core package", () => {
+    const packageRoot = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    const sourceTemplate = path.join(packageRoot, "src", "templates", "chat");
+    const compiledCli = path.join(packageRoot, "dist", "cli");
+    fs.mkdirSync(sourceTemplate, { recursive: true });
+    fs.mkdirSync(compiledCli, { recursive: true });
+    fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
+
+    expect(_findLocalTemplateFrom(compiledCli, "chat")).toBe(sourceTemplate);
+  });
+});
+
+describe("standalone scaffold — headless template", { timeout: 60000 }, () => {
+  it("creates an action-first app without UI template files or UI dependencies", async () => {
+    await createApp("test-app", { template: "headless" });
+    const root = path.join(tmpDir, "test-app");
+    const pkg = readPkg(root);
+    const deps = allDeps(pkg);
+
+    expect(fs.existsSync(path.join(root, "actions", "hello.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "actions", "run.ts"))).toBe(true);
+    expect(fs.existsSync(path.join(root, "app"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "vite.config.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "react-router.config.ts"))).toBe(
+      false,
+    );
+
+    expect(pkg.name).toBe("test-app");
+    expect(pkg.dependencies?.["@agent-native/core"]).toBe(
+      _getCoreDependencyVersion(),
+    );
+    expect(pkg.dependencies?.postgres).toBeDefined();
+    expect(deps.react).toBeUndefined();
+    expect(deps["react-dom"]).toBeUndefined();
+    expect(deps["react-router"]).toBeUndefined();
+    expect(deps.vite).toBeUndefined();
+    expect(deps["@react-router/dev"]).toBeUndefined();
+
+    for (const [key, val] of Object.entries(deps)) {
+      expect(val, `${key} should not be workspace:*`).not.toMatch(
+        /^workspace:/,
+      );
+      expect(val, `${key} should not be catalog:`).not.toBe("catalog:");
+    }
+
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    expect(readPkg(root)["agent-native"]?.scaffold).toEqual({
+      template: "headless",
+      frameworkSkills: "headless",
+      templateRef: expect.any(String),
+      templateSource: "bundled",
+      coreVersion: expect.any(String),
+      shape: "standalone",
+    });
+    expect(agents).toContain("This is a headless Agent Native app");
+    expect(agents).toContain("This app is not stateless");
+    expect(agents).toContain("Chat template");
+    expect(agents).toContain("integration blueprints");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "agent-native-toolkit",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+    expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@typescript/*"');
+    expect(workspaceYaml).toContain('"@sentry/*"');
+    expect(workspaceYaml).toContain("fast-xml-parser");
+    expect(workspaceYaml).toContain("typescript-7");
+    expect(workspaceYaml).not.toContain("@assistant-ui");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Headless onboarding guards
+ *
+ * The two documented post-install commands for a headless scaffold —
+ * `pnpm typecheck` and `pnpm action hello` — both used to fail out of the box:
+ *
+ *   1. tsconfig inherited `types: ["vite/client"]` from the UI base config, but
+ *      a headless app has no Vite dep, so TypeScript died with TS2688.
+ *   2. `import { defineAction } from "@agent-native/core"` resolved to the Node
+ *      `default` entry, which re-exported the React client barrel and pulled
+ *      `@tanstack/react-query` (uninstalled in a headless app) into the load
+ *      graph, crashing at module load.
+ *
+ * The fast checks below pin both regressions without an install; the gated
+ * end-to-end check actually runs the documented commands.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const SPEC_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CORE_ROOT = path.resolve(SPEC_DIR, "../..");
+const ROOT_ENTRY_SRC = path.join(CORE_ROOT, "src", "index.ts");
+const CORE_DIST_INDEX = path.join(CORE_ROOT, "dist", "index.js");
+
+describe("headless onboarding guards", { timeout: 60000 }, () => {
+  it("scaffolds a tsconfig that does not pull vite/client types", async () => {
+    await createApp("test-app", { template: "headless" });
+    const tsconfig = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "test-app", "tsconfig.json"), "utf-8"),
+    );
+    const types: string[] | undefined = tsconfig.compilerOptions?.types;
+    // Must override the UI base's `types: ["vite/client"]` — a headless app
+    // has no `vite` dependency, so that ambient type lib can't resolve.
+    expect(
+      types,
+      "headless tsconfig must override compilerOptions.types",
+    ).toBeDefined();
+    expect(types).not.toContain("vite/client");
+    expect(types).toContain("node");
+    expect(tsconfig.compilerOptions?.baseUrl).toBeUndefined();
+    expect(tsconfig.compilerOptions?.paths?.["*"]).toEqual(["./*"]);
+  });
+
+  it("keeps the package root (Node default) entry free of the React client barrel", () => {
+    // Importing `defineAction` (or anything else) from the bare
+    // "@agent-native/core" specifier must stay server-safe: the Node `default`
+    // entry must not statically re-export "./client/index.js", which would drag
+    // react / react-router / @tanstack/react-query into a headless load graph.
+    const rootEntry = fs.readFileSync(ROOT_ENTRY_SRC, "utf-8");
+    expect(rootEntry).not.toMatch(/from\s+["']\.\/client\/index(\.js)?["']/);
+    // Sanity: the server/action primitives headless apps need are still here.
+    expect(rootEntry).toMatch(/\bdefineAction\b/);
+    expect(rootEntry).toMatch(/from\s+["']\.\/action\.js["']/);
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Headless onboarding — real `pnpm install` + `tsc` + `pnpm action`
+ *
+ * Heavyweight: scaffolds a headless app linked to the LOCAL built core, then
+ * runs the exact documented commands. Gated on AGENT_NATIVE_CREATE_USE_LOCAL_CORE
+ * (the flag the CI "Scaffold E2E" job already sets) plus a built dist/, so the
+ * fast `pnpm test` job skips it but CI and local `pnpm build && ...` runs it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const RUN_HEADLESS_INSTALL_E2E =
+  process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1" &&
+  fs.existsSync(CORE_DIST_INDEX);
+
+function runPnpm(
+  args: string[],
+  cwd: string,
+  timeout = 300000,
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync("pnpm", args, {
+    cwd,
+    encoding: "utf-8",
+    timeout,
+    env: { ...process.env },
+  });
+  return {
+    status: res.status,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
+
+function runNode(
+  args: string[],
+  cwd: string,
+  timeout = 300000,
+): { status: number | null; stdout: string; stderr: string } {
+  const res = spawnSync(process.execPath, args, {
+    cwd,
+    encoding: "utf-8",
+    timeout,
+    env: { ...process.env },
+  });
+  return {
+    status: res.status,
+    stdout: res.stdout ?? "",
+    stderr: res.stderr ?? "",
+  };
+}
+
+describe.skipIf(!RUN_HEADLESS_INSTALL_E2E)(
+  "headless onboarding — install + typecheck + action",
+  { timeout: 600000 },
+  () => {
+    it("pnpm install, pnpm typecheck, and pnpm action hello all succeed", async () => {
+      await createApp("headless-e2e", { template: "headless" });
+      const appDir = path.join(tmpDir, "headless-e2e");
+
+      // The scaffold must be linked to the local core build (file: URL), not
+      // the published "latest", so the test exercises THIS branch's code.
+      const pkg = readPkg(appDir);
+      expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:/);
+
+      const install = runPnpm(["install", "--prefer-offline"], appDir);
+      expect(
+        install.status,
+        `pnpm install failed:\n${install.stdout}\n${install.stderr}`,
+      ).toBe(0);
+      const installOutput = `${install.stdout}\n${install.stderr}`;
+      expect(installOutput).not.toContain("missing peer tailwindcss");
+      expect(installOutput).not.toContain("Conflicting peer dependencies");
+
+      const typecheck = runPnpm(["typecheck"], appDir);
+      expect(
+        typecheck.status,
+        `pnpm typecheck failed:\n${typecheck.stdout}\n${typecheck.stderr}`,
+      ).toBe(0);
+
+      const action = runPnpm(["action", "hello", "--name", "Builder"], appDir);
+      expect(
+        action.status,
+        `pnpm action hello failed:\n${action.stdout}\n${action.stderr}`,
+      ).toBe(0);
+      expect(`${action.stdout}\n${action.stderr}`).toContain("Hello, Builder!");
+
+      const discovery = runNode(
+        [
+          "--input-type=module",
+          "-e",
+          [
+            'const { autoDiscoverActions } = await import("@agent-native/core/server");',
+            'const actions = await autoDiscoverActions("auto");',
+            'if (!actions.hello) throw new Error("hello action was not discovered");',
+            'console.log(Object.keys(actions).sort().join(","));',
+          ].join("\n"),
+        ],
+        appDir,
+      );
+      expect(
+        discovery.status,
+        `plain node action discovery failed:\n${discovery.stdout}\n${discovery.stderr}`,
+      ).toBe(0);
+      expect(discovery.stdout).toContain("hello");
+      expect(discovery.stderr).not.toContain("ERR_UNKNOWN_FILE_EXTENSION");
+      expect(discovery.stderr).not.toContain(
+        '[action-discovery] Skipped "hello.ts"',
+      );
+    });
+  },
+);
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Workspace scaffold with required packages
@@ -201,6 +589,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         workspaceCoreName,
         coreDependencyVersion: _getCoreDependencyVersion(),
         dispatchDependencyVersion: _getDispatchDependencyVersion(),
+        toolkitDependencyVersion: _getToolkitDependencyVersion(),
       });
       _fixPackageJsonName(appDir, t);
       _renameGitignore(appDir);
@@ -212,24 +601,67 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   }
 
   it("scaffolds the scheduling package when calendar is included", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter", "calendar"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "calendar"]);
     const schedDir = path.join(wsDir, "packages", "scheduling");
     expect(fs.existsSync(schedDir)).toBe(true);
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
   it("scaffolds the pinpoint package when design is included", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter", "design"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
     const pinpointDir = path.join(wsDir, "packages", "pinpoint");
     expect(fs.existsSync(pinpointDir)).toBe(true);
     expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
+  });
+
+  it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
+    const generatedDir = path.join(wsDir, "apps", "design", ".generated");
+    const scaffoldedBridgeDir = path.join(generatedDir, "bridge");
+
+    expect(
+      fs.existsSync(path.join(scaffoldedBridgeDir, "hit-test.generated.ts")),
+    ).toBe(true);
+
+    const sourceBridgeDir = path.join(
+      CORE_ROOT,
+      "..",
+      "..",
+      "templates",
+      "design",
+      ".generated",
+      "bridge",
+    );
+    const sourceBridgeFiles = fs.readdirSync(sourceBridgeDir).sort();
+    expect(sourceBridgeFiles.length).toBeGreaterThan(0);
+    for (const file of sourceBridgeFiles) {
+      expect(
+        fs.existsSync(path.join(scaffoldedBridgeDir, file)),
+        `expected scaffolded apps/design/.generated/bridge to include ${file}`,
+      ).toBe(true);
+    }
+
+    // Everything else under .generated is regenerated at dev time (e.g.
+    // actions-registry.ts, action-types.d.ts) and must stay excluded — only
+    // the committed bridge/ subdir survives scaffolding.
+    expect(fs.existsSync(path.join(generatedDir, "actions-registry.ts"))).toBe(
+      false,
+    );
+    expect(fs.readdirSync(generatedDir)).toEqual(["bridge"]);
   });
 
   it("backs first-party workspace deps with scaffolded packages", async () => {
     // Includes every template that declares an @agent-native/* workspace:*
     // dep so a missing `requiredPackages` entry surfaces here instead of as
     // ERR_PNPM_WORKSPACE_PKG_NOT_FOUND on the user's machine.
-    const apps = ["calendar", "design", "slides", "videos"];
+    const apps = [
+      "analytics",
+      "assets",
+      "calendar",
+      "content",
+      "design",
+      "slides",
+    ];
     const wsDir = await scaffoldWorkspace("my-ws", apps);
 
     for (const appName of apps) {
@@ -269,16 +701,123 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     }
   });
 
+  it("adds a prepare script so scaffolded packages self-build on install", async () => {
+    // These packages' `exports` maps point at `./dist/*`, and `dist/` is
+    // gitignored, so a clean `pnpm install` in the generated workspace must
+    // build it. pnpm always runs `prepare` for workspace packages, so every
+    // scaffolded package with a `build` script needs a `prepare` script too.
+    const wsDir = await scaffoldWorkspace("my-ws", [
+      "chat",
+      "design",
+      "slides",
+    ]);
+    const packagesDir = path.join(wsDir, "packages");
+    const packageNames = fs.readdirSync(packagesDir);
+    expect(packageNames.length).toBeGreaterThan(0);
+
+    for (const packageName of packageNames) {
+      const pkg = readPkg(path.join(packagesDir, packageName));
+      if (typeof pkg.scripts?.build !== "string") continue;
+      expect(
+        typeof pkg.scripts?.prepare === "string" && pkg.scripts.prepare !== "",
+        `packages/${packageName} has a build script but no prepare script`,
+      ).toBe(true);
+    }
+  });
+
   it("preserves non-core workspace:* deps in app package.json", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const calPkg = readPkg(path.join(wsDir, "apps", "calendar"));
     expect(calPkg.dependencies["@agent-native/scheduling"]).toBe("workspace:*");
   });
 
+  it("resolves @agent-native/toolkit in workspacified apps", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
+    expect(appPkg.dependencies["@agent-native/toolkit"]).toBe(
+      _getToolkitDependencyVersion(),
+    );
+  });
+
+  it("overrides toolkit for standalone installs during local core development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      await createApp("local-chat", { template: "chat" });
+      const pkg = readPkg(path.join(tmpDir, "local-chat"));
+      expect(pkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
+      expect(pkg.dependencies["@agent-native/toolkit"]).toMatch(/^file:\/\//);
+
+      const workspaceYaml = fs
+        .readFileSync(path.join(tmpDir, "local-chat", "pnpm-workspace.yaml"), {
+          encoding: "utf-8",
+        })
+        .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("overrides:");
+      expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
+      expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
+      expect(workspaceYaml).toContain("/packages/recap-cli");
+      expect(workspaceYaml).not.toContain("packages:");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  }, 180_000);
+
+  it("overrides toolkit for workspace installs during local core development", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+    try {
+      const wsDir = await scaffoldWorkspace("local-ws", ["calendar"]);
+      const rootPkg = readPkg(wsDir);
+      expect(rootPkg.dependencies["@agent-native/core"]).toMatch(/^file:\/\//);
+
+      const schedPkg = readPkg(path.join(wsDir, "packages", "scheduling"));
+      expect(schedPkg.dependencies["@agent-native/toolkit"]).toMatch(
+        /^file:\/\//,
+      );
+
+      const workspaceYaml = fs
+        .readFileSync(path.join(wsDir, "pnpm-workspace.yaml"), {
+          encoding: "utf-8",
+        })
+        .replaceAll("\\", "/");
+      expect(workspaceYaml).toContain("overrides:");
+      expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
+      expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
+      expect(workspaceYaml).toContain("/packages/recap-cli");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
   it("resolves @agent-native/dispatch to latest in workspacified apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
-    const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
-    expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+    // Pin the default (non-local-linking) behaviour regardless of an ambient
+    // AGENT_NATIVE_CREATE_USE_LOCAL_CORE set by the headless install e2e.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = await scaffoldWorkspace("my-ws", ["dispatch"]);
+      const dispatchPkg = readPkg(path.join(wsDir, "apps", "dispatch"));
+      expect(dispatchPkg.dependencies["@agent-native/dispatch"]).toBe("latest");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("can opt into local dispatch linking for framework development", async () => {
@@ -320,7 +859,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
   });
 
   it("injects catalog into workspace pnpm-workspace.yaml", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
     const wsYaml = fs.readFileSync(
       path.join(wsDir, "pnpm-workspace.yaml"),
       "utf-8",
@@ -339,50 +878,66 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("1.6.0");
   });
 
-  it("keeps the default workspace starter app branded as a blank app", async () => {
-    await createApp("my-ws", { template: "starter,dispatch" });
+  it("keeps the default workspace chat app branded as Chat", async () => {
+    await createApp("my-ws", { template: "chat,dispatch" });
     const wsDir = path.join(tmpDir, "my-ws");
     const appConfig = fs.readFileSync(
-      path.join(wsDir, "apps", "starter", "app", "lib", "app-config.ts"),
+      path.join(wsDir, "apps", "chat", "app", "lib", "app-config.ts"),
       "utf-8",
     );
-    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
 
-    expect(appConfig).toContain('rawAppTitle = "Blank app"');
-    expect(appPkg.displayName).toBe("Blank app");
-    expect(appPkg.description).toBe("Blank agent-native app scaffold.");
+    expect(appConfig).toContain('rawAppTitle = "Chat"');
+    expect(appPkg.displayName).toBe("Chat");
+    expect(appPkg.description).toBe(
+      "Minimal chat-first agent-native app template.",
+    );
   });
 
   it("resolves @agent-native/core in workspacified apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
-    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
     expect(appPkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
     );
   });
 
   it("adds workspace shared dependency to apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
-    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
     expect(appPkg.dependencies["@my-ws/shared"]).toBe("workspace:*");
   });
 
   it("includes the Postgres runtime at the workspace root and in apps", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
     const rootPkg = readPkg(wsDir);
-    const appPkg = readPkg(path.join(wsDir, "apps", "starter"));
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
     expect(rootPkg.dependencies?.postgres).toBeDefined();
     expect(appPkg.dependencies?.postgres).toBeDefined();
   });
 
-  it("writes inherited starter auth/chat wrappers while preserving app identity", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+  it("keeps React Router build packages installed for workspace app builds", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const appPkg = readPkg(path.join(wsDir, "apps", "chat"));
+
+    expect(appPkg.dependencies["@react-router/dev"]).toBeDefined();
+    expect(appPkg.dependencies["@react-router/fs-routes"]).toBeDefined();
+    expect(appPkg.dependencies["react-router"]).toBeDefined();
+    expect(appPkg.dependencies.vite).toBeDefined();
+    expect(appPkg.devDependencies?.["@react-router/dev"]).toBeUndefined();
+    expect(appPkg.devDependencies?.["@react-router/fs-routes"]).toBeUndefined();
+    expect(appPkg.devDependencies?.["react-router"]).toBeUndefined();
+    expect(appPkg.devDependencies?.vite).toBeUndefined();
+  });
+
+  it("writes inherited chat auth/chat wrappers while preserving app identity", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
     const authPlugin = fs.readFileSync(
-      path.join(wsDir, "apps", "starter", "server", "plugins", "auth.ts"),
+      path.join(wsDir, "apps", "chat", "server", "plugins", "auth.ts"),
       "utf-8",
     );
     const agentChatPlugin = fs.readFileSync(
-      path.join(wsDir, "apps", "starter", "server", "plugins", "agent-chat.ts"),
+      path.join(wsDir, "apps", "chat", "server", "plugins", "agent-chat.ts"),
       "utf-8",
     );
 
@@ -390,12 +945,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(authPlugin).toContain("defaultAuthPlugin");
     expect(agentChatPlugin).toContain("@my-ws/shared/server");
     expect(agentChatPlugin).toContain("createWorkspaceAgentChatPlugin");
-    expect(agentChatPlugin).toContain('appId: "starter"');
+    expect(agentChatPlugin).toContain('appId: "chat"');
     expect(agentChatPlugin).toContain("loadActionsFromStaticRegistry");
   });
 
   it("resolves @agent-native/core at the workspace root for the gateway", async () => {
-    const wsDir = await scaffoldWorkspace("my-ws", ["starter"]);
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
     const rootPkg = readPkg(wsDir);
     expect(rootPkg.dependencies["@agent-native/core"]).toBe(
       _getCoreDependencyVersion(),
@@ -407,12 +962,12 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     // approvals, A2A routing). A workspace without it has nowhere to live
     // those responsibilities, so the CLI forces it in even when the caller
     // only asked for other apps.
-    await createApp("test-ws", { template: "starter,forms" });
+    await createApp("test-ws", { template: "chat,forms" });
 
     expect(
       fs.existsSync(path.join(tmpDir, "test-ws", "apps", "dispatch")),
     ).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "starter"))).toBe(
+    expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "chat"))).toBe(
       true,
     );
     expect(fs.existsSync(path.join(tmpDir, "test-ws", "apps", "forms"))).toBe(
@@ -422,6 +977,31 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("workspace add-app scaffold", { timeout: 60000 }, () => {
+  it("adds local package overrides when adding to an existing workspace", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = path.join(tmpDir, "my-ws");
+      await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+      process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+
+      process.chdir(wsDir);
+      await addAppToWorkspace("dispatch", { template: "dispatch" });
+
+      const wsYaml = fs.readFileSync(
+        path.join(wsDir, "pnpm-workspace.yaml"),
+        "utf-8",
+      );
+      expect(wsYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(wsYaml).toContain('"@agent-native/recap-cli": "file://');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
   it("allows Dispatch to be added later as the canonical workspace app", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
@@ -436,18 +1016,17 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
     ).toBe(true);
   });
 
-  it("rewrites starter tracking identity for a renamed workspace app", async () => {
-    await createApp("my-ws", { template: "starter,dispatch" });
+  it("rewrites chat tracking identity for a renamed workspace app", async () => {
+    await createApp("my-ws", { template: "chat,dispatch" });
 
-    const starterRoot = fs.readFileSync(
-      path.join(tmpDir, "my-ws", "apps", "starter", "app", "root.tsx"),
+    const chatRoot = fs.readFileSync(
+      path.join(tmpDir, "my-ws", "apps", "chat", "app", "root.tsx"),
       "utf-8",
     );
-    expect(starterRoot).toContain('app: "starter"');
-    expect(starterRoot).not.toContain('app: "agent-native-starter"');
+    expect(chatRoot).toContain('app: "chat"');
 
     process.chdir(path.join(tmpDir, "my-ws"));
-    await createApp("crm", { template: "starter" });
+    await createApp("crm", { template: "chat" });
 
     const root = fs.readFileSync(
       path.join(tmpDir, "my-ws", "apps", "crm", "app", "root.tsx"),
@@ -455,8 +1034,8 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
     );
 
     expect(root).toContain('app: "crm"');
-    expect(root).toContain('template: "starter"');
-    expect(root).not.toContain('app: "agent-native-starter"');
+    expect(root).toContain('template: "chat"');
+    expect(root).not.toContain('app: "chat"');
 
     const agentChatPlugin = fs.readFileSync(
       path.join(
@@ -475,8 +1054,109 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses the npm latest dist-tag for generated projects", () => {
-    expect(_getCoreDependencyVersion()).toBe("latest");
+  it("pins the generated core dependency to the exact running CLI version", () => {
+    // Pin the default behaviour even when the headless install e2e has set
+    // AGENT_NATIVE_CREATE_USE_LOCAL_CORE in the ambient environment.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      expect(_getCoreDependencyVersion()).toBe(_getCorePackageVersion());
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("keeps core and toolkit paired even when a stale CLI scaffolds after a newer core/toolkit pair has published", () => {
+    // Simulate an old/cached CLI binary (bundled with core 0.114.2, which
+    // itself depended on toolkit ^0.8.0) running `create` after core 0.117.2
+    // (toolkit ^0.9.1) is already the npm `latest`. Pinning core to `latest`
+    // here would install 0.117.2 while the toolkit range stays ^0.8.0 from
+    // the stale CLI's own manifest — the exact duplicate/mismatched-toolkit
+    // pairing this pinning strategy exists to prevent. Pinning core to the
+    // exact version bundled with the running CLI keeps the pair consistent
+    // regardless of what `latest` has moved on to.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    const originalReadFileSync = fs.readFileSync;
+    const readFileSyncSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath: any, options: any) => {
+        if (String(filePath).endsWith(path.join("core", "package.json"))) {
+          return JSON.stringify({
+            version: "0.114.2",
+            dependencies: { "@agent-native/toolkit": "^0.8.0" },
+          });
+        }
+        return originalReadFileSync(filePath, options);
+      });
+    try {
+      expect(_getCoreDependencyVersion()).toBe("0.114.2");
+      expect(_getToolkitDependencyVersion()).toBe("^0.8.0");
+    } finally {
+      readFileSyncSpy.mockRestore();
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit dependency to latest when unpublished", () => {
+    // In monorepo source, core's own package.json still has the raw
+    // `workspace:^` protocol for toolkit/dispatch, so there is no published
+    // range to trust yet — falling back to `latest` is correct here.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      expect(_getToolkitDependencyVersion()).toBe("latest");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit dependency to the core published range", () => {
+    // Once changesets publishes core, its package.json has the `workspace:`
+    // protocol rewritten to a real semver range. Scaffolded apps must use
+    // that exact range instead of `latest`, since toolkit is versioned and
+    // published independently and its `latest` dist-tag can briefly lag or
+    // outrun the core release this CLI shipped with. Dispatch is not listed
+    // as a dependency of core, so it has no published range to read and
+    // stays pinned to `latest`.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    const originalReadFileSync = fs.readFileSync;
+    const readFileSyncSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath: any, options: any) => {
+        if (String(filePath).endsWith(path.join("core", "package.json"))) {
+          return JSON.stringify({
+            dependencies: {
+              "@agent-native/toolkit": "^0.9.1",
+            },
+          });
+        }
+        return originalReadFileSync(filePath, options);
+      });
+    try {
+      expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
+      expect(_getDispatchDependencyVersion()).toBe("latest");
+    } finally {
+      readFileSyncSpy.mockRestore();
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
   });
 
   it("can opt into local core linking for framework development", () => {
@@ -484,6 +1164,9 @@ describe("template/core version compatibility", () => {
     process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
     try {
       expect(_getCoreDependencyVersion()).toMatch(/^file:\/\//);
+      expect(_getToolkitDependencyVersion()).toMatch(/^file:\/\//);
+      expect(_getCoreDependencyVersion()).toMatch(/\.tgz$/);
+      expect(_getToolkitDependencyVersion()).toMatch(/\.tgz$/);
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -505,8 +1188,21 @@ describe("template/core version compatibility", () => {
     // Legacy `v<version>` tag stays as a fallback so any older release that
     // only has the repo-wide tag (≤ 0.7.83) keeps working when re-run.
     expect(candidates).toContain(`v${candidates[0].split("@").slice(-1)[0]}`);
-    // `main` is the last-resort fallback for unreleased dev builds.
-    expect(candidates[candidates.length - 1]).toBe("main");
+    // Never fall back to mutable `main`: it can be newer than the installed
+    // core package and produce a scaffold that fails during SSR startup.
+    expect(candidates).not.toContain("main");
+  });
+
+  it("downloads GitHub tarballs from codeload instead of the GitHub API", () => {
+    expect(
+      _githubTarballUrl(
+        "BuilderIO/agent-native",
+        "@agent-native/core@0.101.13",
+        "tag",
+      ),
+    ).toBe(
+      "https://codeload.github.com/BuilderIO/agent-native/tar.gz/refs/tags/%40agent-native%2Fcore%400.101.13",
+    );
   });
 });
 
@@ -541,6 +1237,8 @@ describe("workspace scaffold defaults", () => {
 
     expect(agents).toContain("My Ws Workspace Instructions");
     expect(agents).toContain("WORKSPACE_ORG_NAME");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
     expect(fs.existsSync(claudePath)).toBe(true);
 
     const claudeStat = fs.lstatSync(claudePath);
@@ -576,6 +1274,16 @@ describe("workspace scaffold defaults", () => {
       fs.existsSync(path.join(sharedSkillsDir, "sharing", "SKILL.md")),
     ).toBe(true);
     expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "customizing-agent-native", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
       fs.existsSync(path.join(sharedSkillsDir, "shadcn-ui", "SKILL.md")),
     ).toBe(true);
     expect(
@@ -583,6 +1291,11 @@ describe("workspace scaffold defaults", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(rootSkillsDir, "shadcn-ui", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(rootSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
     ).toBe(true);
     expect(fs.existsSync(path.join(wsDir, ".claude", "skills"))).toBe(true);
     expect(
@@ -597,8 +1310,7 @@ describe("workspace scaffold defaults", () => {
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
 
     const generated = readAllTextFiles(wsDir);
-    expect(generated).not.toMatch(/builder\.io/i);
-    expect(generated).not.toMatch(/steve@builder\.io/i);
+    expect(generated).not.toMatch(/[a-z0-9._%+-]+@builder\.io/i);
   });
 
   it("keeps the generic workspace scaffold free of provider-specific deploy config", async () => {
@@ -615,22 +1327,58 @@ describe("workspace scaffold defaults", () => {
     const wsDir = await (async () => {
       const targetDir = path.join(tmpDir, "my-ws");
       await _scaffoldWorkspaceRoot(targetDir, "my-ws");
-      const appDir = path.join(targetDir, "apps", "starter");
-      await _scaffoldAppTemplate(appDir, "starter");
+      const appDir = path.join(targetDir, "apps", "chat");
+      await _scaffoldAppTemplate(appDir, "chat");
       return targetDir;
     })();
     expect(
-      fs.existsSync(path.join(wsDir, "apps", "starter", ".vercel", "output")),
+      fs.existsSync(path.join(wsDir, "apps", "chat", ".vercel", "output")),
     ).toBe(false);
     expect(
       fs.existsSync(
-        path.join(wsDir, "apps", "starter", ".claude", "settings.json"),
+        path.join(wsDir, "apps", "chat", ".claude", "settings.json"),
       ),
     ).toBe(false);
+  }, 60000);
+
+  it("does not copy local Claude settings files from framework-dev templates", () => {
+    expect(
+      _shouldSkipScaffoldEntry("settings.json", ".claude/settings.json"),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "settings.local.json",
+        ".claude/settings.local.json",
+      ),
+    ).toBe(true);
   });
 
   it("does not copy local agent-native runtime state", () => {
     expect(_shouldSkipScaffoldEntry(".agent-native")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db-shm")).toBe(true);
+    expect(_shouldSkipScaffoldEntry("app.db-wal")).toBe(true);
+  });
+
+  it("does not copy generated visual plan previews", () => {
+    expect(
+      _shouldSkipScaffoldEntry(
+        "plans",
+        path.join("templates", "plan", "plans"),
+      ),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "preview.html",
+        path.join("plans", "plan_123", "preview.html"),
+      ),
+    ).toBe(true);
+    expect(
+      _shouldSkipScaffoldEntry(
+        "preview.html",
+        path.join("public", "preview.html"),
+      ),
+    ).toBe(false);
   });
 
   it("can skip first-party agent symlinks while extracting GitHub tarballs", () => {
@@ -660,9 +1408,9 @@ describe("Netlify scaffold rewrite", () => {
       path.join(appDir, "netlify.toml"),
       [
         "[build]",
-        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter starter build"',
-        '  publish = "templates/starter/dist"',
-        '  functions = "templates/starter/.netlify/functions-internal"',
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        '  publish = "templates/chat/dist"',
+        '  functions = "templates/chat/.netlify/functions-internal"',
         "",
       ].join("\n"),
     );
@@ -729,28 +1477,73 @@ describe("Netlify scaffold rewrite", () => {
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
   });
 
-  it("does not add Dispatch root redirects to other workspace apps", () => {
-    const appDir = path.join(tmpDir, "starter-app");
+  it("keeps unpooled database overrides for unindented template netlify commands", () => {
+    const appDir = path.join(tmpDir, "unpooled-unindented-app");
     fs.mkdirSync(appDir, { recursive: true });
     fs.writeFileSync(
       path.join(appDir, "netlify.toml"),
       [
         "[build]",
-        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter starter build"',
-        '  publish = "templates/starter/dist"',
-        '  functions = "templates/starter/.netlify/functions-internal"',
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build"',
+        'publish = "templates/mail/dist"',
+        'functions = "templates/mail/.netlify/functions-internal"',
         "",
       ].join("\n"),
     );
 
-    _rewriteNetlifyToml(appDir, "starter", "workspace");
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NETLIFY_DATABASE_URL_UNPOOLED");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("pnpm install");
+  });
+
+  it("rewrites unindented chat template netlify build commands for standalone apps", () => {
+    const appDir = path.join(tmpDir, "chat-standalone-netlify");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        'publish = "templates/chat/dist"',
+        'functions = "templates/chat/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "builder-agent-native-starter", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NITRO_PRESET=netlify pnpm build");
+    expect(netlify).not.toContain("--filter chat");
+    expect(netlify).not.toContain("pnpm install");
+    expect(netlify).toContain('publish = "dist"');
+  });
+
+  it("does not add Dispatch root redirects to other workspace apps", () => {
+    const appDir = path.join(tmpDir, "chat-app");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        '  publish = "templates/chat/dist"',
+        '  functions = "templates/chat/.netlify/functions-internal"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "chat", "workspace");
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/starter VITE_APP_BASE_PATH=/starter NITRO_PRESET=netlify pnpm --filter starter build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/chat VITE_APP_BASE_PATH=/chat NITRO_PRESET=netlify pnpm --filter chat build"',
     );
-    expect(netlify).toContain('  APP_BASE_PATH = "/starter"');
-    expect(netlify).toContain('  VITE_APP_BASE_PATH = "/starter"');
+    expect(netlify).toContain('  APP_BASE_PATH = "/chat"');
+    expect(netlify).toContain('  VITE_APP_BASE_PATH = "/chat"');
     expect(netlify).not.toContain('  to = "/dispatch/apps"');
     expect(netlify).not.toContain('  to = "/dispatch/new-app"');
     expect(netlify).not.toContain('  to = "/dispatch/approval"');
@@ -829,14 +1622,19 @@ describe("build artifacts", () => {
     expect(Object.keys(catalog).length).toBeGreaterThan(0);
   });
 
-  it("core package.json has no workspace:* in dependencies", () => {
+  it("core package.json only uses workspace:* for publishable package deps", () => {
+    const publishableWorkspaceDeps = new Set([
+      "@agent-native/recap-cli",
+      "@agent-native/toolkit",
+    ]);
     const corePkg = readPkg(coreRoot);
     const deps = corePkg.dependencies ?? {};
     for (const [key, val] of Object.entries(deps)) {
+      if (typeof val !== "string" || !val.startsWith("workspace:")) continue;
       expect(
-        val,
-        `dependencies.${key} must not be workspace:* — this breaks npx installs`,
-      ).not.toMatch(/^workspace:/);
+        publishableWorkspaceDeps.has(key),
+        `dependencies.${key} may use workspace:* only if pnpm pack rewrites it for npm publishing`,
+      ).toBe(true);
     }
   });
 });

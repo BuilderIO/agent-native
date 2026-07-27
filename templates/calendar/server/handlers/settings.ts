@@ -1,12 +1,13 @@
-import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
-import type { Settings } from "../../shared/api.js";
+import { readBody, getSession } from "@agent-native/core/server";
 import {
   getSetting,
   getUserSetting,
   putUserSetting,
   putSetting,
 } from "@agent-native/core/settings";
-import { readBody, getSession } from "@agent-native/core/server";
+import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
+
+import type { Settings } from "../../shared/api.js";
 import { getDefaultSettings } from "../lib/calendar-settings.js";
 
 async function uEmail(event: H3Event): Promise<string> {

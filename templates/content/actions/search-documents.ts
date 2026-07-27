@@ -1,17 +1,24 @@
 import { defineAction } from "@agent-native/core";
-import { and, sql } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { accessFilter } from "@agent-native/core/sharing";
+import { and, isNull, sql } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import {
   documentDiscoveryFilter,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { z } from "zod";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+// `content` here may be a bounded preview (see the `contentPreview`
+// projection below) rather than the full document body. If the query match
+// falls outside the preview window (a deeper match in the full doc, which the
+// SQL LIKE filter already confirmed exists), `indexOf` simply misses and we
+// fall back to a beginning-of-document snippet — the same behavior as the
+// no-match case. The row is still returned either way.
 function makeSnippet(content: string, query: string, radius = 120) {
   const compact = content.replace(/\s+/g, " ").trim();
   if (!compact) return "";
@@ -42,13 +49,24 @@ export default defineAction({
     const db = getDb();
     const pattern = `%${escapeLike(query)}%`;
 
+    // Project a bounded preview of `content` instead of the full column:
+    // document bodies can be multi-MB, and this action only returns a short
+    // snippet (use get-document for full content). 5000 chars is generous
+    // headroom for `makeSnippet`'s 120-char radius even when the match is
+    // deep-ish into the doc, while the true length still comes from SQL
+    // `length()` rather than reading `.length` off a truncated string.
+    // Mirrors the `substr`/`length` projection style in list-documents.ts.
+    // Both `substr` and `length` work identically on SQLite/libsql and
+    // Postgres.
     const docs = await db
       .select({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
         title: schema.documents.title,
+        description: schema.documents.description,
         icon: schema.documents.icon,
-        content: schema.documents.content,
+        contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
+        contentLength: sql<number>`length(${schema.documents.content})`,
         hideFromSearch: schema.documents.hideFromSearch,
         updatedAt: schema.documents.updatedAt,
       })
@@ -56,8 +74,9 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
-          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
+          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .orderBy(sql`${schema.documents.updatedAt} DESC`)
@@ -68,9 +87,10 @@ export default defineAction({
         id: doc.id,
         parentId: doc.parentId,
         title: doc.title,
+        description: doc.description,
         icon: doc.icon,
-        snippet: makeSnippet(doc.content, query),
-        contentLength: doc.content.length,
+        snippet: makeSnippet(doc.contentPreview, query),
+        contentLength: Number(doc.contentLength) || 0,
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         updatedAt: doc.updatedAt,
       })),

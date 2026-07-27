@@ -1,0 +1,86 @@
+---
+title: "Org & Team Kit"
+description: "Organizations, team settings, invites, allowed domains, roles, and app switching."
+---
+
+# Org & Team Kit
+
+The Org & Team Kit standardizes how apps expose team membership and
+organization context. It covers the team page, organization switcher, invites,
+roles, allowed email domains, and the active organization that scopes sharing,
+connections, service tokens, and app switching.
+
+<WireframeBlock id="doc-block-toolkit-org-team">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:540px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:210px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Organization</small><div class='wf-box' style='display:flex;align-items:center;gap:8px;padding:8px 10px'><div style='width:24px;height:24px;border-radius:7px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:11px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;flex-direction:column;gap:4px;margin-top:4px'><div style='padding:6px 9px;border-radius:8px;background:var(--wf-accent-soft)'>Analytics</div><div style='padding:6px 9px;border-radius:8px'>Content</div><div style='padding:6px 9px;border-radius:8px'>Slides</div></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Team</h2><span class='wf-pill'>8 members</span><div style='flex:1'></div><button class='primary'><span data-icon='plus'></span> Invite</button></div><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Steve Ray</strong><br/><small class='wf-muted'>steve@acme.com</small></div><span class='wf-pill'>Owner</span></div><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Maya Chen</strong><br/><small class='wf-muted'>maya@acme.com</small></div><span class='wf-pill'>Admin <span data-icon='chevronDown'></span></span></div><div style='display:flex;align-items:center;gap:10px'><div style='width:28px;height:28px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><div style='flex:1;min-width:0'><strong>Kai Wong</strong><br/><small class='wf-muted'>kai@acme.com</small></div><span class='wf-pill'>Member <span data-icon='chevronDown'></span></span></div><hr/><div style='display:flex;align-items:center;gap:8px'><span data-icon='mail'></span><div style='flex:1'>Anyone with an acme.com email can join</div></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='user'></span><div style='flex:1'>Pending invites</div><span class='wf-pill'>3</span></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                 | Purpose                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `<TeamPage>`          | Standard team management page for members, invites, roles, and organization preferences.        |
+| `<OrgSwitcher>`       | Current organization picker for sidebars and headers.                                           |
+| `<InvitationBanner>`  | One-click invite and domain-match join prompts.                                                 |
+| `<RequireActiveOrg>`  | Guard for pages that need an active organization before rendering app data.                     |
+| `useOrgRole()`        | Shared role booleans for member, invite, settings, and domain controls.                         |
+| Organization handlers | Create, rename, switch, invite, accept, remove, and update roles/domains.                       |
+| Roles                 | Owner, admin, and member gates for sharing, settings, service tokens, and provider connections. |
+| Allowed domains       | Automatic join and domain-scoped access policy.                                                 |
+| App links             | Workspace app-link parsing and visible app-switcher helpers.                                    |
+
+## API {#api}
+
+Render organization context wherever data scope changes. Put `OrgSwitcher` in
+the persistent shell and make `/settings#team` or `/team` open `TeamPage`.
+
+```tsx
+import {
+  OrgSwitcher,
+  RequireActiveOrg,
+  TeamPage,
+  useOrgRole,
+} from "@agent-native/core/client/org-team";
+
+export function AppShell() {
+  return <OrgSwitcher />;
+}
+
+export function SettingsTeamTab() {
+  return (
+    <RequireActiveOrg>
+      <TeamPage createOrgDescription="Create a team to share dashboards and provider connections." />
+    </RequireActiveOrg>
+  );
+}
+
+export function AdminOnlyControl() {
+  const { canManageOrg } = useOrgRole();
+  return canManageOrg ? <button type="button">Invite members</button> : null;
+}
+```
+
+Server code imports the same role helpers from `@agent-native/core/org-team`.
+The route plugin mounts `/_agent-native/org/*` for org creation, switching,
+invites, domains, member roles, and A2A secret sync.
+
+## UX Standard {#ux-standard}
+
+- Users can see which organization they are in before creating or sharing data.
+- Invites and roles live in the team settings surface, not per-resource dialogs.
+- Org domain changes are owner-only and explain who can auto-join.
+- App switching lists workspace/default app links. Active-org continuity comes
+  from the target app sharing the same auth and organization state.
+
+## What's next
+
+- [**Multi-Tenancy**](/docs/multi-tenancy) — how org scoping isolates data
+  across tenants.
+- [**Workspace Management**](/docs/workspace-management) — governance for
+  multi-app workspaces that share an organization.
+- [**Sharing Kit**](/docs/toolkit-sharing) — the access model that roles and
+  org scope feed into.

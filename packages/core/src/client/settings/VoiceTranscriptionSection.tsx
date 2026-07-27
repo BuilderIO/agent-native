@@ -10,8 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
-import React, { useCallback, useEffect, useState } from "react";
-import { agentNativePath } from "../api-path.js";
+import { Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -20,8 +19,10 @@ import {
   IconExternalLink,
   IconLoader2,
   IconLockOpen,
-  IconMicrophone,
 } from "@tabler/icons-react";
+import React, { useCallback, useEffect, useState } from "react";
+
+import { agentNativePath } from "../api-path.js";
 import {
   openBuilderConnectPopup,
   useBuilderStatus,
@@ -466,24 +467,12 @@ export function VoiceTranscriptionSection() {
           </p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!!cleanupEnabled}
-            onClick={() => toggleCleanup(!cleanupEnabled)}
-            // Theme tokens; streaming agent owns layout.
-            className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-              cleanupEnabled
-                ? "bg-primary"
-                : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
-            }`}
-          >
-            <span
-              className={`inline-block h-3 w-3 transform rounded-full bg-background transition-transform ${
-                cleanupEnabled ? "translate-x-3.5" : "translate-x-0.5"
-              }`}
-            />
-          </button>
+          <Switch
+            checked={!!cleanupEnabled}
+            onChange={toggleCleanup}
+            aria-label="AI cleanup"
+            className="shrink-0"
+          />
           {cleanupEnabled && (
             <span className="text-[10px] text-muted-foreground">
               {builderStatus?.configured
@@ -506,7 +495,7 @@ export function VoiceTranscriptionSection() {
             {showAdvanced ? (
               <IconChevronDown size={12} />
             ) : (
-              <IconChevronRight size={12} />
+              <IconChevronRight size={12} className="rtl:-scale-x-100" />
             )}
             Add API keys
           </span>
@@ -714,7 +703,6 @@ export function VoiceTranscriptionSection() {
         </div>
       )}
 
-      {saving && <p className="text-[10px] text-muted-foreground">Saving…</p>}
       {saveError && !saving && (
         <p className="text-[10px] text-red-500" role="alert">
           {saveError}
@@ -764,7 +752,7 @@ function ProviderOption({
       aria-pressed={selected}
       aria-disabled={disabled || undefined}
       // Theme tokens; streaming agent owns layout.
-      className={`w-full text-left rounded-md border px-2.5 py-2 flex items-start gap-2 ${
+      className={`w-full text-start rounded-md border px-2.5 py-2 flex items-start gap-2 ${
         selected
           ? "border-primary bg-primary/10"
           : "border-border bg-accent/30 hover:bg-accent/50"
@@ -945,7 +933,7 @@ function SystemAudioStatus() {
         <button
           type="button"
           onClick={openPrivacy}
-          className="ml-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          className="ms-1 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
         >
           <IconLockOpen size={10} />
           Open System Settings
@@ -953,8 +941,4 @@ function SystemAudioStatus() {
       </div>
     </div>
   );
-}
-
-export function VoiceTranscriptionIcon() {
-  return <IconMicrophone size={14} />;
 }

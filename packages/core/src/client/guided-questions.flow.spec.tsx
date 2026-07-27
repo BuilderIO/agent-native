@@ -1,10 +1,20 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
+
+import { sendToAgentChat } from "./agent-chat.js";
+import {
+  askUserQuestion,
+  GuidedQuestionFlow,
+  useGuidedQuestionFlow,
+} from "./guided-questions.js";
+import {
+  bumpChangeVersion,
+  _resetChangeVersionStoreForTests,
+} from "./use-change-version.js";
 
 // The agent's `ask-question` action writes the guided-questions payload to a
 // per-tab application-state key (`guided-questions:<tabId>`) whenever the run
@@ -16,6 +26,8 @@ import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
 }));
+
+const sendToAgentChatMock = vi.mocked(sendToAgentChat);
 
 const STATE_PREFIX = "/_agent-native/application-state/";
 
@@ -43,6 +55,8 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    _resetChangeVersionStoreForTests();
+    sendToAgentChatMock.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -55,6 +69,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     container.remove();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    _resetChangeVersionStoreForTests();
   });
 
   async function flush() {
@@ -144,6 +159,84 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     );
     expect(requestedKeys).toContain("guided-questions");
     expect(requestedKeys).not.toContain("guided-questions:undefined");
+  });
+
+  it("does not read application state when disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      enabled: false,
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+
+    expect(result.current().questions).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
+    let hasQuestion = false;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(hasQuestion ? JSON.stringify(payload) : "", {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+    expect(result.current().questions).toBeNull();
+    const initialReads = fetchMock.mock.calls.length;
+
+    hasQuestion = true;
+    await act(async () => {
+      bumpChangeVersion("app-state:guided-questions", 10);
+      await Promise.resolve();
+    });
+    for (let i = 0; i < 20 && !result.current().questions; i += 1) {
+      await flush();
+    }
+
+    expect(result.current().questions?.length).toBe(1);
+    expect(fetchMock.mock.calls.length).toBe(initialReads + 1);
+  });
+
+  it("keeps active questions visible while a DB-sync refresh is pending", async () => {
+    let reads = 0;
+    let resolveRefresh: (() => void) | null = null;
+    const fetchMock = vi.fn(() => {
+      reads += 1;
+      if (reads === 1) {
+        return Promise.resolve(new Response(JSON.stringify(payload)));
+      }
+      return new Promise<Response>((resolve) => {
+        resolveRefresh = () => resolve(new Response(JSON.stringify(payload)));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+    expect(result.current().questions?.length).toBe(1);
+
+    await act(async () => {
+      bumpChangeVersion("app-state:guided-questions", 10);
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.current().questions).toEqual(payload.questions);
+
+    await act(async () => {
+      resolveRefresh?.();
+      await Promise.resolve();
+    });
   });
 
   it("DELETEs the scoped key on clear so the card does not reappear", async () => {
@@ -255,5 +348,105 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     });
 
     await expect(answer).resolves.toBeNull();
+  });
+
+  it("submits a single-select answer immediately when requested", async () => {
+    const onSubmit = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <GuidedQuestionFlow
+          title="Pick a direction"
+          questions={[
+            {
+              id: "variant",
+              type: "text-options",
+              question: "Which screen should I keep?",
+              required: true,
+              allowOther: false,
+              includeExplore: false,
+              includeDecide: false,
+              submitOnSelect: true,
+              options: [
+                { label: "Pure White", value: "pure-white" },
+                { label: "Soft Cards", value: "soft-cards" },
+              ],
+            },
+          ]}
+          onSubmit={onSubmit}
+          onSkip={vi.fn()}
+        />,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.includes("Soft Cards"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onSubmit).toHaveBeenCalledWith({ variant: "soft-cards" });
+  });
+
+  it("submits selected option values as authoritative context", async () => {
+    const selectedInstruction =
+      'Keep "Command Deck" (variant-command-deck.html, file id file-command). Then call edit-design with fileId file-command.';
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              submitMessage: "Use this design direction.",
+              questions: [
+                {
+                  id: "variant",
+                  type: "text-options",
+                  question: "Which screen should I keep?",
+                  required: true,
+                  allowOther: false,
+                  includeExplore: false,
+                  includeDecide: false,
+                  submitOnSelect: true,
+                  options: [
+                    { label: "Command Deck", value: selectedInstruction },
+                  ],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ variant: selectedInstruction });
+      await Promise.resolve();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Use this design direction.",
+        context: expect.stringContaining(
+          "Use the selected option values below as authoritative",
+        ),
+      }),
+    );
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("file id file-command"),
+      }),
+    );
   });
 });

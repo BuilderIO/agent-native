@@ -1,3 +1,4 @@
+import * as jose from "jose";
 /**
  * Regression coverage for the production blocker: `/_agent-native/mcp` must
  * work on the web-standard Nitro runtime (Netlify web runtime, Cloudflare,
@@ -13,7 +14,16 @@
  * Node fast-path is still taken (and unchanged) when `event.node` is present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+
+const builtinToolMocks = vi.hoisted(() => ({
+  askAppRun: vi.fn(async () => ({ response: "agent answer" })),
+  askAppStatusRun: vi.fn(async () => ({
+    status: "completed",
+    response: "agent answer",
+  })),
+}));
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
 // MCP SDK itself is REAL — that's the whole point of these tests.
@@ -61,7 +71,22 @@ vi.mock("./builtin-tools.js", () => ({
           required: ["app", "message"],
         },
       },
-      run: async () => ({ response: "agent answer" }),
+      run: (...args: any[]) => builtinToolMocks.askAppRun(...args),
+    },
+    ask_app_status: {
+      tool: {
+        description: "Poll an ask_app task",
+        parameters: {
+          type: "object",
+          properties: {
+            app: { type: "string" },
+            taskId: { type: "string" },
+          },
+          required: ["taskId"],
+        },
+      },
+      readOnly: true,
+      run: (...args: any[]) => builtinToolMocks.askAppStatusRun(...args),
     },
     create_embed_session: {
       tool: {
@@ -85,8 +110,13 @@ vi.mock("./builtin-tools.js", () => ({
     },
   }),
 }));
+const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
+
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  resolveOrgIdForEmail: (
+    ...args: Parameters<typeof resolveOrgIdForEmailMock>
+  ) => resolveOrgIdForEmailMock(...args),
 }));
 
 const embedSessionMocks = vi.hoisted(() => ({
@@ -128,7 +158,8 @@ vi.mock("../server/embed-route.js", () => ({
 const mockOAuthClients = vi.hoisted(() => new Map<string, any>());
 
 vi.mock("./oauth-store.js", () => ({
-  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   getOAuthClient: vi.fn(async (clientId: string) => {
     return mockOAuthClients.get(clientId) ?? null;
   }),
@@ -309,6 +340,27 @@ const veryLongMcpAppDescription = "MCP_APP_RESOURCE_BLOAT_SENTINEL ".repeat(
   1_000,
 );
 
+async function firstPartyMcpAuthHeaders() {
+  process.env.A2A_SECRET = "first-party-mcp-secret";
+  const token = await new jose.SignJWT({
+    sub: "svc-mcp-client@service.org_123",
+    scope: "mcp-connect",
+    jti: "jti-first-party-assets",
+    org_id: "org_123",
+    agent_native_first_party_mcp: true,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setAudience("https://mail.agent-native.com/_agent-native/mcp")
+    .setExpirationTime("5m")
+    .sign(new TextEncoder().encode(process.env.A2A_SECRET));
+  return {
+    authorization: `Bearer ${token}`,
+    "x-agent-native-mcp-full-catalog": "1",
+    "x-agent-native-mcp-inline-apps": "1",
+  };
+}
+
 const compactSurfaceConfig = {
   ...config,
   askAgent: async () => "agent answer",
@@ -461,17 +513,34 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    // Inline MCP App embeds are off by default; these tests assert the embed
+    // surface, so opt in. The dedicated "off" test below clears this.
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
+    resolveOrgIdForEmailMock.mockReset();
+    resolveOrgIdForEmailMock.mockResolvedValue(null);
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
     vi.clearAllMocks();
+    builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
+    builtinToolMocks.askAppStatusRun.mockResolvedValue({
+      status: "completed",
+      response: "agent answer",
+    });
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -567,17 +636,20 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     // is the OpenAI/ChatGPT equivalent and is the only one that also rides on
     // the result — MCP Apps has no result-level linkage key.
     expect(echo._meta?.["ui/resourceUri"]).toBe(
-      "ui://mail/echo-thing/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
     );
     expect(echo._meta?.["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
+    );
+    expect(echo._meta?.["openai/outputTemplate"]).toBe(
+      "ui://mail/echo-thing/shell-v64",
     );
     expect(echo._meta?.["openai/widgetAccessible"]).toBe(true);
     expect(echo._meta?.["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
     });
     expect(echo._meta?.ui).toEqual({
-      resourceUri: "ui://mail/echo-thing/shell-v43",
+      resourceUri: "ui://mail/echo-thing/shell-v64",
       visibility: ["model", "app"],
     });
     expect(echo._meta?.ui?.csp).toBeUndefined();
@@ -628,6 +700,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("echo-thing");
@@ -659,7 +732,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v43",
+      "ui://mail/open_app/shell-v64",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
@@ -685,7 +758,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(templatesOut.error).toBeUndefined();
     expect(
       templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
-    ).toEqual(["ui://mail/open_app/shell-v43"]);
+    ).toEqual(["ui://mail/open_app/shell-v64"]);
     expect(JSON.stringify(templatesOut)).not.toContain(
       "INTERNAL_TOOL_BLOAT_SENTINEL",
     );
@@ -699,7 +772,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 123,
         method: "resources/read",
-        params: { uri: "ui://mail/review-draft/shell-v43" },
+        params: { uri: "ui://mail/review-draft/shell-v64" },
       },
       {
         headers: await mcpAppsAuthHeaders(),
@@ -714,7 +787,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 126,
         method: "resources/read",
-        params: { uri: "ui://mail/bloated-widget/shell-v43" },
+        params: { uri: "ui://mail/bloated-widget/shell-v64" },
       },
       {
         headers: await mcpAppsAuthHeaders(),
@@ -785,8 +858,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v43",
-      "ui://mail/status-panel/shell-v43",
+      "ui://mail/open_app/shell-v64",
+      "ui://mail/status-panel/shell-v64",
     ]);
   });
 
@@ -826,6 +899,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           run: async () => ({ response: "ok" }),
         },
+        ask_app_status: {
+          tool: {
+            description: "Poll a granted workspace app ask",
+          },
+          readOnly: true,
+          run: async () => ({ status: "completed", response: "ok" }),
+        },
         create_embed_session: {
           tool: {
             description: "Create an embed session",
@@ -855,6 +935,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("bloated-widget");
@@ -878,7 +959,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v43",
+      "ui://mail/open_app/shell-v64",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
@@ -943,9 +1024,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/echo-thing/shell-v43",
-      "ui://mail/review-draft/shell-v43",
-      "ui://mail/private-widget/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
+      "ui://mail/review-draft/shell-v64",
+      "ui://mail/private-widget/shell-v64",
     ]);
 
     const templatesOut = await callWeb(
@@ -965,9 +1046,9 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(
       templatesOut.result.resourceTemplates.map((r: any) => r.uriTemplate),
     ).toEqual([
-      "ui://mail/echo-thing/shell-v43",
-      "ui://mail/review-draft/shell-v43",
-      "ui://mail/private-widget/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
+      "ui://mail/review-draft/shell-v64",
+      "ui://mail/private-widget/shell-v64",
     ]);
 
     const readOut = await callWeb(
@@ -975,7 +1056,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 132,
         method: "resources/read",
-        params: { uri: "ui://mail/private-widget/shell-v43" },
+        params: { uri: "ui://mail/private-widget/shell-v64" },
       },
       {
         headers: await mcpAppsAuthHeaders(),
@@ -986,7 +1067,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(readOut.error).toBeUndefined();
     expect(readOut.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/private-widget/shell-v43",
+        uri: "ui://mail/private-widget/shell-v64",
         text: expect.stringContaining("Private"),
       }),
     ]);
@@ -1072,8 +1153,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     expect(out.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/echo-thing/shell-v43",
-      "ui://mail/review-draft/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
+      "ui://mail/review-draft/shell-v64",
     ]);
   });
 
@@ -1165,7 +1246,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     }
   });
 
-  it("keeps the full catalog for code-oriented OAuth clients without mcp:apps", async () => {
+  it("uses the compact catalog for code-oriented OAuth clients unless full catalog is explicit", async () => {
     mockOAuthClients.set("agent-native-oauth-client-generated-claude-code", {
       clientId: "agent-native-oauth-client-generated-claude-code",
       clientName: "Claude Code",
@@ -1190,9 +1271,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(out.error).toBeUndefined();
     const names = out.result.tools.map((t: any) => t.name);
-    expect(names).toEqual(
-      expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
-    );
+    expect(names).toEqual(["echo-thing", "review-draft"]);
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("ask-agent");
+    expect(JSON.stringify(out)).not.toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
   it("uses the compact catalog for authenticated non-OAuth callers by default", async () => {
@@ -1212,6 +1294,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       "list_apps",
       "open_app",
       "ask_app",
+      "ask_app_status",
       "create_embed_session",
     ]);
     expect(names).not.toContain("internal-heavy");
@@ -1236,12 +1319,66 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
 
     expect(resourcesOut.error).toBeUndefined();
     expect(resourcesOut.result.resources.map((r: any) => r.uri)).toEqual([
-      "ui://mail/open_app/shell-v43",
+      "ui://mail/open_app/shell-v64",
     ]);
     expect(JSON.stringify(resourcesOut)).not.toContain(
       "MCP_APP_RESOURCE_BLOAT_SENTINEL",
     );
     expect(JSON.stringify(resourcesOut).length).toBeLessThan(8_000);
+  });
+
+  it("advertises `tool-search` in the compact catalog when it is a registered action", async () => {
+    // Regression guard: `tool-search` is a COMPACT_MCP_APP_CATALOG_BUILTINS
+    // member, so when a template registers a `tool-search` action it must show
+    // up in the default/compact catalog (no full-catalog header). That keeps
+    // the small-by-default catalog non-opaque — the agent can always discover
+    // every other tool on demand via tool-search.
+    const toolSearchConfig = {
+      ...compactSurfaceDefaultConfig,
+      actions: {
+        ...compactSurfaceDefaultConfig.actions,
+        "tool-search": {
+          tool: {
+            description: "Search for and load app tools on demand.",
+            parameters: {
+              type: "object" as const,
+              properties: { query: { type: "string" } },
+            },
+          },
+          readOnly: true,
+          run: async () => ({ tools: [] }),
+        },
+      },
+    };
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 220,
+        method: "tools/list",
+        params: {},
+      },
+      // Default/compact caller: no full-catalog header.
+      { config: toolSearchConfig },
+    );
+
+    expect(toolsOut.error).toBeUndefined();
+    const names = toolsOut.result.tools.map((t: any) => t.name);
+    expect(names).toContain("tool-search");
+    // It rides alongside the core compact builtins, and the bulky internal
+    // tools are still excluded by the compact catalog.
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "list_apps",
+        "open_app",
+        "ask_app",
+        "ask_app_status",
+        "create_embed_session",
+        "tool-search",
+      ]),
+    );
+    expect(names).not.toContain("internal-heavy");
+    expect(names).not.toContain("bloated-widget");
   });
 
   it("keeps the full tool catalog only for explicit code/stdio callers", async () => {
@@ -1269,6 +1406,130 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
   });
 
+  it("uses the durable ask_app path for hosted ask-agent calls", async () => {
+    builtinToolMocks.askAppRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "working",
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        'ask_app is still working. Call ask_app_status with taskId "task-1" to retrieve the final response.',
+    });
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 291,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: compactSurfaceConfig,
+      },
+    );
+    const askAgent = toolsOut.result.tools.find(
+      (tool: any) => tool.name === "ask-agent",
+    );
+    expect(askAgent.description).toContain("taskId");
+    expect(askAgent.inputSchema.properties.async).toEqual({
+      type: "boolean",
+      description: "Start a durable task and return immediately with a taskId.",
+    });
+    expect(askAgent.inputSchema.properties.maxWaitMs).toEqual({
+      type: "number",
+      description:
+        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 292,
+        method: "tools/call",
+        params: {
+          name: "ask-agent",
+          arguments: { message: "Build the report.", async: true },
+        },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "working",
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(builtinToolMocks.askAppRun).toHaveBeenCalledWith({
+      message: "Build the report.",
+      async: true,
+      maxWaitMs: 0,
+    });
+  });
+
+  it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
+    builtinToolMocks.askAppStatusRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        "The task status could not be read. Retry ask_app_status; do not resubmit ask_app.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 293,
+        method: "tools/call",
+        params: {
+          name: "ask_app_status",
+          arguments: { app: "mail", taskId: "task-1" },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.isError).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(call.result.structuredContent).toMatchObject({
+      taskId: "task-1",
+      statusRead: "unavailable",
+      retryable: true,
+    });
+  });
+
   it("handles `resources/list` and advertises MCP App resources", async () => {
     const out = await callWeb(
       {
@@ -1282,7 +1543,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v43",
+        uri: "ui://mail/echo-thing/shell-v64",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -1307,6 +1568,80 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.resources[0]._meta.ui.domain).toBeUndefined();
   });
 
+  it("omits MCP App resources when the inline kill switch is off", async () => {
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    const list = await callWeb(
+      { jsonrpc: "2.0", id: 41, method: "resources/list", params: {} },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([]);
+
+    // Tool descriptors must carry no inline-embed reference either, so hosts
+    // fall back to the deep-link text instead of trying to render an iframe.
+    const tools = await callWeb(
+      { jsonrpc: "2.0", id: 42, method: "tools/list", params: {} },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(JSON.stringify(tools)).not.toContain("openai/outputTemplate");
+    expect(JSON.stringify(tools)).not.toContain("ui://mail/");
+
+    // A tool *call* result must not carry the render trigger either.
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 44,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: {} },
+      },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(call.error).toBeUndefined();
+    expect(JSON.stringify(call)).not.toContain("openai/outputTemplate");
+  });
+
+  it("serves MCP App resources when an authenticated first-party caller requests inline apps", async () => {
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
+    const list = await callWeb(
+      { jsonrpc: "2.0", id: 45, method: "resources/list", params: {} },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v64" }),
+    ]);
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 46,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: {} },
+      },
+      { headers: await firstPartyMcpAuthHeaders() },
+    );
+    expect(call.error).toBeUndefined();
+    expect(JSON.stringify(call)).toContain("openai/outputTemplate");
+  });
+
+  it("serves inline MCP App resources to allow-listed emails while the global switch is off", async () => {
+    delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
+    // The signed test token is owned by oauth@example.com — the bypass lets
+    // that account keep verifying inline embeds in prod with the global off.
+    process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS =
+      "someone@else.com, oauth@example.com";
+    const list = await callWeb(
+      { jsonrpc: "2.0", id: 43, method: "resources/list", params: {} },
+      { headers: await mcpAppsFullCatalogHeaders() },
+    );
+    expect(list.error).toBeUndefined();
+    expect(list.result.resources).toEqual([
+      expect.objectContaining({ uri: "ui://mail/echo-thing/shell-v64" }),
+    ]);
+  });
+
   it("handles `resources/templates/list` with MCP App templates", async () => {
     const out = await callWeb(
       {
@@ -1320,7 +1655,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.error).toBeUndefined();
     expect(out.result.resourceTemplates).toEqual([
       expect.objectContaining({
-        uriTemplate: "ui://mail/echo-thing/shell-v43",
+        uriTemplate: "ui://mail/echo-thing/shell-v64",
         name: "echo-thing",
         title: "Mail Review",
         description: "Review the echoed thing in an inline MCP App.",
@@ -1335,14 +1670,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 6,
         method: "resources/read",
-        params: { uri: "ui://mail/echo-thing/shell-v43" },
+        params: { uri: "ui://mail/echo-thing/shell-v64" },
       },
       { headers: await mcpAppsFullCatalogHeaders() },
     );
     expect(out.error).toBeUndefined();
     expect(out.result.contents).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/echo-thing/shell-v43",
+        uri: "ui://mail/echo-thing/shell-v64",
         mimeType: "text/html;profile=mcp-app",
         text: expect.stringContaining('data-action="echo-thing"'),
         _meta: expect.objectContaining({
@@ -1455,7 +1790,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         jsonrpc: "2.0",
         id: 37,
         method: "resources/read",
-        params: { uri: "ui://mail/dynamic-review/shell-v43" },
+        params: { uri: "ui://mail/dynamic-review/shell-v64" },
       },
       { headers: await mcpAppsFullCatalogHeaders(), config: dynamicCspConfig },
     );
@@ -1522,6 +1857,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
           },
         },
+        "plain-success": {
+          tool: {
+            description: "Plain success",
+          },
+          run: async () => true,
+        },
       },
     };
 
@@ -1547,7 +1888,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       );
       expect(brokenTool._meta?.["openai/outputTemplate"]).toBeUndefined();
       expect(healthyTool._meta["openai/outputTemplate"]).toBe(
-        "ui://mail/healthy-review/shell-v43",
+        "ui://mail/healthy-review/shell-v64",
       );
 
       const brokenCall = await callWeb(
@@ -1563,10 +1904,29 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         },
       );
       expect(brokenCall.error).toBeUndefined();
-      expect(brokenCall.result.content[0].text).toBe('{"ok":true}');
+      expect(brokenCall.result.content[0].text).toBe(
+        "broken-review completed.",
+      );
       expect(
         brokenCall.result._meta?.["openai/outputTemplate"],
       ).toBeUndefined();
+
+      const plainSuccessCall = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 401,
+          method: "tools/call",
+          params: { name: "plain-success", arguments: {} },
+        },
+        {
+          headers: await mcpAppsFullCatalogHeaders(),
+          config: failingCspConfig,
+        },
+      );
+      expect(plainSuccessCall.error).toBeUndefined();
+      expect(plainSuccessCall.result.content[0].text).toBe(
+        "plain-success completed.",
+      );
 
       const resources = await callWeb(
         {
@@ -1583,7 +1943,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(resources.error).toBeUndefined();
       expect(
         resources.result.resources.map((resource: any) => resource.uri),
-      ).toEqual(["ui://mail/healthy-review/shell-v43"]);
+      ).toEqual(["ui://mail/healthy-review/shell-v64"]);
 
       const templates = await callWeb(
         {
@@ -1602,7 +1962,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         templates.result.resourceTemplates.map(
           (template: any) => template.uriTemplate,
         ),
-      ).toEqual(["ui://mail/healthy-review/shell-v43"]);
+      ).toEqual(["ui://mail/healthy-review/shell-v64"]);
 
       const warnCallsBeforeRead = warn.mock.calls.length;
       const read = await callWeb(
@@ -1610,7 +1970,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           jsonrpc: "2.0",
           id: 43,
           method: "resources/read",
-          params: { uri: "ui://mail/healthy-review/shell-v43" },
+          params: { uri: "ui://mail/healthy-review/shell-v64" },
         },
         {
           headers: await mcpAppsFullCatalogHeaders(),
@@ -1620,7 +1980,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(read.error).toBeUndefined();
       expect(read.result.contents[0]).toEqual(
         expect.objectContaining({
-          uri: "ui://mail/healthy-review/shell-v43",
+          uri: "ui://mail/healthy-review/shell-v64",
           text: expect.stringContaining("Healthy"),
         }),
       );
@@ -1712,7 +2072,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v43",
+        uri: "ui://mail/custom-review/shell-v64",
         name: "custom-review",
       }),
     ]);
@@ -1775,7 +2135,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v43",
+        uri: "ui://mail/custom-review/shell-v64",
         name: "custom-review",
       }),
     ]);
@@ -1838,7 +2198,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(list.error).toBeUndefined();
     expect(list.result.resources).toEqual([
       expect.objectContaining({
-        uri: "ui://mail/custom-review/shell-v43?mode=compact#preview",
+        uri: "ui://mail/custom-review/shell-v64?mode=compact#preview",
         name: "custom-review",
       }),
     ]);
@@ -1894,7 +2254,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "https://mail.agent-native.com/_agent-native/open?view=thing&id=thing-42&agentSidebar=closed",
     });
     expect(out.result._meta["openai/outputTemplate"]).toBe(
-      "ui://mail/echo-thing/shell-v43",
+      "ui://mail/echo-thing/shell-v64",
     );
     expect(out.result._meta["openai/widgetCSP"]).toEqual({
       connect_domains: ["https://mail.agent-native.com"],
@@ -1916,9 +2276,64 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         label: "Open in Mail",
       },
     });
-    expect(out.result._meta["agent-native/openLink"].desktopUrl).toContain(
-      "view=thing&id=thing-42",
+    const openLink = out.result._meta["agent-native/openLink"] as Record<
+      string,
+      string
+    >;
+    expect(openLink.desktopUrl).toContain("view=thing&id=thing-42");
+    expect(new URL(openLink.vscodeUrl).searchParams.get("url")).toBe(
+      openLink.webUrl,
     );
+  });
+
+  it("runs `tools/call` with org scope resolved from the verified token email", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const scopedConfig = {
+      ...config,
+      actions: {
+        "whoami-scope": {
+          tool: {
+            description: "Return the request context visible to the action",
+            parameters: { type: "object" as const, properties: {} },
+          },
+          readOnly: true,
+          run: async () => {
+            const { getRequestOrgId, getRequestUserEmail } =
+              await import("../server/request-context.js");
+            return {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId() ?? null,
+            };
+          },
+          mcpApp: {
+            resource: {
+              title: "Scope probe",
+              html: "<!doctype html><html><body>Scope</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 301,
+        method: "tools/call",
+        params: { name: "whoami-scope", arguments: {} },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: scopedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toMatchObject({
+      userEmail: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("oauth@example.com");
   });
 
   it("preserves MCP action-result errors as errored tools/call responses", async () => {
@@ -2027,6 +2442,12 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       desktopUrl:
         "agentnative://open?app=mail&view=&to=%2Finbox&agentSidebar=closed",
     });
+    expect(
+      new URL(
+        (out.result._meta["agent-native/openLink"] as Record<string, string>)
+          .vscodeUrl,
+      ).searchParams.get("url"),
+    ).toBe("https://mail.agent-native.com/inbox");
     expect(out.result._meta["agent-native/embedStart"]).toMatchObject({
       startUrl:
         "https://mail.agent-native.com/_agent-native/embed/start?ticket=test-ticket&__an_mcp_chat_bridge=1",
@@ -2473,6 +2894,236 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
+  it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-detail": {
+          tool: { description: "Read a detail record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-42",
+            status: "failed",
+            message: "The request failed",
+            url: "/_agent-native/embed/start?ticket=must-not-leak",
+            ticket: "top-level-ticket-must-not-leak",
+            embedTargetPath: "/private/thread/42",
+            embedExpiresAt: 1735689600,
+            uploadTicket: "nested-upload-ticket-must-not-leak",
+            steps: [
+              {
+                kind: "network",
+                status: 404,
+                details: {
+                  ticket: "nested-ticket-must-not-leak",
+                  embedTargetPath: "/private/nested",
+                  safe: "keep this detail",
+                },
+              },
+            ],
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "tools/call",
+        params: { name: "read-detail", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-42",
+      status: "failed",
+      message: "The request failed",
+      steps: [
+        {
+          kind: "network",
+          status: 404,
+          details: { safe: "keep this detail" },
+        },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-42"');
+    expect(out.result.content[0].text).not.toContain("must-not-leak");
+    expect(out.result.content[0].text).not.toContain("top-level-ticket");
+    expect(out.result.content[0].text).not.toContain("nested-ticket");
+    expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-business-record": {
+          tool: { description: "Read a business record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "order-42",
+            ticket: "customer-support-ticket-42",
+            receiptTicket: "receipt-ticket-42",
+            nested: { ticket: "nested-business-ticket-42" },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-business-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "order-42",
+      ticket: "customer-support-ticket-42",
+      receiptTicket: "receipt-ticket-42",
+      nested: { ticket: "nested-business-ticket-42" },
+    });
+    expect(out.result.content[0].text).toContain("customer-support-ticket-42");
+  });
+
+  it("sanitizes ticket fields across read-only array siblings when one item carries embed routing", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-array": {
+          tool: { description: "Read records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "business-record", ticket: "sibling-ticket-must-not-leak" },
+            {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this record",
+            },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-array", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [{ id: "business-record" }, { safe: "keep this record" }],
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
+  it("preserves top-level read-only arrays in structuredContent", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "list-records": {
+          tool: { description: "List records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "record-1", status: "ready" },
+            { id: "record-2", status: "failed" },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 165,
+        method: "tools/call",
+        params: { name: "list-records", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [
+        { id: "record-1", status: "ready" },
+        { id: "record-2", status: "failed" },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-1"');
+  });
+
+  it("propagates embed sanitization to credential siblings", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-nested-embed-record": {
+          tool: { description: "Read a nested embed record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-with-nested-embed",
+            ticket: "sibling-ticket-must-not-leak",
+            details: {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this detail",
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-nested-embed-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-with-nested-embed",
+      details: { safe: "keep this detail" },
+    });
+    expect(out.result.content[0].text).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
     // Regression: internal embed-routing fields are carried in
     // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT
@@ -2712,25 +3363,83 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps"',
+      'scope="mcp:read mcp:write mcp:apps offline_access"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).
     expect(res).toMatchObject({
       error: "Unauthorized",
       authenticate: {
-        command: "agent-native reconnect https://mail.agent-native.com",
-        firstTimeCommand: "agent-native connect https://mail.agent-native.com",
-        authorizeUrl:
-          "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
+        command:
+          "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
+        firstTimeCommand:
+          "npx @agent-native/core@latest connect https://mail.agent-native.com",
+        authorizeUrl: "https://mail.agent-native.com/mcp/oauth/authorize",
         resourceMetadataUrl:
           "https://mail.agent-native.com/.well-known/oauth-protected-resource",
-        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://mail.agent-native.com/mcp",
       },
     });
     expect((res as any).message).toContain(
-      "agent-native reconnect https://mail.agent-native.com",
+      "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 11, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        mcpUrl: "http://localhost:8100/mcp",
+      },
+    });
+  });
+
+  it("does not treat a server owner env var as a local owner hint", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 12, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({ error: "Unauthorized" });
   });
 
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {
@@ -2762,15 +3471,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       error: "Unauthorized",
       authenticate: {
         command:
-          "agent-native reconnect https://assets-local.trycloudflare.com/assets",
+          "npx -y @agent-native/core@latest reconnect https://assets-local.trycloudflare.com/assets",
         firstTimeCommand:
-          "agent-native connect https://assets-local.trycloudflare.com/assets",
+          "npx @agent-native/core@latest connect https://assets-local.trycloudflare.com/assets",
         authorizeUrl:
-          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp/oauth/authorize",
+          "https://assets-local.trycloudflare.com/assets/mcp/oauth/authorize",
         resourceMetadataUrl:
           "https://assets-local.trycloudflare.com/assets/.well-known/oauth-protected-resource",
-        mcpUrl:
-          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp",
+        mcpUrl: "https://assets-local.trycloudflare.com/assets/mcp",
       },
     });
   });

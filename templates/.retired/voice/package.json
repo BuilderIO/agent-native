@@ -1,8 +1,7 @@
 {
   "name": "voice",
   "private": true,
-  "type": "module",
   "scripts": {
-    "build": "tsx ../../../scripts/build-retired-netlify-site.ts voice"
+    "build": "node ../../../scripts/build-retired-netlify-site.ts voice"
   }
 }

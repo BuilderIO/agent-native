@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+
+import type {
+  WorkspaceConnectionCredentialsResolution,
+  WorkspaceConnectionForApp,
+} from "../workspace-connections/index.js";
 import {
   PROVIDER_READERS,
   ProviderReaderRuntimeError,
@@ -8,10 +13,6 @@ import {
   listProviderReaders,
   providerReaderSupports,
 } from "./reader.js";
-import type {
-  WorkspaceConnectionCredentialsResolution,
-  WorkspaceConnectionForApp,
-} from "../workspace-connections/index.js";
 
 describe("provider reader registry", () => {
   it("registers conservative reader definitions for the initial providers", () => {
@@ -20,6 +21,7 @@ describe("provider reader registry", () => {
       "github",
       "notion",
       "hubspot",
+      "salesforce",
       "gmail",
       "google_drive",
       "generic",
@@ -36,6 +38,7 @@ describe("provider reader registry", () => {
       "github",
       "notion",
       "hubspot",
+      "salesforce",
       "gmail",
       "google_drive",
     ]);
@@ -44,7 +47,7 @@ describe("provider reader registry", () => {
       listProviderReaders({ capability: "crm" }).map(
         (reader) => reader.providerId,
       ),
-    ).toEqual(["hubspot"]);
+    ).toEqual(["hubspot", "salesforce"]);
 
     expect(
       listProviderReaders({ implementationStatus: "metadata-only" }).map(
@@ -64,7 +67,7 @@ describe("provider reader registry", () => {
     expect(getProviderReader("github")).toMatchObject({
       providerId: "github",
       implementationStatus: "template-owned",
-      requiredCredentialKeys: ["GITHUB_TOKEN"],
+      requiredCredentialKeys: [],
     });
     expect(getProviderReader("missing")).toBeUndefined();
 
@@ -256,7 +259,7 @@ describe("provider reader registry", () => {
           providerId: "notion",
           operations: {
             search: async (_params, context) => {
-              await context.requireCredentials();
+              await context.requireCredentials(["NOTION_API_KEY"]);
               return {
                 providerId: "notion",
                 operation: "search",

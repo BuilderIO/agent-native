@@ -1,6 +1,10 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import {
   buildPlanHtml,
   loadPlanBundle,
@@ -8,11 +12,27 @@ import {
   planPath,
 } from "../server/plans.js";
 
+const queryBooleanSchema = z.preprocess((value) => {
+  if (value === "false") return false;
+  if (value === "true") return true;
+  return value;
+}, z.boolean());
+
 export default defineAction({
   description:
-    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan.",
+    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan. For full content replacement, replace-blocks, or replace-file, pass the returned plan.updatedAt exactly as expectedUpdatedAt and reread after the write.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
+    includeMdx: queryBooleanSchema
+      .optional()
+      .describe(
+        "Flat GET flag for browser callers. Set false to skip the Prettier-formatted MDX export.",
+      ),
+    includeHtml: queryBooleanSchema
+      .optional()
+      .describe(
+        "Flat GET flag for browser callers. Set false to skip the exported HTML bundle.",
+      ),
     include: z
       .object({
         mdx: z
@@ -44,14 +64,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Plan",
-      description:
-        "Open the Agent-Native Plan review surface for structured blocks, annotations, and comments.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args, ctx) => {
     const bundle = await loadPlanBundle(args.id);
@@ -69,11 +81,15 @@ export default defineAction({
     const isFrontend = ctx?.caller === "frontend";
     const isModern = Boolean(bundle.plan.content);
     // Caller-controlled opt-out; defaults preserve existing behavior.
-    const wantMdx = args.include?.mdx ?? true;
-    const wantHtml = args.include?.html ?? true;
+    const wantMdx = args.includeMdx ?? args.include?.mdx ?? true;
+    const wantHtml = args.includeHtml ?? args.include?.html ?? true;
+    const includeStoredPlanExportFields = !isFrontend || wantHtml || wantMdx;
     return {
       ...bundle,
       planId: bundle.plan.id,
+      plan: includeStoredPlanExportFields
+        ? bundle.plan
+        : { ...bundle.plan, html: undefined, markdown: undefined },
       html:
         !wantHtml || (isFrontend && isModern)
           ? undefined
@@ -87,6 +103,9 @@ export default defineAction({
               brief: bundle.plan.brief,
               planId: bundle.plan.id,
               url: planPath(bundle.plan.id, bundle.plan.kind),
+              referencedBlockIds: referencedBlockIdsForPlanComments(
+                bundle.comments,
+              ),
             }),
     };
   },

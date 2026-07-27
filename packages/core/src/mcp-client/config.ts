@@ -13,8 +13,9 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
 import { findWorkspaceRoot } from "../scripts/utils.js";
 
 /**
@@ -45,6 +46,18 @@ export interface McpHttpServerConfig {
   url: string;
   /** Extra headers to send with every request (e.g. Authorization). */
   headers?: Record<string, string>;
+  /**
+   * Trusted first-party Agent-Native app. This is set only by framework-owned
+   * org-scoped registrations, not by raw file/env config.
+   */
+  firstParty?: boolean;
+  /** Canonical first-party app id from the org directory, e.g. `assets`. */
+  firstPartyAppId?: string;
+  /**
+   * Org id the first-party server is trusted for. Runtime-only metadata set by
+   * framework-owned registrations; raw file/env config cannot provide it.
+   */
+  firstPartyOrgId?: string;
   /** Human-readable description (optional, shown in /mcp/status) */
   description?: string;
 }
@@ -57,6 +70,8 @@ export interface McpConfig {
   /** Where the config was loaded from (workspace root path, app path, or "env") */
   source?: string;
 }
+
+const DESKTOP_COMPUTER_SERVER_ID = "agent-native-desktop-computer";
 
 function isNode(): boolean {
   return (
@@ -135,8 +150,52 @@ export function loadMcpConfig(startDir?: string): McpConfig | null {
     }
   }
 
-  if (fileConfig) return fileConfig;
-  return envConfig;
+  return mergeDesktopChildComputerConfig(fileConfig ?? envConfig);
+}
+
+/**
+ * The desktop process supplies this configuration only to a child it spawned
+ * for a specific Agent run. Raw MCP config cannot opt into this trust path:
+ * the explicit child gate, loopback URL, and strong per-run bearer are all
+ * required. Existing user servers always win on key collisions.
+ */
+function mergeDesktopChildComputerConfig(
+  base: McpConfig | null,
+): McpConfig | null {
+  if (process.env.AGENT_NATIVE_DESKTOP_CHILD !== "1") return base;
+  const url = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim();
+  const token = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim();
+  if (!url || !token || !/^[A-Za-z0-9_-]{32,}$/.test(token)) return base;
+  try {
+    const parsed = new URL(url);
+    if (
+      parsed.protocol !== "http:" ||
+      parsed.hostname !== "127.0.0.1" ||
+      parsed.pathname !== "/mcp" ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return base;
+    }
+  } catch {
+    return base;
+  }
+  const servers = { ...(base?.servers ?? {}) };
+  let serverId = DESKTOP_COMPUTER_SERVER_ID;
+  for (let suffix = 2; servers[serverId]; suffix += 1) {
+    serverId = `${DESKTOP_COMPUTER_SERVER_ID}-${suffix}`;
+  }
+  servers[serverId] = {
+    type: "http",
+    url,
+    headers: { Authorization: `Bearer ${token}` },
+    description:
+      "Authenticated computer control for this Agent Native desktop task",
+  };
+  return {
+    servers,
+    source: base?.source ? `${base.source}+desktop-child` : "desktop-child",
+  };
 }
 
 function readEnvConfig(): McpConfig | null {

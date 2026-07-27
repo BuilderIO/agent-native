@@ -1,16 +1,19 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
+import { isConditionalFieldVisible } from "@shared/conditional";
+import type { FormField, FormSettings } from "@shared/types";
+import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";
 import { useParams } from "react-router";
+import { toast } from "sonner";
+
+import { FieldRenderer } from "@/components/builder/FieldRenderer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FieldRenderer } from "@/components/builder/FieldRenderer";
-import { Turnstile, PoweredByBadge } from "@agent-native/core/client";
-import { cn } from "@/lib/utils";
-import { normalizeFields } from "@/lib/normalize-fields";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { usePublicForm, useSubmitForm } from "@/hooks/use-forms";
-import { toast } from "sonner";
-import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
-import type { FormField, FormSettings } from "@shared/types";
+import { normalizeFields } from "@/lib/normalize-fields";
+import { cn } from "@/lib/utils";
 
 function safeRedirectUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -31,6 +34,7 @@ function safeRedirectUrl(value: unknown): string | null {
 }
 
 export function FormFillPage() {
+  const t = useT();
   const params = useParams();
   const slug = params["*"] || "";
   const { data: form, isLoading, error } = usePublicForm(slug);
@@ -85,21 +89,7 @@ export function FormFillPage() {
 
   // Evaluate conditional visibility
   const visibleFields = useMemo(() => {
-    return fields.filter((field) => {
-      if (!field.conditional) return true;
-      const { fieldId, operator, value: condValue } = field.conditional;
-      const fieldVal = String(values[fieldId] ?? "");
-      switch (operator) {
-        case "equals":
-          return fieldVal === condValue;
-        case "not_equals":
-          return fieldVal !== condValue;
-        case "contains":
-          return fieldVal.includes(condValue);
-        default:
-          return true;
-      }
-    });
+    return fields.filter((field) => isConditionalFieldVisible(field, values));
   }, [fields, values]);
 
   function handleChange(fieldId: string, value: unknown) {
@@ -163,7 +153,11 @@ export function FormFillPage() {
     submitForm.mutate(
       {
         formId: form.id,
-        data: values,
+        data: Object.fromEntries(
+          visibleFields
+            .filter((field) => values[field.id] !== undefined)
+            .map((field) => [field.id, values[field.id]]),
+        ),
         captchaToken,
         _hp: honeypot,
         _t: pageLoadTime,
@@ -177,7 +171,7 @@ export function FormFillPage() {
           }
         },
         onError: (err: any) => {
-          toast.error(err?.error || "Failed to submit form");
+          toast.error(err?.error || t("publicForm.failedSubmit"));
         },
       },
     );
@@ -185,8 +179,8 @@ export function FormFillPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background py-10 px-4">
-        <div className="max-w-xl mx-auto space-y-6">
+      <div className="min-h-screen bg-muted/30 px-4 py-10">
+        <div className="mx-auto max-w-xl space-y-6 rounded-2xl border border-border/80 bg-background p-5 shadow-sm sm:p-8">
           <div className="space-y-3">
             <Skeleton className="h-8 w-2/3" />
             <Skeleton className="h-4 w-full" />
@@ -208,20 +202,33 @@ export function FormFillPage() {
 
   if (error || !form) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-semibold mb-2">Form not found</h1>
+      <div
+        className={cn(
+          "flex min-h-screen items-center justify-center p-4",
+          embedded ? "bg-background" : "bg-muted/30",
+        )}
+      >
+        <div
+          className={cn(
+            "text-center",
+            !embedded &&
+              "max-w-md rounded-2xl border border-border/80 bg-background p-8 shadow-sm sm:p-10",
+          )}
+        >
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.formNotFound")}
+          </h1>
           <p className="text-muted-foreground mb-4">
-            This form may have been removed or is no longer accepting responses.
+            {t("publicForm.removedOrClosed")}
           </p>
           <Button
             variant="outline"
             size="sm"
             onClick={() => window.location.reload()}
-            className="gap-2"
+            className="min-h-10 gap-2 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
           >
             <IconRefresh className="h-3.5 w-3.5" />
-            Try Again
+            {t("publicForm.tryAgain")}
           </Button>
         </div>
         {!embedded && <PoweredByBadge />}
@@ -231,12 +238,25 @@ export function FormFillPage() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
+      <div
+        className={cn(
+          "flex min-h-screen items-center justify-center p-4",
+          embedded ? "bg-background" : "bg-muted/30",
+        )}
+      >
+        <div
+          className={cn(
+            "max-w-md text-center",
+            !embedded &&
+              "rounded-2xl border border-border/80 bg-background p-8 shadow-sm sm:p-10",
+          )}
+        >
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-600/10">
             <IconCircleCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
           </div>
-          <h1 className="text-2xl font-semibold mb-2">Response submitted</h1>
+          <h1 className="text-2xl font-semibold mb-2">
+            {t("publicForm.responseSubmitted")}
+          </h1>
           <p className="text-muted-foreground">
             {settings.successMessage ||
               "Thank you! Your response has been recorded."}
@@ -248,11 +268,22 @@ export function FormFillPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12">
-      <div className="w-full max-w-2xl">
+    <div
+      className={cn(
+        "flex min-h-screen items-center justify-center p-3 sm:p-4 py-8 sm:py-12",
+        embedded ? "bg-background" : "bg-muted/30",
+      )}
+    >
+      <div
+        className={cn(
+          "w-full max-w-2xl",
+          !embedded &&
+            "rounded-2xl border border-border/80 bg-background p-5 shadow-sm sm:p-8",
+        )}
+      >
         {!embedded && (
           <div className="mb-3 flex justify-end">
-            <ThemeToggle className="h-8 w-8" />
+            <ThemeToggle className="h-10 w-10 transition-[scale,background-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none" />
           </div>
         )}
         {/* Form header */}
@@ -303,7 +334,7 @@ export function FormFillPage() {
 
             {visibleFields.length === 0 && (
               <p className="text-center text-muted-foreground py-8">
-                This form has no fields yet.
+                {t("publicForm.noFields")}
               </p>
             )}
           </div>
@@ -314,7 +345,7 @@ export function FormFillPage() {
 
           <Button
             type="submit"
-            className="mt-4 w-full sm:w-auto"
+            className="mt-4 min-h-11 w-full transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none sm:w-auto"
             size="lg"
             disabled={submitForm.isPending}
           >

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import type { ContentDatabaseResponse, DocumentProperty } from "../shared/api";
 import {
   databaseCurrentViewSnapshot,
@@ -183,6 +184,7 @@ function databaseResponse(): ContentDatabaseResponse {
         ],
       },
     ],
+    source: null,
   };
 }
 
@@ -336,6 +338,7 @@ describe("view-screen current database view", () => {
       collapsedGroupIds: ["status:published"],
       hideEmptyGroups: true,
       openPagesIn: "full_page",
+      formQuestions: [],
       datePropertyId: "publish",
       datePropertyName: "Publish Date",
       endDatePropertyId: "end",
@@ -400,6 +403,7 @@ describe("view-screen current database view", () => {
       collapsedGroupIds: ["status:published"],
       hideEmptyGroups: true,
       openPagesIn: "preview",
+      formQuestions: [],
       datePropertyId: undefined,
       datePropertyName: undefined,
       endDatePropertyId: undefined,
@@ -478,6 +482,32 @@ describe("view-screen current database view", () => {
       visibleItemLimit: 50,
       selectedItemCount: 0,
       selectedItems: [],
+    });
+  });
+
+  it("exposes ordered required questions for the active form view", () => {
+    const response = databaseResponse();
+    response.database.viewConfig.activeViewId = "request-form";
+    response.database.viewConfig.views.push({
+      id: "request-form",
+      name: "Request design",
+      type: "form",
+      sorts: [],
+      filters: [],
+      columnWidths: {},
+      formQuestions: [
+        { key: "name", enabled: true, required: true },
+        { key: "priority", enabled: true, required: true },
+      ],
+    });
+
+    expect(databaseCurrentViewSnapshot({}, response)).toMatchObject({
+      id: "request-form",
+      type: "form",
+      formQuestions: [
+        { key: "name", enabled: true, required: true },
+        { key: "priority", enabled: true, required: true },
+      ],
     });
   });
 

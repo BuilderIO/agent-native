@@ -1,6 +1,7 @@
 import { createAuthPlugin } from "@agent-native/core/server";
-import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
+
 import { isLocalPlanRuntime } from "../lib/local-identity.js";
+import { PUBLIC_PLAN_ACTION_PATHS } from "../lib/public-action-paths.js";
 
 // In local dev mode, all plan action paths are open. The action handlers gate
 // ownership via requirePlanOwnerEmailForWrite (returns the local identity) so
@@ -13,12 +14,18 @@ const LOCAL_MODE_ACTION_PATHS: string[] = isLocalPlanRuntime()
       "/_agent-native/actions/create-plan-design",
       "/_agent-native/actions/create-visual-questions",
       "/_agent-native/actions/create-visual-recap",
+      "/_agent-native/actions/visual-answer",
+      "/_agent-native/actions/show-visual-plan",
       "/_agent-native/actions/visualize-plan",
       "/_agent-native/actions/convert-visual-plan-to-prototype",
       "/_agent-native/actions/import-visual-plan-source",
       "/_agent-native/actions/restore-plan-version",
       "/_agent-native/actions/list-visual-plans",
+      "/_agent-native/actions/search-pr-recaps",
+      "/_agent-native/actions/list-plan-components",
       "/_agent-native/actions/get-local-plan-folder",
+      "/_agent-native/actions/update-local-plan-folder",
+      "/_agent-native/actions/promote-local-plan-folder",
       "/_agent-native/actions/navigate",
       "/_agent-native/actions/view-screen",
     ]
@@ -52,7 +59,7 @@ export default createAuthPlugin({
     ...PUBLIC_AGENT_CHAT_PATHS,
   ],
   marketing: {
-    appName: "Agent-Native Plan",
+    appName: "Plan",
     tagline:
       "Turn coding-agent plans into visual, annotatable HTML before code changes happen.",
     features: [

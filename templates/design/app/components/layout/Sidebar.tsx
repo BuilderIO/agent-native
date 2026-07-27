@@ -1,39 +1,49 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconPencil,
+  IconTemplate,
   IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconTemplate,
+  IconSearch,
 } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-} from "@agent-native/core/client";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "react-router";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconPencil, label: "Designs", href: "/" },
-  { icon: IconTemplate, label: "Templates", href: "/templates" },
-  { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
-  { icon: IconSettings, label: "Settings", href: "/settings" },
+  { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
+  {
+    icon: IconPalette,
+    labelKey: "navigation.designSystems",
+    href: "/design-systems",
+  },
+];
+
+const bottomNavItems = [
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
 const COLLAPSE_KEY = "design.sidebar.collapsed";
 
 export function Sidebar() {
   const location = useLocation();
+  const t = useT();
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -52,10 +62,63 @@ export function Sidebar() {
     }
   }, [collapsed]);
 
+  const collapseButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
+          aria-label={t("root.commandSearch")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "h-8 w-8" : "min-w-0"}
+    />
+  );
+
   return (
     <aside
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
         collapsed ? "w-14" : "w-56",
       )}
     >
@@ -79,27 +142,11 @@ export function Sidebar() {
               aria-hidden="true"
               className="hidden h-4 w-auto dark:block"
             />
-            <span className="text-sm font-semibold tracking-tight">Design</span>
+            <span className="text-sm font-semibold tracking-tight">
+              {t("navigation.brand")}
+            </span>
           </div>
         )}
-        <Tooltip delayDuration={0}>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setCollapsed((c) => !c)}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? (
-                <IconLayoutSidebarLeftExpand className="h-4 w-4" />
-              ) : (
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4" />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          </TooltipContent>
-        </Tooltip>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -124,14 +171,16 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && item.label}
+                {!collapsed && t(item.labelKey)}
               </Link>
             );
             if (collapsed) {
               return (
                 <Tooltip key={item.href} delayDuration={0}>
                   <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right">{item.label}</TooltipContent>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
                 </Tooltip>
               );
             }
@@ -139,25 +188,64 @@ export function Sidebar() {
           })}
         </nav>
 
-        {!collapsed && (
-          <div className="mt-auto shrink-0">
-            <div className="border-t border-border px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
+        <div className="mt-auto shrink-0">
+          <nav
+            className={cn(
+              "grid gap-1",
+              collapsed ? "justify-items-center px-1.5 py-1" : "px-2 py-1",
+            )}
+          >
+            {bottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname.startsWith(item.href);
+              const link = (
+                <Link
+                  to={item.href}
+                  className={cn(
+                    "flex items-center rounded-lg text-sm",
+                    collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                  aria-label={collapsed ? t(item.labelKey) : undefined}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && t(item.labelKey)}
+                </Link>
+              );
+              return collapsed ? (
+                <Tooltip key={item.href} delayDuration={0}>
+                  <TooltipTrigger asChild>{link}</TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <div key={item.href}>{link}</div>
+              );
+            })}
+          </nav>
 
-            <div className="border-t border-border px-3 py-2">
-              <OrgSwitcher />
-            </div>
-
-            <div className="border-t border-border px-3 py-2">
-              <DevDatabaseLink />
-              <div className="flex items-center gap-1">
-                <FeedbackButton className="min-w-0 flex-1" />
+          {!collapsed && (
+            <div className="mt-auto shrink-0">
+              <div className="px-3 py-2">
+                <OrgSwitcher reserveSpace />
+              </div>
+              <div className="px-3 py-2">
+                <DevDatabaseLink />
                 <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </aside>
   );

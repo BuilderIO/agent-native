@@ -1,12 +1,7 @@
-import { agentNativePath, appPath } from "../api-path.js";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "react-router";
 import {
-  IconArrowLeft,
   IconArrowBackUp,
   IconChevronRight,
-  IconDots,
+  IconDotsVertical,
   IconHistory,
   IconLoader2,
   IconPencil,
@@ -14,36 +9,50 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { ShareButton } from "../sharing/ShareButton.js";
-import { AgentToggleButton } from "../AgentPanel.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { buildExtensionHtml } from "../../extensions/html-shell.js";
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import { getThemeVars } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { AgentToggleButton } from "../AgentPanel.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import {
-  isAllowedExtensionPath,
-  sanitizeExtensionRequestOptions,
-  checkBridgePolicy,
-  type ExtensionBridgeRole,
-} from "./iframe-bridge.js";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { PromptComposer } from "../composer/index.js";
+import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import { useT } from "../i18n.js";
+import { ShareButton } from "../sharing/ShareButton.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
 } from "./delete-extension.js";
-import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
-import { buildExtensionHtml } from "../../extensions/html-shell.js";
-import { getThemeVars } from "../../extensions/theme.js";
-import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import {
+  extensionLoadError,
+  extensionLoadErrorStatus,
+  shouldRetryExtensionLoad,
+} from "./extension-load-error.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
+import {
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
+  checkBridgePolicy,
+  type BridgePolicyContext,
+  type ExtensionBridgeRole,
+} from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -76,6 +85,9 @@ const THEME_CSS_VARS = [
   "--sidebar-ring",
 ];
 
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
+
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);
   const vars: Record<string, string> = {};
@@ -96,6 +108,12 @@ interface Extension {
   role?: ExtensionBridgeRole | null;
   canEdit?: boolean;
   canDelete?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+    manifestPath?: string;
+    permissions?: BridgePolicyContext["permissions"];
+  };
 }
 
 export interface ExtensionViewerProps {
@@ -121,6 +139,16 @@ function extensionRole(value: unknown): ExtensionBridgeRole {
     : "viewer";
 }
 
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
@@ -136,6 +164,8 @@ function buildExtensionViewerSrcDoc(
       viewerEmail: "",
       isAuthor: role === "owner",
       role,
+      source: extension.source?.mode,
+      permissions: extension.source?.permissions,
     },
   );
 }
@@ -234,6 +264,40 @@ function compactDiffLines(
     i = end;
   }
   return result;
+}
+
+function ExtensionUnavailableState({ status }: { status?: number }) {
+  const sessionExpired = status === 401;
+  const accessDenied = status === 403;
+  const unavailable = status === 404;
+  const title = sessionExpired
+    ? "Session expired"
+    : accessDenied
+      ? "Extension is not shared"
+      : unavailable
+        ? "Extension is unavailable"
+        : "Extension not found";
+  const message = sessionExpired
+    ? "Sign in again to view this extension."
+    : accessDenied
+      ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
+      : "This extension may not be shared with you, may have been deleted, or is not available to your account.";
+  return (
+    <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 p-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 text-center shadow-sm">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {message}
+        </p>
+        <Link
+          to="/extensions"
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          Back to extensions
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function diffLineClass(line: CompactDiffLine): string {
@@ -389,6 +453,7 @@ function ExtensionHistoryPopover({
   onRestored?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
@@ -510,6 +575,13 @@ function ExtensionHistoryPopover({
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading history
                 </div>
+              ) : historyQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  message={t("extensions.historyLoadError")}
+                  onRetry={() => void historyQuery.refetch()}
+                  retrying={historyQuery.isFetching}
+                />
               ) : history.length === 0 ? (
                 <p className="px-2 py-3 text-xs text-muted-foreground">
                   No history yet.
@@ -579,9 +651,11 @@ function ExtensionHistoryPopover({
                   Loading diff
                 </div>
               ) : detailQuery.isError ? (
-                <div className="p-4 text-xs text-destructive">
-                  Could not load this version.
-                </div>
+                <ExtensionQueryErrorState
+                  message={t("extensions.versionLoadError")}
+                  onRetry={() => void detailQuery.refetch()}
+                  retrying={detailQuery.isFetching}
+                />
               ) : compactedDiff.length === 0 ? (
                 <div className="p-4 text-xs text-muted-foreground">
                   No content changes in this version.
@@ -614,6 +688,7 @@ function ExtensionHistoryPopover({
 }
 
 export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
+  const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
@@ -640,10 +715,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   // the iframe announces its role we deny non-trivial helper calls — that
   // way a malicious extension body that races the announcement can't briefly
   // operate at higher privilege than the viewer's actual role.
-  const bridgeContextRef = useRef<{
-    role: ExtensionBridgeRole;
-    isAuthor: boolean;
-  }>({
+  const bridgeContextRef = useRef<BridgePolicyContext>({
     role: "viewer",
     isAuthor: false,
   });
@@ -706,6 +778,11 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         bridgeContextRef.current = {
           role,
           isAuthor: !!binding.isAuthor,
+          source: binding.source === "local-files" ? "local-files" : "database",
+          permissions:
+            binding && typeof binding.permissions === "object"
+              ? binding.permissions
+              : undefined,
         };
         return;
       }
@@ -725,6 +802,18 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           });
           setRefreshKey((k) => k + 1);
         }
+        return;
+      }
+
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue(message.message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue(message.context),
+          submit: message.submit !== false,
+          openSidebar: message.openSidebar !== false,
+        });
         return;
       }
 
@@ -848,11 +937,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         // (audit H4) Role-aware policy gate: viewer-shared extensions can read
         // but not write. Decided here in the parent before the request
         // leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {
@@ -905,16 +993,37 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     return () => window.removeEventListener("message", handleMessage);
   }, [extensionId, queryClient]);
 
-  const { data: extension, isLoading } = useQuery<Extension | null>({
+  const {
+    data: extension,
+    error: extensionError,
+    failureReason: extensionFailureReason,
+    isFetching,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
-      if (res.status === 403 || res.status === 404) return null;
-      if (!res.ok) throw new Error("Failed to fetch extension");
+      if (res.status === 401) {
+        throw extensionLoadError(401, "Session expired");
+      }
+      if (res.status === 404) {
+        throw extensionLoadError(404, "Extension not found");
+      }
+      if (res.status === 403) {
+        throw extensionLoadError(403, "Extension access denied");
+      }
+      if (!res.ok) {
+        throw extensionLoadError(res.status, "Failed to fetch extension");
+      }
       return res.json();
     },
+    retry: shouldRetryExtensionLoad,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    refetchOnMount: "always",
   });
 
   toolRef.current = extension ?? null;
@@ -953,6 +1062,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark);
   }, [extension, isDark]);
+  const unavailableStatus = extensionLoadErrorStatus(
+    extensionError ?? extensionFailureReason,
+  );
+  const latestFetchDenied =
+    unavailableStatus === 401 ||
+    unavailableStatus === 403 ||
+    unavailableStatus === 404;
 
   useEffect(() => {
     setIframeReady(false);
@@ -998,7 +1114,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     }
   }, [renameValue, extension, extensionId, queryClient]);
 
-  if (isLoading) {
+  if (isLoading || (!extension && isFetching)) {
     return (
       <div className="flex h-full flex-col">
         <div className="flex h-12 items-center gap-2 px-3 border-b shrink-0">
@@ -1010,32 +1126,28 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     );
   }
 
-  if (!extension) {
+  if (isError && !latestFetchDenied) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Extension not found
-      </div>
+      <ExtensionQueryErrorState
+        className="h-full min-h-[20rem]"
+        message={t("extensions.loadError")}
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
     );
   }
+
+  if (latestFetchDenied || !extension) {
+    return <ExtensionUnavailableState status={unavailableStatus} />;
+  }
+
+  const isLocalExtension = extension.source?.mode === "local-files";
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full w-full flex-col">
         <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Link
-                  to="/"
-                  className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  aria-label="Back to app"
-                >
-                  <IconArrowLeft className="h-4 w-4" />
-                  <span className="hidden sm:inline">Back to app</span>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent>Back to app</TooltipContent>
-            </Tooltip>
             <nav
               aria-label="Extension breadcrumb"
               className="group/name flex min-w-0 items-center gap-1 text-sm"
@@ -1064,18 +1176,20 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   <span className="truncate text-sm font-medium">
                     {extension.name}
                   </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={startRename}
-                        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
-                      >
-                        <IconPencil className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>Rename</TooltipContent>
-                  </Tooltip>
+                  {extension.canEdit && !isLocalExtension && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={startRename}
+                          className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/name:opacity-100 hover:text-foreground"
+                        >
+                          <IconPencil className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>Rename</TooltipContent>
+                    </Tooltip>
+                  )}
                 </>
               )}
             </nav>
@@ -1093,39 +1207,56 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
               </TooltipTrigger>
               <TooltipContent>Refresh</TooltipContent>
             </Tooltip>
-            <ExtensionHistoryPopover
-              extensionId={extensionId}
-              canEdit={extension.canEdit}
-              onRestored={() => setRefreshKey((k) => k + 1)}
-              onOpenChange={onPopoverOpenChange}
-            />
-            <EditToolPopover
-              extension={extension}
-              onOpenChange={onPopoverOpenChange}
-            />
-            <ShareButton
-              resourceType="extension"
-              resourceId={extensionId}
-              resourceTitle={extension.name}
-              onOpenChange={onPopoverOpenChange}
-              accessNote={
-                <>
-                  Extensions can be shared inside your organization only — they
-                  run with the viewer's credentials, so cross-org access isn't
-                  supported.
-                </>
-              }
-            />
+            {!isLocalExtension && (
+              <>
+                <ExtensionHistoryPopover
+                  extensionId={extensionId}
+                  canEdit={extension.canEdit}
+                  onRestored={() => setRefreshKey((k) => k + 1)}
+                  onOpenChange={onPopoverOpenChange}
+                />
+                <EditToolPopover
+                  extension={extension}
+                  onOpenChange={onPopoverOpenChange}
+                />
+              </>
+            )}
             <ToolMoreMenu
               extensionId={extensionId}
               toolName={extension.name}
               canDelete={extension.canDelete}
+              sourceMode={extension.source?.mode}
               onOpenChange={onPopoverOpenChange}
             />
-            <NotificationsBell />
+            {!isLocalExtension && (
+              <>
+                <ShareButton
+                  resourceType="extension"
+                  resourceId={extensionId}
+                  resourceTitle={extension.name}
+                  onOpenChange={onPopoverOpenChange}
+                  accessNote={
+                    <>
+                      Extensions can be shared inside your organization only —
+                      they run with the viewer's credentials, so cross-org
+                      access isn't supported.
+                    </>
+                  }
+                />
+              </>
+            )}
             <AgentToggleButton />
           </div>
         </div>
+        {isLocalExtension && (
+          <div className="shrink-0 border-b bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+            Repo-backed extension. Edit{" "}
+            <span className="font-mono text-foreground">
+              {extension.source?.entryPath ?? "extensions/*/index.html"}
+            </span>{" "}
+            in your workspace, then refresh this preview.
+          </div>
+        )}
         <div className="relative flex-1 min-h-0">
           {!iframeReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
@@ -1137,12 +1268,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             </div>
           )}
           <iframe
+            {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}`}
             src={iframeSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
-            sandbox="allow-scripts allow-forms"
+            sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}
             style={{
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",
@@ -1168,13 +1300,16 @@ function ToolMoreMenu({
   extensionId,
   toolName,
   canDelete,
+  sourceMode,
   onOpenChange,
 }: {
   extensionId: string;
   toolName: string;
   canDelete?: boolean;
+  sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
@@ -1184,17 +1319,20 @@ function ToolMoreMenu({
     onOpenChange?.(v);
   };
 
-  const { data: slots = [] } = useQuery<SlotDeclaration[]>({
+  const slotsQuery = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load extension slots (${res.status})`);
+      }
       return res.json();
     },
     enabled: open,
   });
+  const slots = slotsQuery.data ?? [];
 
   const closeMenu = () => {
     setOpenAndNotify(false);
@@ -1229,6 +1367,7 @@ function ToolMoreMenu({
       queryClient.invalidateQueries({ queryKey: ["extension", extensionId] });
     }
   };
+  const isLocalExtension = sourceMode === "local-files";
 
   return (
     <Popover
@@ -1246,7 +1385,7 @@ function ToolMoreMenu({
               className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
               aria-label="More options"
             >
-              <IconDots className="h-4 w-4" />
+              <IconDotsVertical className="h-4 w-4" />
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
@@ -1257,7 +1396,15 @@ function ToolMoreMenu({
           <>
             <div className="px-3 py-2 border-b border-border/40">
               <p className="text-[12px] font-medium">Appears in</p>
-              {slots.length === 0 ? (
+              {slotsQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  className="px-0"
+                  message={t("extensions.widgetAreasLoadError")}
+                  onRetry={() => void slotsQuery.refetch()}
+                  retrying={slotsQuery.isFetching}
+                />
+              ) : slots.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                   Not installed in any widget areas. Ask the agent to add it
                   somewhere.
@@ -1279,48 +1426,57 @@ function ToolMoreMenu({
                     <span className="flex-1 truncate font-mono text-[11px] text-muted-foreground">
                       {s.slotId}
                     </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          onClick={() => removeFromSlot(s.slotId)}
-                          className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
-                          aria-label="Remove from this widget area"
-                        >
-                          <IconX className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Remove from this widget area (for me)
-                      </TooltipContent>
-                    </Tooltip>
+                    {!isLocalExtension && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={() => removeFromSlot(s.slotId)}
+                            className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground cursor-pointer"
+                            aria-label="Remove from this widget area"
+                          >
+                            <IconX className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Remove from this widget area (for me)
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                 ))}
               </div>
             )}
-            <div className="border-t border-border/40 p-1">
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
-              >
-                <IconTrash className="h-3.5 w-3.5" />
-                <span>
-                  {canDelete === false
-                    ? "Remove from my list..."
-                    : "Delete extension..."}
-                </span>
-              </button>
-            </div>
+            {isLocalExtension ? (
+              <div className="border-t border-border/40 px-3 py-2 text-[11px] text-muted-foreground">
+                Slot targets and source edits are controlled by this extension's
+                files.
+              </div>
+            ) : (
+              <div className="border-t border-border/40 p-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 cursor-pointer text-left"
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                  <span>
+                    {canDelete === false
+                      ? "Remove from my list..."
+                      : "Archive extension..."}
+                  </span>
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              {canDelete === false ? "Remove " : "Delete "}
+              {canDelete === false ? "Remove " : "Archive "}
               <span className="font-medium">{toolName}</span>?
               {canDelete === false
                 ? " This hides it from your Extensions list without deleting it for anyone else."
-                : " This removes the extension everywhere, for everyone it's shared with."}
+                : " This archives the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -1335,7 +1491,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                {canDelete === false ? "Remove" : "Delete"}
+                {canDelete === false ? "Remove" : "Archive"}
               </button>
             </div>
           </div>

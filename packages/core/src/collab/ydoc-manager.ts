@@ -16,14 +16,8 @@
  */
 
 import * as Y from "yjs";
-import {
-  loadYDocRecord,
-  loadYDocState,
-  saveYDocState,
-  trySaveYDocState,
-} from "./storage.js";
-import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
-import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
+
+import { emitCollabUpdate } from "./emitter.js";
 import {
   applyJsonDiff,
   applyJsonPatch,
@@ -31,11 +25,69 @@ import {
   initYDocWithJson,
   type PatchOp,
 } from "./json-to-yjs.js";
-import { emitCollabUpdate } from "./emitter.js";
+import {
+  loadYDocRecord,
+  loadYDocState,
+  saveYDocState,
+  trySaveYDocState,
+} from "./storage.js";
 import { uint8ArrayToBase64 } from "./storage.js";
+import { applyTextToYDoc, initYDocWithText } from "./text-to-yjs.js";
+import { searchAndReplaceInYXml, extractTextFromYXml } from "./xml-ops.js";
 
 const DEFAULT_FIELD = "content";
 const MAX_CACHE = 50;
+
+/**
+ * Auto-presence: any agent-sourced write produces visible presence and
+ * lingering edit attribution without the calling action having to wire
+ * agentEnterDocument/agentLeaveDocument itself. Dynamic import avoids a
+ * static cycle (agent-presence.ts imports searchAndReplace from this module).
+ */
+function touchAgentPresence(
+  docId: string,
+  requestSource: string | undefined,
+  edit: { descriptor: Record<string, unknown>; label?: string } | null,
+): void {
+  if (requestSource !== "agent") return;
+  import("./agent-presence.js")
+    .then((mod) => {
+      mod.agentTouchDocument(docId, edit ? { edit: edit as any } : undefined);
+    })
+    .catch(() => {
+      // Presence is best-effort; never fail the write for it.
+    });
+}
+
+/**
+ * Compute a small "what changed" descriptor from a text diff by trimming the
+ * common prefix/suffix. Used for lingering edit highlights client-side.
+ */
+export function computeTextEditDescriptor(
+  oldText: string,
+  newText: string,
+): { kind: "text"; quote: string } | { kind: "doc" } {
+  let start = 0;
+  const maxStart = Math.min(oldText.length, newText.length);
+  while (start < maxStart && oldText[start] === newText[start]) start++;
+
+  let endOld = oldText.length;
+  let endNew = newText.length;
+  while (
+    endOld > start &&
+    endNew > start &&
+    oldText[endOld - 1] === newText[endNew - 1]
+  ) {
+    endOld--;
+    endNew--;
+  }
+
+  const inserted = newText.slice(start, endNew).trim();
+  if (inserted.length > 0) {
+    return { kind: "text", quote: inserted.slice(0, 120) };
+  }
+  return { kind: "doc" };
+}
 
 /**
  * Compaction ratio threshold. When the stored state byte count exceeds
@@ -129,6 +181,7 @@ async function persistMergedState(
   docId: string,
   doc: Y.Doc,
   getTextSnapshot: () => string,
+  validateTextSnapshot?: (snapshot: string) => void,
 ): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     // One DB read per persist attempt. On first attempt this is the only read
@@ -141,17 +194,21 @@ async function persistMergedState(
     }
 
     const stateToStore = buildStateToStore(doc, latest?.state?.length ?? 0);
+    const textSnapshot = getTextSnapshot();
+    validateTextSnapshot?.(textSnapshot);
     const saved = await trySaveYDocState(
       docId,
       stateToStore,
-      getTextSnapshot(),
+      textSnapshot,
       latest?.version ?? null,
     );
     if (saved) return;
   }
 
   // All CAS attempts failed — fall back to unconditional save.
-  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), getTextSnapshot());
+  const textSnapshot = getTextSnapshot();
+  validateTextSnapshot?.(textSnapshot);
+  await saveYDocState(docId, Y.encodeStateAsUpdate(doc), textSnapshot);
 }
 
 /**
@@ -230,20 +287,54 @@ export async function applyText(
   newText: string,
   fieldName: string = DEFAULT_FIELD,
   requestSource?: string,
+  options: {
+    /**
+     * Validate the fully converged text after cross-process Yjs updates have
+     * merged, but before the state is persisted or broadcast. A rejected
+     * candidate is discarded from this process's cache so the next read
+     * reloads the last durable state instead of leaking an uncommitted merge.
+     */
+    validateSnapshot?: (snapshot: string) => void;
+  } = {},
 ): Promise<string> {
   return withDocWriteLock(docId, async () => {
     const doc = await getDoc(docId);
+    const oldText = doc.getText(fieldName).toString();
     const update = applyTextToYDoc(doc, fieldName, newText, "server");
 
     if (update.length === 0) {
-      return doc.getText(fieldName).toString();
+      const snapshot = doc.getText(fieldName).toString();
+      try {
+        options.validateSnapshot?.(snapshot);
+      } catch (error) {
+        releaseDoc(docId);
+        throw error;
+      }
+      return snapshot;
     }
 
-    await persistMergedState(docId, doc, () =>
-      doc.getText(fieldName).toString(),
-    );
+    try {
+      await persistMergedState(
+        docId,
+        doc,
+        () => doc.getText(fieldName).toString(),
+        options.validateSnapshot,
+      );
+    } catch (error) {
+      if (options.validateSnapshot) {
+        // The target diff and any cross-process state merged during the CAS
+        // read now live only in this cached Y.Doc. Destroy it before throwing:
+        // neither the rejected update nor a compensating rollback should ever
+        // be persisted/emitted to connected clients.
+        releaseDoc(docId);
+      }
+      throw error;
+    }
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    touchAgentPresence(docId, requestSource, {
+      descriptor: computeTextEditDescriptor(oldText, newText),
+    });
     return doc.getText(fieldName).toString();
   });
 }
@@ -284,6 +375,12 @@ export async function searchAndReplace(
 
     await persistMergedState(docId, doc, () => extractTextFromYXml(fragment));
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    touchAgentPresence(docId, requestSource, {
+      descriptor: {
+        kind: "text",
+        quote: (replace || find).slice(0, 120),
+      },
+    });
 
     return { found: true, update };
   });
@@ -368,6 +465,7 @@ export async function applyJson(
     );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    touchAgentPresence(docId, requestSource, { descriptor: { kind: "doc" } });
   });
 }
 
@@ -391,6 +489,12 @@ export async function applyPatchOps(
     );
 
     emitCollabUpdate(docId, uint8ArrayToBase64(update), requestSource);
+    touchAgentPresence(docId, requestSource, {
+      descriptor: {
+        kind: "paths",
+        paths: ops.slice(0, 5).map((op) => op.path),
+      },
+    });
   });
 }
 

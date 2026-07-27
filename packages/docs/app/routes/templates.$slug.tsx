@@ -1,10 +1,4 @@
-import { useState } from "react";
-import {
-  Link,
-  redirect,
-  useParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconBrandGithub,
@@ -12,23 +6,24 @@ import {
   IconExternalLink,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import { Link, useParams, type LoaderFunctionArgs } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
+import { TemplateDocsLink } from "../components/template-docs";
 import {
   templates,
   trackEvent,
   type Template,
 } from "../components/TemplateCard";
-import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import enUS from "../i18n/en-US";
+import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 function findTemplate(slug: string | undefined) {
-  if (slug === "videos") slug = "video";
   return templates.find((t) => t.slug === slug);
 }
 
 export function loader({ params }: LoaderFunctionArgs) {
-  if (params.slug === "videos") {
-    throw redirect("/templates/video", 301);
-  }
   if (!findTemplate(params.slug)) {
     throw new Response("Not Found", { status: 404 });
   }
@@ -39,21 +34,32 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
   const template = findTemplate(params.slug);
   if (!template) {
     return withDefaultSocialImage([
-      { title: "Template Not Found — Agent-Native" },
+      { title: enUS.templateDetail.notFoundMetaTitle },
     ]);
   }
-  return withDefaultSocialImage([
-    { title: `Agent-Native ${template.name} Template` },
-    { name: "description", content: template.description },
-  ]);
+  const templateCopy =
+    enUS.templates[template.slug as keyof typeof enUS.templates];
+  return withTemplateSocialImage(
+    [
+      { title: `Agent-Native ${template.name} App` },
+      {
+        name: "description",
+        content: templateCopy.description,
+      },
+    ],
+    template.name,
+  );
 };
 
 function TemplateFallbackArt({ template }: { template: Template }) {
+  const t = useT();
   if (template.screenshot) {
     return (
       <img
         src={template.screenshot}
-        alt={`${template.name} template screenshot`}
+        alt={t("templateCard.screenshotAlt", { name: template.name })}
+        loading="lazy"
+        decoding="async"
         className="h-full w-full object-cover object-top"
       />
     );
@@ -75,6 +81,7 @@ function TemplateFallbackArt({ template }: { template: Template }) {
 
 function CliCopy({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);
+  const t = useT();
 
   function handleCopy() {
     navigator.clipboard.writeText(template.cliCommand);
@@ -106,7 +113,9 @@ function CliCopy({ template }: { template: Template }) {
         size={16}
         className="ml-auto shrink-0 text-[var(--fg-secondary)]"
       />
-      <span className="sr-only">{copied ? "Copied" : "Copy command"}</span>
+      <span className="sr-only">
+        {copied ? t("common.copied") : t("common.copyCommand")}
+      </span>
     </button>
   );
 }
@@ -114,61 +123,56 @@ function CliCopy({ template }: { template: Template }) {
 export default function GenericTemplatePage() {
   const { slug } = useParams();
   const template = findTemplate(slug);
+  const t = useT();
+  const { locale } = useLocale();
 
   if (!template) {
     return (
       <main className="mx-auto max-w-[900px] px-6 py-20">
         <Link
           data-an-prefetch="render"
-          to="/templates"
+          to={sitePathForLocale("/apps", locale)}
           className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
         >
           <IconArrowLeft size={16} />
-          All Templates
+          {t("templateDetail.allTemplates")}
         </Link>
         <h1 className="mt-8 text-4xl font-bold tracking-tight">
-          Template not found
+          {t("templateDetail.notFoundTitle")}
         </h1>
         <p className="mt-3 text-[var(--fg-secondary)]">
-          Browse the template catalog to find an available app.
+          {t("templateDetail.notFoundBody")}
         </p>
       </main>
     );
   }
 
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-  const sourceSlug = template.slug === "video" ? "videos" : template.slug;
+  const sourceSlug = template.slug;
+  const replaces = t(`templates.${template.slug}.replaces`);
+  const description = t(`templates.${template.slug}.description`);
 
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       <section className="py-12 sm:py-16 lg:py-20">
-        <Link
-          data-an-prefetch="render"
-          to="/templates"
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconArrowLeft size={16} />
-          All Templates
-        </Link>
-
-        <div className="mt-8 grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
+        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
               <span
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              Agent-Native {template.name}
+              {t("templateDetail.badge", { name: template.name })}
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {template.name} template
+              {t("templateDetail.title", { name: template.name })}
             </h1>
             <p className="mb-3 text-sm font-medium text-[var(--docs-accent)]">
-              {template.replaces}
+              {replaces}
             </p>
             <p className="mb-8 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {template.description}
+              {description}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -185,7 +189,7 @@ export default function GenericTemplatePage() {
                     })
                   }
                 >
-                  Try It
+                  {t("common.tryIt")}
                   <IconExternalLink size={16} />
                 </a>
               )}
@@ -199,7 +203,7 @@ export default function GenericTemplatePage() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
               >
-                Source
+                {t("common.source")}
                 <IconBrandGithub size={16} />
               </a>
             </div>

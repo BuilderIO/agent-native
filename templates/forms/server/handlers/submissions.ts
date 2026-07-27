@@ -1,4 +1,12 @@
 import {
+  getSession,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, desc, isNull, sql } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   getQuery,
@@ -7,24 +15,25 @@ import {
   getRequestIP,
   type H3Event,
 } from "h3";
-import { and, eq, desc, isNull, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-  verifyCaptcha,
-} from "@agent-native/core/server";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { getDb, schema } from "../db/index.js";
+  isConditionalFieldVisible,
+  sanitizeConditionalValues as sanitizeVisibleValues,
+} from "../../shared/conditional.js";
+import {
+  cleanSubmitterEmail,
+  publicSubmitterEmail,
+} from "../../shared/submitter-email.js";
 import type {
   FormField,
   FormIntegration,
   FormResponse,
   FormSettings,
 } from "../../shared/types.js";
+import { getDb, schema } from "../db/index.js";
 import { fireIntegrations } from "../lib/integrations.js";
+import { sendNewResponseEmail } from "../lib/response-email.js";
 import {
   isEmptySubmissionValue,
   validateSubmissionField,
@@ -40,6 +49,15 @@ function cleanMetaText(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, MAX_META_TEXT_LENGTH);
+}
+
+// Allowlist the client-surface hint so only known values are stored. Anything
+// else (including spoofed direct POSTs) is dropped to NULL.
+const KNOWN_CLIENT_SURFACES = new Set(["web", "electron", "tauri"]);
+function cleanClientSurface(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return KNOWN_CLIENT_SURFACES.has(normalized) ? normalized : null;
 }
 
 function cleanChatSessionIds(value: unknown): string[] {
@@ -144,43 +162,26 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
   // Parse form fields and build whitelist of valid field IDs
   const fields: FormField[] = JSON.parse(form.fields);
   const fieldMap = new Map(fields.map((f) => [f.id, f]));
-  const rawData =
+  const submittedData =
     body.data && typeof body.data === "object" && !Array.isArray(body.data)
       ? (body.data as Record<string, unknown>)
       : {};
 
   // Whitelist: only accept keys matching form field IDs
-  const data: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(rawData)) {
+  const whitelistedData: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(submittedData)) {
     const field = fieldMap.get(key);
     if (!field) continue; // Strip unknown fields
-    data[key] = value;
+    whitelistedData[key] = value;
   }
+
+  const data = sanitizeVisibleValues(fields, whitelistedData);
 
   // Validate required fields and field-specific constraints. Recompute
   // conditional visibility on the server so direct POSTs cannot submit hidden
   // field values or bypass client-side validation.
-  function isFieldVisible(field: FormField): boolean {
-    if (!field.conditional) return true;
-    const { fieldId, operator, value: condValue } = field.conditional;
-    const fieldVal = String(data[fieldId] ?? "");
-    switch (operator) {
-      case "equals":
-        return fieldVal === condValue;
-      case "not_equals":
-        return fieldVal !== condValue;
-      case "contains":
-        return fieldVal.includes(condValue);
-      default:
-        return true;
-    }
-  }
-
   for (const field of fields) {
-    if (!isFieldVisible(field)) {
-      delete data[field.id];
-      continue;
-    }
+    if (field.conditional && !isConditionalFieldVisible(field, data)) continue;
 
     const val = data[field.id];
     if (field.required && isEmptySubmissionValue(val)) {
@@ -197,36 +198,36 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
 
   const now = new Date().toISOString();
   const responseId = nanoid();
-  const ip = getRequestIP(event) ?? null;
+  const anonymous = settings.anonymous === true;
+  const ip = anonymous ? null : (getRequestIP(event) ?? null);
 
   // Optional metadata sent by trusted clients (e.g. the framework's
   // FeedbackButton, which forwards the logged-in user's email so we can see
-  // who sent feedback in Slack). Never required, never trusted as identity —
-  // anyone can claim any email — but useful as a hint when the client is ours.
+  // who sent feedback in Slack). Never required. Prefer the Forms-host session
+  // when present; cross-app feedback submissions fall back to the client hint,
+  // which is useful context but not verified identity.
   const meta =
-    typeof body._meta === "object" && body._meta !== null
+    !anonymous && typeof body._meta === "object" && body._meta !== null
       ? (body._meta as {
           submitterEmail?: unknown;
           chatSessionId?: unknown;
           chatSessionIds?: unknown;
           activeRunId?: unknown;
           pageUrl?: unknown;
+          clientSurface?: unknown;
         })
       : null;
-  const rawSubmitter = meta?.submitterEmail;
+  const session = anonymous ? null : await getSession(event).catch(() => null);
   const submitterEmail =
-    typeof rawSubmitter === "string" &&
-    rawSubmitter.length > 0 &&
-    rawSubmitter.length <= 320 &&
-    rawSubmitter.includes("@")
-      ? rawSubmitter
-      : null;
+    cleanSubmitterEmail(session?.email) ??
+    cleanSubmitterEmail(meta?.submitterEmail);
   const chatSessionIds = cleanChatSessionIds([
     meta?.chatSessionId,
     meta?.chatSessionIds,
   ]);
   const activeRunId = cleanMetaText(meta?.activeRunId);
   const pageUrl = cleanMetaText(meta?.pageUrl);
+  const clientSurface = cleanClientSurface(meta?.clientSurface);
 
   await db.insert(schema.responses).values({
     id: responseId,
@@ -235,6 +236,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     submittedAt: now,
     ip,
     submitterEmail,
+    pageUrl,
+    clientSurface,
   });
 
   // Write submission notification to application state (SQL-backed)
@@ -250,14 +253,36 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     // Non-critical — don't fail the submission
   }
 
-  // Fire integrations (non-blocking, never fails the submission). Feedback
-  // debug context is intentionally integration-only: it helps triage Slack
-  // submissions without retaining page URLs or debug breadcrumbs in SQL.
+  if (settings.emailOnNewResponses === true && form.ownerEmail) {
+    try {
+      await runWithRequestContext(
+        { userEmail: form.ownerEmail, orgId: form.orgId ?? undefined },
+        () =>
+          sendNewResponseEmail({
+            to: form.ownerEmail!,
+            formTitle: form.title,
+            fields,
+            data,
+            submittedAt: now,
+          }),
+      );
+    } catch (error) {
+      // Email is best-effort — a provider outage must not reject a public
+      // submission that was already persisted successfully.
+      console.warn("[forms] new response email failed:", error);
+    }
+  }
+
+  // Fire integrations best-effort and never fail the submission. Keep this
+  // awaited: serverless hosts can freeze fire-and-forget work as soon as the
+  // HTTP response returns, which silently drops Slack/webhook delivery.
+  // pageUrl and clientSurface are persisted on the response (above) so owners
+  // can see which screen and which app feedback came from; chat session ids and
+  // run ids remain integration-only debug breadcrumbs we don't retain in SQL.
   try {
     const integrations: FormIntegration[] = settings.integrations ?? [];
     if (integrations.length > 0) {
-      // Fire-and-forget — don't await to keep response fast
-      fireIntegrations(integrations, {
+      await fireIntegrations(integrations, {
         formId: id,
         formTitle: form.title,
         responseId,
@@ -268,7 +293,8 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
         chatSessionIds,
         activeRunId,
         pageUrl,
-      }).catch(() => {});
+        clientSurface,
+      });
     }
   } catch {
     // Non-critical
@@ -292,8 +318,10 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
   return runWithRequestContext(
     { userEmail: session.email, orgId: session.orgId ?? undefined },
     async () => {
-      const access = await resolveAccess("form", id);
-      if (!access) {
+      let access;
+      try {
+        access = await assertAccess("form", id, "editor");
+      } catch {
         setResponseStatus(event, 404);
         return { error: "Form not found" };
       }
@@ -318,7 +346,9 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           formId: r.formId,
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
-          submitterEmail: r.submitterEmail,
+          submitterEmail: publicSubmitterEmail(r.submitterEmail),
+          pageUrl: r.pageUrl ?? null,
+          clientSurface: r.clientSurface ?? null,
         })) as FormResponse[],
         total: total?.count ?? 0,
         fields: JSON.parse(access.resource.fields),

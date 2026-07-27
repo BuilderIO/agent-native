@@ -1,11 +1,49 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "./docs-locale";
+
 export default function Footer() {
   const year = new Date().getFullYear();
+  const { locale } = useLocale();
+  const t = useT();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
 
   return (
     <footer className="border-t border-[var(--docs-border)] px-6 py-8">
-      <div className="mx-auto flex max-w-[1440px] items-center justify-between text-sm text-[var(--fg-secondary)]">
+      <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-4 text-sm text-[var(--fg-secondary)] sm:flex-row">
         <p className="m-0">&copy; {year} Agent-Native</p>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:justify-end">
+          <Link
+            to={localizedPath("/download")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.download")}
+          </Link>
+          <Link
+            to={localizedPath("/skills")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("header.skills")}
+          </Link>
+          <Link
+            to={localizedPath("/brand")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.brand")}
+          </Link>
+          <Link
+            to={localizedPath("/privacy")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.privacy")}
+          </Link>
+          <Link
+            to={localizedPath("/terms")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.terms")}
+          </Link>
           <a
             href="https://github.com/BuilderIO/agent-native"
             target="_blank"

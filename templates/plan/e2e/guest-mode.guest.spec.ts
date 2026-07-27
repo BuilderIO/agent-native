@@ -26,7 +26,7 @@ import {
 
 const APP_ORIGIN = process.env.PLAN_BASE_URL || "http://localhost:8081";
 const PLAN_SKILL_INSTALL_COMMAND =
-  "npx @agent-native/core@latest skills add visual-plan";
+  "npx @agent-native/core@latest skills add visual-plans";
 
 function makeE2ePassword(label: string): string {
   return ["example", label, Date.now().toString(36), "pw"].join("-");
@@ -117,8 +117,14 @@ test.describe("guest mode + claim", () => {
     await expect(
       page.getByText(PLAN_SKILL_INSTALL_COMMAND, { exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Install once")).toBeVisible();
-    await expect(page.getByRole("button", { name: /^copy$/i })).toHaveCount(0);
+    await expect(page.getByText("Install once")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /copy install command/i }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Visual Plan skill demo video")).toBeVisible();
+    await expect(
+      page.getByLabel("Visual Recap skill demo video"),
+    ).toBeVisible();
     await expect(page.getByText(/already installed/i)).toHaveCount(0);
     await expect(page.getByText(/no cli yet/i)).toHaveCount(0);
   });

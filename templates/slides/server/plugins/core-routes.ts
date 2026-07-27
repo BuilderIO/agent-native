@@ -1,4 +1,5 @@
 import { createCoreRoutesPlugin } from "@agent-native/core/server";
+
 import { envKeys } from "../lib/env-config.js";
 
 export default createCoreRoutesPlugin({
@@ -16,7 +17,6 @@ export default createCoreRoutesPlugin({
         : "";
       return `/deck/${params.deckId}${suffix}${query}`;
     }
-    if (view === "settings") return "/settings";
     if (view === "editor" || view === "present" || view === "list") return "/";
     return null;
   },

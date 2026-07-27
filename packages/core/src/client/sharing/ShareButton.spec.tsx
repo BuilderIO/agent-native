@@ -1,13 +1,29 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import React, { act } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { ShareButton } from "./ShareButton.js";
 
 const shareMutate = vi.hoisted(() => vi.fn());
 const otherMutate = vi.hoisted(() => vi.fn());
 const refetchShares = vi.hoisted(() => vi.fn(async () => undefined));
+const popoverInteractOutsideHandlers = vi.hoisted(
+  () =>
+    [] as Array<
+      (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void
+    >,
+);
+const popoverOpenChangeHandlers = vi.hoisted(
+  () => [] as Array<(open: boolean) => void>,
+);
+const popoverTestState = vi.hoisted(() => ({
+  simulateMounting: false,
+}));
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -28,20 +44,77 @@ vi.mock("../use-action.js", () => ({
   }),
 }));
 
-vi.mock("../components/ui/popover.js", () => ({
-  Popover: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  PopoverContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-}));
+vi.mock("../components/ui/popover.js", () => {
+  const PopoverOpenContext = React.createContext(true);
+  const isOuterSharePopover = (node: React.ReactNode): boolean =>
+    React.Children.toArray(node).some((child) => {
+      if (!React.isValidElement(child)) return false;
+      const props = child.props as { children?: React.ReactNode } & Record<
+        string,
+        unknown
+      >;
+      return String(props.className ?? "").includes("w-[min(460px,92vw)]");
+    });
+
+  return {
+    Popover: ({
+      children,
+      open,
+      onOpenChange,
+    }: {
+      children: React.ReactNode;
+      open?: boolean;
+      onOpenChange?: (open: boolean) => void;
+    }) => {
+      if (
+        onOpenChange &&
+        typeof open === "boolean" &&
+        isOuterSharePopover(children)
+      ) {
+        popoverOpenChangeHandlers.push(onOpenChange);
+      }
+      return isOuterSharePopover(children) ? (
+        <PopoverOpenContext.Provider
+          value={popoverTestState.simulateMounting ? open === true : true}
+        >
+          <div>{children}</div>
+        </PopoverOpenContext.Provider>
+      ) : (
+        <div>{children}</div>
+      );
+    },
+    PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    PopoverContent: ({
+      children,
+      onInteractOutside,
+      onOpenAutoFocus: _onOpenAutoFocus,
+      align: _align,
+      sideOffset: _sideOffset,
+      ...props
+    }: {
+      children: React.ReactNode;
+      onInteractOutside?: (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void;
+      onOpenAutoFocus?: unknown;
+      align?: unknown;
+      sideOffset?: unknown;
+      [key: string]: unknown;
+    }) => {
+      if (onInteractOutside) {
+        popoverInteractOutsideHandlers.push(onInteractOutside);
+      }
+      if (!React.useContext(PopoverOpenContext)) return null;
+      return <div {...props}>{children}</div>;
+    },
+  };
+});
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -73,6 +146,9 @@ describe("ShareButton", () => {
     shareMutate.mockReset();
     otherMutate.mockReset();
     refetchShares.mockClear();
+    popoverInteractOutsideHandlers.length = 0;
+    popoverOpenChangeHandlers.length = 0;
+    popoverTestState.simulateMounting = false;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -98,7 +174,7 @@ describe("ShareButton", () => {
     vi.unstubAllGlobals();
   });
 
-  it("submits a typed email invite when Done is clicked", async () => {
+  it("submits one typed email with Add while keeping the share popover open", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -106,7 +182,6 @@ describe("ShareButton", () => {
             resourceType="document"
             resourceId="doc-1"
             resourceTitle="Launch notes"
-            shareUrl="https://content.agent-native.com/page/doc-1"
           />
         </QueryClientProvider>,
       );
@@ -115,29 +190,63 @@ describe("ShareButton", () => {
     const input = container.querySelector(
       'input[placeholder="Add people by email"]',
     ) as HTMLInputElement;
-    setInputValue(input, "teammate@example.com");
+    setInputValue(input, "first@example.com");
 
-    const done = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Done",
+    const add = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add",
     );
-    if (!done) throw new Error("Done button not found");
+    if (!add) throw new Error("Add button not found");
 
     act(() => {
-      done.click();
+      add.click();
     });
 
     expect(shareMutate).toHaveBeenCalledWith(
       expect.objectContaining({
-        resourceType: "document",
-        resourceId: "doc-1",
-        principalType: "user",
-        principalId: "teammate@example.com",
+        principalId: "first@example.com",
         role: "viewer",
         notify: true,
-        resourceUrl: "https://content.agent-native.com/page/doc-1",
       }),
       expect.any(Object),
     );
+    expect(container.textContent).not.toContain("Done");
+    expect(
+      container.querySelector('input[placeholder="Add people by email"]'),
+    ).toBeTruthy();
+  });
+
+  it("keeps a draft email when the share popover is closed and reopened", async () => {
+    popoverTestState.simulateMounting = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" defaultOpen />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "recover-me@example.com");
+
+    const openChange = popoverOpenChangeHandlers.at(-1);
+    if (!openChange) throw new Error("share popover open handler not found");
+
+    act(() => openChange(false));
+    expect(
+      container.querySelector('input[placeholder="Add people by email"]'),
+    ).toBeNull();
+
+    act(() => openChange(true));
+    expect(
+      (
+        container.querySelector(
+          'input[placeholder="Add people by email"]',
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("recover-me@example.com");
   });
 
   it("shows the copy action for share URLs regardless of visibility", async () => {
@@ -163,6 +272,48 @@ describe("ShareButton", () => {
     ).toBe(true);
   });
 
+  it("falls back when async clipboard copy is denied", async () => {
+    const shareUrl = "https://slides.agent-native.com/deck/deck-1";
+    const writeText = vi.fn(async () => {
+      throw new Error("denied");
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="deck"
+            resourceId="deck-1"
+            shareUrl={shareUrl}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const copy = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Copy",
+    );
+    if (!copy) throw new Error("Copy button not found");
+
+    await act(async () => {
+      copy.click();
+      await Promise.resolve();
+    });
+
+    expect(writeText).toHaveBeenCalledWith(shareUrl);
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copy.textContent).toBe("Copied");
+  });
+
   it("can render an icon-only trigger", async () => {
     await act(async () => {
       root.render(
@@ -178,11 +329,42 @@ describe("ShareButton", () => {
     });
 
     const trigger = container.querySelector(
-      'button[aria-label="Share"]',
+      'button[aria-label="Share (Private)"]',
     ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
     expect(trigger?.textContent).not.toContain("Share");
+  });
+
+  it("renders the label trigger as text only regardless of visibility", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            shareUrl="https://content.agent-native.com/page/doc-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = container.querySelector(
+      'button[aria-label="Share"]',
+    ) as HTMLButtonElement | null;
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.textContent).toBe("Share");
+    expect(trigger?.querySelector("svg")).toBeFalsy();
+    expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 
   it("renders the icon-only trigger without a loading placeholder", async () => {
@@ -259,6 +441,231 @@ describe("ShareButton", () => {
     expect(text.indexOf("Public response link")).toBeLessThan(
       text.indexOf("People with editing access"),
     );
+  });
+
+  it("renders organization share names without exposing raw org ids", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "org",
+          principalId: "org-secret-id",
+          displayName: "Builder.io",
+          role: "editor",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Builder.io");
+    expect(text).not.toContain("org-secret-id");
+  });
+
+  it("uses safe labels for unresolved principal ids", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "private",
+      role: "owner",
+      shares: [
+        {
+          id: "share-1",
+          principalType: "org",
+          principalId: "org-secret-id",
+          role: "editor",
+        },
+        {
+          id: "share-2",
+          principalType: "user",
+          principalId: "not-an-email-id",
+          role: "viewer",
+        },
+      ],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Organization");
+    expect(text).toContain("Unknown person");
+    expect(text).not.toContain("org-secret-id");
+    expect(text).not.toContain("not-an-email-id");
+  });
+
+  it("does not render a redundant Done button", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+            shareUrlLabel="Design editor link"
+            showShareLinks={false}
+            shareFooterContent={<button type="button">Copy share link</button>}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("People with access");
+    expect(text).toContain("General access");
+    expect(text).toContain("Copy share link");
+    expect(text).not.toContain("Design editor link");
+    expect(text).not.toContain("Done");
+  });
+
+  it("keeps the share popover open for nested portaled share menus", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const handler =
+      popoverInteractOutsideHandlers[popoverInteractOutsideHandlers.length - 1];
+    if (!handler) throw new Error("share popover outside handler not found");
+
+    const nestedOverlay = document.createElement("div");
+    nestedOverlay.setAttribute("data-agent-native-share-overlay", "");
+    const nestedItem = document.createElement("button");
+    nestedOverlay.appendChild(nestedItem);
+    document.body.appendChild(nestedOverlay);
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+
+    const preventNestedDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: nestedItem } },
+      preventDefault: preventNestedDismiss,
+    });
+    expect(preventNestedDismiss).toHaveBeenCalledOnce();
+
+    const preventOutsideDismiss = vi.fn();
+    handler({
+      detail: { originalEvent: { target: outside } },
+      preventDefault: preventOutsideDismiss,
+    });
+    expect(preventOutsideDismiss).not.toHaveBeenCalled();
+
+    nestedOverlay.remove();
+    outside.remove();
+  });
+
+  it("renders optional share tabs and switches to custom tab content", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="design"
+            resourceId="design-1"
+            shareUrl="https://design.agent-native.com/design/design-1"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "export",
+                  label: "Export",
+                  content: <div>Export body</div>,
+                },
+                {
+                  value: "send",
+                  label: "Send to...",
+                  content: <div>Send body</div>,
+                },
+              ],
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Share link");
+    expect(container.textContent).toContain("Export");
+    expect(container.textContent).toContain("Send to...");
+    expect(container.textContent).not.toContain("Export body");
+
+    const exportTab = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Export",
+    );
+    if (!exportTab) throw new Error("Export tab not found");
+
+    act(() => {
+      exportTab.click();
+    });
+
+    expect(container.textContent).toContain("Export body");
+    expect(container.textContent).not.toContain("Send body");
+  });
+
+  it("buries organization search visibility under Advanced", async () => {
+    const onCheckedChange = vi.fn();
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            hideInSearchControl={{
+              checked: false,
+              label: "Hide in search",
+              description:
+                "Hide from Organization and search. People with the link can still view.",
+              onCheckedChange,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Advanced");
+    expect(text.indexOf("Advanced")).toBeLessThan(
+      text.indexOf("Hide in search"),
+    );
+
+    const switchButton = container.querySelector(
+      'button[role="switch"]',
+    ) as HTMLButtonElement | null;
+    expect(switchButton).toBeTruthy();
+
+    act(() => {
+      switchButton?.click();
+    });
+
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 
   it("searches org members on the server and selects a suggestion with the keyboard", async () => {

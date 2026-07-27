@@ -1,7 +1,9 @@
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
-import { appBasePath } from "@agent-native/core/client";
+
 import {
   Tooltip,
   TooltipContent,
@@ -25,6 +27,7 @@ export default function ImageSearchPanel({
   onOpenChange,
   onSelectImage,
 }: ImageSearchPanelProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,18 +62,15 @@ export default function ImageSearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${appBasePath()}/api/image-search?q=${encodeURIComponent(query)}`,
+      const data = await callAction(
+        "search-images",
+        { q: query.trim() },
+        { method: "GET" },
       );
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Search failed");
-        setResults([]);
-      } else {
-        setResults(await res.json());
-      }
-    } catch {
-      setError("Search failed");
+      setResults(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t("raw.searchFailed"));
+      setResults([]);
     } finally {
       setLoading(false);
     }
@@ -96,7 +96,9 @@ export default function ImageSearchPanel({
       className="w-[min(24rem,calc(100vw-24px))] max-h-[480px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-foreground">Search Images</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("raw.imageSearchTitle")}
+        </h3>
         <button
           onClick={() => onOpenChange(false)}
           className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
@@ -118,7 +120,7 @@ export default function ImageSearchPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleSearch();
               }}
-              placeholder="Search for images..."
+              placeholder={t("raw.searchImagesPlaceholder")}
               className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
             />
           </div>
@@ -130,7 +132,7 @@ export default function ImageSearchPanel({
             {loading ? (
               <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              "Search"
+              t("raw.search")
             )}
           </button>
         </div>
@@ -144,7 +146,7 @@ export default function ImageSearchPanel({
         )}
         {!loading && results.length === 0 && !error && (
           <div className="text-center py-8 text-muted-foreground text-xs">
-            Search for logos, images, icons...
+            {t("raw.searchForLogosImagesIcons")}
           </div>
         )}
         {loading && (

@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+
 import type { H3Event } from "h3";
 import {
   getCookie,
@@ -7,15 +8,18 @@ import {
   setCookie,
   setResponseHeader,
 } from "h3";
-import { getDbExec, intType } from "../db/client.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
@@ -41,10 +45,22 @@ const EMBED_ROUTE_ALIASES: Record<string, string[]> = {
   // should survive that first-hop redirect instead of falling back to the
   // private deployment token gate.
   "/": ["/overview"],
-  "/dashboard": ["/adhoc/agent-native-templates-first-party"],
-  "/dashboards": ["/adhoc/agent-native-templates-first-party"],
-  "/traffic": ["/adhoc/agent-native-templates-first-party"],
-  "/traffic-dashboard": ["/adhoc/agent-native-templates-first-party"],
+  "/dashboard": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/dashboards": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/traffic": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
+  "/traffic-dashboard": [
+    "/dashboards/agent-native-templates-first-party",
+    "/adhoc/agent-native-templates-first-party",
+  ],
 };
 
 let _initPromise: Promise<void> | undefined;
@@ -101,8 +117,10 @@ export type ResolvedEmbedSession = {
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
-      const client = getDbExec();
-      await client.execute(`
+      // Build the CREATE SQL here (not at module scope) so intType() runs at
+      // RUNTIME, not import time — a module-scope call breaks any consumer whose
+      // db/client mock doesn't stub intType (e.g. db-admin specs).
+      const embedTicketsCreateSql = `
         CREATE TABLE IF NOT EXISTS agent_native_embed_tickets (
           ticket_hash TEXT PRIMARY KEY,
           owner_email TEXT NOT NULL,
@@ -113,7 +131,19 @@ async function ensureTable(): Promise<void> {
           expires_at ${intType()} NOT NULL,
           consumed_at ${intType()}
         )
-      `);
+      `;
+      if (isPostgres()) {
+        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
+        await ensureTableExists(
+          "agent_native_embed_tickets",
+          embedTicketsCreateSql,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      const client = getDbExec();
+      await client.execute(embedTicketsCreateSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -245,6 +275,10 @@ function openRouteTargetPathnames(targetPath: string): Set<string> {
     addResolvedOpenRoutePath(
       targets,
       `/adhoc/${encodeURIComponent(dashboardId)}`,
+    );
+    addResolvedOpenRoutePath(
+      targets,
+      `/dashboards/${encodeURIComponent(dashboardId)}`,
     );
   }
   const analysisId = safePathSegment(url.searchParams.get("analysisId"));
@@ -472,6 +506,15 @@ export function normalizeEmbedTargetPath(
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.startsWith("//") || path.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+  // A ticket minted for an auth entry path used to be honoured, redirecting
+  // the embed straight at a login form. Fails closed on the existing
+  // "Invalid embed target." 400 instead.
+  const base = getConfiguredAppBasePath();
+  const pathForValidation =
+    base && (path === base || path.startsWith(`${base}/`))
+      ? path
+      : `${base}${path}`;
+  if (normalizeAppPath(pathForValidation, base) === null) return null;
   return stripConfiguredBasePath(path);
 }
 

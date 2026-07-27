@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   bodyToHtml,
   buildRawEmail,
@@ -214,18 +215,60 @@ describe("buildRawEmail — attachments", () => {
     expect(await resolveComposeAttachments("not an array")).toEqual([]);
   });
 
-  it("resolveComposeAttachments skips entries without a filename", async () => {
-    expect(await resolveComposeAttachments([{ id: "x" }])).toEqual([]);
+  it("resolveComposeAttachments throws instead of silently dropping entries without a filename", async () => {
+    // A malformed entry must fail loudly (surfaced by callers as "One or more
+    // attachments could not be read") rather than being silently skipped,
+    // which would let an email send with fewer attachments than the user
+    // added with no indication anything was wrong.
+    await expect(resolveComposeAttachments([{ id: "x" }])).rejects.toThrow();
   });
 
-  it("resolveComposeAttachments skips path-traversal filenames", async () => {
-    // Should throw or skip — both paths (throw or skip) mean 0 resolved.
-    // The function skips entries with '/' or '..' in the filename check.
-    expect(
-      await resolveComposeAttachments([{ filename: "../etc/passwd" }]),
-    ).toEqual([]);
-    expect(
-      await resolveComposeAttachments([{ filename: "sub/file.pdf" }]),
-    ).toEqual([]);
+  it("resolveComposeAttachments throws on path-traversal filenames", async () => {
+    await expect(
+      resolveComposeAttachments([{ filename: "../etc/passwd" }]),
+    ).rejects.toThrow();
+    await expect(
+      resolveComposeAttachments([{ filename: "sub/file.pdf" }]),
+    ).rejects.toThrow();
+  });
+
+  it("resolveComposeAttachments can hydrate Gmail-backed draft attachments", async () => {
+    const resolved = await resolveComposeAttachments(
+      [
+        {
+          id: "att-1",
+          filename: "invoice.pdf",
+          originalName: "invoice.pdf",
+          mimeType: "application/pdf",
+          size: 5,
+          url: "/api/attachments?messageId=msg-1&id=att-1",
+          source: "gmail",
+          gmailMessageId: "msg-1",
+          gmailAttachmentId: "att-1",
+          accountEmail: "sender@example.com",
+        },
+      ],
+      "owner@example.com",
+      {
+        readGmailAttachment: async (attachment) => {
+          expect(attachment.gmailMessageId).toBe("msg-1");
+          expect(attachment.gmailAttachmentId).toBe("att-1");
+          expect(attachment.accountEmail).toBe("sender@example.com");
+          return Buffer.from("hello");
+        },
+      },
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]).toMatchObject({
+      filename: "invoice.pdf",
+      originalName: "invoice.pdf",
+      mimeType: "application/pdf",
+      source: "gmail",
+      gmailMessageId: "msg-1",
+      gmailAttachmentId: "att-1",
+      accountEmail: "sender@example.com",
+    });
+    expect(resolved[0].data.toString("utf8")).toBe("hello");
   });
 });

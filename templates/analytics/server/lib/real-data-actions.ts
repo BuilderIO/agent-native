@@ -8,35 +8,38 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-agents",
   "available-jobs",
   "plan-mode-note",
+  "non-analytics-retry",
 ];
 
 export const DATA_QUERY_ACTIONS = new Set([
   "account-deep-dive",
-  "amplitude-events",
-  "apollo-search",
   "bigquery",
-  "commonroom-members",
   "content-calendar",
   "content-calendar-schema",
-  "ga4-report",
+  // First-party observability reads are grounded data for incident triage,
+  // even though they are not provider queries. Keep the final-response guard
+  // from replacing valid session/error/replay evidence with the generic
+  // "connect a source" fallback.
+  "get-error-issue",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
+  "match-error-issues",
   "gcloud",
-  "github-code",
-  "github-prs",
   "gong-calls",
+  "gong-native-insights",
   "grafana",
   "hubspot-deals",
   "hubspot-metrics",
   "hubspot-pipelines",
   "hubspot-records",
   "jira",
-  "jira-analytics",
   "jira-search",
-  "mixpanel-events",
-  "notion-page",
-  "onboarding-events",
-  "posthog-events",
   "provider-api-request",
-  "pylon-issues",
+  "provider-corpus-job",
+  "query-staged-dataset",
   "query-agent-native-analytics",
   "query-inbound-forms",
   "sentry",
@@ -45,9 +48,50 @@ export const DATA_QUERY_ACTIONS = new Set([
   "seo-top-keywords",
   "slack-messages",
   "stripe",
-  "top-amplitude-events",
-  "twitter-tweets",
 ]);
+
+export const CORPUS_SOURCE_ACTIONS = new Set([
+  "provider-api-request",
+  "provider-corpus-job",
+  "query-staged-dataset",
+]);
+
+export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
+
+// Inspecting or cloning an existing dashboard/extension template is
+// construction progress, not a metric query. These do not satisfy
+// hasDataQueryAttempt, but they should stop the guard from steering a
+// template-clone turn into "connect a missing source". Deliberately limited
+// to read/inspection actions: update-dashboard/mutate-dashboard/
+// compose-dashboard/install-dashboard-template/create-extension/
+// update-extension can all author brand-new SQL or extension content, so
+// calling one of those alone is not proof the turn actually inspected a
+// template rather than inventing it from scratch. If the tool run also
+// includes one of these read actions, the bypass still applies even when an
+// authoring/save action ran alongside it.
+export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "get-sql-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-templates",
+  "list-extensions",
+  "get-extension",
+]);
+
+// Dashboard authoring/save actions. Unlike the read actions above, running one
+// of these is proof the turn actually edited or built a dashboard/extension —
+// which is a legitimate non-query completion. A saved SQL panel the user runs
+// themselves is not a fabricated metric, so the guard only needs to keep
+// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
+export const DASHBOARD_MUTATION_ACTIONS = new Set([
+  "mutate-dashboard",
+  "update-dashboard",
+  "compose-dashboard",
+  "install-dashboard-template",
+  "create-extension",
+  "update-extension",
+]);
+
+const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
   "amplitude",
@@ -71,10 +115,113 @@ const MCP_DATA_SOURCE_TOKENS = [
   "stripe",
 ];
 
+function normalizeActionToolName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function isToolName(name: string, expected: string): boolean {
+  return normalizeActionToolName(name) === expected;
+}
+
+function isDataQueryActionName(name: string): boolean {
+  return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardConstructionActionName(name: string): boolean {
+  return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardMutationActionName(name: string): boolean {
+  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+// "Build/clone/template" language targeting a dashboard/extension/panel is
+// dashboard construction, distinct from an analytics-result question. Turns
+// like this may inspect and clone a template without running a metric query.
+const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
+  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
+  /\b(dashboard|extension|panel|widget)\b/i;
+
+export function looksLikeDashboardConstructionRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const lower = requestText.toLowerCase();
+  if (!lower) return false;
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const targetsDashboard =
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
+  return wantsBuild && targetsDashboard;
+}
+
+export function hasDashboardConstructionAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasDashboardMutationAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardMutationActionName(String(result.name ?? ""));
+  });
+}
+
+function isCorpusSourceActionName(name: string): boolean {
+  return CORPUS_SOURCE_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isCorpusReductionActionName(name: string): boolean {
+  return CORPUS_REDUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
 function isMcpDataSourceTool(name: string): boolean {
-  if (!name.startsWith("mcp__")) return false;
   const normalized = name.toLowerCase();
+  if (!normalized.startsWith("mcp__")) return false;
   return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
+}
+
+function isCorpusCapableMcpTool(name: string): boolean {
+  if (!isMcpDataSourceTool(name)) return false;
+  const normalizedMcpName = name.replace(/[^a-z0-9]+/gi, " ");
+  return /\b(?:api|request|fetch|list|search|query|read|calls?|records?|messages?|tickets?|issues?|transcripts?)\b/i.test(
+    normalizedMcpName,
+  );
+}
+
+function getRunCodeBridgeToolNames(content: string | undefined): string[] {
+  const match = RUN_CODE_BRIDGE_TOOLS_USED.exec(String(content ?? ""));
+  if (!match?.[1]) return [];
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => isDataQueryActionName(name) || isMcpDataSourceTool(name),
+  );
+}
+
+function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
+  return getRunCodeBridgeToolNames(content).some(
+    (name) => isCorpusSourceActionName(name) || isCorpusCapableMcpTool(name),
+  );
 }
 
 export function stripInjectedAnalyticsGuardContext(text: string): string {
@@ -112,10 +259,18 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
 
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
+
+const SOURCE_SEARCH_INTENT_TERMS =
+  /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
+const SETUP_REQUEST_TERMS =
+  /\b(connect|configure|configuration|settings?|setup|set up|credentials?|authenticate|authorization)\b/;
+const SETUP_REQUEST_FRAMING =
+  /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
@@ -133,18 +288,31 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const lower = requestText.toLowerCase();
   if (!lower) return false;
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    SETUP_REQUEST_TERMS.test(lower) &&
+    (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
+  ) {
+    return false;
+  }
   if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
       lower,
-    )
+    ) &&
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
   if (
-    /\b(fix|bug|layout|style|component|route|code|source code|integration|connect|configure|settings)\b/.test(
-      lower,
-    )
+    /\b(fix|bug|layout|style|component|route|code|source code)\b/.test(lower)
+  ) {
+    return false;
+  }
+  if (
+    /\b(integration|connect|configure|settings)\b/.test(lower) &&
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -169,14 +337,45 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 }
 
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+
+// Reuse the same broad unsupported-result-claim vocabulary that gates
+// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
+// bypass the no-query fallback just by avoiding the narrower set of units a
+// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+}
+
+export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
+  "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
+
+// The first sentence of the canned fallback, lowercased, with the trailing
+// period dropped. Matching this prefix (rather than the whole message) still
+// catches a model paraphrase that continues differently after "successfully".
+const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
+  GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
+    0,
+    GENERIC_NO_DATA_FALLBACK_MESSAGE.indexOf(". ") + 1,
+  ).toLowerCase();
+
+export function isGenericNoDataFallback(text: string): boolean {
+  return text
+    .trim()
+    .toLowerCase()
+    .startsWith(GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE.slice(0, -1));
+}
 
 const SAFE_NO_DATA_RESPONSE =
-  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|not connected|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // This is the guard's own last-resort fallback. If a model emits it before
+  // attempting a query, it must go through the retry path instead of being
+  // accepted as an explicit unavailable-source or clarification response.
+  if (isGenericNoDataFallback(trimmed)) return false;
   if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
   return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
@@ -244,6 +443,136 @@ function isProviderErrorOnlyContent(content: string | undefined): boolean {
   return !hasEvidencePayload(record);
 }
 
+function valueHasIncompleteDataFlag(value: unknown, parentKey = ""): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((entry) => valueHasIncompleteDataFlag(entry, parentKey));
+  }
+
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, candidate]) => {
+      const normalizedKey = key.toLowerCase();
+      if (
+        [
+          "truncated",
+          "coveragetruncated",
+          "hasmore",
+          "has_more",
+          "moreavailable",
+        ].includes(normalizedKey) &&
+        candidate === true
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "ok" &&
+        candidate === false &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        normalizedKey === "status" &&
+        typeof candidate === "number" &&
+        candidate >= 400 &&
+        ["response", "result"].includes(parentKey)
+      ) {
+        return true;
+      }
+      if (
+        [
+          "nextoffset",
+          "nextcursor",
+          "cursor",
+          "nextpage",
+          "nexttoken",
+          "next",
+        ].includes(normalizedKey) &&
+        candidate !== null &&
+        candidate !== undefined &&
+        candidate !== "" &&
+        candidate !== false
+      ) {
+        if (
+          normalizedKey === "cursor" &&
+          !["records", "paging", "pagination", "page", "meta"].includes(
+            parentKey,
+          )
+        ) {
+          return false;
+        }
+        return true;
+      }
+      return valueHasIncompleteDataFlag(candidate, normalizedKey);
+    },
+  );
+}
+
+const INCOMPLETE_DATA_TEXT =
+  /\b(?:error running|run aborted|tool call timed out|timed out|inactivity timeout|stale_run|connection_error|fetch failed|network error|rate limit|rate-limited|too many requests|http\s*429|\b429\b|unhandled error|exitcode:\s*[1-9]\d*|interrupted before this tool returned|truncated|coverage gap|provider page cap|hit the .* page cap|has more content|call again with offset|full result was|default limit|duplicate skipped|only first)\b/i;
+
+export function hasIncompleteDataEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (!result.content && !result.isError) return false;
+    const name = String(result.name ?? "");
+    if (
+      name &&
+      !isDataQueryActionName(name) &&
+      !isMcpDataSourceTool(name) &&
+      !isToolName(name, "run-code") &&
+      !isToolName(name, "provider-api-request")
+    ) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+const STRONG_COVERAGE_OR_ABSENCE_CLAIM =
+  /\b(?:no|zero|0)\s+(?:mentions?|matches?|results?|records?|calls?|tickets?|issues?|deals?|accounts?|customers?|transcripts?|examples?)\b|\b(?:none|nothing)\b[^.?!]*(?:found|matched|mentioned|returned|showed|surfaced)\b|\b(?:all|every|entire|complete|full|exhaustive)\b[^.?!]*(?:calls?|records?|transcripts?|deals?|accounts?|customers?|dataset|cohort|results?|search)\b|\b(?:did not|didn't|does not|doesn't)\s+(?:mention|include|contain|show|surface)\b/i;
+
+const EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM =
+  /\b(?:defensible|confident|confidence|full available|available corpus|full corpus|entire corpus|complete corpus|all available|any (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)|every (?:available )?(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?))\b/i;
+
+const GENERIC_FULL_COVERAGE_CLAIM = /\b(?:exhaustive|complete)\b/i;
+
+const EXPLICIT_PARTIAL_DISCLOSURE =
+  /\b(?:partial|partially|sample|sampled|subset|not exhaustive|non-exhaustive|incomplete|truncated|aborted|timed out|coverage gap|could not inspect|only inspected|only searched|only reviewed|first \d+|top \d+|returned \d+|remaining|unsearched|uninspected|unreviewed|not covered|uncovered|missing coverage)\b|\b(?:bounded|limited)\s+(?:coverage|sample|results?|records?|calls?|transcripts?|cohort|dataset|evidence|inspection|search|review)\b|\b(?:coverage|inspection|search|review|sample)\s+(?:was|is|remains|looks)?\s*(?:bounded|limited)\b|\b(?:inspected|searched|reviewed|analy[sz]ed)\s+\d+\s+(?:of|out of)\s+\d+\b/i;
+
+const COVERAGE_SENSITIVE_ANALYTICS_REQUEST =
+  /\b(?:all|every|each|entire|complete|full|exhaustive)\b[^.?!]{0,220}\b(?:calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?|source records?|cohort|dataset|results?)\b|\b(?:find|surface|search|scan|grep|review|inspect|check|look through)\b[^.?!]{0,220}\b(?:any|all|every|each|mentions?|matches?|examples?|source records?|calls?|records?|transcripts?|deals?|accounts?|customers?|tickets?|issues?|messages?)\b|\b(?:let me know if you surface anything|surface anything|anything around|absence matters|where (?:the )?lack thereof|lack thereof is impacting|no mentions?|zero mentions?)\b/i;
+
+export function looksLikeStrongCoverageClaim(text: string): boolean {
+  return STRONG_COVERAGE_OR_ABSENCE_CLAIM.test(text);
+}
+
+export function hasExplicitPartialDisclosure(text: string): boolean {
+  return EXPLICIT_PARTIAL_DISCLOSURE.test(text);
+}
+
+export function hasOverstatedCoverageConfidenceClaim(text: string): boolean {
+  if (!looksLikeStrongCoverageClaim(text)) return false;
+  if (hasExplicitPartialDisclosure(text)) return false;
+  if (EXPLICIT_FULL_COVERAGE_CONFIDENCE_CLAIM.test(text)) return true;
+  return GENERIC_FULL_COVERAGE_CLAIM.test(text);
+}
+
+export function looksLikeCoverageSensitiveAnalyticsRequest(
+  text: string,
+): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  if (!looksLikeAnalyticsDataRequest(requestText)) return false;
+  return COVERAGE_SENSITIVE_ANALYTICS_REQUEST.test(requestText);
+}
+
 export function hasDataQueryAttempt(
   toolResults:
     | Array<{ name?: string; isError?: boolean; content?: string }>
@@ -253,6 +582,285 @@ export function hasDataQueryAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
-    return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
+    if (isToolName(name, "run-code")) {
+      return hasRunCodeDataQueryAttempt(result.content);
+    }
+    return isDataQueryActionName(name) || isMcpDataSourceTool(name);
   });
+}
+
+function isFailedDataQueryAttempt(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  const name = String(result.name ?? "");
+  const isDataQuery =
+    isDataQueryActionName(name) ||
+    isMcpDataSourceTool(name) ||
+    (isToolName(name, "run-code") &&
+      hasRunCodeDataQueryAttempt(result.content));
+  if (!isDataQuery) return false;
+  return result.isError === true || isProviderErrorOnlyContent(result.content);
+}
+
+function compactToolFailure(content: string | undefined): string {
+  const trimmed = String(content ?? "").trim();
+  if (!trimmed) return "the tool returned an error result without details";
+  const max = 900;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}...` : trimmed;
+}
+
+export function failedDataQueryAttemptMessage(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): string | null {
+  const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
+  if (!failed) return null;
+  const name = String(failed.name ?? "data-source query");
+  return (
+    `I did try \`${name}\`, but it did not return a successful data result: ` +
+    compactToolFailure(failed.content) +
+    "\n\nI need to fix and rerun that query, or report that exact source error instead of giving numbers."
+  );
+}
+
+export function hasCorpusWorkflowAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const name = String(result.name ?? "");
+    if (isCorpusSourceActionName(name)) return true;
+    if (isToolName(name, "run-code")) {
+      return hasRunCodeCorpusWorkflowAttempt(result.content);
+    }
+
+    // Connected provider MCP tools can expose broad search/list/request
+    // primitives directly. Treat those as corpus-capable when they succeed so
+    // apps are not forced through provider-api-request if a native MCP source
+    // already provides the right general API surface.
+    return isCorpusCapableMcpTool(name);
+  });
+}
+
+export function hasFailedCorpusWorkflowEvidence(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    const name = String(result.name ?? "");
+    if (!isCorpusSourceActionName(name) && !isCorpusReductionActionName(name)) {
+      return false;
+    }
+    if (result.isError) return true;
+    const content = String(result.content ?? "");
+    if (INCOMPLETE_DATA_TEXT.test(content)) return true;
+    const parsed = tryParseJsonContent(content);
+    return valueHasIncompleteDataFlag(parsed);
+  });
+}
+
+type SourceRecordKind =
+  | "transcript"
+  | "message"
+  | "ticket"
+  | "issue"
+  | "document"
+  | "note"
+  | "conversation";
+
+const SOURCE_RECORD_KINDS: Array<{
+  kind: SourceRecordKind;
+  request: RegExp;
+  evidence: RegExp;
+}> = [
+  {
+    kind: "transcript",
+    request: /\b(?:transcripts?|call transcripts?)\b/i,
+    evidence:
+      /\b(?:transcripts?|calltranscripts?|transcriptsearch)\b|\/calls\/transcript\b/i,
+  },
+  {
+    kind: "message",
+    request: /\b(?:messages?|slack messages?|chat messages?)\b/i,
+    evidence: /\b(?:messages?|message_id|messageid|search\.messages)\b/i,
+  },
+  {
+    kind: "ticket",
+    request: /\b(?:tickets?|support tickets?)\b/i,
+    evidence: /\b(?:tickets?|ticket_id|ticketid)\b/i,
+  },
+  {
+    kind: "issue",
+    request: /\b(?:issues?|jira issues?|pylon issues?)\b/i,
+    evidence: /\b(?:issues?|issue_id|issueid)\b/i,
+  },
+  {
+    kind: "document",
+    request: /\b(?:documents?|docs?|pages?)\b/i,
+    evidence: /\b(?:documents?|document_id|documentid|pages?)\b/i,
+  },
+  {
+    kind: "note",
+    request: /\b(?:notes?)\b/i,
+    evidence: /\b(?:notes?|note_id|noteid)\b/i,
+  },
+  {
+    kind: "conversation",
+    request: /\b(?:conversations?|conversation logs?)\b/i,
+    evidence: /\b(?:conversations?|conversation_id|conversationid)\b/i,
+  },
+];
+
+function requestedSourceRecordKinds(text: string): SourceRecordKind[] {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  return SOURCE_RECORD_KINDS.filter(({ request }) =>
+    request.test(requestText),
+  ).map(({ kind }) => kind);
+}
+
+function sourceRecordEvidenceRegexes(kinds: SourceRecordKind[]): RegExp[] {
+  return SOURCE_RECORD_KINDS.filter(({ kind }) => kinds.includes(kind)).map(
+    ({ evidence }) => evidence,
+  );
+}
+
+function textHasAnyEvidenceTerm(text: string, kinds: SourceRecordKind[]) {
+  return sourceRecordEvidenceRegexes(kinds).some((regex) => regex.test(text));
+}
+
+function corpusJobSourceEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    source: record.source,
+    hits: record.hits,
+    sampleHits: record.sampleHits,
+  });
+}
+
+function providerRequestEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    request: record.request,
+    responseJson:
+      (record.response as Record<string, unknown> | undefined)?.json ?? null,
+    dataset: record.dataset,
+    columns: record.columns,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function queryStagedDatasetEvidenceText(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  const record = parsed as Record<string, unknown>;
+  return JSON.stringify({
+    rows: record.rows,
+    columns: record.columns,
+    aggregate: record.aggregate,
+    groups: record.groups,
+    sampleRows: record.sampleRows,
+  });
+}
+
+function actionEvidenceTextForSourceRecords(result: {
+  name?: string;
+  content?: string;
+}): string {
+  const name = String(result.name ?? "");
+  const normalizedName = normalizeActionToolName(name);
+  const content = String(result.content ?? "");
+  const parsed = tryParseJsonContent(content);
+
+  if (normalizedName === "provider-corpus-job") {
+    return corpusJobSourceEvidenceText(parsed);
+  }
+  if (normalizedName === "provider-api-request") {
+    return providerRequestEvidenceText(parsed);
+  }
+  if (normalizedName === "query-staged-dataset") {
+    return queryStagedDatasetEvidenceText(parsed);
+  }
+  if (normalizedName === "gong-calls") {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return "";
+    }
+    const record = parsed as Record<string, unknown>;
+    return JSON.stringify({
+      transcript: record.transcript,
+      transcriptText: record.transcriptText,
+      transcriptSearch: record.transcriptSearch,
+      transcripts: record.transcripts,
+    });
+  }
+  if (normalizedName === "gong-native-insights") {
+    return "";
+  }
+  if (normalizedName === "run-code") {
+    return content;
+  }
+  if (isCorpusCapableMcpTool(name)) {
+    return `${name}\n${content}`;
+  }
+  return content;
+}
+
+export function hasRequestedSourceRecordEvidence(
+  userText: string,
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  const kinds = requestedSourceRecordKinds(userText);
+  if (!kinds.length) return true;
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    if (isProviderErrorOnlyContent(result.content)) return false;
+    const evidenceText = actionEvidenceTextForSourceRecords(result);
+    return textHasAnyEvidenceTerm(evidenceText, kinds);
+  });
+}
+
+export function needsCorpusWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!hasDataQueryAttempt(toolResults)) return false;
+  if (hasCorpusWorkflowAttempt(toolResults)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  return true;
+}
+
+export function needsSourceRecordBodyWorkflowForCoverageSensitiveRequest({
+  userText,
+  finalText,
+  toolResults,
+}: {
+  userText: string;
+  finalText: string;
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined;
+}): boolean {
+  if (!looksLikeCoverageSensitiveAnalyticsRequest(userText)) return false;
+  if (!requestedSourceRecordKinds(userText).length) return false;
+  if (!looksLikeStrongCoverageClaim(finalText)) return false;
+  if (hasExplicitPartialDisclosure(finalText)) return false;
+  if (!hasCorpusWorkflowAttempt(toolResults)) return false;
+  return !hasRequestedSourceRecordEvidence(userText, toolResults);
 }

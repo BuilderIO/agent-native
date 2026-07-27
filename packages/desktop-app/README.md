@@ -50,7 +50,7 @@ node scripts/dev-electron.ts --apps calendar,slides
 Or run just the Electron shell (if apps are already running):
 
 ```bash
-pnpm --filter @agent-native/electron-shell dev
+pnpm --filter @agent-native/desktop-app dev
 ```
 
 ---
@@ -58,8 +58,7 @@ pnpm --filter @agent-native/electron-shell dev
 ## Architecture
 
 ```
-packages/electron-shell/
-├── index.html                    # Renderer entry point
+packages/desktop-app/
 ├── electron.vite.config.ts       # Build config (main + preload + renderer)
 ├── shared/
 │   ├── app-registry.ts           # App definitions (id, name, port, color…)
@@ -109,7 +108,23 @@ window.electronAPI.platform // "darwin" | "win32" | "linux"
 
 ## Adding a new app
 
-### Step 1 — Register the app
+Use **+ New** in the sidebar and describe the app you want. Desktop:
+
+1. Creates the app under `~/Agent Native Apps` by default. The path is shown
+   below the prompt and can be edited; Desktop remembers the new location.
+2. Starts a full Agent-Native Code session to scaffold and implement the app.
+3. Adds the app to the sidebar immediately.
+4. Starts the managed local dev server whenever the app is opened and reloads
+   the tab when it is ready.
+
+Right-click any sidebar app to edit, hide/remove, or move it. The **Add an
+existing app** disclosure in the New dialog keeps the local-folder and hosted
+URL flows available for advanced use.
+
+The manual registry workflow below is only needed when adding a new built-in
+app to the Desktop distribution.
+
+### Step 1 — Register a built-in app
 
 Edit `shared/app-registry.ts` and add a new entry to `APP_REGISTRY`:
 
@@ -204,6 +219,19 @@ Shortcuts live in the advanced settings panel under **Customize per app → Keyb
 agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ```
 
+## Authenticated Design previews
+
+Desktop can render one focused, URL-backed Design screen as a native
+`WebContentsView` in Interact mode. This lets restrictive sites render with a
+persistent, connection-scoped cookie/session store even when they reject
+iframes. The native backend fails closed to the normal DOM iframe for every
+editing mode, overview, zoom, rotation, clipping, rounded corner, overlap, or
+stale layout case. A bounded, versioned bitmap handoff keeps Draw/Comment and
+inspectable local Edit transitions flash-free without treating screenshot
+pixels as editable DOM. See
+[DESIGN_NATIVE_PREVIEWS.md](./DESIGN_NATIVE_PREVIEWS.md) for the security
+contract, framed-development relay, tests, and remaining compositor phases.
+
 ---
 
 ## Port assignments
@@ -231,7 +259,7 @@ agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ## Building for distribution
 
 ```bash
-pnpm --filter @agent-native/electron-shell build
+pnpm --filter @agent-native/desktop-app build
 ```
 
 This outputs:
@@ -243,7 +271,7 @@ This outputs:
 To package into a distributable app, add `electron-builder` and run:
 
 ```bash
-npx electron-builder --config electron-builder.yml
+npx electron-builder@latest --config electron-builder.yml
 ```
 
 See [electron-builder docs](https://www.electron.build) for platform-specific packaging.

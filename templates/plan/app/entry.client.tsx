@@ -1,6 +1,9 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { installRouteChunkRecovery } from "@agent-native/core/client/route-chunk-recovery";
 import { hydrateRoot } from "react-dom/client";
 import { HydratedRouter } from "react-router/dom";
-import { appBasePath } from "@agent-native/core/client/api-path";
+
+installRouteChunkRecovery();
 
 const basePath = appBasePath();
 const pathname = window.location.pathname;
@@ -16,4 +19,14 @@ if (context) {
   context.basename = routerBasePath;
 }
 
-hydrateRoot(document, <HydratedRouter />);
+// Embed mode: mark the document so the reader flows to its content height (see
+// global.css `html[data-embed]`). Set before hydration so there's no flash.
+try {
+  if (new URLSearchParams(window.location.search).get("embedded") === "1") {
+    document.documentElement.dataset.embed = "1";
+  }
+} catch {
+  // ignore — non-embedded contexts never set the marker
+}
+
+hydrateRoot(document, <HydratedRouter useTransitions={false} />);

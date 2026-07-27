@@ -4,6 +4,15 @@ export interface CollectFinalResponseTextOptions {
   fallbackToPreToolText?: boolean;
 }
 
+export function applyAgentTextEventToBuffer(
+  currentText: string,
+  event: AgentChatEvent,
+): string {
+  if (event.type === "clear") return "";
+  if (event.type === "text") return currentText + event.text;
+  return currentText;
+}
+
 export function collectFinalResponseTextFromAgentEvents(
   events: readonly AgentChatEvent[],
   options: CollectFinalResponseTextOptions = {},
@@ -38,7 +47,7 @@ function collectTextEvents(
   let text = "";
   for (let i = startIdx; i < events.length; i++) {
     const event = events[i];
-    if (event.type === "text") text += event.text;
+    text = applyAgentTextEventToBuffer(text, event);
   }
   return text;
 }

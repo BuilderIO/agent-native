@@ -1,4 +1,5 @@
-import { useAgentRouteState } from "@agent-native/core/client";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 
 interface NavigationState {
   view: string;
@@ -20,8 +21,10 @@ interface NavigationState {
  */
 export function useNavigationState() {
   useAgentRouteState<NavigationState>({
+    browserTabId: getBrowserTabId(),
     getNavigationState: ({ pathname }) => {
       if (pathname === "/" || pathname === "") return { view: "list" };
+      if (pathname.startsWith("/local-files")) return { view: "local-files" };
 
       // Document editor: /:id or /page/:id
       const pageMatch = pathname.match(/^\/page\/(.+)/);
@@ -34,6 +37,7 @@ export function useNavigationState() {
     getCommandPath: (cmd) => {
       if (cmd.path) return cmd.path;
       if (cmd.documentId) return `/page/${cmd.documentId}`;
+      if (cmd.view === "local-files") return "/local-files";
       if (cmd.view === "list") return "/";
       return null;
     },

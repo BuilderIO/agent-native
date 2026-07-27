@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
-import { useSpaces, useOrganizations } from "@/hooks/use-library";
+import { useState } from "react";
+
+import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
 import { EmptyState } from "@/components/library/empty-state";
 import { PageHeader } from "@/components/library/page-header";
-import { CreateSpaceDialog } from "@/components/library/create-space-dialog";
+import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
+import { Button } from "@/components/ui/button";
+import { useSpaces, useOrganizations } from "@/hooks/use-library";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Spaces · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.spacesPageTitle }];
 }
 
 function Skeleton() {
@@ -24,7 +28,9 @@ function Skeleton() {
 }
 
 export default function SpacesIndexRoute() {
+  const t = useT();
   const [createOpen, setCreateOpen] = useState(false);
+  const { canManageOrg } = useOrgRole();
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
     organizations?.currentId ?? organizations?.organizations?.[0]?.id;
@@ -45,17 +51,21 @@ export default function SpacesIndexRoute() {
       <PageHeader>
         <div className="flex items-center gap-2">
           <IconUsersGroup className="h-4 w-4 text-primary" />
-          <h1 className="text-base font-semibold text-foreground">Spaces</h1>
+          <h1 className="text-base font-semibold text-foreground">
+            {t("navigation.spaces")}
+          </h1>
         </div>
-        <div className="ml-auto">
-          <Button
-            size="sm"
-            className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setCreateOpen(true)}
-          >
-            <IconPlus className="h-4 w-4" /> New space
-          </Button>
-        </div>
+        {canManageOrg && (
+          <div className="ml-auto">
+            <Button
+              size="sm"
+              className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => setCreateOpen(true)}
+            >
+              <IconPlus className="h-4 w-4" /> {t("createSpaceDialog.newSpace")}
+            </Button>
+          </div>
+        )}
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto p-5">

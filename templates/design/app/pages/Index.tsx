@@ -1,10 +1,24 @@
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
-import { nanoid } from "nanoid";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import { FULL_APP_BUILDING } from "@shared/full-app";
+import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
   IconPlus,
-  IconPalette,
   IconSearch,
   IconDots,
   IconTrash,
@@ -13,18 +27,18 @@ import {
   IconX,
   IconPencil,
 } from "@tabler/icons-react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { nanoid } from "nanoid";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useNavigate, Link, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import PromptPopover from "@/components/editor/PromptDialog";
+import type {
+  PromptTemplateOption,
+  UploadedFile,
+} from "@/components/editor/PromptDialog";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,19 +49,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
-import { useDesignSystems } from "@/hooks/use-design-systems";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesignSystems } from "@/hooks/use-design-systems";
+import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
   clearPendingGeneration,
   writePendingGeneration,
@@ -68,7 +86,9 @@ interface Design {
 }
 
 export default function Index() {
+  const t = useT();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -77,39 +97,84 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
+  // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
+  // cloud container). Only reachable behind the full-app-building flag — the
+  // popover renders no mode control at all when the flag is off, so this
+  // state is always "design" in that case.
+  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
+    "design",
+  );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
+  const skipToEditorPendingRef = useRef(false);
+  const newDesignSystemWasChosenRef = useRef(false);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
-  const { data: designsData, isLoading } = useActionQuery<{
-    count: number;
-    designs: Design[];
-  }>("list-designs", { includePreview: "true" });
+  const {
+    data: designsData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery("list-designs", { includePreview: "true" });
+  const { data: templatesData, isLoading: templatesLoading } = useActionQuery(
+    "list-design-templates",
+    { includePreview: "true" },
+  );
 
   const createMutation = useActionMutation("create-design");
+  const createFromTemplateMutation = useActionMutation(
+    "create-design-from-template",
+  );
+  // Fires the fusion-backed cloud container build; only ever called when
+  // runtime flag is true and the user picked "Full app".
+  const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
   const updateMutation = useActionMutation("update-design");
+  const generateTitleMutation = useActionMutation("generate-design-title");
+  // Designs the user has manually renamed since creation — an AI-generated
+  // title that resolves later must never clobber an explicit rename.
+  const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
-  const designs = designsData?.designs ?? [];
+  const designs = (designsData?.designs ?? []) as Design[];
+  const templateOptions = useMemo<PromptTemplateOption[]>(
+    () =>
+      (templatesData?.templates ?? []).map((template) => ({
+        id: template.id,
+        title: template.title,
+        description: template.description,
+        category: template.category,
+        width: template.width,
+        height: template.height,
+        previewHtml: template.previewHtml,
+        designSystemId: template.designSystemId,
+        isBuiltIn: template.isBuiltIn,
+      })),
+    [templatesData?.templates],
+  );
+  const selectedTemplate =
+    templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
   const filtered = search
-    ? designs.filter(
-        (d) =>
-          d.title.toLowerCase().includes(search.toLowerCase()) ||
-          d.projectType.toLowerCase().includes(search.toLowerCase()),
+    ? designs.filter((d) =>
+        d.title.toLowerCase().includes(search.toLowerCase()),
       )
     : designs;
   const selectedDesignCount = selectedDesignIds.size;
@@ -123,21 +188,42 @@ export default function Index() {
     [defaultSystem?.id, designSystems],
   );
 
+  const syncSelectedTemplate = useCallback(
+    (templateId: string | null) => {
+      setNewTemplateId(templateId);
+      const next = new URLSearchParams(searchParams);
+      if (templateId) next.set("templateId", templateId);
+      else next.delete("templateId");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      newDesignSystemWasChosenRef.current = false;
+      syncSelectedTemplate(null);
       setNewDesignSystemId(
         designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
       );
       setShowNewPrompt(true);
     },
-    [designSystemsLoading, resolveDefaultDesignSystemId],
+    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
   );
 
-  const handleNewPromptOpenChange = useCallback((open: boolean) => {
-    setShowNewPrompt(open);
-    if (!open) setNewDesignSystemId(undefined);
-  }, []);
+  const handleNewPromptOpenChange = useCallback(
+    (open: boolean) => {
+      setShowNewPrompt(open);
+      if (!open) {
+        newDesignSystemWasChosenRef.current = false;
+        syncSelectedTemplate(null);
+        setNewDesignSystemId(undefined);
+        setNewDesignMode("design");
+      }
+    },
+    [syncSelectedTemplate],
+  );
 
   useEffect(() => {
     if (
@@ -153,6 +239,40 @@ export default function Index() {
     resolveDefaultDesignSystemId,
     showNewPrompt,
   ]);
+
+  const handleTemplateChange = useCallback(
+    (templateId: string | null) => {
+      syncSelectedTemplate(templateId);
+      const template = templateOptions.find(
+        (candidate) => candidate.id === templateId,
+      );
+      if (newDesignSystemWasChosenRef.current) return;
+      const linkedSystemId =
+        template?.designSystemId &&
+        designSystems.some((system) => system.id === template.designSystemId)
+          ? template.designSystemId
+          : null;
+      setNewDesignSystemId(
+        linkedSystemId ??
+          (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
+      );
+    },
+    [
+      designSystems,
+      designSystemsLoading,
+      resolveDefaultDesignSystemId,
+      syncSelectedTemplate,
+      templateOptions,
+    ],
+  );
+
+  const handleNewDesignSystemChange = useCallback(
+    (designSystemId: string | null) => {
+      newDesignSystemWasChosenRef.current = true;
+      setNewDesignSystemId(designSystemId);
+    },
+    [],
+  );
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -184,6 +304,13 @@ export default function Index() {
     });
   }, [filtered]);
 
+  const handleSearchChange = useCallback((query: string) => {
+    setSearch(query);
+    setSelectedDesignIds((current) =>
+      current.size === 0 ? current : new Set(),
+    );
+  }, []);
+
   const clearSelection = useCallback(() => {
     setSelectedDesignIds(new Set());
   }, []);
@@ -192,7 +319,7 @@ export default function Index() {
     (
       title: string,
       designSystemId?: string | null,
-    ): { id: string; title: string } => {
+    ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
       const finalTitle = title.trim() || "Untitled Design";
@@ -217,8 +344,7 @@ export default function Index() {
         },
       );
 
-      // Fire mutation in background; keep the optimistic navigation instant.
-      void createMutation
+      const ready = createMutation
         .mutateAsync({
           id,
           title: finalTitle,
@@ -227,47 +353,250 @@ export default function Index() {
             ? { designSystemId: linkedDesignSystemId }
             : {}),
         } as any)
-        .catch(() => {
+        .then(() => undefined)
+        .catch((error) => {
           clearPendingGeneration(id);
           queryClient.invalidateQueries({
             queryKey: ["action", "list-designs"],
           });
+          throw error;
         });
-      return { id, title: finalTitle };
+      // Fire mutation in background; keep the optimistic navigation instant.
+      void ready.catch(() => {});
+      return { id, title: finalTitle, ready };
     },
     [queryClient, createMutation],
   );
 
+  // Mirrors the chat-title flow: the placeholder (derivePromptTitle) shows
+  // immediately, then a short AI-generated name replaces it in the
+  // background once it resolves. Never blocks navigation or generation.
+  const handleGenerateDesignTitle = useCallback(
+    (designId: string, prompt: string, previousTitle: string) => {
+      generateTitleMutation
+        .mutateAsync({ designId, prompt, previousTitle } as any)
+        .then((result: any) => {
+          if (!result?.updated || !result.title) return;
+          if (userRenamedDesignIdsRef.current.has(designId)) return;
+          queryClient.setQueriesData(
+            { queryKey: ["action", "list-designs"] },
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return {
+                ...old,
+                count: old.count ?? (old.designs ?? []).length,
+                designs: (old.designs ?? []).map((d: Design) =>
+                  d.id === designId ? { ...d, title: result.title } : d,
+                ),
+              };
+            },
+          );
+        })
+        .catch(() => {
+          // Best-effort background enhancement — the placeholder title
+          // already saved at creation time stays as the final title.
+        });
+    },
+    [generateTitleMutation, queryClient],
+  );
+
   const handleSubmitPrompt = useCallback(
-    (
+    async (
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
+      pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      // Derive a short title from the prompt — first line, ~40 chars max,
-      // word-boundary truncated. The full prompt still drives generation;
-      // the title is just a label, so longer is worse.
-      const derivedTitle = derivePromptTitle(prompt);
+      const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
           ? resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
-      const { id, title } = createDesign(derivedTitle, designSystemId);
+      if (selectedTemplate && newDesignMode === "design") {
+        setNewDesignHandoffPending(true);
+        const title = trimmedPrompt
+          ? derivePromptTitle(trimmedPrompt)
+          : selectedTemplate.title;
+        try {
+          const result = await createFromTemplateMutation.mutateAsync({
+            templateId: selectedTemplate.id,
+            title,
+            designSystemId,
+            ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+          });
+          if (!result.id) {
+            throw new Error("Template copy did not return a design ID");
+          }
+          const effectiveDesignSystemId = result.designSystemId ?? null;
+          if (result.adaptationPending) {
+            const effectiveSystemTitle =
+              designSystems.find(
+                (system) => system.id === effectiveDesignSystemId,
+              )?.title ?? t("promptDialog.designSystem");
+            writePendingGeneration(result.id, {
+              prompt:
+                trimmedPrompt ||
+                t("promptDialog.reskinTemplatePrompt", {
+                  title: selectedTemplate.title,
+                  system: effectiveSystemTitle,
+                }),
+              files,
+              title: result.title ?? title,
+              source: selectedTemplate.title,
+              templateId: selectedTemplate.id,
+              templateBaselineFiles: result.templateBaselineFiles,
+              designSystemId: effectiveDesignSystemId,
+              skipQuestions: true,
+              ...options,
+            });
+          }
+          if (trimmedPrompt) {
+            handleGenerateDesignTitle(
+              result.id,
+              trimmedPrompt,
+              result.title ?? title,
+            );
+          }
+          void queryClient
+            .invalidateQueries({
+              queryKey: ["action", "list-designs"],
+            })
+            .catch(() => {});
+          navigate(`/design/${result.id}`);
+          return;
+        } catch (error) {
+          setNewDesignHandoffPending(false);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("templatesPage.createFailed"),
+          );
+          throw error;
+        }
+      }
 
-      writePendingGeneration(id, {
-        prompt,
-        files,
-        title,
-        designSystemId,
-        ...options,
-      });
+      // Derive a short title from the prompt — first line, ~40 chars max,
+      // word-boundary truncated. The full prompt still drives generation;
+      // the title is just a label, so longer is worse.
+      const derivedTitle = derivePromptTitle(prompt);
 
-      setShowNewPrompt(false);
+      const { id, title, ready } = createDesign(derivedTitle, designSystemId);
+      handleGenerateDesignTitle(id, prompt, title);
+
+      if (fullAppBuildingEnabled && newDesignMode === "app") {
+        // Full-app designs are backed by a real running container, not a
+        // queued inline generation — skip writePendingGeneration and let the
+        // fusion app mutation (and its own status/progress banner in the
+        // editor) drive the build instead.
+        void ready
+          .then(() =>
+            createFusionAppMutation.mutateAsync({
+              designId: id,
+              prompt,
+            } as any),
+          )
+          .then((result: any) => {
+            if (result?.status !== "not-configured") return;
+            // Builder isn't connected/configured, so no fusionApp linkage was
+            // written and no banner will render. Hand off to the agent chat,
+            // which owns the connect-Builder card flow, keeping the user's
+            // prompt so nothing is lost.
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `create-fusion-app returned status "not-configured" for design ` +
+                `${id}. ${result?.message ?? ""} Help the user connect ` +
+                `Builder.io (see connect-builder-app), then retry ` +
+                `create-fusion-app with the user's prompt.`,
+              submit: true,
+            });
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : String(error);
+            sendToDesignAgentChat({
+              message: `I want to build this design as a full app: ${prompt}`,
+              context:
+                `Starting the full-app build for design ${id} failed: ` +
+                `${message}. Check whether the design row exists, Builder is ` +
+                `connected, and create-fusion-app can be retried safely.`,
+              submit: true,
+            });
+          });
+      } else {
+        writePendingGeneration(id, {
+          prompt,
+          files,
+          title,
+          designSystemId,
+          skipQuestions: pendingOptions?.skipQuestions,
+          ...options,
+        });
+      }
+
+      setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
-    [createDesign, navigate, newDesignSystemId, resolveDefaultDesignSystemId],
+    [
+      createDesign,
+      createFromTemplateMutation,
+      createFusionAppMutation,
+      designSystems,
+      handleGenerateDesignTitle,
+      navigate,
+      newDesignMode,
+      newDesignSystemId,
+      queryClient,
+      resolveDefaultDesignSystemId,
+      selectedTemplate,
+      t,
+    ],
   );
+
+  const handleSkipToEditor = useCallback(async () => {
+    if (selectedTemplate && newDesignMode === "design") {
+      await handleSubmitPrompt("", [], {});
+      return false;
+    }
+    if (skipToEditorPendingRef.current) return;
+    skipToEditorPendingRef.current = true;
+    setNewDesignHandoffPending(true);
+
+    const designSystemId =
+      newDesignSystemId === undefined
+        ? resolveDefaultDesignSystemId()
+        : newDesignSystemId;
+    const { id, ready } = createDesign(
+      t("home.untitledDesign"),
+      designSystemId,
+    );
+
+    try {
+      // Unlike prompt-backed creation, an empty shell has no pending-generation
+      // marker to keep the editor polling across its route remount. Wait for the
+      // row to persist so the first get-design read cannot briefly return 404.
+      await ready;
+      navigate(`/design/${id}`);
+      return false;
+    } catch (error) {
+      skipToEditorPendingRef.current = false;
+      setNewDesignHandoffPending(false);
+      toast.error(t("home.failedToCreateDesign"));
+      throw error;
+    }
+  }, [
+    createDesign,
+    handleSubmitPrompt,
+    navigate,
+    newDesignMode,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    selectedTemplate,
+    t,
+  ]);
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
@@ -352,14 +681,20 @@ export default function Index() {
     setRenameId(null);
     if (!next) return;
 
-    queryClient.setQueryData(
-      ["action", "list-designs", { includePreview: "true" }],
-      (old: any) => ({
-        count: old?.count ?? 0,
-        designs: (old?.designs ?? []).map((d: Design) =>
-          d.id === id ? { ...d, title: next } : d,
-        ),
-      }),
+    userRenamedDesignIdsRef.current.add(id);
+
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-designs"] },
+      (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return {
+          ...old,
+          count: old.count ?? (old.designs ?? []).length,
+          designs: (old.designs ?? []).map((d: Design) =>
+            d.id === id ? { ...d, title: next } : d,
+          ),
+        };
+      },
     );
 
     updateMutation.mutate({ id, title: next } as any, {
@@ -371,18 +706,6 @@ export default function Index() {
     });
   }, [renameId, renameDraft, queryClient, updateMutation]);
 
-  const projectTypeBadge = (type: ProjectType) => {
-    const labels: Record<ProjectType, string> = {
-      prototype: "Prototype",
-      other: "Other",
-    };
-    return (
-      <Badge variant="secondary" className="text-[10px] font-medium">
-        {labels[type] ?? type}
-      </Badge>
-    );
-  };
-
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return "";
     const d = new Date(dateStr);
@@ -393,37 +716,56 @@ export default function Index() {
     });
   };
 
-  useSetPageTitle("Designs");
+  useSetPageTitle(t("home.pageTitle"));
 
   useSetHeaderActions(
-    <div className="flex items-center gap-3">
-      {designs.length > 0 ? (
+    designs.length > 0 ? (
+      <div className="flex items-center gap-3">
         <div className="relative">
-          <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
+          <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/70" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search designs..."
-            className="pl-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
+            onChange={(e) => handleSearchChange(e.target.value)}
+            placeholder={t("home.searchPlaceholder")}
+            className="ps-8 h-8 w-48 bg-accent/50 border-border text-sm text-foreground/90 placeholder:text-muted-foreground/70"
           />
         </div>
-      ) : null}
-      <Button size="sm" onClick={openNewDesign} className="cursor-pointer">
-        <IconPlus className="w-3.5 h-3.5" />
-        New Design
-      </Button>
-    </div>,
+        <Button
+          size="sm"
+          onClick={openNewDesign}
+          disabled={newDesignHandoffPending}
+          className="cursor-pointer"
+        >
+          {newDesignHandoffPending ? (
+            <Spinner className="w-3.5 h-3.5" />
+          ) : (
+            <IconPlus className="w-3.5 h-3.5" />
+          )}
+          {newDesignHandoffPending
+            ? t("home.openingDesign")
+            : t("home.newDesign")}
+        </Button>
+      </div>
+    ) : null,
   );
 
   return (
     <>
+      {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
+        ) : isError ? (
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
-            onStarterPrompt={(prompt) => handleSubmitPrompt(prompt, [], {})}
+            onStarterPrompt={(prompt) =>
+              handleSubmitPrompt(prompt, [], {}, { skipQuestions: true })
+            }
           />
         ) : (
           <>
@@ -431,9 +773,8 @@ export default function Index() {
               <div className="-mt-4 mb-3 flex flex-wrap items-center justify-between gap-3 px-1 py-1 sm:-mt-6">
                 <div className="text-sm text-muted-foreground">
                   <span className="font-medium text-foreground">
-                    {selectedDesignCount}
-                  </span>{" "}
-                  selected
+                    {t("home.selected", { count: selectedDesignCount })}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1">
                   <Tooltip>
@@ -444,8 +785,8 @@ export default function Index() {
                         onClick={toggleVisibleSelection}
                         aria-label={
                           allVisibleSelected
-                            ? "Clear visible selection"
-                            : "Select visible designs"
+                            ? t("home.clearVisibleSelection")
+                            : t("home.selectVisibleDesigns")
                         }
                         className="h-8 w-8 cursor-pointer"
                       >
@@ -454,8 +795,8 @@ export default function Index() {
                     </TooltipTrigger>
                     <TooltipContent>
                       {allVisibleSelected
-                        ? "Clear visible selection"
-                        : "Select visible designs"}
+                        ? t("home.clearVisibleSelection")
+                        : t("home.selectVisibleDesigns")}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
@@ -464,14 +805,29 @@ export default function Index() {
                         variant="ghost"
                         size="icon"
                         onClick={clearSelection}
-                        aria-label="Clear selection"
+                        aria-label={t("home.clearSelection")}
                         className="h-8 w-8 cursor-pointer"
                       >
                         <IconX className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Clear selection</TooltipContent>
+                    <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setContextDesigns(
+                        designs.filter((design) =>
+                          selectedDesignIds.has(design.id),
+                        ),
+                      )
+                    }
+                    className="cursor-pointer"
+                  >
+                    <IconPlus className="w-3.5 h-3.5" />
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                  </Button>
                   <Button
                     variant="destructive"
                     size="sm"
@@ -479,7 +835,7 @@ export default function Index() {
                     className="cursor-pointer"
                   >
                     <IconTrash className="w-3.5 h-3.5" />
-                    Delete
+                    {t("home.delete")}
                   </Button>
                 </div>
               </div>
@@ -489,19 +845,24 @@ export default function Index() {
               {/* New design card */}
               <button
                 onClick={openNewDesign}
-                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-left cursor-pointer"
+                disabled={newDesignHandoffPending}
+                className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
               >
                 <div className="aspect-video flex items-center justify-center bg-muted/30">
                   <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                    <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    {newDesignHandoffPending ? (
+                      <Spinner className="w-6 h-6 text-muted-foreground/70" />
+                    ) : (
+                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                    )}
                   </div>
                 </div>
                 <div className="p-4">
                   <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    New Design
+                    {t("home.newDesign")}
                   </h3>
                   <div className="text-xs text-muted-foreground/70 mt-1">
-                    Create a design project
+                    {t("home.createDesignProject")}
                   </div>
                 </div>
               </button>
@@ -517,7 +878,6 @@ export default function Index() {
                         <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
                           {design.title}
                         </h3>
-                        {projectTypeBadge(design.projectType)}
                       </div>
                       <div className="text-xs text-muted-foreground/70">
                         {formatDate(design.updatedAt || design.createdAt)}
@@ -540,7 +900,7 @@ export default function Index() {
                       {cardContent}
                     </Link>
                     <div
-                      className={`absolute left-2 top-2 z-10 transition-opacity ${
+                      className={`absolute start-2 top-2 z-10 transition-opacity ${
                         isSelected || isSelectingDesigns
                           ? "pointer-events-auto opacity-100"
                           : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
@@ -554,21 +914,27 @@ export default function Index() {
                               toggleDesignSelection(design.id)
                             }
                             onClick={(event) => event.stopPropagation()}
-                            aria-label={`Select ${design.title}`}
+                            aria-label={t("home.selectDesign", {
+                              title: design.title,
+                            })}
                             className="h-5 w-5 border-white/70 bg-black/65 text-white shadow-sm data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
                           />
                         </TooltipTrigger>
-                        <TooltipContent>{`Select ${design.title}`}</TooltipContent>
+                        <TooltipContent>
+                          {t("home.selectDesign", { title: design.title })}
+                        </TooltipContent>
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            aria-label={`Actions for ${design.title}`}
+                            aria-label={t("home.actionsForDesign", {
+                              title: design.title,
+                            })}
                             className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
                           >
                             <IconDots className="w-3.5 h-3.5 text-foreground/70" />
@@ -579,22 +945,34 @@ export default function Index() {
                             onClick={() => startRename(design)}
                             className="cursor-pointer"
                           >
-                            <IconPencil className="w-3.5 h-3.5 mr-2" />
-                            Rename
+                            <IconPencil className="w-3.5 h-3.5 me-2" />
+                            {t("home.rename")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleDuplicate(design.id)}
                             className="cursor-pointer"
                           >
-                            <IconCopy className="w-3.5 h-3.5 mr-2" />
-                            Duplicate
+                            <IconCopy className="w-3.5 h-3.5 me-2" />
+                            {t("home.duplicate")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setContextDesigns([design]);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <IconPlus className="w-3.5 h-3.5 me-2" />
+                            {t(
+                              "creativeContext.addToContext" /* i18n-key-ignore */,
+                            )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
-                            <IconTrash className="w-3.5 h-3.5 mr-2" />
-                            Delete
+                            <IconTrash className="w-3.5 h-3.5 me-2" />
+                            {t("home.delete")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -607,21 +985,57 @@ export default function Index() {
         )}
       </main>
 
+      <CreativeContextShareSheet
+        open={contextDesigns.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setContextDesigns([]);
+        }}
+        resources={contextDesigns.map((design) => ({
+          appId: "design",
+          resourceType: "design",
+          resourceId: design.id,
+          title: design.title,
+          updatedAt: design.updatedAt ?? design.createdAt,
+          preview: { kind: "document", label: "Design" },
+        }))}
+      />
+
       <PromptPopover
         open={showNewPrompt}
         onOpenChange={handleNewPromptOpenChange}
-        title="New design"
-        placeholder="Describe what you want to build..."
+        title={t("home.newDesignLower")}
+        placeholder={
+          selectedTemplate
+            ? t("promptDialog.templatePromptPlaceholder", {
+                title: selectedTemplate.title,
+              })
+            : t("home.describeBuild")
+        }
+        onSkip={handleSkipToEditor}
+        skipLabel={
+          selectedTemplate
+            ? t("templatesPage.useTemplate")
+            : t("home.skipToEditor")
+        }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
+        templateOptions={templateOptions}
+        templatesLoading={templatesLoading}
+        selectedTemplateId={newTemplateId}
+        onTemplateChange={handleTemplateChange}
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
-        onDesignSystemChange={setNewDesignSystemId}
+        onDesignSystemChange={handleNewDesignSystemChange}
+        loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
+        creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
+        onCreationModeChange={
+          fullAppBuildingEnabled ? setNewDesignMode : undefined
+        }
       />
 
       {/* Delete Confirmation */}
@@ -638,30 +1052,34 @@ export default function Index() {
           <AlertDialogHeader>
             <AlertDialogTitle>
               {bulkDeleteOpen
-                ? `Delete ${selectedDesignCount} ${
-                    selectedDesignCount === 1 ? "Design" : "Designs"
-                  }?`
-                : "Delete Design?"}
+                ? selectedDesignCount === 1
+                  ? t("home.deleteSingleDesignsTitle", {
+                      count: selectedDesignCount,
+                    })
+                  : t("home.deleteDesignsTitle", {
+                      count: selectedDesignCount,
+                    })
+                : t("home.deleteDesignTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {bulkDeleteOpen
-                ? `This will permanently delete ${
-                    selectedDesignCount === 1
-                      ? "this design and all its files"
-                      : `these ${selectedDesignCount} designs and all their files`
-                  }. This action cannot be undone.`
-                : "This will permanently delete this design and all its files. This action cannot be undone."}
+                ? selectedDesignCount === 1
+                  ? t("home.deleteDesignDescription")
+                  : t("home.deleteDesignsDescription", {
+                      count: selectedDesignCount,
+                    })
+                : t("home.deleteDesignDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
-              Cancel
+              {t("home.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
             >
-              Delete
+              {t("home.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -676,7 +1094,7 @@ export default function Index() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Rename design</AlertDialogTitle>
+            <AlertDialogTitle>{t("home.renameDesign")}</AlertDialogTitle>
           </AlertDialogHeader>
           <Input
             value={renameDraft}
@@ -688,47 +1106,25 @@ export default function Index() {
                 commitRename();
               }
             }}
-            placeholder="Design name"
+            placeholder={t("home.designName")}
             className="h-9 text-sm"
           />
           <AlertDialogFooter>
             <AlertDialogCancel className="cursor-pointer">
-              Cancel
+              {t("home.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={commitRename}
               disabled={!renameDraft.trim()}
               className="cursor-pointer"
             >
-              Save
+              {t("home.save")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>
   );
-}
-
-/**
- * Derive a short, friendly title from a prompt. The full prompt still drives
- * generation — the title is just a label that shows up in the editor header
- * and the design card, so longer is worse.
- *
- * Strategy: take the first line, strip trailing punctuation, then truncate
- * at the nearest word boundary near 40 chars (with an ellipsis when cut).
- */
-function derivePromptTitle(prompt: string): string {
-  const firstLine = prompt
-    .split("\n")[0]
-    ?.trim()
-    .replace(/[.!?]+$/, "");
-  if (!firstLine) return "Untitled Design";
-  const MAX = 40;
-  if (firstLine.length <= MAX) return firstLine;
-  const slice = firstLine.slice(0, MAX);
-  const lastSpace = slice.lastIndexOf(" ");
-  const trimmed = lastSpace > 20 ? slice.slice(0, lastSpace) : slice;
-  return `${trimmed.trim()}…`;
 }
 
 /**
@@ -742,6 +1138,7 @@ function derivePromptTitle(prompt: string): string {
  * granting arbitrary design HTML access to the host origin.
  */
 function DesignThumbnail({ html }: { html: string | null }) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
 
@@ -778,12 +1175,13 @@ function DesignThumbnail({ html }: { html: string | null }) {
       className="aspect-video relative overflow-hidden bg-white"
     >
       <iframe
-        srcDoc={html}
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        srcDoc={injectSessionReplayIframeBootstrap(html)}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}
         aria-hidden
-        title="Design preview"
+        title={t("home.designPreview")}
         style={{
           width: `${NATURAL_WIDTH}px`,
           height: `${NATURAL_HEIGHT}px`,
@@ -793,6 +1191,22 @@ function DesignThumbnail({ html }: { html: string | null }) {
           pointerEvents: "none",
         }}
       />
+    </div>
+  );
+}
+
+function NewDesignHandoffOverlay() {
+  const t = useT();
+  return (
+    <div
+      className="fixed inset-0 z-[180] flex items-center justify-center bg-background/70 backdrop-blur-sm"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-popover px-3 py-2 text-sm font-medium text-foreground shadow-lg">
+        <Spinner className="size-4 text-muted-foreground" />
+        {t("home.openingDesign")}
+      </div>
     </div>
   );
 }
@@ -823,24 +1237,24 @@ function LoadingSkeleton() {
 // an empty composer. Keep these distinct enough that the four results would
 // all look meaningfully different — same approach as Phase 2 variant
 // generation in the design agent.
-const STARTER_PROMPTS: { label: string; prompt: string }[] = [
+const STARTER_PROMPTS: { labelKey: string; prompt: string }[] = [
   {
-    label: "SaaS landing page",
+    labelKey: "home.starterSaas",
     prompt:
       "A modern SaaS landing page with a dark theme, hero section, three feature cards, and a final CTA section.",
   },
   {
-    label: "Dashboard",
+    labelKey: "home.starterDashboard",
     prompt:
       "A clean analytics dashboard with a sidebar nav, four KPI tiles, a chart, and a recent-activity table.",
   },
   {
-    label: "Mobile app",
+    labelKey: "home.starterMobile",
     prompt:
       "A mobile app prototype shown on a phone frame, with a tab bar at the bottom and three list cards on the home screen.",
   },
   {
-    label: "Pricing page",
+    labelKey: "home.starterPricing",
     prompt:
       "A three-tier pricing page with a monthly/annual toggle, feature checklists, and a highlighted recommended tier.",
   },
@@ -853,38 +1267,35 @@ function EmptyState({
   onCreateDesign: (e: React.MouseEvent<HTMLElement>) => void;
   onStarterPrompt: (prompt: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
-        <IconPalette className="w-7 h-7 text-[#609FF8]" />
-      </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
-        Create your first design
+        {t("home.createFirstDesign")}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
-        Pick a starting point or write your own prompt.
+        {t("home.pickStartingPoint")}
       </p>
       <div className="flex flex-wrap items-center justify-center gap-2 max-w-md mb-6">
         {STARTER_PROMPTS.map((s) => (
           <button
-            key={s.label}
+            key={s.labelKey}
             type="button"
             onClick={() => onStarterPrompt(s.prompt)}
             className="cursor-pointer rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground/80 hover:border-foreground/30 hover:text-foreground/95 transition-colors"
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
       </div>
       <Button
-        variant="outline"
         onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
           onCreateDesign(e as React.MouseEvent<HTMLElement>)
         }
-        className="cursor-pointer"
+        className="cursor-pointer dark:bg-white dark:text-black dark:hover:bg-white/90"
       >
         <IconPlus className="w-4 h-4" />
-        New Design
+        {t("home.newDesign")}
       </Button>
     </div>
   );

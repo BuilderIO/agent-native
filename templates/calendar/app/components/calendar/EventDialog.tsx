@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { format, parseISO } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+import { useT } from "@agent-native/core/client/i18n";
+import type { CalendarEvent } from "@shared/api";
 import {
   IconMapPin,
   IconClock,
@@ -8,11 +7,12 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import {
-  sanitizeHtml,
-  stripGcalInviteHtml,
-  isHtml,
-} from "@/lib/sanitize-description";
+import { format, parseISO } from "date-fns";
+import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
+
+import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -20,19 +20,19 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useUpdateEvent, useDeleteEvent } from "@/hooks/use-events";
-import { getEventDisplayColor } from "@/lib/event-colors";
-import { shortcutModifierLabel } from "@/lib/utils";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
-import { toast } from "sonner";
-import type { CalendarEvent } from "@shared/api";
-import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
-import { useSettings } from "@/hooks/use-settings";
-import { getLocalTimezone } from "@/lib/event-form-utils";
+import { getEventDisplayColor } from "@/lib/event-colors";
+import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import {
+  sanitizeHtml,
+  stripGcalInviteHtml,
+  isHtml,
+} from "@/lib/sanitize-description";
+import { shortcutModifierLabel } from "@/lib/utils";
 
 interface EventDialogProps {
   event: CalendarEvent | null;
@@ -47,6 +47,7 @@ export function EventDialog({
   onClose,
   onDelete,
 }: EventDialogProps) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -59,8 +60,6 @@ export function EventDialog({
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const { prefs } = useViewPreferences();
-  const { data: settings } = useSettings();
-  const displayTimezone = settings?.timezone || getLocalTimezone();
 
   useEffect(() => {
     if (event) {
@@ -138,16 +137,17 @@ export function EventDialog({
     updateEvent.mutate(
       {
         id: event.id,
+        accountEmail: event.accountEmail,
         ...updates,
         ...guestNotification,
       },
       {
         onSuccess: () => {
-          toast.success("Event updated");
+          toast.success(t("eventDialog.eventUpdated"));
           setEditing(false);
           onClose();
         },
-        onError: () => toast.error("Failed to update event"),
+        onError: () => toast.error(t("eventDialog.updateFailed")),
       },
     );
   }
@@ -164,13 +164,13 @@ export function EventDialog({
       });
       if (!guestNotification) return;
       deleteEvent.mutate(
-        { id: event.id, ...guestNotification },
+        buildDeleteEventMutationInput(event, guestNotification),
         {
           onSuccess: () => {
-            toast.success("Event deleted");
+            toast.success(t("eventDialog.eventDeleted"));
             onClose();
           },
-          onError: () => toast.error("Failed to delete event"),
+          onError: () => toast.error(t("eventDialog.deleteFailed")),
         },
       );
     }
@@ -208,17 +208,17 @@ export function EventDialog({
           {editing ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Description</Label>
+                <Label>{t("eventDialog.description")}</Label>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Add a description…"
+                  placeholder={t("eventDialog.addDescription")}
                   rows={3}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>Start</Label>
+                  <Label>{t("eventDialog.start")}</Label>
                   <Input
                     type="datetime-local"
                     value={startTime}
@@ -226,7 +226,7 @@ export function EventDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>End</Label>
+                  <Label>{t("eventDialog.end")}</Label>
                   <Input
                     type="datetime-local"
                     value={endTime}
@@ -235,19 +235,17 @@ export function EventDialog({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Location</Label>
+                <Label>{t("eventDialog.location")}</Label>
                 <Input
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Add a location…"
+                  placeholder={t("eventDialog.addLocation")}
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Press{" "}
-                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  {shortcutModifierLabel()}+↵
-                </kbd>{" "}
-                to save
+                {t("eventDialog.pressToSave", {
+                  shortcut: `${shortcutModifierLabel()}+↵`,
+                })}
               </p>
             </div>
           ) : (
@@ -257,21 +255,15 @@ export function EventDialog({
                 <IconClock className="mt-0.5 h-4 w-4 shrink-0" />
                 {event.allDay ? (
                   <span>
-                    All day · {format(parseISO(event.start), "MMMM d, yyyy")}
+                    {t("eventDialog.allDay")} ·{" "}
+                    {format(parseISO(event.start), "MMMM d, yyyy")}
                   </span>
                 ) : (
                   <span>
-                    {format(
-                      toZonedTime(event.start, displayTimezone),
-                      "EEEE, MMMM d, yyyy",
-                    )}
+                    {format(parseISO(event.start), "EEEE, MMMM d, yyyy")}
                     <br />
-                    {format(
-                      toZonedTime(event.start, displayTimezone),
-                      "h:mm a",
-                    )}{" "}
-                    –{" "}
-                    {format(toZonedTime(event.end, displayTimezone), "h:mm a")}
+                    {format(parseISO(event.start), "h:mm a")} –{" "}
+                    {format(parseISO(event.end), "h:mm a")}
                   </span>
                 )}
               </div>
@@ -309,15 +301,7 @@ export function EventDialog({
 
               {/* Keyboard hint */}
               <p className="text-xs text-muted-foreground/60">
-                Press{" "}
-                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  E
-                </kbd>{" "}
-                to edit ·{" "}
-                <kbd className="rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                  Del
-                </kbd>{" "}
-                to delete
+                {t("eventDialog.pressToEditDelete")}
               </p>
             </div>
           )}
@@ -330,14 +314,16 @@ export function EventDialog({
                   size="sm"
                   onClick={() => setEditing(false)}
                 >
-                  Cancel
+                  {t("eventDialog.cancel")}
                 </Button>
                 <Button
                   size="sm"
                   onClick={handleSave}
                   disabled={updateEvent.isPending}
                 >
-                  {updateEvent.isPending ? "Saving…" : "Save changes"}
+                  {updateEvent.isPending
+                    ? t("eventDialog.saving")
+                    : t("eventDialog.saveChanges")}
                 </Button>
               </>
             ) : (
@@ -350,7 +336,7 @@ export function EventDialog({
                   disabled={deleteEvent.isPending}
                 >
                   <IconTrash className="mr-1.5 h-3.5 w-3.5" />
-                  Delete
+                  {t("eventDialog.delete")}
                 </Button>
                 <div className="flex-1" />
                 <Button
@@ -359,11 +345,11 @@ export function EventDialog({
                   onClick={() => setEditing(true)}
                 >
                   <IconEdit className="mr-1.5 h-3.5 w-3.5" />
-                  Edit
+                  {t("eventDialog.edit")}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={onClose}>
                   <IconX className="mr-1.5 h-3.5 w-3.5" />
-                  Close
+                  {t("eventDialog.close")}
                 </Button>
               </>
             )}

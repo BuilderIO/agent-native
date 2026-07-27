@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { appApiPath } from "@/lib/api-path";
 import type { Settings, AvailabilityConfig, BookingLink } from "@shared/api";
+import { useQuery } from "@tanstack/react-query";
+
+import { appApiPath } from "@/lib/api-path";
 
 /** Fetches settings from the public (unauthenticated) endpoint */
 export function usePublicSettings() {

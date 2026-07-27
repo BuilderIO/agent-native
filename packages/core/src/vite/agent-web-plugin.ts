@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
+
 import type { Plugin } from "vite";
+
 import {
   buildAgentWebStaticFiles,
   normalizeAgentWebConfig,

@@ -1,11 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
-import { serializeGenerationPreset } from "./_helpers.js";
 import {
   ASPECT_RATIOS,
   GENERATION_PRESET_REFERENCE_POLICIES,
@@ -13,6 +13,13 @@ import {
   IMAGE_MODELS,
   IMAGE_SIZES,
 } from "../shared/api.js";
+import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
+import { serializeGenerationPreset } from "./_helpers.js";
+import {
+  assertPresetReferenceAssetsValid,
+  assertPresetReferenceModelCompatible,
+  assertPresetSkeletonAssetsValid,
+} from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -31,13 +38,20 @@ export default defineAction({
     referencePolicy: z
       .enum(GENERATION_PRESET_REFERENCE_POLICIES)
       .default("auto"),
-    settings: z.record(z.string(), z.unknown()).optional(),
+    includeLogo: z.coerce
+      .boolean()
+      .optional()
+      .describe(
+        "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
+      ),
+    settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
   run: async (args) => {
+    const db = getDb();
     await assertAccess("asset-library", args.libraryId, "editor");
     if (args.collectionId) {
-      const [collection] = await getDb()
+      const [collection] = await db
         .select()
         .from(schema.assetCollections)
         .where(eq(schema.assetCollections.id, args.collectionId))
@@ -46,6 +60,26 @@ export default defineAction({
         throw new Error("Collection does not belong to this asset library.");
       }
     }
+    const settings = {
+      ...(args.settings ?? {}),
+      ...(args.includeLogo !== undefined
+        ? { includeLogo: args.includeLogo }
+        : {}),
+    };
+    await assertPresetSkeletonAssetsValid({
+      db,
+      libraryId: args.libraryId,
+      settings,
+    });
+    await assertPresetReferenceAssetsValid({
+      db,
+      libraryId: args.libraryId,
+      settings,
+    });
+    assertPresetReferenceModelCompatible({
+      model: args.model,
+      settings,
+    });
     const now = nowIso();
     const row = {
       id: nanoid(),
@@ -61,12 +95,12 @@ export default defineAction({
       model: args.model,
       textPolicy: args.textPolicy,
       referencePolicy: args.referencePolicy,
-      settings: stringifyJson(args.settings ?? {}),
+      settings: stringifyJson(settings),
       sortOrder: args.sortOrder ?? 100,
       createdAt: now,
       updatedAt: now,
     };
-    await getDb().insert(schema.assetGenerationPresets).values(row);
+    await db.insert(schema.assetGenerationPresets).values(row);
     return serializeGenerationPreset(row);
   },
 });

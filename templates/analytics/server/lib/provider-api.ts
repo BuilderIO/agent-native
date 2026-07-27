@@ -2,15 +2,22 @@ import {
   createProviderApiRuntime,
   listProviderApiIdsForTemplateUse,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
 } from "@agent-native/core/provider-api";
+
 import { requireRequestCredentialContext } from "./credentials-context";
 import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 
-export const ANALYTICS_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
-  "analytics",
+export const ANALYTICS_PROVIDER_API_IDS = Array.from(
+  new Set([
+    ...listProviderApiIdsForTemplateUse("analytics"),
+    // Google Sheets creation and writes use the existing Google Drive OAuth
+    // connection, whose consent is limited to drive.file.
+    "google_drive" as ProviderApiId,
+  ]),
 ) as [ProviderApiId, ...ProviderApiId[]];
 export type AnalyticsProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };
@@ -58,11 +65,9 @@ export function listProviderApiCatalog(provider?: AnalyticsProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: AnalyticsProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: AnalyticsProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 

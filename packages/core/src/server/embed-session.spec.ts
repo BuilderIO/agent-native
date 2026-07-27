@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  EMBED_SESSION_COOKIE,
+  EMBED_TARGET_HEADER,
+} from "../shared/embed-auth.js";
 import {
   requestMatchesEmbedTarget,
   normalizeEmbedTargetPath,
@@ -7,10 +12,6 @@ import {
   signEmbedSessionToken,
   verifyEmbedSessionToken,
 } from "./embed-session.js";
-import {
-  EMBED_SESSION_COOKIE,
-  EMBED_TARGET_HEADER,
-} from "../shared/embed-auth.js";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -77,6 +78,12 @@ describe("normalizeEmbedTargetPath", () => {
     ).toBe("/inbox?threadId=t1");
   });
 
+  it("rejects auth entry paths even when they include the configured base path", () => {
+    process.env.APP_BASE_PATH = "/mail";
+    expect(normalizeEmbedTargetPath("/mail/login")).toBeNull();
+    expect(normalizeEmbedTargetPath("/mail/signup")).toBeNull();
+  });
+
   it("rejects same-origin absolute URLs outside the current APP_BASE_PATH", () => {
     process.env.APP_BASE_PATH = "/dispatch";
     expect(
@@ -134,6 +141,12 @@ describe("requestMatchesEmbedTarget", () => {
     expect(
       requestMatchesEmbedTarget(
         fakeEvent("/adhoc/q2-traffic?embedded=1&__an_embed_token=tok"),
+        "/_agent-native/open?app=analytics&view=adhoc&dashboardId=q2-traffic",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent("/dashboards/q2-traffic?embedded=1&__an_embed_token=tok"),
         "/_agent-native/open?app=analytics&view=adhoc&dashboardId=q2-traffic",
       ),
     ).toBe(true);
@@ -203,6 +216,14 @@ describe("requestMatchesEmbedTarget", () => {
       requestMatchesEmbedTarget(
         fakeEvent("/overview?embedded=1&__an_embed_token=tok"),
         "/",
+      ),
+    ).toBe(true);
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent(
+          "/dashboards/agent-native-templates-first-party?embedded=1&__an_embed_token=tok",
+        ),
+        "/dashboards",
       ),
     ).toBe(true);
     expect(

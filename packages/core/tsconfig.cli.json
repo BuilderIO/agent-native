@@ -1,14 +1,14 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "declaration": false,
-    "declarationMap": false,
+    "declaration": true,
+    "declarationMap": true,
     "noCheck": true,
     "strict": false,
     "incremental": true,
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo"
   },
-  "include": ["src/cli/**/*.ts"],
+  "include": ["src/cli/**/*.ts", "src/testing.ts"],
   "exclude": [
     "node_modules",
     "dist",

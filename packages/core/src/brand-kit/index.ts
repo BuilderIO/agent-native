@@ -3,7 +3,7 @@
  *
  * The shared, template-agnostic Brand Kit surface. A Brand Kit unifies what
  * `design` and `slides` previously copy-pasted as a "design system": design
- * tokens + brand assets + custom instructions, extractable from Figma, code,
+ * tokens + brand assets + custom instructions, extractable from code,
  * GitHub, a URL, or documents, and used to generate on-brand content.
  *
  * This module is pure (no `defineAction`, no DB, no template imports). Templates

@@ -30,6 +30,10 @@ interface QueuedEvent {
   headers?: Record<string, string>;
 }
 
+interface EnqueueOptions {
+  flushImmediately?: boolean;
+}
+
 // Use globalThis so multiple ESM graph instances (Vite dev + Nitro symlinks)
 // share one queue, matching the same pattern as the tracking registry.
 const QUEUE_KEY = Symbol.for("@agent-native/core/tracking.queue");
@@ -59,17 +63,22 @@ function enqueue(
   url: string,
   body: string,
   headers?: Record<string, string>,
+  options?: EnqueueOptions,
 ): void {
   const queue = getQueue();
   queue.push({ url, body, headers });
-  if (queue.length >= MAX_BATCH_SIZE) {
-    drainQueue();
+  if (options?.flushImmediately || queue.length >= MAX_BATCH_SIZE) {
+    void drainQueue();
   } else if (!getTimer()) {
-    setTimer(setTimeout(drainQueue, BATCH_INTERVAL_MS));
+    const timer = setTimeout(() => {
+      void drainQueue();
+    }, BATCH_INTERVAL_MS);
+    if (timer.unref) timer.unref();
+    setTimer(timer);
   }
 }
 
-function drainQueue(): void {
+function drainQueue(): Promise<void[]> {
   const t = getTimer();
   if (t) {
     clearTimeout(t);
@@ -77,13 +86,18 @@ function drainQueue(): void {
   }
   const queue = getQueue();
   const batch = queue.splice(0, queue.length);
-  for (const item of batch) {
-    fetch(item.url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...item.headers },
-      body: item.body,
-    }).catch(() => {});
-  }
+  return Promise.all(
+    batch.map((item) =>
+      fetch(item.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...item.headers },
+        body: item.body,
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
+    ),
+  );
 }
 
 function isLocalhostUrl(value: string | undefined): boolean {
@@ -123,18 +137,58 @@ function shouldSkipAgentNativeAnalyticsForLocalhost(): boolean {
   ].some(isLocalhostUrl);
 }
 
+function isServerlessRuntime(): boolean {
+  return Boolean(
+    process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.AWS_EXECUTION_ENV ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.FUNCTION_NAME,
+  );
+}
+
+function agentNativeAnalyticsFlushesImmediately(): boolean {
+  const mode =
+    process.env.AGENT_NATIVE_ANALYTICS_FLUSH_MODE?.trim().toLowerCase();
+  if (mode === "batch") return false;
+  if (mode === "immediate") return true;
+  return isServerlessRuntime();
+}
+
 // ─── PostHog ───────────────────────────────────────────────────────────────
+
+function isPostHogAiObservabilityEvent(eventName: string): boolean {
+  return eventName.startsWith("$ai_");
+}
 
 function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
   return {
     name: "posthog",
     track(event: TrackingEvent) {
+      const distinctId = event.userId || "anonymous";
+      if (isPostHogAiObservabilityEvent(event.name)) {
+        enqueue(
+          `${host}/i/v0/e/`,
+          JSON.stringify({
+            api_key: apiKey,
+            event: event.name,
+            properties: {
+              distinct_id: distinctId,
+              ...event.properties,
+              timestamp: event.timestamp,
+            },
+          }),
+        );
+        return;
+      }
+
       enqueue(
         `${host}/capture/`,
         JSON.stringify({
           api_key: apiKey,
           event: event.name,
-          distinct_id: event.userId || "anonymous",
+          distinct_id: distinctId,
           properties: {
             ...event.properties,
             timestamp: event.timestamp,
@@ -154,8 +208,7 @@ function createPostHogProvider(apiKey: string, host: string): TrackingProvider {
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -188,8 +241,7 @@ function createMixpanelProvider(token: string): TrackingProvider {
       enqueue("https://api.mixpanel.com/engage", JSON.stringify([data]));
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -229,8 +281,7 @@ function createAmplitudeProvider(apiKey: string): TrackingProvider {
       enqueue("https://api2.amplitude.com/2/httpapi", JSON.stringify(data));
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -269,8 +320,7 @@ function createWebhookProvider(
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -281,6 +331,7 @@ function createAgentNativeAnalyticsProvider(
   publicKey: string,
   endpoint: string,
 ): TrackingProvider {
+  const flushImmediately = agentNativeAnalyticsFlushesImmediately();
   return {
     name: "agent-native-analytics",
     track(event: TrackingEvent) {
@@ -293,6 +344,8 @@ function createAgentNativeAnalyticsProvider(
           userId: event.userId,
           timestamp: event.timestamp,
         }),
+        undefined,
+        { flushImmediately },
       );
     },
     identify(userId, traits) {
@@ -305,11 +358,12 @@ function createAgentNativeAnalyticsProvider(
           properties: traits ?? {},
           timestamp: new Date().toISOString(),
         }),
+        undefined,
+        { flushImmediately },
       );
     },
     flush: () => {
-      drainQueue();
-      return Promise.resolve();
+      return drainQueue().then(() => undefined);
     },
   };
 }
@@ -341,7 +395,9 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(createAmplitudeProvider(amplitudeKey));
   }
 
-  const agentNativeAnalyticsKey = process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  const agentNativeAnalyticsKey =
+    process.env.AGENT_NATIVE_ANALYTICS_PUBLIC_KEY ||
+    process.env.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (
     agentNativeAnalyticsKey &&
     !shouldSkipAgentNativeAnalyticsForLocalhost()

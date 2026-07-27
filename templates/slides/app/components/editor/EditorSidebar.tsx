@@ -1,5 +1,12 @@
-import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  type AttributedRecentEdit,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useAvatarUrl } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import {
   useSortable,
   SortableContext,
@@ -14,25 +21,23 @@ import {
   IconLoader2,
   IconSquarePlus,
 } from "@tabler/icons-react";
-import type { Slide } from "@/context/DeckContext";
-import type { AspectRatio } from "@/lib/aspect-ratios";
-import SlideRenderer from "@/components/deck/SlideRenderer";
-import { useAgentGenerating } from "@/hooks/use-agent-generating";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { useState, useRef, useEffect } from "react";
 import { useCallback } from "react";
-import {
-  appBasePath,
-  PromptComposer,
-  type CollabUser,
-  useAvatarUrl,
-} from "@agent-native/core/client";
+import { createPortal } from "react-dom";
+import { toast } from "sonner";
+
+import SlideRenderer from "@/components/deck/SlideRenderer";
 import { GoogleDocImportHint } from "@/components/editor/GoogleDocImportHint";
+import type { UploadedFile } from "@/components/editor/PromptDialog";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { toast } from "@/hooks/use-toast";
+import type { Slide } from "@/context/DeckContext";
+import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import { addSlideAgentMessage } from "@/lib/agent-visible-message";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 
 interface EditorSidebarProps {
   slides: Slide[];
@@ -45,8 +50,22 @@ interface EditorSidebarProps {
   onAddEmptySlide: () => void;
   /** Presence map: slideId → list of users currently viewing that slide */
   slidePresence?: Map<string, CollabUser[]>;
+  /** Lingering recent edits (e.g. agent edits) to highlight over thumbnails. */
+  recentEdits?: AttributedRecentEdit[];
   /** Deck aspect ratio (defaults to 16:9 when omitted) */
   aspectRatio?: AspectRatio;
+}
+
+/** Extract the slide id from a `{kind:"paths",paths:["slides.<id>"]}` edit. */
+function slideIdFromEdit(edit: AttributedRecentEdit): string | null {
+  const d = edit.descriptor;
+  if (d.kind === "paths" && Array.isArray(d.paths)) {
+    for (const p of d.paths) {
+      const m = /^slides\.(.+)$/.exec(p);
+      if (m) return m[1];
+    }
+  }
+  return null;
 }
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -82,7 +101,7 @@ function describeUploadedFilesForAgent(
     "",
     "File handling rules:",
     `- PPTX files: call \`import-pptx --filePath "<path>" --deckId ${deckId}\` when the user wants the deck/slides imported, or to extract slide source from a presentation.`,
-    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned content as source material.`,
+    `- PDF and DOCX files: call \`import-file --filePath "<path>" --format auto --deckId ${deckId}\` and use the returned extracted text as source material. The returned text is capped for reliability; re-run with maxChars only if more context is needed.`,
     "- Text-like files: use the uploaded-text-file blocks already included in the prompt; do not call import-file for them.",
     '- Image files with an embeddable URL can be inserted directly into slide HTML as `<img src="...">` or used as visual references.',
     "- Image files without a URL are visual/reference assets only; do not claim to have processed a PPTX/PDF/DOCX unless the relevant import action succeeds.",
@@ -170,6 +189,7 @@ function SortableSlideThumb({
   presenceUsers?: CollabUser[];
   aspectRatio?: AspectRatio;
 }) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -193,10 +213,10 @@ function SortableSlideThumb({
         ref={(node) => registerButtonRef(slide.id, node)}
         onClick={onSelect}
         onFocus={onSelect}
-        aria-label={`Select slide ${index + 1}`}
+        aria-label={t("editorSidebar.selectSlide", { number: index + 1 })}
         aria-current={isActive ? "true" : undefined}
         data-slide-thumbnail-id={slide.id}
-        className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-all duration-150 ${
+        className={`w-full text-left flex items-start gap-2 p-2 rounded-lg transition-[background-color,box-shadow] duration-150 ${
           isActive ? "bg-accent ring-1 ring-[#609FF8]/50" : "hover:bg-accent"
         } focus:outline-none`}
       >
@@ -254,12 +274,12 @@ function SortableSlideThumb({
                 onDuplicate();
               }}
               className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-black/80"
-              aria-label="Duplicate slide"
+              aria-label={t("editorSidebar.duplicateSlide")}
             >
               <IconCopy className="w-3 h-3 text-white/60" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Duplicate</TooltipContent>
+          <TooltipContent>{t("editorSidebar.duplicate")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -269,12 +289,12 @@ function SortableSlideThumb({
                 onDelete();
               }}
               className="p-1.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 hover:bg-red-900/80"
-              aria-label="Delete slide"
+              aria-label={t("editorSidebar.deleteSlide")}
             >
               <IconTrash className="w-3 h-3 text-white/60" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Delete</TooltipContent>
+          <TooltipContent>{t("editorSidebar.delete")}</TooltipContent>
         </Tooltip>
       </div>
     </div>
@@ -288,9 +308,13 @@ function GeneratingSlideSkeleton({
   index: number;
   aspectRatio?: AspectRatio;
 }) {
+  const t = useT();
   const cssRatio = (aspectRatio ?? "16:9").replace(":", " / ");
   return (
-    <div className="group relative" aria-label="Generating slide">
+    <div
+      className="group relative"
+      aria-label={t("editorSidebar.generatingSlide")}
+    >
       <div className="w-full flex items-start gap-2 p-2 rounded-lg bg-accent/30">
         <div className="flex-shrink-0 mt-2 w-3.5 h-3.5" />
         <span className="flex-shrink-0 w-5 mt-2 text-[10px] font-medium text-muted-foreground/70">
@@ -334,6 +358,7 @@ function AddSlidePopover({
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
 }) {
+  const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
@@ -374,34 +399,30 @@ function AddSlidePopover({
           });
           if (!res.ok) {
             const data = await res.json().catch(() => null);
-            throw new Error(data?.error || "Upload failed");
+            throw new Error(data?.error || t("editorSidebar.uploadFailed"));
           }
           uploaded = (await res.json()) as UploadedFile[];
         } catch (error) {
-          toast({
-            title: "Upload failed",
+          toast.error(t("editorSidebar.uploadFailed"), {
             description:
               error instanceof Error
                 ? error.message
-                : "Could not upload the attached file.",
-            variant: "destructive",
+                : t("editorSidebar.uploadAttachedFileFailed"),
           });
           return;
         }
       }
 
       const trimmedText = text.trim();
-      const description = [trimmedText || "a new slide", googleDocContext]
-        .filter(Boolean)
-        .join("\n\n");
-      const sourceForContext = truncateSourceForContext(description);
+      const googleDocSourceForContext =
+        truncateSourceForContext(googleDocContext);
       const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
       const context = [
         `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
         `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-        "The text below is the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-        `User request / source material:\n${sourceForContext.text}`,
-        sourceForContext.truncated
+        "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+        googleDocSourceForContext.text,
+        googleDocSourceForContext.truncated
           ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
           : "",
         fileContext,
@@ -416,10 +437,7 @@ function AddSlidePopover({
         "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
       ].join("\n");
 
-      agentSubmit(
-        `Add slide: ${summarizePromptForChat(trimmedText || "a new slide")}`,
-        context,
-      );
+      agentSubmit(addSlideAgentMessage(trimmedText), context);
       onOpenChange(false);
     },
     [
@@ -460,7 +478,7 @@ function AddSlidePopover({
       }}
     >
       <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
-        Add slides
+        {t("editorSidebar.addSlides")}
       </p>
       {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
         <>
@@ -474,9 +492,9 @@ function AddSlidePopover({
               className="w-full mb-1 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconSquarePlus className="w-4 h-4 text-muted-foreground" />
-              <span>Add empty slide</span>
+              <span>{t("editorSidebar.addEmptySlide")}</span>
               <span className="ml-auto text-[11px] text-muted-foreground">
-                no AI
+                {t("editorSidebar.noAi")}
               </span>
             </button>
           )}
@@ -490,9 +508,9 @@ function AddSlidePopover({
               className="w-full mb-2 px-2.5 py-2 text-left text-sm rounded-md hover:bg-accent transition-colors flex items-center gap-2 text-foreground/90 cursor-pointer"
             >
               <IconCopy className="w-4 h-4 text-muted-foreground" />
-              <span>Duplicate current slide</span>
+              <span>{t("editorSidebar.duplicateCurrentSlide")}</span>
               <span className="ml-auto text-[11px] text-muted-foreground">
-                no AI
+                {t("editorSidebar.noAi")}
               </span>
             </button>
           )}
@@ -501,7 +519,7 @@ function AddSlidePopover({
       )}
       <PromptComposer
         autoFocus
-        placeholder="Describe the slides you want..."
+        placeholder={t("editorSidebar.promptPlaceholder")}
         draftScope={`slides:add-slide:${deckId}`}
         onSubmit={handleSubmit}
         onTextChange={setPromptText}
@@ -517,13 +535,6 @@ function AddSlidePopover({
   );
 }
 
-function summarizePromptForChat(prompt: string): string {
-  const singleLine = prompt.trim().replace(/\s+/g, " ");
-  if (!singleLine) return "a new slide";
-  if (singleLine.length <= 180) return singleLine;
-  return `${singleLine.slice(0, 177)}...`;
-}
-
 export default function EditorSidebar({
   slides,
   activeSlideId,
@@ -534,13 +545,30 @@ export default function EditorSidebar({
   onDeleteSlide,
   onAddEmptySlide,
   slidePresence,
+  recentEdits,
   aspectRatio,
 }: EditorSidebarProps) {
+  const t = useT();
   const activeIndex = slides.findIndex((s) => s.id === activeSlideId);
   const [addOpen, setAddOpen] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const headerAddRef = useRef<HTMLButtonElement>(null);
   const slideButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const thumbScrollRef = useRef<HTMLDivElement>(null);
+
+  // Resolve a recent-edit descriptor (`slides.<id>`) to the on-screen rect of
+  // that slide's thumbnail button, relative to the scroll container, so the
+  // shared RecentEditHighlights overlay can draw a fading "AI edited" ring.
+  const resolveThumbRect = useCallback(
+    (edit: AttributedRecentEdit): DOMRect | null => {
+      const slideId = slideIdFromEdit(edit);
+      if (!slideId) return null;
+      const node = slideButtonRefs.current.get(slideId);
+      if (!node) return null;
+      return node.getBoundingClientRect();
+    },
+    [],
+  );
   const { generating, submit: agentSubmit } = useAgentGenerating();
 
   const registerSlideButton = useCallback(
@@ -597,10 +625,10 @@ export default function EditorSidebar({
   }, [slides, activeSlideId, onSelectSlide]);
 
   return (
-    <div className="w-56 sm:w-64 flex-shrink-0 border-r border-border bg-background flex flex-col h-full">
-      <div className="p-3 border-b border-border flex items-center justify-between">
+    <div className="flex h-full min-h-0 w-56 flex-shrink-0 flex-col border-r border-border/70 bg-background/95 sm:w-64">
+      <div className="flex items-center justify-between border-b border-border/70 p-3">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Slides
+          {t("editorSidebar.slides")}
         </span>
         {addSlideGenerating ? (
           <IconLoader2 className="w-4 h-4 text-muted-foreground animate-spin" />
@@ -611,17 +639,20 @@ export default function EditorSidebar({
                 ref={headerAddRef}
                 onClick={() => setAddOpen(!addOpen)}
                 className="p-2 rounded-md hover:bg-accent transition-colors"
-                aria-label="Add slides"
+                aria-label={t("editorSidebar.addSlides")}
               >
                 <IconPlus className="w-4 h-4 text-muted-foreground" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Add slides</TooltipContent>
+            <TooltipContent>{t("editorSidebar.addSlides")}</TooltipContent>
           </Tooltip>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div
+        ref={thumbScrollRef}
+        className="relative min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2"
+      >
         <SortableContext
           items={slides.map((s) => s.id)}
           strategy={verticalListSortingStrategy}
@@ -645,6 +676,15 @@ export default function EditorSidebar({
           <GeneratingSlideSkeleton
             index={slides.length}
             aspectRatio={aspectRatio}
+          />
+        )}
+        {/* Fading "AI edited" highlights over the thumbnails of just-edited
+            slides (the component handles the fade + name/color tag). */}
+        {recentEdits && recentEdits.length > 0 && (
+          <RecentEditHighlights
+            edits={recentEdits}
+            resolveRect={resolveThumbRect}
+            containerRef={thumbScrollRef}
           />
         )}
       </div>

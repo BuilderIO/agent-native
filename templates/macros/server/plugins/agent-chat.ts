@@ -1,5 +1,5 @@
-import { createAgentChatPlugin } from "@agent-native/core/server";
 import { getOrgContext } from "@agent-native/core/org";
+import { createAgentChatPlugin } from "@agent-native/core/server";
 
 // Static action imports — ensures Nitro bundles them for serverless deployments
 // where filesystem-based discovery (autoDiscoverActions) is unavailable.
@@ -23,12 +23,25 @@ import updateWeight from "../../actions/update-weight.js";
 import viewScreen from "../../actions/view-screen.js";
 import weightsHistory from "../../actions/weights-history.js";
 
+const INITIAL_TOOL_NAMES = [
+  "log-meal",
+  "log-exercise",
+  "log-weight",
+  "edit-item",
+  "delete-item",
+  "get-analytics",
+  "meals-history",
+  "weights-history",
+  "navigate",
+];
+
 export default createAgentChatPlugin({
   appId: "macros",
   // Voice-first app: keep the prompt tight. Skip the framework preamble,
   // resource loading, SQL schema dump, and workspace inventory — the
   // template prompt below has everything this agent needs.
   leanPrompt: true,
+  initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   actions: {
     "delete-exercise": deleteExercise,

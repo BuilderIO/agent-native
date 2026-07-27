@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
+
 import { nanoid } from "nanoid";
+
 import {
   createSkeletonProjectIR,
   describeMigrationInput,
@@ -11,12 +13,12 @@ import {
   selectSourceAdapter,
   type SourceAdapterRegistry,
 } from "./adapters/source-registry.js";
-import { createAgentNativeRecipes } from "./recipes/agent-native.js";
 import {
   migrationPlanInputTasks,
   summarizeMigrationPlanInputs,
   type PlanMigrationOptions,
 } from "./plan-inputs.js";
+import { createAgentNativeRecipes } from "./recipes/agent-native.js";
 import type {
   CriticDecision,
   MigrationArtifacts,

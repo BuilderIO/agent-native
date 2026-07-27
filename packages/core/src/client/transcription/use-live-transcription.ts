@@ -6,12 +6,15 @@
  * stop when the user hits stop. The accumulated transcript is available
  * immediately — no round-trip to Whisper needed.
  *
- * Higher-quality backends (Groq Whisper, OpenAI Whisper, Deepgram) can
- * refine the result afterward, but this gives users something useful
- * from second zero even without an API key.
+ * Builder can transcribe the original recording afterward if native capture
+ * produces no text, but this gives users something useful from second zero
+ * without a cloud transcription request.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+
+const NETWORK_RESTART_BASE_MS = 1_000;
+const NETWORK_RESTART_MAX_MS = 30_000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSpeechRecognitionCtor(): any {
@@ -55,8 +58,20 @@ export function useLiveTranscription(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
+  const interimRef = useRef("");
   const stoppedManuallyRef = useRef(false);
   const stopWaiterRef = useRef<((text: string) => void) | null>(null);
+  const restartTimerRef = useRef<number | null>(null);
+  const networkErrorCountRef = useRef(0);
+  const restartDelayRef = useRef(0);
+
+  const currentTranscript = useCallback(
+    () =>
+      [transcriptRef.current.trim(), interimRef.current.trim()]
+        .filter(Boolean)
+        .join(" "),
+    [],
+  );
 
   const supported = !!getSpeechRecognitionCtor();
 
@@ -65,6 +80,10 @@ export function useLiveTranscription(
     if (!Ctor) return;
 
     // Clean up any prior session.
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
@@ -79,7 +98,10 @@ export function useLiveTranscription(
     recognition.lang = lang;
     recognitionRef.current = recognition;
     transcriptRef.current = "";
+    interimRef.current = "";
     stoppedManuallyRef.current = false;
+    networkErrorCountRef.current = 0;
+    restartDelayRef.current = 0;
     setTranscript("");
     setInterimText("");
 
@@ -95,28 +117,68 @@ export function useLiveTranscription(
           interim += text;
         }
       }
+      interimRef.current = interim;
       setInterimText(interim);
+      if (event.results.length > 0) {
+        networkErrorCountRef.current = 0;
+        restartDelayRef.current = 0;
+      }
     };
 
     recognition.onerror = (event: any) => {
       if (event.error === "no-speech" || event.error === "aborted") return;
+      if (
+        event.error === "not-allowed" ||
+        event.error === "service-not-allowed" ||
+        event.error === "audio-capture"
+      ) {
+        stoppedManuallyRef.current = true;
+        setIsActive(false);
+        return;
+      }
+      if (event.error === "network") {
+        const retryIndex = networkErrorCountRef.current++;
+        restartDelayRef.current = Math.min(
+          NETWORK_RESTART_BASE_MS * 2 ** retryIndex,
+          NETWORK_RESTART_MAX_MS,
+        );
+      }
       console.warn("[live-transcription] error:", event.error);
     };
 
     recognition.onend = () => {
       // Web Speech sometimes stops on its own (silence timeout, network
       // hiccup). Restart automatically unless we stopped intentionally.
-      if (!stoppedManuallyRef.current && recognitionRef.current) {
-        try {
-          recognition.start();
-        } catch {
-          setIsActive(false);
+      if (
+        !stoppedManuallyRef.current &&
+        recognitionRef.current === recognition
+      ) {
+        const restart = () => {
+          restartTimerRef.current = null;
+          if (
+            stoppedManuallyRef.current ||
+            recognitionRef.current !== recognition
+          ) {
+            return;
+          }
+          try {
+            recognition.start();
+          } catch {
+            setIsActive(false);
+          }
+        };
+        const delayMs = restartDelayRef.current;
+        restartDelayRef.current = 0;
+        if (delayMs > 0) {
+          restartTimerRef.current = window.setTimeout(restart, delayMs);
+        } else {
+          restart();
         }
         return;
       }
       setIsActive(false);
       if (stopWaiterRef.current) {
-        stopWaiterRef.current(transcriptRef.current);
+        stopWaiterRef.current(currentTranscript());
       }
     };
 
@@ -126,10 +188,16 @@ export function useLiveTranscription(
     } catch {
       /* browser may block without user gesture */
     }
-  }, [lang]);
+  }, [currentTranscript, lang]);
 
   const stop = useCallback((): string => {
+    const text = currentTranscript();
     stoppedManuallyRef.current = true;
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+    interimRef.current = "";
     setInterimText("");
     if (recognitionRef.current) {
       try {
@@ -140,51 +208,65 @@ export function useLiveTranscription(
       recognitionRef.current = null;
     }
     setIsActive(false);
-    return transcriptRef.current;
-  }, []);
+    return text;
+  }, [currentTranscript]);
 
-  const stopAndWait = useCallback((timeoutMs = 1200): Promise<string> => {
-    stoppedManuallyRef.current = true;
-    setInterimText("");
-
-    const recognition = recognitionRef.current;
-    if (!recognition) {
-      setIsActive(false);
-      return Promise.resolve(transcriptRef.current);
-    }
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (text: string) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        if (stopWaiterRef.current === finish) {
-          stopWaiterRef.current = null;
-        }
-        if (recognitionRef.current === recognition) {
-          recognitionRef.current = null;
-        }
-        setIsActive(false);
-        resolve(text);
-      };
-
-      const timeout = window.setTimeout(() => {
-        finish(transcriptRef.current);
-      }, timeoutMs);
-
-      stopWaiterRef.current = finish;
-      try {
-        recognition.stop();
-      } catch {
-        finish(transcriptRef.current);
+  const stopAndWait = useCallback(
+    (timeoutMs = 1200): Promise<string> => {
+      stoppedManuallyRef.current = true;
+      if (restartTimerRef.current !== null) {
+        window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
       }
-    });
-  }, []);
+      setInterimText("");
+
+      const recognition = recognitionRef.current;
+      if (!recognition) {
+        const text = currentTranscript();
+        interimRef.current = "";
+        setIsActive(false);
+        return Promise.resolve(text);
+      }
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (text: string) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          if (stopWaiterRef.current === finish) {
+            stopWaiterRef.current = null;
+          }
+          if (recognitionRef.current === recognition) {
+            recognitionRef.current = null;
+          }
+          interimRef.current = "";
+          setIsActive(false);
+          resolve(text);
+        };
+
+        const timeout = window.setTimeout(() => {
+          finish(currentTranscript());
+        }, timeoutMs);
+
+        stopWaiterRef.current = finish;
+        try {
+          recognition.stop();
+        } catch {
+          finish(currentTranscript());
+        }
+      });
+    },
+    [currentTranscript],
+  );
 
   const pause = useCallback(() => {
     if (!recognitionRef.current) return;
     stoppedManuallyRef.current = true;
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     try {
       recognitionRef.current.stop();
     } catch {

@@ -1,6 +1,7 @@
-import type { CalendarEvent } from "../../shared/api.js";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+
+import type { CalendarEvent } from "../../shared/api.js";
 
 /** Convert a webcal:// URL to https:// */
 function normalizeUrl(url: string): string {
@@ -272,6 +273,7 @@ export async function fetchICalEvents(
   color: string,
   from: string,
   to: string,
+  options: { throwOnError?: boolean } = {},
 ): Promise<CalendarEvent[]> {
   const httpUrl = normalizeUrl(url);
 
@@ -280,6 +282,7 @@ export async function fetchICalEvents(
   } catch {
     // Silently degrade — never echo the URL or reason back. A loud error
     // helps an attacker map internal infrastructure via probe responses.
+    if (options.throwOnError) throw new Error("ICS feed URL is not allowed");
     return [];
   }
 
@@ -293,9 +296,17 @@ export async function fetchICalEvents(
       },
       { maxRedirects: 3 },
     );
-    if (!response.ok) return [];
+    if (!response.ok) {
+      if (options.throwOnError) throw new Error("ICS feed request failed");
+      return [];
+    }
     icsText = await response.text();
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) {
+      throw error instanceof Error
+        ? error
+        : new Error("ICS feed request failed");
+    }
     return [];
   }
 
@@ -322,6 +333,7 @@ export async function fetchICalEvents(
       location: e.location || "",
       allDay: e.allDay,
       source: "ical" as const,
+      sourceId: feedId,
       color,
       createdAt: now,
       updatedAt: now,

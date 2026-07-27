@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   act,
   cleanup,
@@ -7,19 +5,28 @@ import {
   render,
   screen,
 } from "@testing-library/react";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { sendToAgentChat } = vi.hoisted(() => ({
   sendToAgentChat: vi.fn(),
 }));
-vi.mock("@agent-native/core", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   sendToAgentChat,
-  // `@/lib/utils` re-exports `cn` from `@agent-native/core`, so the mock has
-  // to keep that helper alive or the component crashes on its first render.
-  cn: (...args: unknown[]) =>
-    args
-      .flat(Infinity)
-      .filter((x) => typeof x === "string" && x.length > 0)
-      .join(" "),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    (
+      ({
+        "raw.comment": "Comment",
+        "raw.editSlide": "Edit slide",
+        "raw.escExit": "Esc to exit",
+        "raw.pinDropHint": "Click anywhere on the slide to leave a comment",
+        "raw.tellAgentChange": "Tell the agent what to change...",
+        "raw.send": "Send",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 // Tooltip primitives in shadcn portal to document.body. Render them inline

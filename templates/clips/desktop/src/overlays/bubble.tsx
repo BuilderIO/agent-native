@@ -1,50 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IconCameraOff } from "@tabler/icons-react";
-
+import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
 type BubbleSize = "small" | "medium";
-const LOCAL_CAMERA_TARGET_FPS = 60;
-const LOCAL_CAMERA_MIN_FPS = 30;
-const LOCAL_CAMERA_FALLBACK_FPS = 30;
-const LOCAL_CAMERA_MIN_CANVAS_PX = 640;
-
-function buildLocalCameraConstraints(
-  cameraId: string | null,
-  strictFps: boolean,
-): MediaStreamConstraints {
-  const video: MediaTrackConstraints = {
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: strictFps
-      ? {
-          min: LOCAL_CAMERA_MIN_FPS,
-          ideal: LOCAL_CAMERA_TARGET_FPS,
-          max: 60,
-        }
-      : { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
-  };
-  if (cameraId) {
-    video.deviceId = { exact: cameraId };
-  }
-  return { video, audio: false };
-}
-
-async function getLocalCameraStream(
-  cameraId: string | null,
-): Promise<MediaStream> {
-  try {
-    return await navigator.mediaDevices.getUserMedia(
-      buildLocalCameraConstraints(cameraId, true),
-    );
-  } catch (err) {
-    console.warn("[bubble] strict local camera constraints failed", err);
-    return await navigator.mediaDevices.getUserMedia(
-      buildLocalCameraConstraints(cameraId, false),
-    );
-  }
-}
 
 /**
  * Draggable, circular camera bubble — a PURE RENDERER.
@@ -87,14 +46,9 @@ async function getLocalCameraStream(
  * stops trying and the popover starts the canvas pump instead, at
  * which point the canvas path takes over seamlessly.
  *
- * Full-screen capture is the exception. It uses native macOS capture instead
- * of WebKit `getDisplayMedia`, so the bubble can own a local camera stream
- * directly. That avoids the hidden-popover relay during recording and keeps
- * the face bubble live at native camera quality.
- *
  * # Hover controls (Loom-style)
  *
- * On pointerenter, a small horizontal pill fades in under the bubble
+ * On pointerenter, a small horizontal pill fades in above the bubble
  * with two size-dot buttons (small / medium) and an X close button.
  * Clicking a dot calls `set_bubble_size` on the Rust side, which
  * resizes this window and persists the choice to disk. On
@@ -112,18 +66,12 @@ export function Bubble() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const localCameraIdRef = useRef<string | null>(null);
-  const localVideoFrameCallbackRef = useRef<number | null>(null);
-  const localDrawTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingModeRef = useRef(false);
   // Which transport delivered the most recent usable frame. Starts as
   // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
   // JPEG frame, whichever lands first.
   const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
     "none",
   );
-  const [localCameraActive, setLocalCameraActive] = useState(false);
   // Small is the default bubble size — matches the Rust-side default in
   // `load_bubble_size_name`. On mount we `invoke("load_bubble_size")` to
   // read the persisted choice and override this if the user previously
@@ -204,270 +152,6 @@ export function Bubble() {
       console.warn("[bubble] close_bubble failed", err);
     }
   };
-
-  useEffect(() => {
-    let stopped = false;
-    let unlisten: (() => void) | null = null;
-    listen<{ active?: boolean }>("clips:bubble-recording-mode", (event) => {
-      if (stopped) return;
-      recordingModeRef.current = event.payload?.active === true;
-      if (!recordingModeRef.current && videoRef.current?.srcObject) {
-        setActivePath("webrtc");
-      }
-    })
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        unlisten = u;
-      })
-      .catch(() => {});
-    return () => {
-      stopped = true;
-      try {
-        unlisten?.();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  // ---- local camera receiver (native full-screen capture path) ------------
-  useEffect(() => {
-    let stopped = false;
-    let startUnlisten: (() => void) | null = null;
-    let stopUnlisten: (() => void) | null = null;
-    let renderedFrames = 0;
-    let lastFpsLogAt = 0;
-
-    const stopLocalCanvasRenderer = () => {
-      const videoEl = videoRef.current;
-      if (
-        localVideoFrameCallbackRef.current != null &&
-        videoEl?.cancelVideoFrameCallback
-      ) {
-        videoEl.cancelVideoFrameCallback(localVideoFrameCallbackRef.current);
-      }
-      localVideoFrameCallbackRef.current = null;
-      if (localDrawTimerRef.current) {
-        clearInterval(localDrawTimerRef.current);
-        localDrawTimerRef.current = null;
-      }
-    };
-
-    const clearLocalCanvas = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-    };
-
-    const drawLocalCameraFrame = (stream: MediaStream) => {
-      if (stopped || localStreamRef.current !== stream) return;
-      const videoEl = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!videoEl || !canvas) return;
-      if (videoEl.readyState < 2 || videoEl.videoWidth === 0) return;
-
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      const canvasSize = Math.max(
-        LOCAL_CAMERA_MIN_CANVAS_PX,
-        Math.round(Math.max(rect.width, rect.height, 1) * dpr),
-      );
-      if (canvas.width !== canvasSize) canvas.width = canvasSize;
-      if (canvas.height !== canvasSize) canvas.height = canvasSize;
-
-      const ctx = canvas.getContext("2d", { willReadFrequently: false });
-      if (!ctx) return;
-
-      const vw = videoEl.videoWidth;
-      const vh = videoEl.videoHeight;
-      const side = Math.min(vw, vh);
-      const sx = (vw - side) / 2;
-      const sy = (vh - side) / 2;
-      ctx.drawImage(videoEl, sx, sy, side, side, 0, 0, canvasSize, canvasSize);
-
-      renderedFrames += 1;
-      const now = performance.now();
-      if (!lastFpsLogAt) lastFpsLogAt = now;
-      if (now - lastFpsLogAt >= 3000) {
-        const fps = Math.round((renderedFrames * 1000) / (now - lastFpsLogAt));
-        renderedFrames = 0;
-        lastFpsLogAt = now;
-        console.log("[bubble] local camera canvas fps =", fps);
-      }
-    };
-
-    const startLocalCanvasRenderer = (stream: MediaStream) => {
-      stopLocalCanvasRenderer();
-      renderedFrames = 0;
-      lastFpsLogAt = performance.now();
-      drawLocalCameraFrame(stream);
-
-      const scheduleVideoFrame = () => {
-        if (stopped || localStreamRef.current !== stream) return;
-        const videoEl = videoRef.current;
-        if (!videoEl?.requestVideoFrameCallback) return;
-        localVideoFrameCallbackRef.current = videoEl.requestVideoFrameCallback(
-          () => {
-            localVideoFrameCallbackRef.current = null;
-            drawLocalCameraFrame(stream);
-            scheduleVideoFrame();
-          },
-        );
-      };
-
-      if (videoRef.current?.requestVideoFrameCallback) {
-        scheduleVideoFrame();
-        return;
-      }
-
-      localDrawTimerRef.current = setInterval(
-        () => drawLocalCameraFrame(stream),
-        Math.round(1000 / LOCAL_CAMERA_FALLBACK_FPS),
-      );
-    };
-
-    const stopLocalCamera = () => {
-      stopLocalCanvasRenderer();
-      const stream = localStreamRef.current;
-      localStreamRef.current = null;
-      localCameraIdRef.current = null;
-      if (!stopped) setLocalCameraActive(false);
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-
-      const videoEl = videoRef.current;
-      if (videoEl && (!stream || videoEl.srcObject === stream)) {
-        try {
-          videoEl.pause();
-        } catch {
-          // ignore
-        }
-        videoEl.srcObject = null;
-      }
-      clearLocalCanvas();
-    };
-
-    listen<{ cameraId?: string | null }>(
-      "clips:bubble-start-local-camera",
-      async (event) => {
-        if (stopped) return;
-        const cameraId = event.payload?.cameraId?.trim() || null;
-        if (localStreamRef.current && localCameraIdRef.current === cameraId) {
-          return;
-        }
-
-        stopLocalCamera();
-
-        try {
-          const stream = await getLocalCameraStream(cameraId);
-          if (stopped) {
-            stream.getTracks().forEach((track) => track.stop());
-            return;
-          }
-
-          const videoEl = videoRef.current;
-          if (!videoEl) {
-            stream.getTracks().forEach((track) => track.stop());
-            return;
-          }
-
-          localStreamRef.current = stream;
-          localCameraIdRef.current = cameraId;
-          const track = stream.getVideoTracks()[0];
-          if (track && "contentHint" in track) {
-            try {
-              track.contentHint = "motion";
-            } catch {
-              // ignore
-            }
-          }
-          track
-            ?.applyConstraints({
-              frameRate: { ideal: LOCAL_CAMERA_TARGET_FPS, max: 60 },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            })
-            .catch((err) => {
-              console.warn(
-                "[bubble] local camera applyConstraints failed",
-                err,
-              );
-            });
-          videoEl.srcObject = stream;
-          await videoEl.play().catch((err) => {
-            console.warn("[bubble] local camera video.play() rejected", err);
-          });
-          setLocalCameraActive(true);
-          startLocalCanvasRenderer(stream);
-          if (firstFrameAtRef.current == null) {
-            firstFrameAtRef.current = Date.now();
-            console.log(
-              "[bubble] local camera started",
-              track?.getSettings?.() ?? {},
-            );
-          }
-          setActivePath("canvas");
-        } catch (err) {
-          console.warn("[bubble] local camera failed", err);
-          stopLocalCamera();
-        }
-      },
-    )
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-        } else {
-          startUnlisten = u;
-        }
-      })
-      .catch(() => {});
-
-    listen("clips:bubble-stop-local-camera", () => {
-      if (stopped) return;
-      stopLocalCamera();
-      setActivePath("none");
-    })
-      .then((u) => {
-        if (stopped) {
-          try {
-            u();
-          } catch {
-            // ignore
-          }
-        } else {
-          stopUnlisten = u;
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      stopped = true;
-      try {
-        startUnlisten?.();
-      } catch {
-        // ignore
-      }
-      try {
-        stopUnlisten?.();
-      } catch {
-        // ignore
-      }
-      stopLocalCamera();
-    };
-  }, []);
 
   // ---- WebRTC receiver ----------------------------------------------------
   // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
@@ -583,7 +267,6 @@ export function Bubble() {
 
       localPc.ontrack = (ev) => {
         if (stopped) return;
-        if (localStreamRef.current) return;
         const videoEl = videoRef.current;
         if (!videoEl) return;
         const incomingStream = ev.streams[0];
@@ -599,9 +282,7 @@ export function Bubble() {
           firstFrameAtRef.current = Date.now();
           console.log("[bubble] first webrtc track received");
         }
-        if (!recordingModeRef.current) {
-          setActivePath("webrtc");
-        }
+        setActivePath("webrtc");
       };
 
       try {
@@ -792,7 +473,6 @@ export function Bubble() {
         h: number;
       }>("clips:bubble-frame", async (ev) => {
         if (stopped) return;
-        if (localStreamRef.current) return;
         const { dataUrl, bytes, w, h } = ev.payload;
 
         if (firstFrameAtRef.current == null) {
@@ -926,40 +606,90 @@ export function Bubble() {
   }, []);
 
   // ---- explicit drag handler --------------------------------------------
-  // We bypass `data-tauri-drag-region` entirely — it was unreliable across
-  // three iterations (see PR history). Tauri's attribute hook watches for
-  // elements with the attribute at page-load time, and also has gotchas
-  // with pointer-events, unfocused-window first-click swallowing, and
-  // WKWebView's latched event target. Calling `startDragging()` explicitly
-  // on mousedown is the canonical robust path (per Tauri's own docs for
-  // "customize drag behavior") and skips all of those footguns.
+  // Loom-style manual drag. We deliberately do NOT use Tauri's native
+  // `startDragging()` (or `data-tauri-drag-region`): with a native drag the OS
+  // window server owns the position, so the only way to keep the bubble on
+  // screen is to clamp AFTER each move and `set_position` it back — and the OS
+  // immediately shoves it back out toward the cursor on the next frame. That
+  // fight is exactly the jitter/snap-back we're killing here.
   //
-  // Interactive children (close X, size dots) are marked `data-no-drag`
-  // so their clicks land on their onClick handlers instead of starting
-  // a window drag.
-  const handleBubbleMouseDown = (e: React.MouseEvent) => {
-    // Only left mouse button initiates drag.
+  // Instead we drive the move ourselves. On pointer-down Rust snapshots the
+  // cursor + window anchor; each frame `bubble_drag_move` reads the live cursor,
+  // offsets the window by the cursor delta, and clamps BEFORE moving. The
+  // window therefore stops dead at the edge like a puck against a wall — the
+  // cursor keeps going, the bubble stays pinned, nothing to snap back from.
+  //
+  // Interactive children (close X, size dots) are marked `data-no-drag` so
+  // their clicks land on their onClick handlers instead of starting a drag.
+  const draggingRef = useRef(false);
+  const moveFrameRef = useRef<number | null>(null);
+
+  const handleBubblePointerDown = (e: React.PointerEvent) => {
+    // Only the left button initiates a drag.
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    // Walk up from the target — any ancestor marked `data-no-drag`
-    // means we're over a real control, not the draggable surface.
+    // Any ancestor marked `data-no-drag` means we're over a real control.
     if (target.closest("[data-no-drag]")) return;
-    console.log("[bubble] startDragging");
-    getCurrentWindow()
-      .startDragging()
-      .catch((err) => {
-        console.warn("[bubble] startDragging failed", err);
+    e.preventDefault();
+    draggingRef.current = true;
+    // Pointer capture keeps pointermove/up flowing even after the cursor
+    // leaves the (small) bubble window — which it will the moment the bubble
+    // hits an edge and the cursor outruns it.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // capture is best-effort
+    }
+    void invoke("bubble_drag_start").catch((err) => {
+      console.warn("[bubble] bubble_drag_start failed", err);
+    });
+  };
+
+  const handleBubblePointerMove = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    // Coalesce a burst of pointermove events into at most one reposition per
+    // animation frame, no matter how fast the OS delivers them. Rust reads the
+    // live cursor itself, so the frame callback needs no coordinates.
+    if (moveFrameRef.current != null) return;
+    moveFrameRef.current = requestAnimationFrame(() => {
+      moveFrameRef.current = null;
+      if (!draggingRef.current) return;
+      void invoke("bubble_drag_move").catch(() => {
+        // Transient failures (e.g. window mid-teardown) are non-fatal; the
+        // next pointermove schedules another frame.
       });
+    });
+  };
+
+  const endBubbleDrag = (e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    if (moveFrameRef.current != null) {
+      cancelAnimationFrame(moveFrameRef.current);
+      moveFrameRef.current = null;
+    }
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      // already released
+    }
+    void invoke("bubble_drag_end").catch((err) => {
+      console.warn("[bubble] bubble_drag_end failed", err);
+    });
   };
 
   return (
-    // The ENTIRE wrapper catches mousedown and calls `startDragging()`
-    // directly. No `data-tauri-drag-region` — see `handleBubbleMouseDown`.
+    // The ENTIRE wrapper is the drag surface — pointer-down drives the manual
+    // clamp-before-move drag loop. No `startDragging()`, no
+    // `data-tauri-drag-region` — see `handleBubblePointerDown` above.
     <div
       className={`bubble-wrapper bubble-${size}`}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      onMouseDown={handleBubbleMouseDown}
+      onPointerDown={handleBubblePointerDown}
+      onPointerMove={handleBubblePointerMove}
+      onPointerUp={endBubbleDrag}
+      onPointerCancel={endBubbleDrag}
       data-path={activePath}
     >
       <div className="bubble-root">
@@ -982,13 +712,7 @@ export function Bubble() {
           autoPlay
           playsInline
           muted
-          style={
-            activePath === "canvas"
-              ? localCameraActive
-                ? { opacity: 0.001 }
-                : { display: "none" }
-              : undefined
-          }
+          style={activePath === "canvas" ? { display: "none" } : undefined}
         />
         <canvas
           ref={canvasRef}
@@ -1002,7 +726,7 @@ export function Bubble() {
           }
         />
         {/* Close X — top-right of bubble, only visible on hover. Marked
-            `data-no-drag` so mousedown here does NOT call startDragging;
+            `data-no-drag` so pointer-down here does NOT start a drag;
             onClick fires normally. */}
         <button
           type="button"
@@ -1028,7 +752,7 @@ export function Bubble() {
           </svg>
         </button>
       </div>
-      {/* Size control pill — fades in under the bubble on hover. Marked
+      {/* Size control pill — fades in above the bubble on hover. Marked
           `data-no-drag` so clicks land on the onClick handlers. */}
       <div
         className={`bubble-controls ${showControls ? "is-visible" : ""}`}

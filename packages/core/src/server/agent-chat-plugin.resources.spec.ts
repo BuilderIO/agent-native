@@ -26,6 +26,12 @@ function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
 vi.mock("../resources/store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? decodeURIComponent(owner.slice("__organization__:".length))
+      : null,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
   ensurePersonalDefaults: (...args: any[]) =>
     mocks.ensurePersonalDefaults(...args),
   resourceGetByPath: (...args: any[]) => mocks.resourceGetByPath(...args),
@@ -48,6 +54,10 @@ vi.mock("./agents-bundle.js", () => ({
 }));
 
 import { loadResourcesForPrompt } from "./agent-chat-plugin.js";
+import {
+  promptResourceManifestSections,
+  registerPromptContextProvider,
+} from "./agent-chat/prompt-resources.js";
 
 const resourcesById = new Map([
   [
@@ -111,6 +121,17 @@ const resourcesById = new Map([
       mimeType: "text/markdown",
       content:
         "---\nname: company-voice\ndescription: Workspace voice default.\n---\n\n# Company Voice",
+    },
+  ],
+  [
+    "skills_dev_only",
+    {
+      id: "skills_dev_only",
+      path: "skills/dev-only/SKILL.md",
+      owner: "__workspace__",
+      mimeType: "text/markdown",
+      content:
+        "---\nname: dev-only\ndescription: Development-only workflow.\nscope: dev\n---\n\n# Dev Only",
     },
   ],
   [
@@ -180,7 +201,7 @@ beforeEach(() => {
         return [meta("instructions_guardrails")];
       }
       if (prefix === "skills/") {
-        return [meta("skills_company_voice")];
+        return [meta("skills_company_voice"), meta("skills_dev_only")];
       }
       return [
         {
@@ -191,6 +212,7 @@ beforeEach(() => {
         },
         meta("instructions_guardrails"),
         meta("skills_company_voice"),
+        meta("skills_dev_only"),
         meta("context_brand"),
         meta("context_messaging"),
       ];
@@ -223,13 +245,107 @@ beforeEach(() => {
   });
   mocks.resourceListAccessible.mockResolvedValue([
     meta("skills_company_voice"),
+    meta("skills_dev_only"),
     meta("shared_skills_company_voice"),
     meta("personal_skills_company_voice"),
   ]);
   mocks.resourceGet.mockImplementation(async (id) => resourcesById.get(id));
 });
 
+describe("promptResourceManifestSections", () => {
+  it("accounts for runtime resource notes, budget notes, and available apps", () => {
+    const sections = promptResourceManifestSections(`
+<context-note>Personal memory remains available on demand.</context-note>
+<context-budget-note>Some startup context was omitted.</context-budget-note>
+<available-apps>Analytics (analytics) — Query product data.</available-apps>
+`);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        label: "Resource availability note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Personal memory remains available on demand.",
+      }),
+      expect.objectContaining({
+        label: "Context budget note",
+        provenance: "framework-core",
+        governance: "required",
+        content: "Some startup context was omitted.",
+      }),
+      expect.objectContaining({
+        label: "Available workspace apps",
+        provenance: "tools",
+        governance: "required",
+        content: "Analytics (analytics) — Query product data.",
+      }),
+    ]);
+  });
+
+  it("accounts for registered package context with explicit provenance", () => {
+    const sections = promptResourceManifestSections(`
+<prompt-context-provider id="creative-context" label="Published brand context" provenance="organization" governance="inherited" scope="org" path="context/brand-context.md">
+<brand-context><color>#6633ff</color></brand-context>
+</prompt-context-provider>
+`);
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        label: "Published brand context",
+        provenance: "organization",
+        governance: "inherited",
+        content: "\n<brand-context><color>#6633ff</color></brand-context>\n",
+        sourceRef: {
+          path: "context/brand-context.md",
+          scope: "org",
+        },
+      }),
+    ]);
+  });
+});
+
 describe("loadResourcesForPrompt", () => {
+  it("loads bounded package context providers into every prompt path", async () => {
+    const unregister = registerPromptContextProvider({
+      id: "creative-context-test",
+      load: async (context) => ({
+        label: "Published brand context",
+        provenance: context.orgId ? "organization" : "personal",
+        governance: "inherited",
+        sourceRef: {
+          path: "context/brand-context.md",
+          scope: context.orgId ? "org" : "user",
+        },
+        content: "<brand-context><font>Inter</font></brand-context>",
+      }),
+    });
+
+    try {
+      const prompt = await loadResourcesForPrompt(
+        "user@example.test",
+        false,
+        "slides",
+        "org_example",
+      );
+      expect(prompt).toContain(
+        '<prompt-context-provider id="creative-context-test"',
+      );
+      expect(prompt).toContain(
+        "<brand-context><font>Inter</font></brand-context>",
+      );
+      expect(promptResourceManifestSections(prompt)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Published brand context",
+            provenance: "organization",
+          }),
+        ]),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("assembles the same inherited workspace context for every app without sync writes", async () => {
     const analyticsPrompt = await loadResourcesForPrompt(
       "user@example.test",
@@ -258,6 +374,7 @@ describe("loadResourcesForPrompt", () => {
     expect(mocks.resourceListAccessible).toHaveBeenCalledWith(
       "user@example.test",
       "skills/",
+      { orgId: null },
     );
     expect(mocks.resourceList).toHaveBeenCalledWith("__workspace__");
 
@@ -353,11 +470,129 @@ describe("loadResourcesForPrompt", () => {
     const prompt = await loadResourcesForPrompt("user@example.test", true);
 
     expect(prompt).toContain("<skills-summary>");
+    expect(prompt).toContain("Prefer concise updates.");
     expect(prompt).toContain(
       'Read with `docs-search --slug "skill-deep-review"` before starting a task it applies to.',
     );
     expect(prompt).toContain("Do not use MCP resource reads for these skills.");
     expect(prompt).not.toContain("Use `docs-search` to read a skill");
+  });
+
+  it("indexes instruction files instead of inlining their markdown in compact mode", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt).toContain(
+      '<instruction-resources scope="workspace-instruction">',
+    );
+    expect(prompt).toContain("`instructions/guardrails.md`");
+    expect(prompt).not.toContain("Protect customer data.");
+    expect(prompt).not.toContain("Narrow workspace guardrails.");
+    expect(prompt).not.toContain("Prefer concise local overrides.");
+  });
+
+  it("keeps aggregate compact startup resources within a fixed budget", async () => {
+    const skills = Object.fromEntries(
+      Array.from({ length: 80 }, (_, index) => [
+        `skill-${index}`,
+        {
+          meta: {
+            name: `skill-${index}`,
+            description: `Runtime workflow ${index} ${"detail ".repeat(40)}`,
+            scope: "both",
+          },
+          content: `# Skill ${index}`,
+          dir: `.agents/skills/skill-${index}`,
+          extraFiles: [],
+        },
+      ]),
+    );
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: `# Workspace\n${"workspace ".repeat(2_000)}`,
+      agentsMd: `# Template\n${"template ".repeat(2_000)}`,
+      skills,
+    });
+    mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
+      if (path === "AGENTS.md" || path === "LEARNINGS.md") {
+        return { content: `# ${path}\n${"instruction ".repeat(2_000)}` };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+    expect(prompt.length).toBeLessThan(49_000);
+    expect(prompt).toContain("<context-budget-note>");
+    expect(prompt).toContain("docs-search");
+    expect(prompt).toContain("tool-search");
+  });
+
+  it("keeps cross-app discovery and names what it dropped when compact context overflows", async () => {
+    // 30 peers with real descriptions is a ~14,000-character block: large
+    // enough that the old greedy fitter had no room left for it.
+    mocks.discoverAgents.mockResolvedValueOnce(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: index === 0 ? "analytics" : `app-${index}`,
+        name: index === 0 ? "Analytics" : `App ${index}`,
+        description: `Query product data ${index}. ${"capability detail ".repeat(20)}`,
+      })) as never,
+    );
+    mocks.loadAgentsBundle.mockResolvedValueOnce({
+      workspaceAgentsMd: `# Workspace\n${"workspace ".repeat(2_000)}`,
+      agentsMd: `# Template\n${"template ".repeat(2_000)}`,
+      skills: Object.fromEntries(
+        Array.from({ length: 80 }, (_, index) => [
+          `skill-${index}`,
+          {
+            meta: {
+              name: `skill-${index}`,
+              description: `Runtime workflow ${index} ${"detail ".repeat(40)}`,
+              scope: "both",
+            },
+            content: `# Skill ${index}`,
+            dir: `.agents/skills/skill-${index}`,
+            extraFiles: [],
+          },
+        ]),
+      ),
+    });
+    mocks.resourceGetByPath.mockImplementation(async (_owner, path) => {
+      if (path === "AGENTS.md" || path === "LEARNINGS.md") {
+        return { content: `# ${path}\n${"instruction ".repeat(2_000)}` };
+      }
+      return null;
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const prompt = await loadResourcesForPrompt("user@example.test", true);
+
+      expect(prompt).toContain("<available-apps>");
+      expect(prompt).toContain("Analytics (analytics)");
+      expect(prompt).toContain("describe-workspace-apps");
+      expect(prompt).toContain("<context-note>");
+      expect(prompt).toMatch(/section\(s\) did not fit the 48,000-character/);
+      expect(prompt).toContain("Treat them as unread, not as absent");
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("startup context exceeded"),
+      );
+      expect(warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("required startup context alone exceeds"),
+      );
+      expect(promptResourceManifestSections(prompt)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Available workspace apps",
+            governance: "required",
+          }),
+          expect.objectContaining({
+            label: "Context budget note",
+            governance: "required",
+          }),
+        ]),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("excludes scope: dev skills from the compact skills summary", async () => {
@@ -393,5 +628,51 @@ describe("loadResourcesForPrompt", () => {
     expect(prompt).toContain("<skills-summary>");
     expect(prompt).toContain("`runtime-skill`");
     expect(prompt).not.toContain("dev-only-skill");
+  });
+
+  it("excludes scope: dev resource skills from the runtime prompt", async () => {
+    const prompt = await loadResourcesForPrompt("user@example.test");
+
+    expect(prompt).toContain("`company-voice` at resource");
+    expect(prompt).not.toContain("dev-only");
+    expect(prompt).not.toContain("Development-only workflow.");
+  });
+
+  it("caps an oversized shared LEARNINGS.md instead of inlining it in full in the non-lazy (compact: false) path", async () => {
+    const hugeLearnings = `# Learnings\n${"- prior incident detail.\n".repeat(3_000)}`;
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (owner === "__shared__" && path === "LEARNINGS.md") {
+        return { content: hugeLearnings };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", false);
+
+    expect(hugeLearnings.length).toBeGreaterThan(30_000);
+    expect(prompt).toContain('<resource name="LEARNINGS.md" scope="shared"');
+    expect(prompt).toContain("truncated after 30,000 characters");
+    expect(prompt).toContain('Use the `resources` tool with `action: "read"`');
+    // The full oversized content must not have been inlined verbatim.
+    expect(prompt.length).toBeLessThan(hugeLearnings.length);
+  });
+
+  it("caps an oversized personal memory/MEMORY.md instead of inlining it in full in the non-lazy (compact: false) path", async () => {
+    const hugeMemory = `# Memory Index\n${"- long-term fact.\n".repeat(3_000)}`;
+    mocks.resourceGetByPath.mockImplementation(async (owner, path) => {
+      if (owner === "user@example.test" && path === "memory/MEMORY.md") {
+        return { content: hugeMemory };
+      }
+      return null;
+    });
+
+    const prompt = await loadResourcesForPrompt("user@example.test", false);
+
+    expect(hugeMemory.length).toBeGreaterThan(30_000);
+    expect(prompt).toContain(
+      '<resource name="memory/MEMORY.md" scope="personal"',
+    );
+    expect(prompt).toContain("truncated after 30,000 characters");
+    expect(prompt.length).toBeLessThan(hugeMemory.length);
   });
 });

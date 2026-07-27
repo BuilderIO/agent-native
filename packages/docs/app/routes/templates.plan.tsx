@@ -1,36 +1,42 @@
-import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { templates, trackEvent } from "../components/TemplateCard";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
-    },
-    {
-      name: "description",
-      content:
-        "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, prototypes, and shareable review links — installed in seconds as a skill for Codex, Claude Code, and any coding agent.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
-    },
-    {
-      property: "og:description",
-      content:
-        "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, and shareable review links.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI coding agent plans, visual planning, Codex visual plan, Claude Code plans, coding agent wireframe, agent plan skill, visual plan mode, AI diagram generator, agent-native plans, annotated code review, shareable agent plans",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title:
+          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+      },
+      {
+        name: "description",
+        content:
+          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, prototypes, and shareable review links — installed in seconds as a skill for Codex, Claude Code, and any coding agent.",
+      },
+      {
+        property: "og:title",
+        content:
+          "Agent-Native Plans — Visual Planning for Codex, Claude Code & Coding Agents",
+      },
+      {
+        property: "og:description",
+        content:
+          "Give your coding agent a visual plan surface. Wireframes, diagrams, annotated code, and shareable review links.",
+      },
+      {
+        name: "keywords",
+        content:
+          "AI coding agent plans, visual planning, Codex visual plan, Claude Code plans, coding agent wireframe, agent plan skill, visual plan mode, AI diagram generator, agent-native plans, annotated code review, shareable agent plans",
+      },
+    ],
+    "Plans",
+  );
 
 const template = templates.find((t) => t.slug === "plan")!;
 
@@ -93,32 +99,12 @@ function CliCopy() {
 }
 
 export default function PlanTemplate() {
+  const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="mb-4">
-          <Link
-            data-an-prefetch="render"
-            to="/templates"
-            className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            All Templates
-          </Link>
-        </div>
-
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
@@ -126,17 +112,15 @@ export default function PlanTemplate() {
                 className="inline-block h-2 w-2 rounded-full"
                 style={{ background: template.color }}
               />
-              Agent-Native {template.name}
+              {t("templateDetail.badge", { name: template.name })}
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              Visual plans for Codex, Claude Code &amp; coding agents
+              {t("templateLanding.plan.s015")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Install in one command. Your agent opens structured plans with
-              wireframes, diagrams, annotated code, and shareable review links —
-              instead of dumping walls of markdown in the terminal.
+              {t("templateLanding.plan.s016")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -152,7 +136,7 @@ export default function PlanTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.plan.s017")}
                 <svg
                   width="16"
                   height="16"
@@ -176,7 +160,9 @@ export default function PlanTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Plans template screenshot"
+              alt={t("templateLanding.plan.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>
@@ -187,10 +173,10 @@ export default function PlanTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "10+", label: "Block types" },
-            { number: "3", label: "Agent integrations" },
-            { number: "Live", label: "Shareable links" },
-            { number: "AI", label: "Prototype runner" },
+            { number: "10+", label: t("templateLanding.plan.s002") },
+            { number: "3", label: t("templateLanding.plan.s003") },
+            { number: "Live", label: t("templateLanding.plan.s004") },
+            { number: "AI", label: t("templateLanding.plan.s005") },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -207,11 +193,10 @@ export default function PlanTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          What agents can do
+          {t("templateLanding.plan.s018")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Every block type is a first-class citizen — structured data, not raw
-          HTML, so the agent can read and update plans as the work evolves.
+          {t("templateLanding.plan.s019")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -231,10 +216,11 @@ export default function PlanTemplate() {
                 <rect x="14" y="7" width="3" height="5" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Wireframes</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s020")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Sketchy UI mockups grounded in your real product — not generic
-              desktop placeholders.
+              {t("templateLanding.plan.s021")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -256,10 +242,11 @@ export default function PlanTemplate() {
                 <line x1="12" y1="7" x2="19" y2="17" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Diagrams</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s022")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Architecture flowcharts, data models, and sequence diagrams
-              rendered inline.
+              {t("templateLanding.plan.s023")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -279,10 +266,11 @@ export default function PlanTemplate() {
                 <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Annotated Code</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s024")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Real source files with per-line notes, diffs, and change rationale
-              — not raw code dumps.
+              {t("templateLanding.plan.s025")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -301,10 +289,70 @@ export default function PlanTemplate() {
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Shareable Links</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s026")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Every plan gets a public URL. Share with teammates for async
-              review, comments, and approvals.
+              {t("templateLanding.plan.s027")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 4h6l2 3h8v13H4z" />
+                <path d="M8 13h8" />
+                <path d="M12 9v8" />
+              </svg>
+            </div>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s028")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.plan.s029")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <div className="mb-3 text-[var(--docs-accent)]">
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="4" width="18" height="14" rx="2" />
+                <path d="M8 21h8" />
+                <path d="M12 18v3" />
+                <path d="M9 9l-3 2.5L9 14" />
+                <path d="M15 9l3 2.5L15 14" />
+              </svg>
+            </div>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.plan.s061")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.plan.s062")}{" "}
+              <a
+                href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[var(--fg)] underline underline-offset-2"
+              >
+                {t("templateLanding.plan.s063")}
+              </a>
+              {t("templateLanding.plan.s030")}
             </p>
           </div>
         </div>
@@ -312,32 +360,33 @@ export default function PlanTemplate() {
 
       {/* How it works */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">How it works</h2>
+        <h2 className="mb-3 text-2xl font-bold tracking-tight">
+          {t("templateLanding.plan.s031")}
+        </h2>
         <p className="mb-10 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Planning lives in a shared app — both you and the agent can read and
-          update it throughout the lifecycle of a feature.
+          {t("templateLanding.plan.s032")}
         </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
             {
               step: "1",
-              title: "Add the skill",
-              body: "One command installs the plan skill into your Codex or Claude Code project. No separate app to deploy.",
+              title: t("templateLanding.plan.s006"),
+              body: t("templateLanding.plan.s007"),
             },
             {
               step: "2",
-              title: "Agent opens a plan",
-              body: "Ask your agent to plan a feature. It calls /visual-plan and the plan opens in your browser — structured blocks, not a wall of markdown.",
+              title: t("templateLanding.plan.s008"),
+              body: t("templateLanding.plan.s009"),
             },
             {
               step: "3",
-              title: "Review & comment",
-              body: "Pin comments to any block. Ask questions, flag concerns, or approve sections — the agent can see all feedback.",
+              title: t("templateLanding.plan.s010"),
+              body: t("templateLanding.plan.s011"),
             },
             {
               step: "4",
-              title: "Agent iterates",
-              body: "The agent reads your comments and updates the plan in-place. Diffs show exactly what changed and why.",
+              title: t("templateLanding.plan.s012"),
+              body: t("templateLanding.plan.s013"),
             },
           ].map((item) => (
             <div key={item.step} className="flex gap-4">
@@ -360,25 +409,23 @@ export default function PlanTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Rich block library
+              {t("templateLanding.plan.s033")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              Plans are composed of structured blocks — not free-form HTML. The
-              agent knows the schema for each block and can create, update, and
-              reason about them precisely.
+              {t("templateLanding.plan.s034")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               {[
-                "Wireframe — sketchy UI mockup with component slots",
-                "Annotated code — source file with per-line notes",
-                "Diagram — flowchart, sequence, or architecture",
-                "Prototype — live Alpine.js sandbox in an iframe",
-                "Decision — settled choices with rationale",
-                "API endpoint — method, path, request/response types",
-                "Data model — schema with field annotations",
-                "File tree — project structure with notes per path",
-              ].map((item) => (
-                <li key={item} className="flex items-start gap-2">
+                "s064",
+                "s065",
+                "s066",
+                "s067",
+                "s068",
+                "s069",
+                "s070",
+                "s071",
+              ].map((key) => (
+                <li key={key} className="flex items-start gap-2">
                   <svg
                     className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
                     width="16"
@@ -392,7 +439,7 @@ export default function PlanTemplate() {
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
-                  {item}
+                  {t(`templateLanding.plan.${key}`)}
                 </li>
               ))}
             </ul>
@@ -400,11 +447,13 @@ export default function PlanTemplate() {
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
             <div className="space-y-3 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                {"// Example plan block"}
+                {t("templateLanding.plan.s072")}
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">type:</span>{" "}
-                <span className="text-[var(--fg)]">annotated-code</span>
+                <span className="text-[var(--fg)]">
+                  {t("templateLanding.plan.s035")}
+                </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">file:</span>{" "}
@@ -418,18 +467,20 @@ export default function PlanTemplate() {
               <div className="pl-4">
                 <span className="text-[var(--docs-accent)]">line 12:</span>{" "}
                 <span className="text-[var(--fg)]">
-                  Validate owner before insert
+                  {t("templateLanding.plan.s036")}
                 </span>
               </div>
               <div className="pl-4">
                 <span className="text-[var(--docs-accent)]">line 24:</span>{" "}
                 <span className="text-[var(--fg)]">
-                  Emit event for automations
+                  {t("templateLanding.plan.s037")}
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">change:</span>{" "}
-                <span className="text-[var(--fg)]">add</span>
+                <span className="text-[var(--fg)]">
+                  {t("templateLanding.plan.s038")}
+                </span>
               </div>
             </div>
           </div>
@@ -439,7 +490,7 @@ export default function PlanTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.plan.s039")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -447,10 +498,10 @@ export default function PlanTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Markdown in terminal
+                  {t("templateLanding.plan.s040")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  ChatGPT Canvas / Notion
+                  {t("templateLanding.plan.s073")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Plans
@@ -460,62 +511,62 @@ export default function PlanTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Visual rendering
+                  {t("templateLanding.plan.s041")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">Basic</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s043")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Rich blocks, wireframes, diagrams
+                  {t("templateLanding.plan.s044")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Agent can read &amp; update
+                  {t("templateLanding.plan.s045")}
                 </td>
-                <td className="px-5 py-3">Yes, raw text</td>
-                <td className="px-5 py-3">Limited</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s046")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s047")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Yes, structured schema
+                  {t("templateLanding.plan.s048")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Shareable link
+                  {t("templateLanding.plan.s049")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">Yes</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s050")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Yes, with comments
+                  {t("templateLanding.plan.s051")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Prototype runner
+                  {t("templateLanding.plan.s005")}
                 </td>
-                <td className="px-5 py-3">No</td>
-                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Live Alpine.js sandbox
+                  {t("templateLanding.plan.s052")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Works with Codex / Claude Code
+                  {t("templateLanding.plan.s053")}
                 </td>
-                <td className="px-5 py-3">Yes</td>
-                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s050")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Yes, one-command install
+                  {t("templateLanding.plan.s054")}
                 </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Open source
+                  {t("templateLanding.plan.s055")}
                 </td>
-                <td className="px-5 py-3">N/A</td>
-                <td className="px-5 py-3">No</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s074")}</td>
+                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Yes, MIT licensed
+                  {t("templateLanding.plan.s056")}
                 </td>
               </tr>
             </tbody>
@@ -526,11 +577,10 @@ export default function PlanTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in seconds
+          {t("templateLanding.plan.s057")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          One command adds visual planning to any Codex or Claude Code project.
-          No separate deployment needed.
+          {t("templateLanding.plan.s058")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -538,14 +588,14 @@ export default function PlanTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.plan.s059")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to={sitePathForLocale("/apps", locale)}
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.plan.s060")}
           </Link>
         </div>
       </section>

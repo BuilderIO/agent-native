@@ -1,8 +1,17 @@
-import { useEffect, useId, useMemo, useState } from "react";
-import { IconMessageCircle, IconUser } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
+import { useEffect, useId, useMemo, useState } from "react";
+
 import { AttendeeApolloPopover } from "@/components/calendar/ApolloPanel";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -13,13 +22,22 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAttendeePhotos } from "@/hooks/use-attendee-photos";
-import { useRsvpEvent } from "@/hooks/use-events";
-import { cn } from "@/lib/utils";
 import {
-  getRsvpStatusLabel,
+  useAttendeeTimezones,
+  useSetAttendeeTimezone,
+} from "@/hooks/use-attendee-timezones";
+import { useRsvpEvent } from "@/hooks/use-events";
+import {
+  getAttendeeLocalTimeLabel,
+  resolveAttendeeTimeZone,
+} from "@/lib/attendee-local-time";
+import { getLocalTimezone } from "@/lib/event-form-utils";
+import {
+  canInlineRsvp,
   RsvpStatusIcon,
   type RsvpStatus,
 } from "@/lib/rsvp-status";
+import { cn } from "@/lib/utils";
 
 type RecurringScope = "single" | "all" | "thisAndFollowing";
 
@@ -28,6 +46,24 @@ type EditableRsvpStatus = Exclude<RsvpStatus, "needsAction">;
 
 const ATTENDEE_TRUNCATE_THRESHOLD = 5;
 const ATTENDEE_INITIAL_SHOW = 3;
+
+function getLocalizedRsvpStatusLabel(
+  t: ReturnType<typeof useT>,
+  status: RsvpStatus | undefined,
+) {
+  switch (status) {
+    case "accepted":
+      return t("eventForm.rsvpAccepted");
+    case "declined":
+      return t("eventForm.rsvpDeclined");
+    case "tentative":
+      return t("eventForm.rsvpTentative");
+    case "needsAction":
+      return t("eventForm.awaiting");
+    default:
+      return null;
+  }
+}
 
 function getAvatarUrl(email: string): string {
   return `https://unavatar.io/${encodeURIComponent(email.trim().toLowerCase())}?fallback=false`;
@@ -89,6 +125,7 @@ function RsvpControls({
   onChange: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
 }) {
+  const t = useT();
   const mutation = useRsvpEvent();
   const noteId = useId();
   const scopeId = useId();
@@ -103,17 +140,17 @@ function RsvpControls({
     value: EditableRsvpStatus;
     label: string;
   }> = [
-    { value: "accepted", label: "Yes" },
-    { value: "declined", label: "No" },
-    { value: "tentative", label: "Maybe" },
+    { value: "accepted", label: t("eventForm.rsvpYes") },
+    { value: "declined", label: t("eventForm.rsvpNo") },
+    { value: "tentative", label: t("eventForm.rsvpMaybe") },
   ];
   const scopeOptions: Array<{
     value: RecurringScope;
     label: string;
   }> = [
-    { value: "single", label: "This event" },
-    { value: "thisAndFollowing", label: "This and following events" },
-    { value: "all", label: "All events" },
+    { value: "single", label: t("eventForm.thisEvent") },
+    { value: "thisAndFollowing", label: t("deleteEvent.thisAndFollowing") },
+    { value: "all", label: t("eventForm.allEvents") },
   ];
 
   const supportsNote =
@@ -155,6 +192,12 @@ function RsvpControls({
     }
     if (value === status && !currentNote) return;
     doRsvp(status, undefined, "");
+  };
+
+  const savePendingResponse = () => {
+    if (!pendingStatus || mutation.isPending) return;
+    doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
+    closePopover();
   };
 
   return (
@@ -207,7 +250,7 @@ function RsvpControls({
           className="mt-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
         >
           <IconMessageCircle className="h-3 w-3" />
-          {currentNote ? "Edit note" : "Add note"}
+          {currentNote ? t("eventForm.editNote") : t("eventForm.addNote")}
         </button>
       )}
 
@@ -218,14 +261,21 @@ function RsvpControls({
         className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            savePendingResponse();
+          }
+        }}
       >
         {pendingStatus && (
           <div>
             <div className="p-5">
               <p className="text-base font-semibold leading-tight">
                 {isRecurring
-                  ? "Save response status for recurring event"
-                  : "Save response status"}
+                  ? t("eventForm.saveRecurringResponseStatus")
+                  : t("eventForm.saveResponseStatus")}
               </p>
 
               {isRecurring && (
@@ -234,7 +284,7 @@ function RsvpControls({
                   onValueChange={(value) =>
                     setPendingScope(value as RecurringScope)
                   }
-                  aria-label="Recurring response scope"
+                  aria-label={t("eventForm.recurringResponseScope")}
                   className="mt-5 gap-4"
                 >
                   {scopeOptions.map((option) => {
@@ -267,14 +317,14 @@ function RsvpControls({
                 <Separator />
                 <div className="space-y-2 p-5">
                   <Label htmlFor={noteId} className="text-sm font-medium">
-                    Optional note
+                    {t("eventForm.optionalNote")}
                   </Label>
                   <Textarea
                     id={noteId}
                     value={noteDraft}
                     onChange={(e) => setNoteDraft(e.target.value)}
                     maxLength={1000}
-                    placeholder="Add a short note..."
+                    placeholder={t("eventForm.addShortNote")}
                     className="min-h-[96px] resize-none text-sm"
                   />
                 </div>
@@ -291,7 +341,7 @@ function RsvpControls({
                   closePopover();
                 }}
               >
-                Cancel
+                {t("eventForm.cancel")}
               </Button>
               <Button
                 size="sm"
@@ -299,11 +349,10 @@ function RsvpControls({
                 disabled={mutation.isPending}
                 onClick={(e) => {
                   e.stopPropagation();
-                  doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
-                  closePopover();
+                  savePendingResponse();
                 }}
               >
-                Save response
+                {t("eventForm.saveResponse")}
               </Button>
             </div>
           </div>
@@ -322,58 +371,228 @@ function AttendeeRow({
   currentNote,
   onResponseChange,
   isRecurring,
+  canEditOptional,
+  onToggleOptional,
+  timezoneOverrides,
+  onSetTimezone,
 }: {
   attendee: Attendee;
-  event: Pick<CalendarEvent, "id" | "accountEmail">;
+  event: Pick<
+    CalendarEvent,
+    "id" | "accountEmail" | "start" | "startTimeZone" | "allDay"
+  >;
   photoUrl?: string;
   inlineRsvp?: boolean;
   currentStatus?: RsvpStatus;
   currentNote?: string;
   onResponseChange?: (status: RsvpStatus, note: string) => void;
   isRecurring?: boolean;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
+  timezoneOverrides?: Record<string, string>;
+  onSetTimezone?: (email: string, timeZone: string | undefined) => void;
 }) {
+  const t = useT();
+  const [timezonePickerOpen, setTimezonePickerOpen] = useState(false);
+  const resolvedZone =
+    resolveAttendeeTimeZone({
+      attendee,
+      accountEmail: event.accountEmail,
+      eventStartTimeZone: event.startTimeZone,
+      overrides: timezoneOverrides,
+    }) ?? getLocalTimezone();
+  const [draftTimezone, setDraftTimezone] = useState(resolvedZone);
   const displayStatus = inlineRsvp ? currentStatus : attendee.responseStatus;
-  const statusLabel = getRsvpStatusLabel(displayStatus) ?? "Awaiting";
+  const statusLabel =
+    getLocalizedRsvpStatusLabel(t, displayStatus) ?? t("eventForm.awaiting");
   const comment = (inlineRsvp ? currentNote : attendee.comment)?.trim();
+  const showOptionalMenu =
+    canEditOptional && onToggleOptional && !attendee.organizer;
+  const showMenu = showOptionalMenu || !!onSetTimezone;
+  const localTimeLabel =
+    !event.allDay && event.start
+      ? getAttendeeLocalTimeLabel({
+          attendee,
+          accountEmail: event.accountEmail,
+          eventStartTimeZone: event.startTimeZone,
+          overrides: timezoneOverrides,
+          startIso: event.start,
+        })
+      : null;
+
+  useEffect(() => {
+    if (timezonePickerOpen) {
+      setDraftTimezone(resolvedZone);
+    }
+  }, [timezonePickerOpen, resolvedZone]);
 
   return (
-    <div className="rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
-      <AttendeeApolloPopover attendee={attendee}>
-        <div className="flex items-center gap-2.5">
-          <div className="relative shrink-0">
-            <AttendeeAvatar attendee={attendee} resolvedPhotoUrl={photoUrl} />
-            <div className="absolute -bottom-0.5 -right-0.5">
-              <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
+    <div className="group rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
+      <div className="flex items-start">
+        <div className="min-w-0 flex-1">
+          <AttendeeApolloPopover attendee={attendee}>
+            <div className="flex items-center gap-2.5">
+              <div className="relative shrink-0">
+                <AttendeeAvatar
+                  attendee={attendee}
+                  resolvedPhotoUrl={photoUrl}
+                />
+                <div className="absolute -bottom-0.5 -right-0.5">
+                  <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm text-foreground">
+                    {attendee.displayName || attendee.email}
+                  </span>
+                  {attendee.organizer && (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t("eventForm.organizer")}
+                    </span>
+                  )}
+                  {attendee.optional && !attendee.organizer && (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t("attendees.optionalBadge")}
+                    </span>
+                  )}
+                </div>
+                {attendee.displayName && (
+                  <div className="truncate text-[11px] text-muted-foreground/60">
+                    {attendee.email}
+                    {localTimeLabel ? (
+                      <span className="ms-1.5 text-muted-foreground/50">
+                        · {localTimeLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+                {!attendee.displayName && localTimeLabel ? (
+                  <div className="truncate text-[11px] text-muted-foreground/50">
+                    {localTimeLabel}
+                  </div>
+                ) : null}
+                <div className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  {inlineRsvp
+                    ? t("eventForm.yourResponse", { status: statusLabel })
+                    : statusLabel}
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-sm text-foreground">
-                {attendee.displayName || attendee.email}
-              </span>
-              {attendee.organizer && (
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Organizer
-                </span>
-              )}
-            </div>
-            {attendee.displayName && (
-              <div className="truncate text-[11px] text-muted-foreground/60">
-                {attendee.email}
+            {comment && (
+              <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+                <IconMessageCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-words">{comment}</span>
               </div>
             )}
-            <div className="mt-0.5 text-[11px] text-muted-foreground/70">
-              {inlineRsvp ? `Your response: ${statusLabel}` : statusLabel}
-            </div>
-          </div>
+          </AttendeeApolloPopover>
         </div>
-        {comment && (
-          <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
-            <IconMessageCircle className="mt-0.5 h-3 w-3 shrink-0" />
-            <span className="min-w-0 break-words">{comment}</span>
-          </div>
+        {showMenu && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                aria-label={t("attendees.guestOptions", {
+                  email: attendee.email,
+                })}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <IconDots className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {showOptionalMenu && (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onToggleOptional(attendee.email, !attendee.optional)
+                  }
+                >
+                  {attendee.optional
+                    ? t("attendees.markRequired")
+                    : t("attendees.markOptional")}
+                </DropdownMenuItem>
+              )}
+              {onSetTimezone && (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setTimezonePickerOpen(true);
+                  }}
+                >
+                  {t("attendees.setTimezone")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-      </AttendeeApolloPopover>
+      </div>
+      {onSetTimezone && (
+        <Popover open={timezonePickerOpen} onOpenChange={setTimezonePickerOpen}>
+          <PopoverTrigger asChild>
+            <button type="button" className="sr-only" tabIndex={-1} />
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="left"
+            className="w-72 p-3"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDownCapture={(e) => e.stopPropagation()}
+          >
+            <div className="space-y-2">
+              <p className="text-sm font-medium">
+                {t("attendees.setTimezone")}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {attendee.displayName || attendee.email}
+              </p>
+              <TimezoneCombobox
+                id={`attendee-tz-${attendee.email}`}
+                value={draftTimezone}
+                onChange={setDraftTimezone}
+              />
+              <div className="flex justify-end gap-1.5 pt-1">
+                {timezoneOverrides?.[attendee.email.trim().toLowerCase()] ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs me-auto"
+                    onClick={() => {
+                      onSetTimezone(attendee.email, undefined);
+                      setTimezonePickerOpen(false);
+                    }}
+                  >
+                    {t("attendees.clearTimezone")}
+                  </Button>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setTimezonePickerOpen(false)}
+                >
+                  {t("eventForm.cancel")}
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    onSetTimezone(attendee.email, draftTimezone);
+                    setTimezonePickerOpen(false);
+                  }}
+                >
+                  {t("eventForm.save")}
+                </Button>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
       {inlineRsvp && currentStatus && onResponseChange && (
         <RsvpControls
           eventId={event.id}
@@ -400,17 +619,26 @@ function sortAttendees(attendees: Attendee[]) {
 
 export function EventAttendeesSection({
   event,
+  canEditOptional = false,
+  onToggleOptional,
 }: {
   event: Pick<
     CalendarEvent,
     | "id"
     | "accountEmail"
     | "attendees"
+    | "overlayEmail"
     | "responseStatus"
     | "source"
     | "recurringEventId"
+    | "start"
+    | "startTimeZone"
+    | "allDay"
   >;
+  canEditOptional?: boolean;
+  onToggleOptional?: (email: string, optional: boolean) => void;
 }) {
+  const t = useT();
   const attendees = event.attendees ?? [];
   const [expanded, setExpanded] = useState(false);
   const [selfStatus, setSelfStatus] = useState<RsvpStatus>(
@@ -421,10 +649,18 @@ export function EventAttendeesSection({
   );
   const emails = attendees.map((attendee) => attendee.email);
   const { data: photos } = useAttendeePhotos(emails);
+  const { data: timezoneOverrides } = useAttendeeTimezones();
+  const setAttendeeTimezone = useSetAttendeeTimezone();
 
   const sorted = useMemo(() => sortAttendees(attendees), [attendees]);
-  const selfAttendee = sorted.find((attendee) => attendee.self);
-  const others = sorted.filter((attendee) => !attendee.self);
+  const canRsvpInline = canInlineRsvp(event);
+  const selfAttendee = canRsvpInline
+    ? sorted.find((attendee) => attendee.self)
+    : undefined;
+  const others =
+    canRsvpInline && selfAttendee
+      ? sorted.filter((attendee) => !attendee.self)
+      : sorted;
 
   useEffect(() => {
     setSelfStatus(event.responseStatus || "needsAction");
@@ -434,6 +670,10 @@ export function EventAttendeesSection({
   const handleSelfResponseChange = (status: RsvpStatus, note: string) => {
     setSelfStatus(status);
     setSelfNote(note);
+  };
+
+  const handleSetTimezone = (email: string, timeZone: string | undefined) => {
+    setAttendeeTimezone.mutate({ email, timeZone });
   };
 
   const shouldTruncate = attendees.length > ATTENDEE_TRUNCATE_THRESHOLD;
@@ -462,13 +702,23 @@ export function EventAttendeesSection({
           {shouldTruncate && (
             <div className="mb-2">
               <div className="text-sm font-medium text-foreground">
-                {attendees.length} participants
+                {t("eventForm.participants", { count: attendees.length })}
               </div>
               <div className="text-[11px] text-muted-foreground/60">
-                {accepted} yes
-                {tentative > 0 && `, ${tentative} maybe`}
-                {declined > 0 && `, ${declined} no`}
-                {pending > 0 && `, ${pending} awaiting`}
+                {[
+                  t("eventForm.responseYesCount", { count: accepted }),
+                  tentative > 0
+                    ? t("eventForm.responseMaybeCount", { count: tentative })
+                    : null,
+                  declined > 0
+                    ? t("eventForm.responseNoCount", { count: declined })
+                    : null,
+                  pending > 0
+                    ? t("eventForm.responseAwaitingCount", { count: pending })
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
               </div>
             </div>
           )}
@@ -480,6 +730,10 @@ export function EventAttendeesSection({
                 attendee={attendee}
                 event={event}
                 photoUrl={photos?.[attendee.email.toLowerCase()]}
+                canEditOptional={canEditOptional}
+                onToggleOptional={onToggleOptional}
+                timezoneOverrides={timezoneOverrides}
+                onSetTimezone={handleSetTimezone}
               />
             ))}
 
@@ -492,7 +746,11 @@ export function EventAttendeesSection({
                 <span className="flex h-8 w-8 items-center justify-center text-lg text-muted-foreground/50">
                   ⋮
                 </span>
-                <span>See all {attendees.length} participants</span>
+                <span>
+                  {t("eventForm.seeAllParticipants", {
+                    count: attendees.length,
+                  })}
+                </span>
               </button>
             )}
 
@@ -505,11 +763,15 @@ export function EventAttendeesSection({
                   attendee={selfAttendee}
                   event={event}
                   photoUrl={photos?.[selfAttendee.email.toLowerCase()]}
-                  inlineRsvp={event.source === "google"}
+                  inlineRsvp={canRsvpInline}
                   currentStatus={selfStatus}
                   currentNote={selfNote}
                   onResponseChange={handleSelfResponseChange}
                   isRecurring={!!event.recurringEventId}
+                  canEditOptional={canEditOptional}
+                  onToggleOptional={onToggleOptional}
+                  timezoneOverrides={timezoneOverrides}
+                  onSetTimezone={handleSetTimezone}
                 />
               </>
             )}

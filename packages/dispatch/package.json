@@ -1,22 +1,28 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.10.2",
-  "type": "module",
+  "version": "0.15.24",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/dispatch"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "*.css",
+    "dist/server/index.js",
+    "dist/server/lib/usage-metrics-store.js",
+    "dist/server/plugins/core-routes.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./routes": "./dist/routes/index.js",
@@ -30,26 +36,20 @@
     "./components/ui/*": "./dist/components/ui/*.js",
     "./styles/dispatch.css": "./src/styles/dispatch.css"
   },
-  "files": [
-    "dist",
-    "src"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc && tsc-alias --resolve-full-paths",
     "dev": "tsc --watch & tsc-alias --watch --resolve-full-paths",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run src --passWithNoTests",
-    "prepack": "npm run build && cp ../../README.md ./README.md",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run build"
   },
-  "peerDependencies": {
-    "@agent-native/core": ">=0.8.0",
-    "react": ">=18",
-    "react-dom": ">=18",
-    "react-router": ">=7"
-  },
   "dependencies": {
-    "@libsql/client": "^0.15.8",
+    "@agent-native/toolkit": "workspace:*",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
@@ -82,9 +82,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
-    "h3": "^2.0.1-rc.20",
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
     "react-day-picker": "^9.14.0",
@@ -98,16 +96,22 @@
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
-    "@react-router/dev": "^7.16.0",
+    "@react-router/dev": "^8.1.0",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "react-router": "^7.16.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.1.0",
     "tsc-alias": "^1.8.10",
-    "typescript": "^6.0.3",
+    "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.8.0",
+    "react": ">=19.2.7",
+    "react-dom": ">=19.2.7",
+    "react-router": ">=8"
   }
 }

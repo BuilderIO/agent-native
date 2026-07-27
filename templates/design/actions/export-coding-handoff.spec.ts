@@ -23,8 +23,10 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/coding-handoff.js", () => ({
   buildCodingHandoffPrompt: () => "Use this handoff",
+  buildHandoffZipUrl: () =>
+    "https://design.agent-native.com/api/design-handoff/design_123.zip?token=signed-token",
   buildRawHandoffUrl: () =>
-    "https://design.agent-native.com/_agent-native/raw-code/design_123?token=signed-token&format=json",
+    "https://design.agent-native.com/api/design-handoff/design_123?token=signed-token&format=json",
   normalizeHandoffFormat: (format?: string) => format ?? "markdown",
 }));
 
@@ -37,7 +39,7 @@ import action from "./export-coding-handoff.js";
 describe("export-coding-handoff", () => {
   it("is available in the compact MCP Apps catalog", () => {
     expect(action.mcpApp?.compactCatalog).toBe(true);
-    expect(action.mcpApp?.resource.title).toBe("Design coding handoff");
+    expect(action.mcpApp?.resource.title).toBe("Design agent handoff");
     expect(action.mcpApp?.resource.html()).toContain(
       "--agent-native-shell-height: 680px",
     );

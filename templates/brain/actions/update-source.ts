@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { assertAccess } from "@agent-native/core/sharing";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   nowIso,
@@ -10,6 +11,7 @@ import {
   stableJson,
 } from "../server/lib/brain.js";
 import { assertSourceWorkspaceConnectionAvailable } from "../server/lib/source-credentials.js";
+import { normalizeSlackChannelConfig } from "../shared/slack-source-config.js";
 import { optionalJsonRecordSchema } from "./_schemas.js";
 
 export default defineAction({
@@ -28,10 +30,13 @@ export default defineAction({
     if (args.title !== undefined) updates.title = args.title;
     if (args.status !== undefined) updates.status = args.status;
     if (args.config !== undefined) {
-      const nextConfig: Record<string, unknown> = {
+      let nextConfig: Record<string, unknown> = {
         ...parseJson<Record<string, unknown>>(existing.configJson, {}),
         ...args.config,
       };
+      if (existing.provider === "slack") {
+        nextConfig = normalizeSlackChannelConfig(nextConfig, args.config);
+      }
       const workspaceConnectionId =
         typeof nextConfig.workspaceConnectionId === "string"
           ? nextConfig.workspaceConnectionId.trim()

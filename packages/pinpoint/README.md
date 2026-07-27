@@ -2,7 +2,11 @@
 
 Visual feedback and annotation tool for web applications. Users select UI elements, add feedback, and send structured context to any AI agent.
 
-Works standalone, with [Builder.io](https://builder.io), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
+Pinpoint is a Toolkit capability module installed on demand. It lives in its
+own npm package so apps only take the visual feedback surfaces and agent
+integration they need.
+
+Works standalone, with [Builder.io](https://builder.io?utm_source=agent-native&utm_medium=readme&utm_campaign=pinpoint&utm_content=overview), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
 ## AI Agent Setup Guide
 
@@ -17,7 +21,7 @@ pnpm add @agent-native/pinpoint
 ### Step 2: Initialize agent actions and skill
 
 ```sh
-npx @agent-native/pinpoint init
+npx @agent-native/pinpoint@latest init
 ```
 
 This copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`. No manual file copying needed.
@@ -91,7 +95,7 @@ Pins are stored as individual JSON files in `data/pins/{uuid}.json`:
 - `selector` — CSS selector to find the element in the DOM
 - `comment` — what the user wants changed
 
-**Agent commands** (available after `npx @agent-native/pinpoint init`):
+**Agent commands** (available after `npx @agent-native/pinpoint@latest init`):
 
 - `pnpm action get-pins --status open` — list unresolved pins
 - `pnpm action resolve-pin --id <uuid>` — mark as resolved after fixing
@@ -174,7 +178,7 @@ pnpm add @agent-native/pinpoint
 ### 2. Initialize
 
 ```sh
-npx @agent-native/pinpoint init
+npx @agent-native/pinpoint@latest init
 ```
 
 Copies agent actions to `actions/` and the Pinpoint skill to `.agents/skills/pinpoint/`.
@@ -249,8 +253,8 @@ All options can be passed as props to `<Pinpoint />` or as the config object to 
 ## CLI
 
 ```sh
-npx @agent-native/pinpoint init   # Copy actions and skill to your project
-npx @agent-native/pinpoint        # Show help
+npx @agent-native/pinpoint@latest init   # Copy actions and skill to your project
+npx @agent-native/pinpoint@latest        # Show help
 ```
 
 ## Keyboard Shortcuts
@@ -294,7 +298,7 @@ app.use("/api/pins", pagePinRoutes({ dataDir: "data/pins" }));
 
 ## Agent Actions
 
-Available after running `npx @agent-native/pinpoint init`:
+Available after running `npx @agent-native/pinpoint@latest init`:
 
 | Action          | Purpose              | Args                                   |
 | --------------- | -------------------- | -------------------------------------- |
@@ -388,7 +392,7 @@ const { tools, handleTool } = createPinpointMCPTools(); // MCP tool handlers
 
 ## Builder.io Integration
 
-Inside [Builder.io's Fusion](https://builder.io), annotations are sent via `sendToAgentChat()` from `@agent-native/core`:
+Inside [Builder.io's Fusion](https://builder.io?utm_source=agent-native&utm_medium=readme&utm_campaign=pinpoint&utm_content=fusion), annotations are sent via `sendToAgentChat()` from `@agent-native/core`:
 
 ```tsx
 <Pinpoint author="Builder User" autoSubmit outputFormat="standard" />

@@ -1,12 +1,16 @@
 import { ExtensionViewerPage } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
+
 import { PageHeader } from "@/components/library/page-header";
 
 export default function ExtensionViewerRoute() {
+  const t = useT();
+
   return (
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Extensions
+          {t("navigation.extensions")}
         </h1>
       </PageHeader>
       <ExtensionViewerPage />

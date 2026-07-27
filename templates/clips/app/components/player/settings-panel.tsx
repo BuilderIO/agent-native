@@ -1,4 +1,8 @@
-import { useRef, useState } from "react";
+import {
+  useActionMutation,
+  useReconciledState,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconLock,
   IconClock,
@@ -8,11 +12,11 @@ import {
   IconX,
   IconMoodSmile,
 } from "@tabler/icons-react";
+import { useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -20,10 +24,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  useActionMutation,
-  useReconciledState,
-} from "@agent-native/core/client";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+
 import { SPEED_OPTIONS } from "./player-controls";
 
 export interface SettingsPanelProps {
@@ -52,10 +55,19 @@ export interface SettingsPanelProps {
   }[];
   onClose: () => void;
   onRefetch?: () => void;
+  showHeader?: boolean;
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
-  const { recording, visibility, ctas, onClose, onRefetch } = props;
+  const t = useT();
+  const {
+    recording,
+    visibility,
+    ctas,
+    onClose,
+    onRefetch,
+    showHeader = true,
+  } = props;
 
   const update = useActionMutation("update-recording", {
     onSuccess: () => onRefetch?.(),
@@ -92,12 +104,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-medium">Settings</h2>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <IconX className="h-4 w-4" />
-        </Button>
-      </div>
+      {showHeader ? (
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h2 className="text-sm font-medium">{t("playerSettings.title")}</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <IconX className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : null}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Privacy */}
@@ -105,12 +119,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <div className="flex items-center gap-2">
             <IconLock className="h-4 w-4 text-muted-foreground" />
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Privacy
+              {t("playerSettings.privacy")}
             </h3>
           </div>
 
           <div>
-            <Label className="text-xs">Visibility</Label>
+            <Label className="text-xs">{t("playerSettings.visibility")}</Label>
             <Select
               value={visibility}
               onValueChange={(v) =>
@@ -125,43 +139,69 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="private">Private</SelectItem>
-                <SelectItem value="org">Organization</SelectItem>
-                <SelectItem value="public">Public</SelectItem>
+                <SelectItem value="private">
+                  {t("playerSettings.visibilityPrivate")}
+                </SelectItem>
+                <SelectItem value="org">
+                  {t("playerSettings.visibilityOrg")}
+                </SelectItem>
+                <SelectItem value="public">
+                  {t("playerSettings.visibilityPublic")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div>
-            <Label className="text-xs">Password protection</Label>
-            <div className="flex gap-2 mt-1">
+            <Label className="text-xs">
+              {t("playerSettings.passwordProtection")}
+            </Label>
+            <div className="mt-1 space-y-2">
               <Input
                 type="text"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={
                   recording.hasPassword
-                    ? "Password is set — type to replace, leave empty + Save to clear"
-                    : "No password"
+                    ? t("playerSettings.passwordSetPlaceholder")
+                    : t("playerSettings.noPasswordPlaceholder")
                 }
-                className="flex-1"
               />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  patch({ password: password || null });
-                  setPassword("");
-                }}
-                disabled={update.isPending}
-              >
-                Save
-              </Button>
+              {password.length > 0 && !password.trim() ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("playerSettings.passwordWhitespaceOnly")}
+                </p>
+              ) : null}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    patch({ password: password.trim() });
+                    setPassword("");
+                  }}
+                  disabled={update.isPending || !password.trim()}
+                >
+                  {t("common.save")}
+                </Button>
+                {recording.hasPassword ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      patch({ password: null });
+                      setPassword("");
+                    }}
+                    disabled={update.isPending}
+                  >
+                    {t("playerSettings.removePassword")}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
 
           <div>
             <Label className="text-xs flex items-center gap-1">
-              <IconClock className="h-3 w-3" /> Expiry
+              <IconClock className="h-3 w-3" /> {t("playerSettings.expiry")}
             </Label>
             <div className="flex gap-2 mt-1">
               <Input
@@ -183,7 +223,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 onClick={() => patch({ expiresAt: expiresAt || null })}
                 disabled={update.isPending}
               >
-                Save
+                {t("common.save")}
               </Button>
             </div>
           </div>
@@ -194,29 +234,29 @@ export function SettingsPanel(props: SettingsPanelProps) {
         {/* Toggles */}
         <section className="space-y-3">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Viewer options
+            {t("playerSettings.viewerOptions")}
           </h3>
           <ToggleRow
             icon={<IconMessage className="h-4 w-4" />}
-            label="Comments"
+            label={t("playerSettings.comments")}
             checked={recording.enableComments}
             onChange={(v) => patch({ enableComments: v })}
           />
           <ToggleRow
             icon={<IconMoodSmile className="h-4 w-4" />}
-            label="Reactions"
+            label={t("playerSettings.reactions")}
             checked={recording.enableReactions}
             onChange={(v) => patch({ enableReactions: v })}
           />
           <ToggleRow
             icon={<IconDownload className="h-4 w-4" />}
-            label="Allow downloads"
+            label={t("playerSettings.allowDownloads")}
             checked={recording.enableDownloads}
             onChange={(v) => patch({ enableDownloads: v })}
           />
           <ToggleRow
             icon={<IconPhoto className="h-4 w-4" />}
-            label="Animated thumbnail"
+            label={t("playerSettings.animatedThumbnail")}
             checked={recording.animatedThumbnailEnabled}
             onChange={(v) => patch({ animatedThumbnailEnabled: v })}
           />
@@ -227,7 +267,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         {/* Default speed */}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Default playback speed
+            {t("playerSettings.defaultPlaybackSpeed")}
           </h3>
           <Select
             value={recording.defaultSpeed}
@@ -252,7 +292,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Call to action
+              {t("playerSettings.callToAction")}
             </h3>
             <Button
               size="sm"
@@ -260,20 +300,20 @@ export function SettingsPanel(props: SettingsPanelProps) {
               onClick={() =>
                 createCta.mutate({
                   recordingId: recording.id,
-                  label: "Learn more",
+                  label: t("playerSettings.defaultCtaLabel"),
                   url: "https://example.com",
                   color: "hsl(var(--primary))",
                   placement: "throughout",
                 } as any)
               }
             >
-              + Add
+              {t("playerSettings.addCta")}
             </Button>
           </div>
 
           {ctas.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No CTAs yet. Add a button that appears during or after the video.
+              {t("playerSettings.noCtas")}
             </p>
           ) : (
             <div className="space-y-3">
@@ -281,6 +321,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <CtaEditor
                   key={cta.id}
                   cta={cta}
+                  t={t}
                   onSave={(fields) =>
                     updateCta.mutate({ id: cta.id, ...fields } as any)
                   }
@@ -319,6 +360,7 @@ function ToggleRow({
 
 function CtaEditor({
   cta,
+  t,
   onSave,
   onDelete,
 }: {
@@ -329,6 +371,7 @@ function CtaEditor({
     color: string;
     placement: "end" | "throughout";
   };
+  t: ReturnType<typeof useT>;
   onSave: (fields: Record<string, unknown>) => void;
   onDelete: () => void;
 }) {
@@ -336,6 +379,7 @@ function CtaEditor({
   // editing this card, so an agent edit to the CTA shows up live. `editing`
   // flips true while focus is anywhere inside the card.
   const editing = useRef(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [label, setLabel] = useReconciledState(cta.label, {
     active: editing.current,
   });
@@ -362,48 +406,91 @@ function CtaEditor({
         }
       }}
     >
-      <Input
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        placeholder="Button label"
-      />
-      <Input
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="https://…"
-      />
-      <div className="flex gap-2">
-        <input
-          type="color"
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-          className="h-9 w-12 rounded cursor-pointer border border-border"
-        />
-        <Select
-          value={placement}
-          onValueChange={(v) => setPlacement(v as "end" | "throughout")}
-        >
-          <SelectTrigger className="flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="throughout">Throughout</SelectItem>
-            <SelectItem value="end">At end</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          onClick={() => onSave({ label, url, color, placement })}
-        >
-          Save
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDelete}>
-          Delete
-        </Button>
-      </div>
+      {collapsed ? (
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{cta.label}</p>
+            <p className="text-xs text-muted-foreground">
+              {cta.placement === "throughout"
+                ? t("playerSettings.placementThroughout")
+                : t("playerSettings.placementEnd")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            title={t("recordingPage.edit")}
+            onClick={() => setCollapsed(false)}
+          >
+            {t("recordingPage.edit")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
+            {t("playerSettings.delete")}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={t("playerSettings.buttonLabelPlaceholder")}
+          />
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://…"
+          />
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="h-9 w-12 rounded cursor-pointer border border-border"
+            />
+            <Select
+              value={placement}
+              onValueChange={(v) => setPlacement(v as "end" | "throughout")}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="throughout">
+                  {t("playerSettings.placementThroughout")}
+                </SelectItem>
+                <SelectItem value="end">
+                  {t("playerSettings.placementEnd")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => {
+                onSave({ label, url, color, placement });
+                setCollapsed(true);
+              }}
+            >
+              {t("common.save")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setCollapsed(true)}
+            >
+              {t("recordingPage.done")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
+              {t("playerSettings.delete")}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

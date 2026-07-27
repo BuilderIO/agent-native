@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import {
+  execFileSync,
+  spawn,
+  type ChildProcessWithoutNullStreams,
+} from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+
 import type { Browser, Locator, Page } from "playwright";
 
 interface RunningDispatch {
@@ -34,6 +39,23 @@ const resourcePath = `context/browser-smoke-${runId}.md`;
 const initialContent = `# ${resourceName}\n\nInitial workspace default.`;
 const approvedContent = `# ${resourceName}\n\nApproved All-app workspace default.`;
 const sharedOverrideContent = `# ${resourceName}\n\nOrganization override wins.`;
+
+function buildCurrentPackages() {
+  for (const pkg of ["@agent-native/core", "@agent-native/dispatch"]) {
+    execFileSync("pnpm", ["--filter", pkg, "build"], {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+  }
+}
+
+function cleanDispatchGeneratedFiles() {
+  fs.rmSync(path.join(templateDir, ".react-router"), {
+    recursive: true,
+    force: true,
+  });
+}
 
 async function gotoCommitted(page: Page, url: string) {
   let lastError: unknown;
@@ -529,6 +551,8 @@ async function runSmoke(page: Page, baseUrl: string) {
 }
 
 async function main() {
+  buildCurrentPackages();
+  cleanDispatchGeneratedFiles();
   const running = await startDispatch();
   let browser: Browser | null = null;
   const errors: string[] = [];

@@ -1,0 +1,41 @@
+---
+title: دورة حياة الحزم
+description: فحص حزم Agent Native المعتمدة على بيان وإضافتها وإخراجها بأمان.
+---
+
+# دورة حياة الحزم
+
+يمكن للحزم القابلة لإعادة الاستخدام نشر ملف `agent-native.package.json` ثابت ذي
+إصدار. تقرأ أداة CLI ملف JSON فقط أثناء الفحص ولا تشغّل شيفرة الحزمة.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+الإضافة والإخراج معاينة افتراضيًا. يسمح `--apply` بالكتابة وتشغيل مدير الحزم. ترفض
+الأداة التعارضات والتخطيطات غير المعروفة، وتستعيد الملفات وملفات القفل عند فشل التثبيت.
+
+## إخراج ميزة واحدة
+
+استخدم سلم التخصيص بهذا الترتيب: اضبط API العامة، ثم ركّب العناصر العامة، ثم أخرج أصغر وحدة، ثم اقترح نقطة توسيع مشتركة عند تكرار الحاجة في تطبيقات متعددة.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+تكون الأوامر معاينة افتراضيًا. يحفظ التطبيق السجل القابل للالتزام في `agent-native.ejections.json` مع إصدار الحزمة وملخص البيان وتجزئات الملفات وإعادات كتابة الاستيراد. لا تنجح الاستعادة إلا إذا بقيت الملفات والاستيرادات مطابقة؛ وإلا تعرض الفرق وترفض حذف التعديلات المحلية.
+
+تغطي بيانات الحزم الرسمية جميع نقاط Toolkit العامة وكتالوجات التكامل الرسمية. الوصفة الرسمية المفقودة خطأ تغطية في الإطار، بينما تحصل الحزمة الخارجية غير المعروفة على مخطط إضافة. لا تُنسخ عقود Core المحمية؛ تشير CLI إلى نقطة الضبط أو المحول أو الامتداد العامة.
+
+## الترحيل
+
+تتضمن الحزم المنشورة `migration-manifest.json` للمسارات والرموز المنقولة. يعاين `npx @agent-native/core@latest upgrade --codemods` الفرق، ثم يطبقه `--yes` بعد المراجعة. شغّل `agent-native doctor --only migration-manifest` في CI؛ لا يوجد opt-out.
+
+يمكن نشر إدخالات `planned` قبل توفر وجهتها؛ تظهر كتحذيرات غير حاجبة ولا يعيد codemod كتابتها. لا يُعاد كتابة النقل النشط إلا إذا كانت وجهة التصدير مثبتة.

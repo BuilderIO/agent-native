@@ -1,34 +1,39 @@
 import type { ActionEntry } from "@agent-native/core/server";
+
+import applyDreamProposal from "./apply-dream-proposal.js";
 import approveDispatchChange from "./approve-dispatch-change.js";
 import approveVaultRequest from "./approve-vault-request.js";
 import archiveWorkspaceApp from "./archive-workspace-app.js";
 import askApp from "./ask_app.js";
+import askAppStatus from "./ask_app_status.js";
+import createDreamReport from "./create-dream-report.js";
 import createLinkToken from "./create-link-token.js";
 import createPylonTicket from "./create-pylon-ticket.js";
 import createVaultGrant from "./create-vault-grant.js";
 import createVaultSecret from "./create-vault-secret.js";
 import createWorkspaceResourceGrant from "./create-workspace-resource-grant.js";
 import createWorkspaceResource from "./create-workspace-resource.js";
-import createDreamReport from "./create-dream-report.js";
 import createEmbedSession from "./create_embed_session.js";
 import deleteDestination from "./delete-destination.js";
+import deleteStagedDataset from "./delete-staged-dataset.js";
 import deleteVaultSecret from "./delete-vault-secret.js";
 import deleteWorkspaceResource from "./delete-workspace-resource.js";
 import denyVaultRequest from "./deny-vault-request.js";
 import ensureDreamJob from "./ensure-dream-job.js";
-import getAppCreationSettings from "./get-app-creation-settings.js";
 import getAgentThreadDebug from "./get-agent-thread-debug.js";
-import getDream from "./get-dream.js";
-import getDreamSettings from "./get-dream-settings.js";
+import getAppCreationSettings from "./get-app-creation-settings.js";
 import getDispatchSettings from "./get-dispatch-settings.js";
+import getDreamSettings from "./get-dream-settings.js";
+import getDream from "./get-dream.js";
 import getVaultAccessSettings from "./get-vault-access-settings.js";
-import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import getWorkspaceInfo from "./get-workspace-info.js";
-import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
+import getWorkspaceResourceEffectiveContext from "./get-workspace-resource-effective-context.js";
 import grantVaultSecretsToApp from "./grant-vault-secrets-to-app.js";
+import grantWorkspaceResourcesToApp from "./grant-workspace-resources-to-app.js";
 import listAgentThreadSources from "./list-agent-thread-sources.js";
 import listAvailableWorkspaceTemplates from "./list-available-workspace-templates.js";
 import listConnectedAgents from "./list-connected-agents.js";
+import listCuratedWorkspaceTemplates from "./list-curated-workspace-templates.js";
 import listDestinations from "./list-destinations.js";
 import listDispatchApprovals from "./list-dispatch-approvals.js";
 import listDispatchAudit from "./list-dispatch-audit.js";
@@ -39,33 +44,36 @@ import listDreams from "./list-dreams.js";
 import listIntegrationsCatalog from "./list-integrations-catalog.js";
 import listLinkedIdentities from "./list-linked-identities.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
-import listApps from "./list_apps.js";
+import listStagedDatasets from "./list-staged-datasets.js";
 import listVaultAudit from "./list-vault-audit.js";
 import listVaultGrants from "./list-vault-grants.js";
 import listVaultRequests from "./list-vault-requests.js";
 import listVaultSecretOptions from "./list-vault-secret-options.js";
 import listVaultSecrets from "./list-vault-secrets.js";
 import listWorkspaceApps from "./list-workspace-apps.js";
-import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourceGrants from "./list-workspace-resource-grants.js";
+import listWorkspaceResourceOptions from "./list-workspace-resource-options.js";
 import listWorkspaceResourcesForApp from "./list-workspace-resources-for-app.js";
 import listWorkspaceResources from "./list-workspace-resources.js";
+import listApps from "./list_apps.js";
 import navigate from "./navigate.js";
 import openApp from "./open_app.js";
-import applyDreamProposal from "./apply-dream-proposal.js";
 import previewDreamProposal from "./preview-dream-proposal.js";
 import previewWorkspaceResourceChange from "./preview-workspace-resource-change.js";
 import providerApiCatalog from "./provider-api-catalog.js";
 import providerApiDocs from "./provider-api-docs.js";
 import providerApiRegister from "./provider-api-register.js";
 import providerApiRequest from "./provider-api-request.js";
+import queryStagedDataset from "./query-staged-dataset.js";
 import rejectDispatchChange from "./reject-dispatch-change.js";
 import rejectDreamProposal from "./reject-dream-proposal.js";
+import remixWorkspaceTemplate from "./remix-workspace-template.js";
 import removePendingWorkspaceApp from "./remove-pending-workspace-app.js";
 import requestVaultSecret from "./request-vault-secret.js";
+import resolveIntegrationSourceContext from "./resolve-integration-source-context.js";
+import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import revokeVaultGrant from "./revoke-vault-grant.js";
 import revokeWorkspaceResourceGrant from "./revoke-workspace-resource-grant.js";
-import restoreStarterWorkspaceResources from "./restore-starter-workspace-resources.js";
 import scaffoldWorkspaceApp from "./scaffold-workspace-app.js";
 import searchAgentThreads from "./search-agent-threads.js";
 import sendCodeAgentRemoteCommand from "./send-code-agent-remote-command.js";
@@ -78,8 +86,8 @@ import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
 import syncVaultToApp from "./sync-vault-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
-import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateVaultSecret from "./update-vault-secret.js";
+import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
 import updateWorkspaceResource from "./update-workspace-resource.js";
 import upsertDestination from "./upsert-destination.js";
 import viewScreen from "./view-screen.js";
@@ -95,6 +103,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "approve-vault-request": approveVaultRequest,
   "archive-workspace-app": archiveWorkspaceApp,
   ask_app: askApp,
+  ask_app_status: askAppStatus,
   "create-link-token": createLinkToken,
   "create-pylon-ticket": createPylonTicket,
   "create-vault-grant": createVaultGrant,
@@ -103,6 +112,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "create-workspace-resource": createWorkspaceResource,
   "create-dream-report": createDreamReport,
   create_embed_session: createEmbedSession,
+  "delete-staged-dataset": deleteStagedDataset,
   "delete-destination": deleteDestination,
   "delete-vault-secret": deleteVaultSecret,
   "delete-workspace-resource": deleteWorkspaceResource,
@@ -121,6 +131,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "grant-vault-secrets-to-app": grantVaultSecretsToApp,
   "list-agent-thread-sources": listAgentThreadSources,
   "list-available-workspace-templates": listAvailableWorkspaceTemplates,
+  "list-curated-workspace-templates": listCuratedWorkspaceTemplates,
   "list-connected-agents": listConnectedAgents,
   "list-destinations": listDestinations,
   "list-dispatch-approvals": listDispatchApprovals,
@@ -133,6 +144,7 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "list-linked-identities": listLinkedIdentities,
   "list-mcp-app-access": listMcpAppAccess,
   list_apps: listApps,
+  "list-staged-datasets": listStagedDatasets,
   "list-vault-audit": listVaultAudit,
   "list-vault-grants": listVaultGrants,
   "list-vault-requests": listVaultRequests,
@@ -152,9 +164,12 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "provider-api-docs": providerApiDocs,
   "provider-api-register": providerApiRegister,
   "provider-api-request": providerApiRequest,
+  "query-staged-dataset": queryStagedDataset,
   "reject-dispatch-change": rejectDispatchChange,
   "reject-dream-proposal": rejectDreamProposal,
   "remove-pending-workspace-app": removePendingWorkspaceApp,
+  "resolve-integration-source-context": resolveIntegrationSourceContext,
+  "remix-workspace-template": remixWorkspaceTemplate,
   "request-vault-secret": requestVaultSecret,
   "revoke-vault-grant": revokeVaultGrant,
   "revoke-workspace-resource-grant": revokeWorkspaceResourceGrant,

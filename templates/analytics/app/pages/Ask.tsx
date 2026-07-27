@@ -1,52 +1,62 @@
-import { AgentChatSurface } from "@agent-native/core/client";
 import {
-  IconMessageCircle,
-  IconDatabase,
-  IconChartBar,
-} from "@tabler/icons-react";
+  AgentChatSurface,
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import { useEffect, useMemo } from "react";
+
+import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
+import { TAB_ID } from "@/lib/tab-id";
+
+const DASHBOARD_CONTEXT_KEYS = new Set([
+  "analytics-selected-dashboard",
+  "analytics-selected-dashboard-panel",
+]);
 
 export default function AskPage() {
+  const t = useT();
+  const { items: chatContextItems, remove: removeChatContextItem } =
+    useAgentChatContext();
+  const staleDashboardContextKey = useMemo(
+    () =>
+      chatContextItems.find((item) => DASHBOARD_CONTEXT_KEYS.has(item.key))
+        ?.key ?? null,
+    [chatContextItems],
+  );
+
+  useEffect(() => {
+    if (staleDashboardContextKey) {
+      removeChatContextItem(staleDashboardContextKey);
+    }
+  }, [removeChatContextItem, staleDashboardContextKey]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
-        className="h-full"
+        chatViewTransition
+        className="analytics-chat-panel"
         defaultMode="chat"
-        restoreActiveThread={false}
+        storageKey={ANALYTICS_CHAT_STORAGE_KEY}
+        browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Analytics about your data."
+        emptyStateText={t("common.askAnalytics")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask about data, dashboards, metrics, or sources..."
+        composerPlaceholder={t("common.askPlaceholder")}
         composerSlot={
-          <div className="mx-auto mb-6 flex max-w-2xl flex-col items-center gap-4 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted/30 text-foreground">
-              <IconMessageCircle className="h-6 w-6" />
+          <>
+            <CreativeContextComposerChip />
+            <div className="analytics-chat-intro">
+              <h1>{t("common.askIntroTitle")}</h1>
+              <p>{t("common.askIntroBody")}</p>
             </div>
-            <div className="space-y-2">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Ask Analytics
-              </h1>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Use the assistant to inspect connected data, explain metrics,
-                compare dashboards, or decide what to build next.
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1">
-                <IconDatabase className="h-3.5 w-3.5" />
-                Sources
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1">
-                <IconChartBar className="h-3.5 w-3.5" />
-                Dashboards
-              </span>
-            </div>
-          </div>
+          </>
         }
       />
     </div>

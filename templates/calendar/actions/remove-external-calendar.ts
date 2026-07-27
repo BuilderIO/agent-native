@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { z } from "zod";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { z } from "zod";
+
 import type { ExternalCalendar } from "../shared/api.js";
 
 export default defineAction({

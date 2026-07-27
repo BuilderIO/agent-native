@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+
 import { cn } from "@/lib/utils";
 import type { WaveformPeaks } from "@/lib/waveform-peaks";
 
@@ -17,12 +18,16 @@ export interface WaveformProps {
   durationMs: number;
   /** Excluded ranges (original time) — drawn as striped overlays. */
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
+  /** Split markers (original time) — drawn over the active selection. */
+  splitPoints?: number[];
   /** Optional selection range (original time) highlighted in brand color. */
   selectionRange?: { startMs: number; endMs: number } | null;
   /** Transcript-backed activity ranges used when browser audio decoding fails. */
   activityRanges?: Array<{ startMs: number; endMs: number }>;
   /** Click handler — returns the original ms at the click position. */
   onSeek?: (originalMs: number) => void;
+  /** Controlled horizontal scroll offset from the parent timeline shell. */
+  scrollLeft?: number;
   /** Called on scroll so the parent can sync ruler / chapter markers. */
   onScroll?: (scrollLeft: number, totalWidth: number) => void;
   className?: string;
@@ -84,9 +89,11 @@ export function Waveform({
   playheadMs,
   durationMs,
   excludedRanges,
+  splitPoints = [],
   selectionRange,
   activityRanges = [],
   onSeek,
+  scrollLeft = 0,
   onScroll,
   className,
 }: WaveformProps) {
@@ -95,6 +102,15 @@ export function Waveform({
 
   // The total drawable width (scrolls horizontally). zoom=1 fits exactly.
   const totalWidth = Math.max(width, Math.floor(width * Math.max(1, zoom)));
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const next = Math.max(0, Math.min(scrollLeft, totalWidth - width));
+    if (Math.abs(el.scrollLeft - next) > 0.5) {
+      el.scrollLeft = next;
+    }
+  }, [scrollLeft, totalWidth, width]);
 
   // Re-draw whenever peaks, size, or excluded ranges change.
   useEffect(() => {
@@ -207,19 +223,28 @@ export function Waveform({
 
     // Selection overlay
     if (selectionRange) {
-      const xStart =
-        (Math.min(selectionRange.startMs, selectionRange.endMs) /
-          Math.max(durationMs, 1)) *
-        totalWidth;
-      const xEnd =
-        (Math.max(selectionRange.startMs, selectionRange.endMs) /
-          Math.max(durationMs, 1)) *
-        totalWidth;
+      const startMs = Math.min(selectionRange.startMs, selectionRange.endMs);
+      const endMs = Math.max(selectionRange.startMs, selectionRange.endMs);
+      const xStart = (startMs / Math.max(durationMs, 1)) * totalWidth;
+      const xEnd = (endMs / Math.max(durationMs, 1)) * totalWidth;
       ctx.fillStyle = getBrandColorAlpha(0.28);
       ctx.fillRect(xStart, 0, xEnd - xStart, height);
       ctx.strokeStyle = getBrandColor();
       ctx.lineWidth = 1;
       ctx.strokeRect(xStart + 0.5, 0.5, xEnd - xStart - 1, height - 1);
+
+      // Keep split markers visible on the selected track as well as on the
+      // ruler so a split is visibly actionable within the selection.
+      for (const splitMs of splitPoints) {
+        if (splitMs <= startMs || splitMs >= endMs) continue;
+        const splitX = (splitMs / Math.max(durationMs, 1)) * totalWidth;
+        ctx.strokeStyle = "rgba(244, 63, 94, 0.95)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(splitX, 0);
+        ctx.lineTo(splitX, height);
+        ctx.stroke();
+      }
     }
   }, [
     peaks,
@@ -227,16 +252,14 @@ export function Waveform({
     height,
     excludedRanges,
     selectionRange,
+    splitPoints,
     durationMs,
     activityRanges,
   ]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeek) return;
-    const rect = (
-      e.currentTarget.firstElementChild as HTMLElement
-    )?.getBoundingClientRect();
-    if (!rect) return;
+    const rect = e.currentTarget.getBoundingClientRect();
     const scroll = scrollRef.current?.scrollLeft ?? 0;
     const x = e.clientX - rect.left + scroll;
     const ms = Math.max(0, Math.min(durationMs, (x / totalWidth) * durationMs));

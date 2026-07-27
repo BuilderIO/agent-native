@@ -1,5 +1,3 @@
-import { useState, useCallback, useEffect, useRef } from "react";
-import { Toaster, toast } from "sonner";
 import {
   DESKTOP_DEFAULT_APPS,
   type AppDefinition,
@@ -7,18 +5,27 @@ import {
   type FrameSettings,
   toAppDefinition,
 } from "@shared/app-registry";
-import Sidebar from "./components/Sidebar.js";
-import TabBar from "./components/TabBar.js";
-import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
-import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
-import UpdatePrompt from "./components/UpdatePrompt.js";
-import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import { getTabDisplayTitle } from "./lib/tab-title.js";
 import {
   CODE_AGENTS_SURFACE_ID,
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { Toaster, toast } from "sonner";
+
+import AppSettings, {
+  AddAppDialog,
+  AppEditForm,
+} from "./components/AppSettings.js";
+import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
+import CodeAgentsHub from "./components/CodeAgentsHub.js";
+import Sidebar from "./components/Sidebar.js";
+import TabBar from "./components/TabBar.js";
+import UpdatePrompt from "./components/UpdatePrompt.js";
+import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
+import { getTabDisplayTitle } from "./lib/tab-title.js";
+
+const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
 
 export interface Tab {
   id: string;
@@ -124,7 +131,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showAddApp, setShowAddApp] = useState(false);
-  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(false);
+  const [editingSidebarAppId, setEditingSidebarAppId] = useState<string | null>(
+    null,
+  );
+  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
+  const [hasMountedCodeAgents, setHasMountedCodeAgents] = useState(false);
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
@@ -132,6 +143,10 @@ export default function App() {
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
     useState<DesktopOpenRequest | null>(null);
+  const [
+    pendingDesktopShortcutActivation,
+    setPendingDesktopShortcutActivation,
+  ] = useState<DesktopShortcutActivationRequest | null>(null);
 
   // Load apps from persistent store
   useEffect(() => {
@@ -153,21 +168,12 @@ export default function App() {
     window.electronAPI.frame
       .load()
       .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
-      .catch(() => setShowCodeAgentsTab(false));
+      .catch(() => setShowCodeAgentsTab(true));
   }, []);
 
   const enabledApps = apps.filter((a) => a.enabled);
   const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
-  const rawAppDefs = enabledApps.map(toAppDefinition);
-  // Keep this in sync with Sidebar's pinned-bottom order.
-  const PINNED_BOTTOM_ORDER = ["dispatch"];
-  const pinnedBottomDefs = PINNED_BOTTOM_ORDER.map((id) =>
-    rawAppDefs.find((a) => a.id === id),
-  ).filter((a): a is NonNullable<typeof a> => !!a);
-  const mainDefs = rawAppDefs.filter(
-    (a) => !PINNED_BOTTOM_ORDER.includes(a.id),
-  );
-  const appDefs = [...mainDefs, ...pinnedBottomDefs];
+  const appDefs = enabledApps.map(toAppDefinition);
 
   const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
   const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
@@ -276,6 +282,55 @@ export default function App() {
     [activateApp],
   );
 
+  const handlePromptAppCreated = useCallback(
+    (result: DesktopCreateAppResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      activateApp(result.app.id);
+      setShowAddApp(false);
+      toast(`Building ${result.app.name}`, {
+        description:
+          "The app is already in your sidebar. Desktop will open it as soon as the agent and dev server are ready.",
+        duration: 5000,
+      });
+    },
+    [activateApp],
+  );
+
+  const handleSidebarAppContextMenu = useCallback(
+    async (appId: string) => {
+      const api = window.electronAPI?.appConfig;
+      if (!api?.showContextMenu) return;
+      const action = await api.showContextMenu(appId);
+      if (!action) return;
+      if (action === "edit") {
+        setEditingSidebarAppId(appId);
+        return;
+      }
+      if (action === "move-up" || action === "move-down") {
+        const updated = await api.reorder(
+          appId,
+          action === "move-up" ? "up" : "down",
+        );
+        setApps(updated);
+        return;
+      }
+      const app = apps.find((candidate) => candidate.id === appId);
+      if (!app) return;
+      const updated = app.isBuiltIn
+        ? await api.update(appId, { enabled: false })
+        : await api.remove(appId);
+      setApps(updated);
+    },
+    [apps],
+  );
+
+  const handleSidebarAppSave = useCallback(async (app: AppConfig) => {
+    const updated = await window.electronAPI?.appConfig?.update(app.id, app);
+    if (updated) setApps(updated);
+    setEditingSidebarAppId(null);
+  }, []);
+
   const handleSidebarTabChange = useCallback(
     (appId: string) => {
       activateApp(appId);
@@ -286,6 +341,7 @@ export default function App() {
 
   const handleCodeAgentsClick = useCallback(() => {
     if (!showCodeAgentsTab) return;
+    setHasMountedCodeAgents(true);
     setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
     setShowSettings(false);
     setShowAddApp(false);
@@ -310,6 +366,7 @@ export default function App() {
           runId: request.runId,
           nonce: Date.now(),
         });
+        setHasMountedCodeAgents(true);
         setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
         setShowSettings(false);
         setShowAddApp(false);
@@ -321,6 +378,7 @@ export default function App() {
       const targetApp = enabledApps.find((app) => app.id === appId);
       if (!targetApp) return !loading;
 
+      window.electronAPI?.setActiveApp?.(appId);
       activateApp(appId);
       setShowSettings(false);
       setShowAddApp(false);
@@ -360,6 +418,32 @@ export default function App() {
   );
 
   useEffect(() => {
+    const bridge = {
+      getActiveAppId: () => activeSidebarAppId,
+      activate: (
+        request: DesktopShortcutActivationRequest,
+      ): DesktopShortcutActivationResult => {
+        const handled = handleDesktopOpenRequest(request);
+        const appId = handled ? request.app : undefined;
+        if (appId) {
+          window.electronAPI?.setActiveApp?.(appId);
+        }
+        return {
+          handled,
+          appId,
+          activeAppId: appId ?? activeSidebarAppId,
+        };
+      },
+    };
+    window.__agentNativeDesktopShortcutBridge = bridge;
+    return () => {
+      if (window.__agentNativeDesktopShortcutBridge === bridge) {
+        delete window.__agentNativeDesktopShortcutBridge;
+      }
+    };
+  }, [activeSidebarAppId, handleDesktopOpenRequest]);
+
+  useEffect(() => {
     if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
       return;
     }
@@ -389,6 +473,10 @@ export default function App() {
     },
     [activeSidebarAppId],
   );
+
+  const handleTabRefresh = useCallback((tabId: string) => {
+    webviewRefs.current.get(tabId)?.reload();
+  }, []);
 
   const handleTabClose = useCallback(
     (tabId: string) => {
@@ -659,11 +747,34 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const shortcutApi = window.electronAPI?.shortcuts;
+    if (!shortcutApi?.onActivate) return;
+    return shortcutApi.onActivate((request) => {
+      setPendingDesktopShortcutActivation(request);
+    });
+  }, []);
+
+  useEffect(() => {
     if (!pendingDesktopOpenRequest) return;
     if (handleDesktopOpenRequest(pendingDesktopOpenRequest)) {
       setPendingDesktopOpenRequest(null);
     }
   }, [handleDesktopOpenRequest, pendingDesktopOpenRequest]);
+
+  useEffect(() => {
+    if (!pendingDesktopShortcutActivation) return;
+    const handled = handleDesktopOpenRequest(pendingDesktopShortcutActivation);
+    if (!handled) return;
+    const appId = pendingDesktopShortcutActivation.app;
+    if (appId) {
+      window.electronAPI?.setActiveApp?.(appId);
+    }
+    window.electronAPI?.shortcuts?.ackActivation(
+      pendingDesktopShortcutActivation.requestId,
+      appId,
+    );
+    setPendingDesktopShortcutActivation(null);
+  }, [handleDesktopOpenRequest, pendingDesktopShortcutActivation]);
 
   // Report the active app to main process so DevTools targets the right webview
   useEffect(() => {
@@ -680,6 +791,16 @@ export default function App() {
       }
     });
   }, [handleTabClose]);
+
+  useEffect(() => {
+    const appConfigApi = window.electronAPI?.appConfig;
+    if (!appConfigApi?.onRuntimeStatus) return;
+    return appConfigApi.onRuntimeStatus((status) => {
+      if (status.appId === activeSidebarAppId && status.state === "running") {
+        setRefreshKey((key) => key + 1);
+      }
+    });
+  }, [activeSidebarAppId]);
 
   const runFind = useCallback(
     (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
@@ -716,6 +837,8 @@ export default function App() {
 
   const isCodeAgentsActive =
     showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
+  const shouldRenderCodeAgents =
+    showCodeAgentsTab && (isCodeAgentsActive || hasMountedCodeAgents);
 
   // Keep app webviews warm once visited so switching apps feels like browser
   // tabs: the guest page remains alive offscreen and keeps its runtime state.
@@ -801,8 +924,13 @@ export default function App() {
       )}
       {isCodeAgentsActive ? (
         <div className="tabbar tabbar--shell">
-          <div className="tab tab--active tab--locked">
-            <span className="tab-label">Code</span>
+          {reserveMacOSWindowControlsSpace && (
+            <div className="tabbar-window-spacer" aria-hidden="true" />
+          )}
+          <div className="tabbar-strip">
+            <div className="tab tab--active tab--locked">
+              <span className="tab-label">Agent</span>
+            </div>
           </div>
         </div>
       ) : (
@@ -814,6 +942,7 @@ export default function App() {
           }
           onTabSelect={handleTabSelect}
           onTabClose={handleTabClose}
+          onTabRefresh={handleTabRefresh}
           onNewTab={handleNewTab}
         />
       )}
@@ -822,6 +951,7 @@ export default function App() {
           apps={appDefs}
           activeAppId={activeSidebarAppId}
           onTabChange={handleSidebarTabChange}
+          onAppContextMenu={(appId) => void handleSidebarAppContextMenu(appId)}
           onAddAppClick={() => setShowAddApp(true)}
           isCodeAgentsActive={isCodeAgentsActive}
           onCodeAgentsClick={
@@ -834,10 +964,16 @@ export default function App() {
             isCodeAgentsActive ? " content-area--code-agents" : ""
           }`}
         >
-          {isCodeAgentsActive && (
-            <div className="code-agents-shell-surface">
+          {shouldRenderCodeAgents && (
+            <div
+              className={`code-agents-shell-surface${
+                isCodeAgentsActive ? "" : " code-agents-shell-surface--hidden"
+              }`}
+              aria-hidden={!isCodeAgentsActive}
+            >
               <CodeAgentsHub
                 apps={apps}
+                isActive={isCodeAgentsActive}
                 openRequest={codeAgentsOpenRequest}
                 refreshKey={refreshKey}
                 onOpenSettings={() => setShowSettings(true)}
@@ -883,7 +1019,16 @@ export default function App() {
       {showAddApp && (
         <AddAppDialog
           onSave={handleAddApp}
+          onCreated={handlePromptAppCreated}
           onCancel={() => setShowAddApp(false)}
+        />
+      )}
+
+      {editingSidebarAppId && (
+        <AppEditForm
+          app={apps.find((candidate) => candidate.id === editingSidebarAppId)}
+          onSave={(app) => void handleSidebarAppSave(app)}
+          onCancel={() => setEditingSidebarAppId(null)}
         />
       )}
 

@@ -1,3 +1,23 @@
+import { sql, PostgreSQL } from "@codemirror/lang-sql";
+import { oneDark } from "@codemirror/theme-one-dark";
+import {
+  IconPlayerPlayFilled,
+  IconHistory,
+  IconBookmark,
+  IconBookmarkPlus,
+  IconDownload,
+  IconAlertTriangle,
+  IconLoader2,
+  IconTrash,
+  IconX,
+  IconChevronDown,
+} from "@tabler/icons-react";
+import CodeMirror, {
+  type ReactCodeMirrorRef,
+  EditorView,
+  keymap,
+  Prec,
+} from "@uiw/react-codemirror";
 /**
  * Production-grade SQL editor for the dev-mode database admin.
  *
@@ -18,42 +38,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import CodeMirror, {
-  type ReactCodeMirrorRef,
-  EditorView,
-  keymap,
-  Prec,
-} from "@uiw/react-codemirror";
-import { sql, PostgreSQL } from "@codemirror/lang-sql";
-import { oneDark } from "@codemirror/theme-one-dark";
-import {
-  IconPlayerPlayFilled,
-  IconHistory,
-  IconBookmark,
-  IconBookmarkPlus,
-  IconDownload,
-  IconAlertTriangle,
-  IconLoader2,
-  IconTrash,
-  IconX,
-  IconChevronDown,
-} from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
+
+import type { DbAdminDialect } from "../../db-admin/types.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu.js";
-import type { DbAdminDialect } from "../../db-admin/types.js";
-import { runQuery } from "./useDbAdmin.js";
-import { ResultsGrid } from "./ResultsGrid.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { cn } from "../utils.js";
 import { toCSV, toJSON, downloadFile } from "./export-utils.js";
+import { ResultsGrid } from "./ResultsGrid.js";
 import {
   loadHistory,
   pushHistory,
@@ -63,11 +63,13 @@ import {
   deleteSnippet,
   type SqlSnippet,
 } from "./sql-storage.js";
+import { runQuery, type DbAdminRequestConfig } from "./useDbAdmin.js";
 
 export interface SqlEditorProps {
   dialect: DbAdminDialect;
   tableNames: string[];
   columnsByTable: Record<string, string[]>;
+  requestConfig?: DbAdminRequestConfig;
 }
 
 interface QueryResult {
@@ -265,6 +267,7 @@ export function SqlEditor({
   dialect,
   tableNames,
   columnsByTable,
+  requestConfig,
 }: SqlEditorProps) {
   const isDark = useIsDark();
   const editorRef = useRef<ReactCodeMirrorRef>(null);
@@ -306,7 +309,12 @@ export function SqlEditor({
       setRunning(true);
       setError(null);
       try {
-        const res = await runQuery(trimmed, undefined, confirmDestructive);
+        const res = await runQuery(
+          trimmed,
+          undefined,
+          confirmDestructive,
+          requestConfig,
+        );
         setResult({
           columns: res.columns,
           rows: res.rows,
@@ -333,7 +341,7 @@ export function SqlEditor({
         setRunning(false);
       }
     },
-    [],
+    [requestConfig],
   );
 
   const runActiveStatement = useCallback(() => {
@@ -400,15 +408,25 @@ export function SqlEditor({
       );
       setEditorHeight(next);
     };
-    const onUp = () => {
+    const endDrag = () => {
       dragState.current = null;
       document.body.style.userSelect = "";
     };
+    // mouseup covers the normal release-inside-the-page case; window blur
+    // covers releasing the button outside the browser window/iframe, which
+    // never delivers a mouseup to this document. The cleanup also resets
+    // userSelect unconditionally so an unmount mid-drag can't leave
+    // `document.body.style.userSelect` stuck at "none", which would
+    // silently break text selection/copy everywhere in the app.
     window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("mouseup", endDrag);
+    window.addEventListener("blur", endDrag);
     return () => {
       window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("mouseup", endDrag);
+      window.removeEventListener("blur", endDrag);
+      document.body.style.userSelect = "";
+      dragState.current = null;
     };
   }, []);
 

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+
 import { getDbExec, isPostgres } from "@agent-native/core/db";
+import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import {
   resourceDeleteByPath,
   resourceEffectiveContext,
@@ -14,13 +15,14 @@ import {
   type ResourceInheritanceScope,
   type ResourceMeta,
 } from "@agent-native/core/resources/store";
+import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import {
   getOrgSetting,
   getUserSetting,
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
-import { discoverAgents } from "@agent-native/core/server/agent-discovery";
+
 import { getDb, schema } from "../../db/index.js";
 import {
   createApprovalRequest,

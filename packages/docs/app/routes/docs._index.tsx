@@ -1,29 +1,67 @@
+import {
+  useLoaderData,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
+
+import DocContent from "../components/DocContent";
+import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
+import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
-import MarkdownRenderer from "../components/MarkdownRenderer";
-import { getDoc } from "../components/docs-content";
-import { withDefaultSocialImage } from "../seo";
+import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
-const doc = getDoc("getting-started")!;
+const GETTING_STARTED_SLUG = "getting-started";
 
-export const meta = () =>
-  withDefaultSocialImage([
-    { title: `${doc.title} — Agent-Native` },
-    { name: "description", content: doc.description },
-    { property: "og:title", content: `${doc.title} — Agent-Native` },
-    { property: "og:description", content: doc.description },
-    { property: "og:type", content: "article" },
-  ]);
+function routeLocale(params: LoaderFunctionArgs["params"]) {
+  return isDocsLocale(params.locale) ? params.locale : DEFAULT_DOCS_LOCALE;
+}
+
+export async function loader({
+  params,
+}: LoaderFunctionArgs): Promise<DocEntry> {
+  const doc = await loadDoc(GETTING_STARTED_SLUG, routeLocale(params));
+  if (!doc) throw new Response("Not Found", { status: 404 });
+  return doc;
+}
+
+export const meta = ({
+  data,
+  loaderData,
+}: { data?: DocEntry; loaderData?: DocEntry } = {}) => {
+  const doc = data ?? loaderData ?? getDoc(GETTING_STARTED_SLUG);
+  if (!doc) {
+    return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
+  }
+  return withDocsSocialImage(
+    [
+      { title: `${doc.title} — Agent-Native` },
+      { name: "description", content: doc.description },
+      { property: "og:title", content: `${doc.title} — Agent-Native` },
+      { property: "og:description", content: doc.description },
+      { property: "og:type", content: "article" },
+    ],
+    doc.title,
+  );
+};
 
 export default function DocsIndex() {
-  const toc = doc.headings.map((h) => ({
+  const currentDoc = useLoaderData<typeof loader>();
+  const params = useParams();
+  const locale = routeLocale(params);
+
+  const toc = currentDoc.headings.map((h) => ({
     id: h.id,
     label: h.label,
     level: h.level,
   }));
 
   return (
-    <DocsLayout toc={toc}>
-      <MarkdownRenderer markdown={doc.body} />
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
+    >
+      <DocContent markdown={currentDoc.body} />
     </DocsLayout>
   );
 }

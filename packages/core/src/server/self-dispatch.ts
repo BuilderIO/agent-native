@@ -1,3 +1,5 @@
+import { isLocalDatabase } from "../db/client.js";
+import { signInternalToken } from "../integrations/internal-token.js";
 /**
  * Shared self-dispatch helper for the framework's serverless background-work
  * pattern: enqueue a unit of work to SQL, then fire a fresh HTTP POST back to
@@ -20,9 +22,10 @@
  * A2A, integration webhooks, and Agent Teams sub-agents share one tested
  * implementation.
  */
-import { withConfiguredAppBasePath } from "./app-base-path.js";
-import { isLocalDatabase } from "../db/client.js";
-import { signInternalToken } from "../integrations/internal-token.js";
+import {
+  getConfiguredAppBasePath,
+  withConfiguredAppBasePath,
+} from "./app-base-path.js";
 
 /**
  * On serverless, returning from the dispatching handler before the outbound
@@ -91,6 +94,23 @@ export interface FireInternalDispatchOptions {
   body?: Record<string, unknown>;
   /** Max ms to wait for the outbound request to leave the box. Default 250ms. */
   settleMs?: number;
+  /**
+   * Await the dispatch response fully instead of racing the settle timer.
+   *
+   * The 250ms settle race is correct for a synchronous handler that must
+   * respond to its own caller quickly — but it is WRONG for a handoff fired
+   * from a function that is about to finish (e.g. a background worker chaining
+   * its continuation chunk): once the handler's promise resolves, the Lambda
+   * freezes and a still-in-flight dispatch fetch is killed WITHOUT rejecting,
+   * so the handoff is lost silently — the error path never fires. With
+   * `awaitResponse: true` the call resolves only after the target confirmed
+   * receipt (Netlify background functions 202 on enqueue, normally well under
+   * a second) and throws on any network error or non-2xx, bounded by
+   * `responseTimeoutMs`.
+   */
+  awaitResponse?: boolean;
+  /** Max ms to await the dispatch response when `awaitResponse` is set. Default 15s. */
+  responseTimeoutMs?: number;
 }
 
 async function dispatchResponseError(
@@ -119,11 +139,35 @@ async function dispatchResponseError(
  * processor accepts unsigned dispatches in dev and relies on the SQL atomic
  * claim for double-processing protection, mirroring the A2A/webhook flow.
  */
+/**
+ * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
+ * app base path suffix from the resolved base url so the request reaches the
+ * function at the host root rather than under the workspace app base path. For
+ * every other (framework-route) path the base-path-prefixed base url is returned
+ * unchanged, preserving the existing self-dispatch behavior.
+ */
+function rootBaseUrlForPath(baseUrl: string, path: string): string {
+  if (!path.startsWith("/.netlify/")) return baseUrl;
+  const basePath = getConfiguredAppBasePath();
+  if (!basePath) return baseUrl;
+  const trimmed = baseUrl.replace(/\/$/, "");
+  if (trimmed.endsWith(basePath)) {
+    return trimmed.slice(0, trimmed.length - basePath.length);
+  }
+  return trimmed;
+}
+
 export async function fireInternalDispatch(
   options: FireInternalDispatchOptions,
 ): Promise<void> {
   const baseUrl = options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event);
-  const url = `${baseUrl}${options.path}`;
+  // Netlify function default urls (`/.netlify/functions/<name>`) live at the
+  // HOST ROOT, not under the workspace app base path. `resolveSelfDispatchBaseUrl`
+  // appends the configured base path (e.g. `https://host/starter`) so framework
+  // routes land on the right app; for a host-root function url we must dispatch
+  // to `https://host/.netlify/functions/<name>` instead. Strip the base path
+  // suffix from the resolved base url for `/.netlify/*` dispatch targets only.
+  const url = `${rootBaseUrlForPath(baseUrl, options.path)}${options.path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -140,18 +184,37 @@ export async function fireInternalDispatch(
     }
   }
 
+  const awaitResponse = options.awaitResponse === true;
   const dispatchPromise = fetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify({ taskId: options.taskId, ...(options.body ?? {}) }),
+    ...(awaitResponse
+      ? { signal: AbortSignal.timeout(options.responseTimeoutMs ?? 15_000) }
+      : {}),
   }).then(async (res) => {
     if (!res.ok) {
       throw await dispatchResponseError(options.path, res);
     }
   });
   dispatchPromise.catch((err) => {
-    console.error(`[self-dispatch] dispatch to ${options.path} failed:`, err);
+    // Include the resolved base URL: a self-dispatch failure is almost always
+    // about *which* host we POST to (custom domain behind an edge/auth wall vs
+    // the deploy URL), and that is invisible from the error alone. Keeps prod
+    // logs diagnostic without changing the URL resolution order.
+    console.error(
+      `[self-dispatch] dispatch to ${options.path} (base ${baseUrl}) failed:`,
+      err,
+    );
   });
+
+  if (awaitResponse) {
+    // Confirmed handoff: resolve only once the target acknowledged the
+    // dispatch (throws on network error / timeout / non-2xx). Used by callers
+    // whose own invocation is about to end — see the option doc above.
+    await dispatchPromise;
+    return;
+  }
 
   const settleMs = options.settleMs ?? DEFAULT_DISPATCH_SETTLE_MS;
   await Promise.race([

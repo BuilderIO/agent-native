@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { computeAvailableSlots } from "./slots.js";
+
 import type { ScheduleInput } from "./rules.js";
+import { computeAvailableSlots } from "./slots.js";
 
 const utc: ScheduleInput = {
   timezone: "UTC",

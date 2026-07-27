@@ -1,15 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconCheck,
   IconChevronRight,
-  IconHelpCircle,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath } from "./api-path.js";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath } from "./api-path.js";
 import { setClientAppState } from "./application-state.js";
+import { useChangeVersions } from "./use-change-version.js";
 import { cn } from "./utils.js";
 
 export type GuidedQuestionType =
@@ -49,6 +54,8 @@ export interface GuidedQuestion {
   allowOther?: boolean;
   includeExplore?: boolean;
   includeDecide?: boolean;
+  /** Submit immediately when a single-select option is clicked. */
+  submitOnSelect?: boolean;
 }
 
 export type GuidedQuestionAnswers = Record<string, unknown>;
@@ -59,6 +66,8 @@ export interface GuidedQuestionPayload {
   description?: string;
   skipLabel?: string;
   submitLabel?: string;
+  submitMessage?: string;
+  skipMessage?: string;
   /**
    * @internal Set by {@link askUserQuestion} for client-initiated questions.
    * When present, `useGuidedQuestionFlow` resolves the matching in-memory
@@ -144,6 +153,16 @@ export function formatGuidedAnswersForAgent(
       return `${id}: ${String(value)}`;
     })
     .join("\n");
+}
+
+function defaultGuidedSubmitContext(formattedAnswers: string): string {
+  return [
+    "The user answered the guided questions.",
+    "Use the selected option values below as authoritative. If an answer includes exact ids, file names, or action instructions, follow those exact details instead of inferring them.",
+    "",
+    "Answers:",
+    formattedAnswers,
+  ].join("\n");
 }
 
 /** A single option for {@link askUserQuestion}. Mirrors the agent `ask-question`
@@ -357,6 +376,38 @@ function optionKey(option: GuidedQuestionOption): string {
   return `${option.value.toLowerCase()}::${option.label.toLowerCase()}`;
 }
 
+/** Stable content hash so poll refreshes do not reset in-progress answers. */
+export function guidedQuestionsFingerprint(
+  questions: GuidedQuestion[],
+): string {
+  return JSON.stringify(
+    questions.map((question) => ({
+      id: question.id,
+      type: question.type,
+      header: question.header ?? null,
+      question: question.question,
+      description: question.description ?? null,
+      multiSelect: question.multiSelect ?? false,
+      required: question.required ?? false,
+      allowOther: question.allowOther ?? null,
+      includeExplore: question.includeExplore ?? null,
+      includeDecide: question.includeDecide ?? null,
+      submitOnSelect: question.submitOnSelect ?? false,
+      min: question.min ?? null,
+      max: question.max ?? null,
+      step: question.step ?? null,
+      placeholder: question.placeholder ?? null,
+      options: (question.options ?? question.choices ?? []).map((option) => ({
+        label: option.label,
+        value: option.value,
+        color: option.color ?? null,
+        description: option.description ?? null,
+        recommended: option.recommended ?? false,
+      })),
+    })),
+  );
+}
+
 function withDefaultOptions(question: GuidedQuestion): GuidedQuestionOption[] {
   const base = question.options ?? question.choices ?? [];
   const seen = new Set(base.map(optionKey));
@@ -396,21 +447,30 @@ export function GuidedQuestionFlow({
   questions,
   onSubmit,
   onSkip,
-  title = "A few choices before I generate",
-  description = "Pick what you know. Use Other for anything that does not fit, or let the agent decide.",
+  title = "Before I generate",
+  description = "Use Other for custom details, or let the agent decide.",
   skipLabel = "Skip",
   submitLabel = "Continue",
   className,
 }: GuidedQuestionFlowProps) {
   const [answers, setAnswers] = useState<GuidedQuestionAnswers>({});
+  const questionsFingerprint = useMemo(
+    () => guidedQuestionsFingerprint(questions),
+    [questions],
+  );
 
   useEffect(() => {
     setAnswers({});
-  }, [questions]);
+  }, [questionsFingerprint]);
 
   const setAnswer = useCallback((id: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
+  const submitAnswers = useCallback(
+    (nextAnswers: GuidedQuestionAnswers = answers) =>
+      onSubmit(normalizeGuidedAnswers(nextAnswers)),
+    [answers, onSubmit],
+  );
 
   const allRequiredAnswered = questions
     .filter((question) => question.required)
@@ -419,28 +479,23 @@ export function GuidedQuestionFlow({
   return (
     <div
       className={cn(
-        "flex h-full w-full items-center justify-center bg-background text-foreground",
+        "guided-question-flow flex h-full w-full items-center justify-center bg-background text-foreground",
         className,
       )}
     >
-      <div className="flex max-h-full w-full max-w-3xl flex-col px-4 py-6 sm:px-8 sm:py-10">
-        <div className="mb-6 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/40 text-primary">
-            <IconHelpCircle className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-semibold tracking-normal text-foreground sm:text-2xl">
-              {title}
-            </h2>
-            {description && (
-              <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
-                {description}
-              </p>
-            )}
-          </div>
+      <div className="guided-question-flow-inner flex max-h-full w-full max-w-3xl flex-col px-3 py-4">
+        <div className="guided-question-flow-header mb-4 min-w-0">
+          <h2 className="guided-question-flow-title text-lg font-semibold leading-tight tracking-normal text-foreground">
+            {title}
+          </h2>
+          {description && (
+            <p className="guided-question-flow-description mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
+              {description}
+            </p>
+          )}
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+        <div className="guided-question-flow-list min-h-0 flex-1 overflow-y-auto pe-1">
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
@@ -448,11 +503,14 @@ export function GuidedQuestionFlow({
               question={question}
               value={answers[question.id]}
               onChange={(value) => setAnswer(question.id, value)}
+              onSubmitAnswer={(value) =>
+                submitAnswers({ ...answers, [question.id]: value })
+              }
             />
           ))}
         </div>
 
-        <div className="mt-5 flex shrink-0 items-center justify-between gap-4 border-t border-border pt-4">
+        <div className="guided-question-flow-footer mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-border pt-3">
           <div className="flex items-center gap-1.5">
             {questions.map((question, index) => (
               <span
@@ -476,12 +534,12 @@ export function GuidedQuestionFlow({
             </button>
             <button
               type="button"
-              onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
+              onClick={() => submitAnswers()}
               disabled={!allRequiredAnswered}
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
-              <IconChevronRight className="h-4 w-4" />
+              <IconChevronRight className="h-4 w-4 rtl:-scale-x-100" />
             </button>
           </div>
         </div>
@@ -495,16 +553,18 @@ function QuestionCard({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   index: number;
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-card/65 p-4 shadow-sm">
-      <div className="mb-3 flex gap-3">
-        <div className="flex h-6 min-w-6 items-center justify-center rounded-md bg-muted text-xs font-medium text-muted-foreground">
+    <section className="guided-question-card border-t border-border/60 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="mb-2 flex gap-2.5">
+        <div className="guided-question-index mt-0.5 min-w-4 text-xs font-medium tabular-nums text-muted-foreground">
           {index + 1}
         </div>
         <div className="min-w-0">
@@ -516,7 +576,7 @@ function QuestionCard({
           <h3 className="text-sm font-medium leading-5 text-foreground">
             {question.question}
             {question.required && (
-              <span className="ml-1 text-destructive">*</span>
+              <span className="ms-1 text-destructive">*</span>
             )}
           </h3>
           {question.description && (
@@ -528,7 +588,12 @@ function QuestionCard({
       </div>
 
       {question.type === "text-options" && (
-        <TextOptions question={question} value={value} onChange={onChange} />
+        <TextOptions
+          question={question}
+          value={value}
+          onChange={onChange}
+          onSubmitAnswer={onSubmitAnswer}
+        />
       )}
       {question.type === "color-options" && (
         <ColorOptions question={question} value={value} onChange={onChange} />
@@ -555,10 +620,12 @@ function TextOptions({
   question,
   value,
   onChange,
+  onSubmitAnswer,
 }: {
   question: GuidedQuestion;
   value: unknown;
   onChange: (value: unknown) => void;
+  onSubmitAnswer: (value: unknown) => void;
 }) {
   const options = useMemo(() => withDefaultOptions(question), [question]);
   const multiSelect = question.multiSelect === true;
@@ -576,6 +643,7 @@ function TextOptions({
   const toggleOption = (optionValue: string) => {
     if (!multiSelect) {
       onChange(optionValue);
+      if (question.submitOnSelect) onSubmitAnswer(optionValue);
       return;
     }
     const next = selectedValues.includes(optionValue)
@@ -611,8 +679,8 @@ function TextOptions({
   const allowOther = question.allowOther !== false;
 
   return (
-    <div className="space-y-3">
-      <div className="grid gap-2 sm:grid-cols-2">
+    <div className="space-y-2.5">
+      <div className="guided-question-flow-options grid grid-cols-1 gap-2">
         {options.map((option) => (
           <OptionButton
             key={`${option.value}:${option.label}`}
@@ -663,23 +731,26 @@ function OptionButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={selected}
       className={cn(
-        "group flex min-h-[56px] cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+        "group flex min-h-11 min-w-0 cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-start transition-colors",
         selected
-          ? "border-primary bg-primary/10 text-primary"
+          ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/25"
           : "border-border bg-muted/30 text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/45 hover:text-foreground",
       )}
     >
-      {multiSelect && (
-        <span
-          className={cn(
-            "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-            selected ? "border-primary bg-primary text-primary-foreground" : "",
-          )}
-        >
-          {selected && <IconCheck className="h-3 w-3" />}
-        </span>
-      )}
+      <span
+        className={cn(
+          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center border",
+          multiSelect ? "rounded-sm" : "rounded-full",
+          selected
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-border bg-background",
+        )}
+        aria-hidden
+      >
+        {selected && <IconCheck className="h-3 w-3" />}
+      </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium leading-5">
           {option.label}
@@ -793,10 +864,8 @@ function SliderQuestion({
         onChange={(event) => onChange(Number(event.target.value))}
         className="h-2 flex-1 cursor-pointer accent-primary"
       />
-      <span className="w-8 text-right text-xs text-muted-foreground">
-        {max}
-      </span>
-      <span className="min-w-10 text-right text-sm font-medium tabular-nums text-foreground">
+      <span className="w-8 text-end text-xs text-muted-foreground">{max}</span>
+      <span className="min-w-10 text-end text-sm font-medium tabular-nums text-foreground">
         {current}
       </span>
     </div>
@@ -890,6 +959,8 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
 }
 
 export interface UseGuidedQuestionFlowOptions {
+  /** Disable application-state reads for signed-out or otherwise inactive surfaces. */
+  enabled?: boolean;
   stateKey?: string;
   /**
    * The current browser tab id. Agent actions that write the guided-questions
@@ -911,10 +982,11 @@ export interface UseGuidedQuestionFlowOptions {
 }
 
 export function useGuidedQuestionFlow({
+  enabled = true,
   stateKey = "show-questions",
   browserTabId,
   queryKey = ["show-questions"],
-  refetchInterval = 2_000,
+  refetchInterval = false,
   submitMessage = "Here are my answers — go ahead.",
   skipMessage = "Skip the questions — decide for me.",
   buildSubmitContext,
@@ -933,15 +1005,35 @@ export function useGuidedQuestionFlow({
   const scopedKey = normalizedBrowserTabId
     ? `${stateKey}:${normalizedBrowserTabId}`
     : stateKey;
+  const stateVersionSources = useMemo(
+    () =>
+      normalizedBrowserTabId
+        ? [`app-state:${scopedKey}`, `app-state:${stateKey}`]
+        : [`app-state:${stateKey}`],
+    [normalizedBrowserTabId, scopedKey, stateKey],
+  );
+  const stateVersion = useChangeVersions(stateVersionSources);
   // Match the queryKey to the scope so two tabs polling different scoped keys
   // don't share a cache entry.
   const resolvedQueryKey = useMemo(
-    () => [...queryKey, normalizedBrowserTabId ?? "global"],
-    [queryKey, normalizedBrowserTabId],
+    () => [...queryKey, normalizedBrowserTabId ?? "global", stateVersion],
+    [queryKey, normalizedBrowserTabId, stateVersion],
   );
+
+  const resolvedRefetchInterval =
+    refetchInterval === false
+      ? false
+      : (query: { state: { data?: GuidedQuestionPayload | null } }) => {
+          const activeQuestions = query.state.data?.questions;
+          if (Array.isArray(activeQuestions) && activeQuestions.length > 0) {
+            return false;
+          }
+          return refetchInterval;
+        };
 
   const { data } = useQuery({
     queryKey: resolvedQueryKey,
+    enabled,
     queryFn: async () => {
       const read = async (key: string) => {
         const res = await fetch(endpointFor(key));
@@ -951,9 +1043,7 @@ export function useGuidedQuestionFlow({
         try {
           const parsed = JSON.parse(text);
           if (Array.isArray(parsed?.questions) && parsed.questions.length > 0) {
-            return { ...parsed, _ts: Date.now() } as GuidedQuestionPayload & {
-              _ts: number;
-            };
+            return parsed as GuidedQuestionPayload;
           }
         } catch {
           return null;
@@ -967,13 +1057,27 @@ export function useGuidedQuestionFlow({
         (await read(stateKey))
       );
     },
-    refetchInterval,
+    refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
+    // A matching app-state event changes the query key. Preserve the existing
+    // payload while the replacement read is in flight so full-canvas question
+    // forms do not unmount and flash during routine sync updates.
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
     if (Array.isArray(data?.questions) && data.questions.length > 0) {
-      setPayload(data);
+      setPayload((prev) => {
+        if (
+          prev &&
+          guidedQuestionsFingerprint(prev.questions) ===
+            guidedQuestionsFingerprint(data.questions) &&
+          prev.clientResolveId === data.clientResolveId
+        ) {
+          return prev;
+        }
+        return data;
+      });
     } else {
       setPayload(null);
     }
@@ -1005,15 +1109,15 @@ export function useGuidedQuestionFlow({
         return;
       }
       const formattedAnswers = formatGuidedAnswersForAgent(answers);
+      const resolvedSubmitMessage = payload?.submitMessage ?? submitMessage;
       const context =
         buildSubmitContext?.({ answers, formattedAnswers }) ??
-        [
-          "The user answered the pre-generation questions.",
-          "",
-          "Answers:",
-          formattedAnswers,
-        ].join("\n");
-      sendToAgentChat({ message: submitMessage, context, submit: true });
+        defaultGuidedSubmitContext(formattedAnswers);
+      sendToAgentChat({
+        message: resolvedSubmitMessage,
+        context,
+        submit: true,
+      });
       clear();
     },
     [buildSubmitContext, clear, payload, submitMessage],
@@ -1027,7 +1131,7 @@ export function useGuidedQuestionFlow({
       return;
     }
     sendToAgentChat({
-      message: skipMessage,
+      message: payload?.skipMessage ?? skipMessage,
       context: buildSkipContext?.(),
       submit: true,
     });

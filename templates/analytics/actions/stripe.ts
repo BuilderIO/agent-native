@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import {
   getCharges,
   getCustomerById,
@@ -42,6 +43,9 @@ function summarizeCustomers(customers: StripeCustomer[]) {
 }
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Stripe billing, payment status, refunds, subscriptions, and billing by product for a customer.",
   schema: z.object({

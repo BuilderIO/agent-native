@@ -44,8 +44,8 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
-import { startRun, updateRunProgress, completeRun } from "./registry.js";
 import { createProgressToolEntries } from "./actions.js";
+import { startRun, updateRunProgress, completeRun } from "./registry.js";
 import { createProgressHandler } from "./routes.js";
 
 function createEvent(path: string, method = "GET") {
@@ -249,5 +249,21 @@ describe("progress action entries", () => {
     ).resolves.toMatch(/status must be/);
 
     expect(mockUpdateRun).not.toHaveBeenCalled();
+  });
+
+  it("allows blank optional status fields on non-terminal calls", async () => {
+    mockInsertRun.mockResolvedValue(stubRun({ title: "Triage inbox" }));
+    const tool = createProgressToolEntries(() => "boni@local")[
+      "manage-progress"
+    ];
+
+    await expect(
+      tool.run({
+        action: "start",
+        title: "Triage inbox",
+        status: "",
+      }),
+    ).resolves.toContain("Run started");
+    expect(tool.tool.parameters.properties.status.enum).toContain("");
   });
 });

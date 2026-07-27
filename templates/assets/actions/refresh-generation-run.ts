@@ -1,14 +1,19 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
-import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { nowIso, parseJson } from "../server/lib/json.js";
+import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
+import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 import { upsertVariantSlot } from "./variant-slots.js";
 
-const STALE_IMAGE_RUN_MS = 2 * 60 * 1000;
+// Must stay comfortably above the managed generation budget: the default 300s
+// request window plus up to ~4 minutes of idempotent in-flight polling. Otherwise
+// a slow but healthy run can get prematurely declared "interrupted" before the
+// finished image lands and flips it back to ready.
+const STALE_IMAGE_RUN_MS = 10 * 60 * 1000;
 const INTERRUPTED_IMAGE_RUN_ERROR =
   "Image generation was interrupted before a preview was created. Start a new generation to retry.";
 
@@ -35,6 +40,14 @@ async function syncImageVariantSlot(
     typeof metadata.variantBatchId === "string" && metadata.variantBatchId
       ? metadata.variantBatchId
       : null;
+  const threadId =
+    typeof metadata.threadId === "string" && metadata.threadId
+      ? metadata.threadId
+      : null;
+  const variantScopeId =
+    typeof metadata.variantScopeId === "string" && metadata.variantScopeId
+      ? metadata.variantScopeId
+      : null;
   const serialized = options.asset ? serializeAsset(options.asset) : null;
 
   await upsertVariantSlot({
@@ -44,6 +57,8 @@ async function syncImageVariantSlot(
     collectionId: run.collectionId ?? null,
     presetId: run.presetId ?? null,
     sessionId: run.sessionId ?? null,
+    threadId,
+    variantScopeId,
     prompt: run.prompt,
     slotId,
     status,

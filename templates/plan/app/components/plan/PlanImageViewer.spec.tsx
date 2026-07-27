@@ -3,6 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { PlanImageViewer } from "./PlanImageViewer";
 
 let container: HTMLElement;
@@ -64,7 +65,7 @@ describe("PlanImageViewer", () => {
 
     // The lightbox portals to <body> with its own toolbar; the "Fit" /
     // "Actual size" zoom label only exists inside the lightbox.
-    expect(document.body.textContent).toContain("Fit");
+    expect(document.body.textContent).toContain("Fit to screen");
     expect(
       document.body.querySelector('[aria-label="Download image"]'),
     ).toBeTruthy();

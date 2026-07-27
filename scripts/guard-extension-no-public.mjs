@@ -80,7 +80,13 @@ const SKIP_LITERAL_SCAN = new Set([
 const ALLOW_MARKER = /guard:allow-extension-public/;
 
 async function walk(dir, files = []) {
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    if (err?.code === "ENOENT") return files;
+    throw err;
+  }
   for (const entry of entries) {
     if (entry.name.startsWith(".") && entry.name !== ".agents") continue;
     if (SKIP_DIRS.has(entry.name)) continue;

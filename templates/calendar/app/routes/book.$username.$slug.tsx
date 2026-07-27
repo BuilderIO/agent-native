@@ -1,4 +1,5 @@
 import BookingPage from "@/pages/BookingPage";
+
 import { bookingOgLoader, bookingOgMeta } from "./booking-og-meta";
 
 export const loader = bookingOgLoader;

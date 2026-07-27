@@ -1,4 +1,5 @@
 import { Outlet } from "react-router";
+
 import { AppLayout } from "@/components/layout/AppLayout";
 
 // Pathless layout route — wraps all protected routes with AppLayout so the

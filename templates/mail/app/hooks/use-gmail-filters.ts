@@ -1,9 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import type {
   ManagedGmailFilter,
   ManagedGmailFiltersAccount,
 } from "@shared/types";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type ManageGmailFiltersInput = {
   operation: "list" | "get" | "create" | "replace" | "delete";

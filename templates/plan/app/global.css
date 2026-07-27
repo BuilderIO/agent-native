@@ -1,7 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+/* Self-hosted via @fontsource-variable/inter and @fontsource-variable/vazirmatn
+ * — no render-blocking Google Fonts request. Vazirmatn is an open-source (OFL)
+ * Persian/Arabic face, scoped to RTL plan content below via
+ * `[data-plan-direction="rtl"]`. */
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/vazirmatn";
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @font-face {
   font-family: "Excalifont";
@@ -13,26 +19,35 @@
 
 @source "./**/*.{ts,tsx}";
 
+.plan-chat-composer-area [data-agent-composer-slot="root"],
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  box-shadow: none;
+}
+
+.plan-chat-composer-area [data-agent-composer-slot="root"]:focus-within {
+  outline: 1px solid hsl(var(--ring) / 0.35);
+}
+
 :root {
-  --background: 40 23% 97%;
-  --foreground: 30 5% 10%;
-  --card: 40 23% 99%;
-  --card-foreground: 30 5% 10%;
-  --popover: 40 23% 99%;
-  --popover-foreground: 30 5% 10%;
-  --primary: 30 5% 13%;
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 45 14% 94%;
-  --secondary-foreground: 30 5% 13%;
-  --muted: 45 14% 94%;
-  --muted-foreground: 30 6% 43%;
-  --accent: 45 14% 94%;
-  --accent-foreground: 30 5% 13%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 36 10% 86%;
-  --input: 36 10% 86%;
-  --ring: 218 85% 57%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
   --radius: 0.5rem;
   /* Callout tone accents — info/decision/risk/warning/success. */
   --plan-tone-info: 218 85% 57%;
@@ -40,14 +55,14 @@
   --plan-tone-risk: 0 84% 60%;
   --plan-tone-warning: 25 95% 48%;
   --plan-tone-success: 142 71% 38%;
-  --sidebar-background: 42 18% 96%;
-  --sidebar-foreground: 30 6% 43%;
-  --sidebar-primary: 30 5% 13%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 45 14% 93%;
-  --sidebar-accent-foreground: 30 5% 13%;
-  --sidebar-border: 36 10% 86%;
-  --sidebar-ring: 218 85% 57%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
   /* ── Plan document font sizes — edit here to resize globally ──────────────
      --plan-code-size  : general monospace code surfaces and editors
      --plan-doc-code-size: dense read-only code surfaces such as diffs,
@@ -59,25 +74,25 @@
 }
 
 .dark {
-  --background: 30 4% 11%;
-  --foreground: 40 9% 95%;
-  --card: 30 5% 13%;
-  --card-foreground: 40 9% 95%;
-  --popover: 30 5% 13%;
-  --popover-foreground: 40 9% 95%;
-  --primary: 40 9% 92%;
-  --primary-foreground: 30 4% 11%;
-  --secondary: 36 5% 16%;
-  --secondary-foreground: 40 9% 95%;
-  --muted: 36 5% 16%;
-  --muted-foreground: 38 7% 63%;
-  --accent: 36 5% 17%;
-  --accent-foreground: 40 9% 95%;
-  --destructive: 0 63% 51%;
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
-  --border: 35 5% 21%;
-  --input: 35 5% 21%;
-  --ring: 218 85% 67%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
   --radius: 0.5rem;
   /* Callout tone accents — brighter so they read on the dark surface. */
   --plan-tone-info: 218 85% 67%;
@@ -85,57 +100,83 @@
   --plan-tone-risk: 0 84% 67%;
   --plan-tone-warning: 28 96% 60%;
   --plan-tone-success: 142 60% 52%;
-  --sidebar-background: 30 5% 10%;
-  --sidebar-foreground: 38 7% 63%;
-  --sidebar-primary: 40 9% 92%;
-  --sidebar-primary-foreground: 30 4% 11%;
-  --sidebar-accent: 36 5% 16%;
-  --sidebar-accent-foreground: 40 9% 95%;
-  --sidebar-border: 35 5% 18%;
-  --sidebar-ring: 218 85% 67%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
 }
 
 @layer base {
+  html:not([data-embed="1"]),
+  html:not([data-embed="1"]) body {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: "Inter", sans-serif;
+    font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
+@supports (height: 100dvh) {
+  html:not([data-embed="1"]) .agent-layout-shell {
+    height: 100dvh;
+  }
+}
+
+/* RTL plan content (Persian/Arabic) renders in Vazirmatn; LTR content keeps
+ * Inter. Scoped to the document shell's `data-plan-direction="rtl"` attribute
+ * (set by PlanContentRenderer) so only RTL plans pick it up. Code surfaces and
+ * `font-mono` utilities declare their own monospace stack ("JetBrains Mono", …),
+ * which is a direct font-family on the element and so always beats this inherited
+ * face — code never renders in Vazirmatn (code-like blocks are also pinned to
+ * dir="ltr"). */
+[data-plan-direction="rtl"] {
+  font-family:
+    "Vazirmatn Variable", "Vazirmatn", "Inter Variable", "Inter", sans-serif;
+}
+
 @layer utilities {
   .plan-content-surface {
-    --plan-document: hsl(42 18% 97%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
-    --plan-block: hsl(42 16% 94%);
-    --plan-chrome: hsl(42 15% 96% / 0.92);
-    --plan-line: hsl(36 9% 82%);
-    --plan-grid-line: hsl(36 9% 70% / 0.08);
-    --plan-text: hsl(30 5% 11%);
-    --plan-muted: hsl(30 5% 45%);
-    --plan-wireframe: hsl(42 16% 98%);
-    --plan-sketch-line: hsl(28 4% 20%);
-    --plan-muted-line: hsl(36 6% 78%);
-    --plan-placeholder-line: hsl(36 5% 72% / 0.72);
-    --plan-code: hsl(40 12% 96%);
-    --plan-code-text: hsl(28 5% 14%);
+    --plan-document: hsl(var(--background));
+    --plan-canvas: color-mix(in srgb, var(--plan-document) 72%, black);
+    --plan-block: hsl(var(--secondary));
+    --plan-chrome: hsl(var(--background) / 0.92);
+    --plan-line: hsl(var(--border));
+    --plan-grid-line: hsl(var(--foreground) / 0.018);
+    --plan-text: hsl(var(--foreground));
+    --plan-muted: hsl(var(--muted-foreground));
+    --plan-wireframe: hsl(0 0% 6%);
+    --plan-sketch-line: hsl(var(--foreground) / 0.86);
+    --plan-muted-line: hsl(var(--border));
+    --plan-placeholder-line: hsl(var(--muted-foreground) / 0.42);
+    --plan-code: hsl(var(--muted));
+    --plan-code-text: hsl(var(--foreground));
   }
 
-  .dark .plan-content-surface {
-    --plan-document: hsl(32 3% 13%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
-    --plan-block: hsl(32 3% 15.5%);
-    --plan-chrome: hsl(32 3% 15.5% / 0.92);
-    --plan-line: hsl(34 4% 24%);
-    --plan-grid-line: hsl(34 4% 36% / 0.08);
-    --plan-text: hsl(40 8% 94%);
-    --plan-muted: hsl(36 5% 65%);
-    --plan-wireframe: hsl(34 3% 13.4%);
-    --plan-sketch-line: hsl(38 5% 84%);
-    --plan-muted-line: hsl(36 4% 44%);
-    --plan-placeholder-line: hsl(36 4% 54% / 0.62);
-    --plan-code: hsl(32 4% 9.8%);
-    --plan-code-text: hsl(40 9% 92%);
+  .plan-content-surface[data-recap-screenshot-theme="light"] {
+    --plan-document: #ffffff;
+    --plan-canvas: #ffffff;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme="dark"] {
+    --plan-document: #0d1117;
+    --plan-canvas: #0d1117;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-shell {
+    padding: 0;
+  }
+
+  .plan-content-surface[data-recap-screenshot-theme] .plan-document-body {
+    margin-inline: 0;
+    padding-inline: 0;
   }
 
   .bg-plan-document {
@@ -212,13 +253,21 @@
   touch-action: none;
 }
 
-/* Infinite low-contrast grid (slightly darker than the document bg) that
- * moves on pan via background-position and scales with zoom — both driven
- * inline by CanvasArea. */
 .plan-canvas-viewport {
+  background-color: var(--plan-canvas);
+  isolation: isolate;
+}
+
+.plan-canvas-grid {
+  pointer-events: none;
   background-image:
     linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
+}
+
+.plan-canvas-world {
+  isolation: isolate;
+  transform-style: flat;
 }
 
 /* Fixed-size static artboard frame. No border / shadow / box around the
@@ -249,14 +298,32 @@
 .plan-document-flow > .plan-callout,
 .plan-document-flow > .plan-questions-block,
 .plan-document-flow > .an-block-panel,
-.plan-document-flow > .plan-block-node {
+.plan-document-flow > .plan-block-node,
+.plan-document-flow > .plan-document-flow-block {
   margin-top: 1.25rem;
+}
+
+.plan-document-flow > .plan-document-flow-block > .plan-block,
+.plan-document-flow > .plan-document-flow-block > .plan-callout,
+.plan-document-flow > .plan-document-flow-block > .plan-questions-block,
+.plan-document-flow > .plan-document-flow-block > .an-block-panel,
+.plan-document-flow > .plan-document-flow-block > .plan-block-node {
+  margin-top: 0;
 }
 
 /* The header already owns a bottom divider + spacing; the first block sits a
  * touch closer to it (no need for the full inter-block gap). */
 .plan-document-flow > :first-child {
   margin-top: 1rem;
+}
+
+.plan-document-flow--wide-zone > :first-child {
+  margin-top: 1.75rem;
+}
+
+.plan-document-flow .plan-questions-block > .sticky {
+  border-top-color: var(--plan-line);
+  background-color: var(--plan-document);
 }
 
 /* A RUN of consecutive `api-endpoint` blocks reads as ONE tight, scannable list
@@ -304,252 +371,283 @@
   scroll-margin-top: 2rem;
 }
 
-/* Wrapper around the document body + side rails. The rails anchor to this
- * (not the shell) so they begin below the header instead of level with the
- * title. */
+/* Container so the rails respond to the document's available width, not the
+ * viewport. Wraps only the doc shell (not canvas) to avoid containing fixed UI. */
+.plan-document-region {
+  container: plan-doc / inline-size;
+}
+
+@container plan-doc (min-width: 44rem) {
+  .plan-code-tabs-layout {
+    grid-template-columns: 300px minmax(0, 1fr);
+  }
+
+  .plan-code-tabs-nav {
+    border-inline-end-width: 1px;
+  }
+
+  .plan-vertical-tabs-layout {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .plan-vertical-tabs-list {
+    max-height: 62vh;
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin-bottom: 0;
+    padding-inline-end: 0.5rem;
+  }
+}
+
+@container plan-doc (min-width: 56rem) {
+  .plan-implementation-map-layout {
+    grid-template-columns: 360px minmax(0, 1fr);
+  }
+
+  .plan-implementation-map-nav {
+    border-inline-end-width: 1px;
+  }
+}
+
+/* Header + flow + contents rail. Wide: a balanced 3-col grid via the container
+ * queries below; narrow: a single column. */
 .plan-document-body {
   position: relative;
+  --toc-rail-width: 11rem;
+  --doc-col-width: 60rem;
+  --rail-gap: 2rem;
 }
 
-@media (min-width: 1400px) {
-  .plan-document-body {
-    /* `flow-root` stops the first block's top margin from collapsing through the
-     * wrapper, so the wrapper's top edge sits flush at the header's bottom border
-     * — where the rails (top: 0) begin. The negative inline margin mirrors the
-     * shell's `sm:px-10` padding so the wrapper's padding box matches the shell's
-     * — keeping the `calc(100% + …)` rail offsets unchanged — and the matching
-     * inline padding restores the body content's original inset. */
-    display: flow-root;
-    margin-inline: -2.5rem;
-    padding-inline: 2.5rem;
+@container plan-doc (min-width: 64rem) {
+  .plan-content-surface[data-plan-layout="wide"] .plan-document-shell {
+    --plan-wide-component-width: min(1560px, calc(100cqw - 5rem));
+  }
+
+  .plan-content-surface[data-plan-layout="wide"] .plan-document-flow-stack {
+    min-width: 0;
+  }
+
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-flow-block--wide,
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="diff"]
+    ),
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="annotated-code"]
+    ),
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-document-editor
+    .ProseMirror:not(.plan-nested-document-editor-prose)
+    > .react-renderer.node-planBlock:has(
+      > .plan-block-node[data-block-type="tabs"] [data-wide-layout-block]
+    ) {
+    position: relative;
+    z-index: 4;
+    width: var(--plan-wide-component-width);
+    max-width: var(--plan-wide-component-width);
+    margin-inline: calc((100% - var(--plan-wide-component-width)) / 2);
+    background-color: var(--plan-document);
+    box-shadow:
+      -1.5rem 0 1.5rem var(--plan-document),
+      1.5rem 0 1.5rem var(--plan-document);
+  }
+
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-block-node[data-block-type="wireframe"]
+    .plan-kit-wireframe,
+  .plan-content-surface[data-plan-layout="wide"]
+    .plan-block-node[data-block-type="wireframe"]
+    .plan-html-frame {
+    margin-inline: auto;
   }
 }
 
+/* Contents rail. Hidden until a query below reveals it as the `toc` column. */
 .plan-document-toc {
   display: none;
-}
-
-@media (min-width: 1400px) {
-  .plan-document-toc {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(100% + 1.25rem);
-    z-index: 2;
-    display: block;
-    width: 12rem;
-    pointer-events: none;
-  }
-
-  .plan-document-toc__nav {
-    position: sticky;
-    top: 1.25rem;
-    max-height: calc(100vh - 2.5rem);
-    overflow-y: auto;
-    padding: 0.25rem 0 1.5rem;
-    pointer-events: auto;
-  }
-
-  .plan-document-toc__heading {
-    margin: 0 0 0.75rem;
-    color: var(--plan-muted);
-    font-size: 0.72rem;
-    font-weight: 650;
-    letter-spacing: 0.08em;
-    line-height: 1.25;
-    text-transform: uppercase;
-  }
-
-  .plan-document-toc__list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .plan-document-toc__link {
-    display: block;
-    padding: 0.25rem 0;
-    color: var(--plan-muted);
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    text-decoration: none;
-    transition: color 120ms ease;
-  }
-
-  .plan-document-toc__link:hover {
-    color: var(--plan-text);
-    text-decoration: none;
-  }
-
-  .plan-document-toc__link.is-active {
-    color: hsl(var(--ring));
-    font-weight: 550;
-  }
-
-  .plan-document-toc__link.is-nested {
-    padding-left: 0.75rem;
-  }
-}
-
-/* Compact floating "On this plan" fallback for the sidebar TOC. Shown only when
- * the viewport is narrower than the 1400px breakpoint where the full TOC rail
- * becomes visible. Renders as a sticky bottom-right pill at the foot of the
- * document body so it never covers the prose — it enters the flow at the end of
- * the document and stays in the viewport as the user scrolls the last section. */
-.plan-toc-fallback {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.75rem 0 0.25rem;
-  /* Stick at the bottom of the scroll viewport so the button remains reachable
-   * while reading the last section. The negative bottom offset ensures the sticky
-   * row doesn't block the last block's text. */
   position: sticky;
-  bottom: 1rem;
-  pointer-events: none;
+  top: 1.25rem;
+  z-index: 2;
+  align-self: start;
+  max-height: calc(100vh - 2.5rem);
+  overflow-y: auto;
 }
 
-.plan-toc-fallback__btn {
-  pointer-events: auto;
+.plan-document-toc__nav {
+  position: static;
+  padding: 0.25rem 0 1.5rem;
 }
 
-@media (min-width: 1400px) {
-  /* The full sidebar TOC is visible; hide the fallback button. */
-  .plan-toc-fallback {
-    display: none;
-  }
+.plan-document-toc__heading {
+  margin: 0 0 0.75rem;
+  color: var(--plan-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-transform: uppercase;
 }
 
-/* Recap "Files touched" left rail. Hidden by default (the block renders inline
- * in the document body); on wide screens it mirrors the right-hand contents rail
- * as a permanent left sidebar, positioned in the margin beside the centered
- * document shell. The in-flow copy is hidden at this same breakpoint (see
- * `filesSidebarHideCss`). Mirrors `.plan-document-toc` geometry on the opposite
- * edge. */
-.plan-document-files {
+.plan-document-toc__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-document-toc__link {
+  display: block;
+  padding: 0.25rem 0;
+  color: var(--plan-muted);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: color 120ms ease;
+}
+
+.plan-document-toc__link:hover {
+  color: var(--plan-text);
+  text-decoration: none;
+}
+
+.plan-document-toc__link.is-active {
+  color: var(--plan-text);
+}
+
+.plan-document-toc__link.is-nested {
+  padding-inline-start: 0.75rem;
+}
+
+/* Hidden below the rail breakpoint: the document should use the full reading
+ * width instead of replacing the rail with an inline contents widget. */
+.plan-document-toc-inline {
+  display: none;
+  margin-top: 1.25rem;
+  border: 1px solid var(--plan-line);
+  border-radius: 0.75rem;
+  background-color: var(--plan-document);
+}
+
+.plan-document-toc-inline__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  cursor: pointer;
+  list-style: none;
+  color: var(--plan-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  user-select: none;
+}
+/* Hide native marker (Tabler chevron replaces it). */
+.plan-document-toc-inline__summary::-webkit-details-marker {
+  display: none;
+}
+.plan-document-toc-inline__summary::marker {
+  content: "";
+}
+
+.plan-document-toc-inline__chevron {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+.plan-document-toc-inline[open] .plan-document-toc-inline__chevron {
+  transform: rotate(90deg);
+}
+
+.plan-document-toc-inline__label {
+  flex: 1 1 auto;
+}
+
+.plan-document-toc-inline__count {
+  flex: none;
+  min-width: 1.25rem;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 999px;
+  background-color: hsl(var(--accent) / 0.18);
+  color: var(--plan-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.plan-document-toc-inline__list {
+  margin: 0;
+  padding: 0.5rem 0.875rem 0.625rem 2rem;
+  border-top: 1px solid var(--plan-line);
+  list-style: none;
+}
+
+/* Hide the accordion in screenshot capture too. */
+.plan-content-surface[data-recap-screenshot-theme] .plan-document-toc-inline {
   display: none;
 }
 
-@media (min-width: 1400px) {
-  .plan-document-files {
-    --files-rail-width: 14rem;
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    /* Anchor the LEFT edge in the margin (not the right) so the rail widens
-     * rightward — into the document as a flyout — when a file is focused,
-     * instead of growing left off the viewport edge where there is no room.
-     * Collapsed, the right edge still sits 1.25rem left of the document body,
-     * mirroring the contents rail. */
-    left: calc(-1.25rem - var(--files-rail-width));
-    /* Left-anchored: release `right` so `width` is honored (an absolutely
-     * positioned box with both left and right set ignores `width`). */
-    right: auto;
-    z-index: 2;
+/* Wide layout: the contents rail is a real grid column. A matching empty left
+ * column balances the rail so the document itself remains visually centered. */
+
+/* Shared cell placement. Inert until the parent is a grid. */
+@container plan-doc (min-width: 1200px) {
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body
+    > header {
+    grid-area: header;
+  }
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body
+    > .plan-document-flow {
+    grid-area: flow;
+  }
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body
+    > .plan-document-flow-stack {
+    grid-area: flow;
+  }
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body
+    > .plan-document-toc {
+    grid-area: toc;
+  }
+}
+
+/* Document + contents rail. The empty first column balances the right rail. */
+@container plan-doc (min-width: 1200px) {
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body[data-has-toc] {
+    display: grid;
+    grid-template-columns:
+      minmax(0, var(--toc-rail-width))
+      minmax(0, var(--doc-col-width))
+      minmax(0, var(--toc-rail-width));
+    grid-template-areas:
+      ". header ."
+      ". flow   toc";
+    justify-content: center;
+    column-gap: var(--rail-gap);
+  }
+  .plan-content-surface:not([data-recap-screenshot-theme])
+    .plan-document-body[data-has-toc]
+    > .plan-document-toc {
     display: block;
-    width: var(--files-rail-width);
-    pointer-events: none;
-    transition: width 0.18s ease;
   }
-
-  /* While a file's note/snippet is the reader's active focus, widen the rail
-   * over the document so annotations are readable; it collapses back the moment
-   * focus leaves (click elsewhere) or the last open file is closed. The opaque
-   * card + raised z-index let it read as a panel above the prose. */
-  .plan-document-files:has(.plan-block[data-files-expanded]) {
-    width: 26rem;
-    z-index: 30;
-  }
-
-  .plan-document-files__nav {
-    position: sticky;
-    top: 1.25rem;
-    max-height: calc(100vh - 2.5rem);
-    overflow-y: auto;
-    padding: 0.25rem 0 1.5rem;
-    pointer-events: auto;
-    /* Sit back as a low-prominence marginal rail; lift to full strength only
-     * when the reader hovers, focuses, or expands a file into the flyout. */
-    opacity: 0.7;
-    transition: opacity 0.18s ease;
-  }
-
-  .plan-document-files__nav:hover,
-  .plan-document-files__nav:focus-within,
-  .plan-document-files:has(.plan-block[data-files-expanded])
-    .plan-document-files__nav {
-    opacity: 1;
-  }
-
-  /* Drop the document-flow top divider/spacing the mirrored block would
-   * otherwise inherit, and let its label sit flush at the top of the rail. */
-  .plan-document-files__nav > .plan-block,
-  .plan-document-files__nav .plan-block {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  /* The sidebar's single, fixed "Files changed" heading. The mirrored file-tree
-   * is rendered heading-free (see `stripFileTreeTitles`); this is the only
-   * heading in the rail, so it is never duplicated. Matches the eyebrow
-   * `plan-block-label` weight/tone and sits flush at the top of the rail. */
-  .plan-document-files__label {
-    margin: 0 0 0.75rem;
-    color: var(--plan-muted);
-    font-size: 0.8rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    line-height: 1.3;
-  }
-
-  /* In the rail the file-tree block sheds its card chrome so it reads as a
-   * plain list in the margin: no fill, no radius, and only a slim right divider
-   * (top/left/bottom borders fade to transparent). Border WIDTH stays 1px on
-   * every edge at all times, so expanding animates only the border COLOR
-   * (transparent → line), never the width — which would jank. The inline copy
-   * in the document body keeps its full card. */
-  .plan-document-files__nav .plan-block > .rounded-xl {
-    border-radius: 0;
-    border-color: transparent;
-    border-right-color: var(--plan-line);
-    background-color: transparent;
-    transition:
-      border-color 0.18s ease,
-      border-radius 0.18s ease,
-      background-color 0.18s ease;
-  }
-
-  /* The summary header (file count + change tally) loses its tint + divider
-   * too while collapsed. */
-  .plan-document-files__nav .plan-block > .rounded-xl > :first-child {
-    background-color: transparent;
-    border-bottom-color: transparent;
-    transition:
-      background-color 0.18s ease,
-      border-color 0.18s ease;
-  }
-
-  /* Expanded flyout restores the panel chrome — full border, radius, and fill —
-   * fading the borders in from transparent. */
-  .plan-document-files:has(.plan-block[data-files-expanded])
-    .plan-block
-    > .rounded-xl {
-    border-radius: 0.75rem;
-    border-top-color: var(--plan-line);
-    border-left-color: var(--plan-line);
-    border-right-color: var(--plan-line);
-    border-bottom-color: var(--plan-line);
-    /* Match the page (document) surface, not the card fill, so the flyout reads
-     * as a continuation of the page rather than a raised card. */
-    background-color: var(--plan-document);
-  }
-
-  .plan-document-files:has(.plan-block[data-files-expanded])
-    .plan-block
-    > .rounded-xl
-    > :first-child {
-    background-color: hsl(var(--accent) / 0.2);
-    border-bottom-color: var(--plan-line);
+  .plan-content-surface:not([data-recap-screenshot-theme]):has(
+      .plan-document-body[data-has-toc]
+    )
+    .plan-document-shell {
+    max-width: calc(
+      var(--doc-col-width) + (var(--toc-rail-width) * 2) + (var(--rail-gap) * 2)
+    );
   }
 }
 
@@ -590,7 +688,7 @@
 }
 
 .plan-copy {
-  max-width: 860px;
+  max-width: 60rem;
   color: var(--plan-muted);
   font-size: 1.125rem;
   line-height: 1.8;
@@ -613,7 +711,7 @@
 
 /* ── Notion-like rich-text prose ─────────────────────────────────────── */
 .plan-rich-markdown-editor {
-  max-width: 820px;
+  max-width: 60rem;
   color: var(--plan-text);
 }
 
@@ -621,6 +719,7 @@
   color: var(--plan-text);
   font-size: var(--plan-body-size);
   line-height: 1.75;
+  text-align: start;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose > :first-child {
@@ -719,7 +818,12 @@
 .plan-rich-markdown-editor .an-rich-md-prose ol,
 .plan-rich-markdown-editor .an-rich-md-task-list {
   margin: 0.85rem 0;
+  padding-inline-start: 1.45em;
   color: var(--plan-muted);
+}
+
+.plan-rich-markdown-editor .an-rich-md-task-list {
+  padding-inline-start: 0;
 }
 
 .plan-rich-markdown-editor .an-rich-md-prose li {
@@ -741,7 +845,7 @@
 
 .plan-rich-markdown-editor .an-rich-md-prose blockquote {
   margin: 1.1rem 0;
-  border-left-color: var(--plan-line);
+  border-inline-start-color: var(--plan-line);
   color: var(--plan-muted);
 }
 
@@ -754,6 +858,12 @@
 .plan-rich-markdown-editor .an-rich-md-prose :not(pre) > code {
   background: var(--plan-block);
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.plan-rich-markdown-editor .an-rich-md-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
 }
 
 /* Block code is rendered by the shared `.an-code-block` node view (editor) and
@@ -784,7 +894,7 @@
 }
 
 .plan-prose {
-  max-width: 820px;
+  max-width: 60rem;
   color: var(--plan-text);
   font-size: var(--plan-body-size);
   line-height: 1.75;
@@ -836,7 +946,7 @@
 .plan-prose ul,
 .plan-prose ol {
   margin: 0.85rem 0;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
   color: var(--plan-muted);
 }
 
@@ -874,8 +984,8 @@
 
 .plan-prose blockquote {
   margin: 1.1rem 0;
-  border-left: 3px solid var(--plan-line);
-  padding-left: 1rem;
+  border-inline-start: 3px solid var(--plan-line);
+  padding-inline-start: 1rem;
   color: var(--plan-muted);
 }
 
@@ -893,6 +1003,12 @@
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.875em;
   color: var(--plan-text);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+.plan-prose :is(h1, h2, h3, h4) code {
+  background: transparent;
 }
 
 .plan-prose table {
@@ -906,7 +1022,7 @@
 .plan-prose td {
   border: 1px solid var(--plan-line);
   padding: 0.5rem 0.75rem;
-  text-align: left;
+  text-align: start;
 }
 
 .plan-prose th {
@@ -928,6 +1044,8 @@
 
 /* Read-only surface (Shiki-highlighted, collapses past `--plan-code-max-lines`). */
 .plan-code-surface {
+  max-width: 100%;
+  min-width: 0;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--plan-line);
@@ -952,6 +1070,8 @@
 
 .plan-code-surface-scroll {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
   font-size: var(--plan-code-size);
   line-height: 1.55;
@@ -980,7 +1100,7 @@
   color: var(--plan-muted);
   font-size: 0.75rem;
   font-weight: 500;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     color 0.15s,
@@ -994,9 +1114,12 @@
 
 .plan-code-surface .plan-shiki,
 .plan-code-surface pre {
+  box-sizing: border-box;
+  min-width: 100%;
+  width: max-content;
   margin: 0;
   padding: 0.85rem 1.1rem;
-  background: var(--shiki-light-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-light, var(--plan-code-text));
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--plan-code-size);
@@ -1011,16 +1134,17 @@
 
 .plan-code-surface .plan-shiki pre,
 .plan-code-surface .plan-shiki code {
-  background: var(--shiki-light-bg, transparent) !important;
+  background: transparent !important;
 }
 
 .plan-code-surface .plan-shiki pre span {
+  background: transparent !important;
   color: var(--shiki-light);
 }
 
 .dark .plan-code-surface .plan-shiki,
 .dark .plan-code-surface .plan-shiki pre {
-  background: var(--shiki-dark-bg, var(--plan-code)) !important;
+  background: var(--plan-code) !important;
   color: var(--shiki-dark, var(--plan-code-text));
 }
 
@@ -1059,9 +1183,13 @@
    surface that auto-grows (no drag-to-resize) with a hover language switcher. */
 .plan-code {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .plan-code-head {
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1073,6 +1201,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  overflow: hidden;
   min-width: 0;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: max(0.75rem, calc(var(--plan-code-size) - 0.0625rem));
@@ -1177,6 +1306,8 @@
 
 .plan-code-editor-body {
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   overflow: auto;
 }
 
@@ -1393,10 +1524,14 @@
 }
 
 .plan-callout {
-  max-width: 860px;
-  border-left: 3px solid hsl(var(--ring));
+  max-width: 60rem;
+  border-inline-start: 3px solid hsl(var(--ring));
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
   padding-block: 0.9rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
 }
 
 /* The body editor/reader carries a default `mt-4`; inside a callout the block's
@@ -1426,8 +1561,7 @@
 }
 
 .plan-callout[data-tone] {
-  border-left-color: hsl(var(--plan-callout-accent));
-  border-radius: 0 8px 8px 0;
+  border-inline-start-color: hsl(var(--plan-callout-accent));
   background-image: linear-gradient(
     90deg,
     hsl(var(--plan-callout-accent) / 0.08),
@@ -1435,8 +1569,18 @@
     transparent 72%
   );
   transition:
-    border-left-color 0.12s ease,
+    border-inline-start-color 0.12s ease,
     background-image 0.12s ease;
+}
+
+[dir="rtl"] .plan-callout[data-tone],
+.plan-callout[dir="rtl"][data-tone] {
+  background-image: linear-gradient(
+    270deg,
+    hsl(var(--plan-callout-accent) / 0.08),
+    hsl(var(--plan-callout-accent) / 0.02) 38%,
+    transparent 72%
+  );
 }
 
 .plan-callout[data-tone] .plan-block-label {
@@ -1582,7 +1726,7 @@
 .plan-template-group-title > span:last-child,
 .plan-template-meter-copy > span {
   color: var(--plan-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
 }
@@ -1603,7 +1747,7 @@
 .plan-template-header-meta,
 .plan-template-popover-header > span {
   color: var(--plan-muted);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
   font-size: 11px;
   font-weight: 700;
 }
@@ -2003,10 +2147,8 @@
   box-shadow: 0 0 0 4px hsl(var(--muted) / 0.35);
 }
 .plan-header-editable:focus {
-  background: hsl(var(--background) / 0.6);
-  box-shadow:
-    0 0 0 2px hsl(var(--background)),
-    0 0 0 4px hsl(var(--ring) / 0.4);
+  background: transparent;
+  box-shadow: none;
 }
 .plan-header-editable:empty::before {
   content: attr(data-placeholder);
@@ -2265,4 +2407,32 @@
   outline: 2px solid hsl(var(--ring) / 0.45);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+/* Embed mode (set by entry.client.tsx on `?embedded=1`). The app shell is
+ * fixed-viewport (`h-screen` + `overflow-hidden`), so inside the iframe
+ * scrollHeight equals the iframe height and the embed can't size to content.
+ * Flow the shell -> reader chain so frame.ts reports the real height. Scoped to
+ * [data-embed]; covers the AgentSidebar wrapper too since the chain spans
+ * several containers. */
+html[data-embed="1"],
+html[data-embed="1"] body,
+html[data-embed="1"] #root {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-embed="1"] .agent-layout-shell,
+html[data-embed="1"] .agent-layout-main-surface,
+html[data-embed="1"] .agent-sidebar-root,
+html[data-embed="1"] .agent-sidebar-content,
+html[data-embed="1"] .plans-workspace,
+html[data-embed="1"] .plan-content-surface,
+html[data-embed="1"] [data-agent-sidebar],
+html[data-embed="1"] [data-agent-sidebar-content] {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
 }

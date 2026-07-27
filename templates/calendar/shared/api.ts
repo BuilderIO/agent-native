@@ -11,12 +11,18 @@ export interface CalendarEvent {
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
+  /** Stable feed/source identifier for non-Google inventory provenance. */
+  sourceId?: string;
   googleEventId?: string;
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
   accountEmail?: string;
   /** Set when this event belongs to an overlaid person's calendar */
   overlayEmail?: string;
+  /** Client-only marker for overlaid calendar ownership */
+  ownerColor?: string;
+  /** Client-only display name for the overlaid calendar owner */
+  ownerName?: string;
   color?: string;
   /** Google Calendar event color id (1-11). */
   colorId?: string;
@@ -41,6 +47,14 @@ export interface CalendarEvent {
     responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
     organizer?: boolean;
     self?: boolean;
+    /** When true, the attendee is optional (Google Calendar `optional`). */
+    optional?: boolean;
+    /**
+     * Optional IANA timezone for this attendee (e.g. America/New_York).
+     * Used to show their local time for the event start when known.
+     * Prefer user overrides via `attendee-timezones` settings when absent.
+     */
+    timeZone?: string;
   }>;
   reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
   /** Whether this event uses the calendar's default reminder policy. */
@@ -110,6 +124,8 @@ export interface CalendarEvent {
   updatedAt: string;
   /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
   _tempId?: string;
+  /** Client-only: prior provider id retained while open UI state rebinds after replacement */
+  _replacedId?: string;
 }
 
 export interface CalendarEventDraft {
@@ -126,6 +142,7 @@ export interface CalendarEventDraft {
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
+  recurrence?: string[];
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
   attachments?: CalendarEvent["attachments"];
@@ -245,6 +262,11 @@ export interface ConferencingConfig {
   url?: string;
 }
 
+export interface BookingHost {
+  email: string;
+  displayName?: string;
+}
+
 export interface Booking {
   id: string;
   name: string;
@@ -274,6 +296,8 @@ export interface BookingLink {
   duration: number;
   /** Additional duration options the booker can choose from */
   durations?: number[];
+  /** Required co-hosts in addition to the booking link owner */
+  hosts?: BookingHost[];
   /** Custom fields shown on the booking form */
   customFields?: CustomField[];
   /** Video conferencing configuration */

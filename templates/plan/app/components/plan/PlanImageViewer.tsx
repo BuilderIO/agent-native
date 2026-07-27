@@ -1,5 +1,4 @@
-import { useState, type MouseEvent } from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCopy,
   IconDownload,
@@ -13,7 +12,9 @@ import {
   IconX,
   IconZoomIn,
 } from "@tabler/icons-react";
-import { Dialog, DialogOverlay, DialogTitle } from "@/components/ui/dialog";
+import { useState, type MouseEvent } from "react";
+
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +23,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { copyImage, downloadImage } from "./image-actions";
+
+import {
+  copyImage,
+  downloadImage,
+  type ImageActionMessages,
+} from "./image-actions";
 
 /**
  * Shared image presentation for every plan surface — the editor's image node
@@ -77,6 +83,14 @@ export function PlanImageViewer({
   showControls = false,
   uploading = false,
 }: PlanImageViewerProps) {
+  const t = useT();
+  const imageActionMessages = {
+    downloadStarted: t("raw.imageActions.downloadStarted"),
+    openedNewTab: t("raw.imageActions.openedNewTab"),
+    imageCopied: t("raw.imageActions.imageCopied"),
+    copiedUrl: t("raw.imageActions.copiedUrl"),
+    copyFailed: t("raw.imageActions.copyFailed"),
+  };
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -90,7 +104,11 @@ export function PlanImageViewer({
         )}
       >
         <IconPhoto className="size-5" />
-        <span>{uploading ? "Uploading image…" : alt || "Image"}</span>
+        <span>
+          {uploading
+            ? t("raw.imageViewer.uploadingImage")
+            : alt || t("raw.imageViewer.image")}
+        </span>
       </span>
     );
   }
@@ -127,8 +145,8 @@ export function PlanImageViewer({
         <button
           type="button"
           className={ACTION_BTN_CLASS}
-          aria-label="View full size"
-          title="View full size"
+          aria-label={t("raw.imageViewer.viewFullSize")}
+          title={t("raw.imageViewer.viewFullSize")}
           onMouseDown={swallowMouseDown}
           onClick={() => setLightboxOpen(true)}
         >
@@ -140,8 +158,8 @@ export function PlanImageViewer({
             <button
               type="button"
               className={ACTION_BTN_CLASS}
-              aria-label="Image options"
-              title="More"
+              aria-label={t("raw.imageViewer.imageOptions")}
+              title={t("raw.imageViewer.more")}
             >
               <IconDots size={16} />
             </button>
@@ -159,31 +177,35 @@ export function PlanImageViewer({
                 {onEdit ? (
                   <DropdownMenuItem onSelect={() => onEdit()}>
                     <IconPencil size={16} className="mr-2" />
-                    Edit details
+                    {t("raw.imageViewer.editDetails")}
                   </DropdownMenuItem>
                 ) : null}
                 {onReplace ? (
                   <DropdownMenuItem onSelect={() => onReplace()}>
                     <IconRefresh size={16} className="mr-2" />
-                    Replace image
+                    {t("raw.imageViewer.replaceImage")}
                   </DropdownMenuItem>
                 ) : null}
                 <DropdownMenuSeparator />
               </>
             ) : null}
-            <DropdownMenuItem onSelect={() => void downloadImage(src, alt)}>
+            <DropdownMenuItem
+              onSelect={() => void downloadImage(src, alt, imageActionMessages)}
+            >
               <IconDownload size={16} className="mr-2" />
-              Download
+              {t("raw.imageViewer.download")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void copyImage(src)}>
+            <DropdownMenuItem
+              onSelect={() => void copyImage(src, imageActionMessages)}
+            >
               <IconCopy size={16} className="mr-2" />
-              Copy image
+              {t("raw.imageViewer.copyImage")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={() => window.open(src, "_blank", "noopener,noreferrer")}
             >
               <IconExternalLink size={16} className="mr-2" />
-              Open original
+              {t("raw.imageViewer.openOriginal")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -194,6 +216,7 @@ export function PlanImageViewer({
         onOpenChange={setLightboxOpen}
         src={src}
         alt={alt}
+        actionMessages={imageActionMessages}
       />
     </span>
   );
@@ -204,6 +227,7 @@ type PlanImageLightboxProps = {
   onOpenChange: (open: boolean) => void;
   src: string;
   alt: string;
+  actionMessages?: ImageActionMessages;
 };
 
 function PlanImageLightbox({
@@ -211,7 +235,9 @@ function PlanImageLightbox({
   onOpenChange,
   src,
   alt,
+  actionMessages,
 }: PlanImageLightboxProps) {
+  const t = useT();
   const [zoomed, setZoomed] = useState(false);
 
   function handleOpenChange(next: boolean) {
@@ -221,80 +247,80 @@ function PlanImageLightbox({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogPrimitive.Portal>
-        <DialogOverlay className="z-[250] bg-black/85 backdrop-blur-sm" />
-        <DialogPrimitive.Content
-          className="fixed inset-0 z-[251] flex items-center justify-center focus:outline-none"
-          aria-describedby={undefined}
-          onOpenAutoFocus={(event) => event.preventDefault()}
+      <DialogContent
+        hideClose
+        className="fixed inset-0 left-0 top-0 z-[281] flex h-screen max-h-none w-screen max-w-none translate-x-0 translate-y-0 items-center justify-center gap-0 overflow-hidden rounded-none border-0 bg-black/85 p-0 text-white shadow-none backdrop-blur-sm focus:outline-none data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100"
+        aria-describedby={undefined}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <DialogTitle className="sr-only">
+          {alt || t("raw.imageViewer.closePreview")}
+        </DialogTitle>
+
+        <div
+          className="flex h-full w-full items-center justify-center overflow-auto p-6"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) handleOpenChange(false);
+          }}
         >
-          <DialogTitle className="sr-only">
-            {alt || "Image preview"}
-          </DialogTitle>
+          <img
+            src={src}
+            alt={alt}
+            draggable={false}
+            onClick={() => setZoomed((value) => !value)}
+            className={cn(
+              "rounded-lg shadow-2xl transition-transform",
+              zoomed
+                ? "max-w-none cursor-zoom-out"
+                : "max-h-[90vh] max-w-[92vw] cursor-zoom-in object-contain",
+            )}
+          />
+        </div>
 
-          <div
-            className="flex h-full w-full items-center justify-center overflow-auto p-6"
-            onClick={(event) => {
-              if (event.target === event.currentTarget) handleOpenChange(false);
-            }}
+        <div className="fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/70 px-2 py-1.5 text-white shadow-xl backdrop-blur">
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
+            aria-label={t("raw.imageViewer.fitToScreen")}
+            disabled={!zoomed}
+            onClick={() => setZoomed(false)}
           >
-            <img
-              src={src}
-              alt={alt}
-              draggable={false}
-              onClick={() => setZoomed((value) => !value)}
-              className={cn(
-                "rounded-lg shadow-2xl transition-transform",
-                zoomed
-                  ? "max-w-none cursor-zoom-out"
-                  : "max-h-[90vh] max-w-[92vw] cursor-zoom-in object-contain",
-              )}
-            />
-          </div>
-
-          <div className="fixed bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-white/15 bg-black/70 px-2 py-1.5 text-white shadow-xl backdrop-blur">
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label="Fit to screen"
-              disabled={!zoomed}
-              onClick={() => setZoomed(false)}
-            >
-              <IconMinus size={17} />
-            </button>
-            <span className="min-w-[5.5rem] text-center text-xs font-medium tabular-nums">
-              {zoomed ? "Actual size" : "Fit"}
-            </span>
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
-              aria-label="Actual size"
-              disabled={zoomed}
-              onClick={() => setZoomed(true)}
-            >
-              <IconPlus size={17} />
-            </button>
-            <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label="Download image"
-              onClick={() => void downloadImage(src, alt)}
-            >
-              <IconDownload size={17} />
-            </button>
-            <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
-            <button
-              type="button"
-              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
-              aria-label="Close image preview"
-              onClick={() => handleOpenChange(false)}
-            >
-              <IconX size={17} />
-            </button>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
+            <IconMinus size={17} />
+          </button>
+          <span className="min-w-[5.5rem] text-center text-xs font-medium tabular-nums">
+            {zoomed
+              ? t("raw.imageViewer.actualSize")
+              : t("raw.imageViewer.fitToScreen")}
+          </span>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15 disabled:cursor-default disabled:opacity-40"
+            aria-label={t("raw.imageViewer.actualSize")}
+            disabled={zoomed}
+            onClick={() => setZoomed(true)}
+          >
+            <IconPlus size={17} />
+          </button>
+          <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
+            aria-label={t("raw.imageViewer.downloadImage")}
+            onClick={() => void downloadImage(src, alt, actionMessages)}
+          >
+            <IconDownload size={17} />
+          </button>
+          <span className="mx-1 h-5 w-px bg-white/20" aria-hidden />
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-white/90 transition-colors hover:bg-white/15"
+            aria-label={t("raw.imageViewer.closePreview")}
+            onClick={() => handleOpenChange(false)}
+          >
+            <IconX size={17} />
+          </button>
+        </div>
+      </DialogContent>
     </Dialog>
   );
 }

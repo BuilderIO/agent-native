@@ -7,6 +7,7 @@
  * Results are LIMIT-capped upstream, so no virtualization is needed.
  */
 import { IconCircleCheck } from "@tabler/icons-react";
+
 import { cn } from "../utils.js";
 
 export interface ResultsGridProps {

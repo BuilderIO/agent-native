@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import {
   getServiceMetrics,
   listCloudFunctions,
@@ -12,6 +13,9 @@ import {
 } from "./_provider-action-utils";
 
 export default defineAction({
+  // Read-only provider query: safe to call from run-code `appAction` and
+  // reusable across continuation retries (no re-fetch on resume).
+  readOnly: true,
   description:
     "Query Google Cloud Run/Cloud Functions services, Cloud Monitoring metrics, and Cloud Logging entries.",
   schema: z.object({

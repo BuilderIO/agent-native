@@ -53,6 +53,18 @@ const PUNCTUATION_BY_NAME: Array<[RegExp, string]> = [
   [/\bexclamation (?:point|mark)\b/gi, "!"],
   [/\bcolon\b/gi, ":"],
   [/\bsemicolon\b/gi, ";"],
+  // Wispr parity (design-refs/wispr-ux.md §11) — same false-positive
+  // tradeoff as colon/semicolon above: a literal mid-sentence mention
+  // ("the asterisk in the doc") also converts. Accepted, consistent with
+  // the existing entries.
+  [/\bquotation mark\b/gi, '"'],
+  [/\bem dash\b/gi, "—"],
+  [/\ben dash\b/gi, "–"],
+  [/\basterisk\b/gi, "*"],
+  [/\bampersand\b/gi, "&"],
+  [/\bellipsis\b/gi, "…"],
+  [/\bopen paren\b/gi, "("],
+  [/\bclose paren\b/gi, ")"],
 ];
 
 function escapeRegex(s: string): string {

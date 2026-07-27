@@ -1,7 +1,37 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  resolveEngine,
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  registerBuiltinEngines,
+} from "../agent/engine/index.js";
+import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
+import type {
+  AgentEngine,
+  EngineEvent,
+  EngineMessage,
+  EngineStreamOptions,
+} from "../agent/engine/types.js";
+import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
+import {
+  actionsToEngineTools,
+  runAgentLoop,
+  type ActionEntry,
+  type AgentLoopUsage,
+} from "../agent/production-agent.js";
 import {
   createToolSearchEntry,
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import {
+  formatPromptWithAttachments,
+  type AgentPromptAttachment,
+} from "../code-agents/prompt-attachments.js";
 import {
   createCodingToolRegistry,
   isReadOnlyShellCommand,
@@ -14,40 +44,22 @@ import {
   buildMergedConfig,
   McpClientManager,
   mcpToolsToActionEntries,
+  type McpToolInvocationPolicy,
 } from "../mcp-client/index.js";
-import { runWithRequestContext } from "../server/request-context.js";
-import {
-  actionsToEngineTools,
-  runAgentLoop,
-  type ActionEntry,
-  type AgentLoopUsage,
-} from "../agent/production-agent.js";
-import {
-  resolveEngine,
-  getStoredModelForEngine,
-  registerBuiltinEngines,
-} from "../agent/engine/index.js";
-import type {
-  AgentEngine,
-  EngineEvent,
-  EngineMessage,
-  EngineStreamOptions,
-} from "../agent/engine/types.js";
-import type { AgentChatEvent } from "../agent/types.js";
-import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
-import { DEFAULT_AGENT_MAX_ITERATIONS } from "../agent/loop-settings.js";
 import {
   readAgentsBundleFromFs,
-  generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
 } from "../server/agents-bundle.js";
+import {
+  getAmbientOrgId,
+  getAmbientUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
-import {
-  formatPromptWithAttachments,
-  type AgentPromptAttachment,
-} from "../code-agents/prompt-attachments.js";
+import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 import {
   addCodeAgentCommandToAllowlist,
   appendCodeAgentTranscriptEvent,
@@ -59,7 +71,6 @@ import {
   type CodeAgentPermissionMode,
   type CodeAgentRunRecord,
 } from "./code-agent-runs.js";
-import { createCodeAgentOutputSmoother } from "./code-agent-output-smoother.js";
 
 export interface ExecuteCodeAgentRunOptions {
   runId: string;
@@ -82,9 +93,27 @@ interface PendingCodeAgentApproval {
   permissionMode: CodeAgentPermissionMode;
 }
 
+interface CodeAgentApprovalExecutionOptions {
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}
+
+interface CodexCliProcessResult {
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  error?: string;
+}
+
 const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
+const CODEX_CLI_ENGINE_NAME = "codex-cli";
+const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
+const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
+
+type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
 /**
  * Number of most-recent transcript events reconstructed as native
@@ -168,17 +197,34 @@ export async function executeCodeAgentRun(
     metadata: { status: "running", phase: "executing" },
   });
 
-  const requestedEngine = metadataString(existing, "engine");
+  // Fall back to AGENT_ENGINE here too, mirroring resolveExecutorEngine below.
+  // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
+  // to resolveEngine (LLM providers only), which throws `Unknown engine`.
+  const requestedEngine = normalizeRequestedEngine(
+    metadataString(existing, "engine") ?? process.env.AGENT_ENGINE,
+  );
+  if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
+    return executeCodexCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      signal: options.signal,
+    });
+  }
+
   const engine =
     options.engine ?? (await resolveExecutorEngine(requestedEngine));
   if (!engine) {
     const message =
-      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, or another supported provider key and resume this run.";
+      "No LLM provider key was found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, another supported provider key, or run `codex login` to use Codex CLI.";
     options.stdout?.write(`${message}\n`);
     appendCodeAgentTranscriptEvent({
       runId: existing.id,
       kind: "status",
       message,
+      signal: "credential-gap",
       metadata: { status: "paused", phase: "missing-credentials" },
     });
     return updateCodeAgentRunRecord(existing.id, {
@@ -194,16 +240,20 @@ export async function executeCodeAgentRun(
     });
   }
 
-  const model =
+  const modelCandidate =
     options.model ??
     metadataString(existing, "model") ??
     process.env.AGENT_MODEL ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
   const reasoningEffort =
     options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
+  const toolProfile = resolveCodeAgentToolProfile(
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE,
+  );
 
   // Holds structured metadata emitted by the coding tools side-channel.
   // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
@@ -221,10 +271,18 @@ export async function executeCodeAgentRun(
       // Stream incremental bash output to stdout for the terminal smoother
       options.stdout?.write(chunk);
     },
+    toolProfile,
   );
-  const mcpManager = await startCodeAgentMcpManager(existing.id);
+  const mcpManager = toolProfile
+    ? null
+    : await startCodeAgentMcpManager(existing.id);
   if (mcpManager) {
-    Object.assign(actions, mcpToolsToActionEntries(mcpManager));
+    Object.assign(
+      actions,
+      mcpToolsToActionEntries(mcpManager, {
+        invocationPolicy: codeAgentMcpInvocationPolicy(permissionMode),
+      }),
+    );
   }
   actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
@@ -354,6 +412,7 @@ export async function executeCodeAgentRun(
         }),
     );
     loopUsage = usageResult ?? null;
+    writeCodeAgentUsageSnapshot(cwd, loopUsage);
     // Persist cumulative token totals from this turn into the run record so
     // the UI can display per-run usage statistics.
     if (loopUsage) {
@@ -502,6 +561,306 @@ export async function executeCodeAgentRun(
   }
 }
 
+export function codeAgentMcpInvocationPolicy(
+  permissionMode: CodeAgentPermissionMode,
+): McpToolInvocationPolicy {
+  return {
+    mode: permissionMode === "read-only" ? "read-only" : "allow-all",
+  };
+}
+
+async function executeCodexCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const cwd = options.run.cwd || process.cwd();
+  const outputDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-code-codex-"),
+  );
+  const outputPath = path.join(outputDir, "last-message.txt");
+  const model = normalizeCodexCliModel(options.model);
+  const args = [
+    "--ask-for-approval",
+    "never",
+    "exec",
+    "--cd",
+    cwd,
+    "--color",
+    "never",
+    "--skip-git-repo-check",
+    "--sandbox",
+    codexSandboxForPermissionMode(options.permissionMode),
+    "--output-last-message",
+    outputPath,
+  ];
+  if (model) args.push("--model", model);
+  args.push("-");
+
+  appendCodeAgentTranscriptEvent({
+    runId: options.run.id,
+    kind: "status",
+    message: "Starting Codex CLI with local Codex authentication.",
+    metadata: {
+      status: "running",
+      phase: "executing",
+      engine: CODEX_CLI_ENGINE_NAME,
+    },
+  });
+
+  try {
+    const result = await runCodexCliProcess({
+      args,
+      cwd,
+      prompt: buildCodexCliPrompt(options.run, options.prompt),
+      stdout: options.stdout,
+      signal: options.signal,
+    });
+
+    if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
+      const message =
+        result.error ??
+        result.stderr.trim() ??
+        `Codex CLI exited with ${result.exitSignal ?? result.exitCode}.`;
+      const summary = interrupted
+        ? "Codex CLI run paused."
+        : `Codex CLI run failed: ${message}`;
+      options.stdout?.write(`\n${summary}\n`);
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: summary,
+        metadata: {
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
+          engine: CODEX_CLI_ENGINE_NAME,
+          exitCode: result.exitCode,
+          exitSignal: result.exitSignal,
+        },
+      });
+      return updateCodeAgentRunRecord(options.run.id, {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        progress: {
+          label: interrupted ? "Paused" : "Error",
+          completed: 0,
+          total: 1,
+          failed: interrupted ? 0 : 1,
+          percent: 0,
+        },
+        metadata: {
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
+          engine: CODEX_CLI_ENGINE_NAME,
+          model: model ?? "codex-default",
+        },
+      });
+    }
+
+    const finalMessage =
+      readCodexLastMessage(outputPath) ||
+      result.stdout.trim() ||
+      "Codex CLI run completed.";
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "system",
+      message: finalMessage,
+      metadata: {
+        role: "assistant",
+        engine: CODEX_CLI_ENGINE_NAME,
+        model: model ?? "codex-default",
+      },
+    });
+
+    const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? "Codex CLI run completed; running queued follow-up."
+          : "Codex CLI run completed; applying steering follow-up.";
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+          engine: CODEX_CLI_ENGINE_NAME,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(options.run.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      return executeCodeAgentRun({
+        runId: options.run.id,
+        prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(
+            options.run.id,
+            pendingFollowUp.eventId,
+          ),
+        appendUserEvent: false,
+        stdout: options.stdout,
+        signal: options.signal,
+      });
+    }
+
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: "Codex CLI run completed.",
+      metadata: {
+        status: "completed",
+        phase: "complete",
+        engine: CODEX_CLI_ENGINE_NAME,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: "completed",
+      phase: "complete",
+      needsApproval: false,
+      progress: {
+        label: "Complete",
+        completed: 1,
+        total: 1,
+        percent: 100,
+      },
+      metadata: {
+        executionCompletedAt: new Date().toISOString(),
+        engine: CODEX_CLI_ENGINE_NAME,
+        model: model ?? "codex-default",
+        permissionMode: options.permissionMode,
+      },
+    });
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+  }
+}
+
+function runCodexCliProcess(options: {
+  args: string[];
+  cwd: string;
+  prompt: string;
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}): Promise<CodexCliProcessResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const child = spawn("codex", options.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+    const finish = (
+      result: Omit<CodexCliProcessResult, "stdout" | "stderr">,
+    ) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", onAbort);
+      resolve({ ...result, stdout, stderr });
+    };
+    const onAbort = () => {
+      child.kill("SIGTERM");
+    };
+    if (options.signal) {
+      if (options.signal.aborted) onAbort();
+      else options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      options.stdout?.write(text);
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", (err) => {
+      finish({
+        exitCode: 1,
+        exitSignal: null,
+        error:
+          (err as NodeJS.ErrnoException).code === "ENOENT"
+            ? "Codex CLI was not found. Install Codex and run `codex login`."
+            : err instanceof Error
+              ? err.message
+              : String(err),
+      });
+    });
+    child.on("exit", (exitCode, exitSignal) => {
+      finish({ exitCode, exitSignal });
+    });
+    child.stdin?.end(options.prompt);
+  });
+}
+
+function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
+  const permissionMode = run.permissionMode ?? "full-auto";
+  const mode =
+    permissionMode === "read-only" || permissionMode === "ask-before-edit"
+      ? "Plan"
+      : "Auto";
+  const modeInstruction =
+    mode === "Plan"
+      ? "Inspect and explain only. Do not edit files or run mutating commands."
+      : "Edit and verify as needed. Do not create, switch, reset, rebase, or stash git branches.";
+  return [
+    `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    "Follow the repository AGENTS.md and any relevant skill instructions.",
+    `Run mode: ${mode} (${permissionMode}). ${modeInstruction}`,
+    "",
+    "# User request",
+    prompt,
+  ].join("\n");
+}
+
+function codexSandboxForPermissionMode(
+  permissionMode: CodeAgentPermissionMode,
+): "read-only" | "workspace-write" {
+  return permissionMode === "read-only" || permissionMode === "ask-before-edit"
+    ? "read-only"
+    : "workspace-write";
+}
+
+function normalizeCodexCliModel(model: string | undefined): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === CODEX_CLI_ENGINE_NAME) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function normalizeRequestedEngine(
+  engine: string | undefined,
+): string | undefined {
+  const trimmed = engine?.trim();
+  if (!trimmed || trimmed === "auto") return undefined;
+  return trimmed;
+}
+
+function readCodexLastMessage(filePath: string): string | null {
+  try {
+    const text = fs.readFileSync(filePath, "utf-8").trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function executeExistingCodeAgentRun(
   runId: string,
   options: Omit<ExecuteCodeAgentRunOptions, "runId"> = {},
@@ -516,7 +875,7 @@ export async function executeExistingCodeAgentRun(
  */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const approval = getPendingApproval(runId);
   if (approval?.command) {
@@ -533,7 +892,7 @@ export async function executeApproveAlwaysCodeAgentApproval(
 
 export async function executePendingCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -579,6 +938,7 @@ export async function executePendingCodeAgentApproval(
     approval.command,
     record.cwd || process.cwd(),
     DEFAULT_COMMAND_TIMEOUT_MS,
+    { signal: options.signal },
   );
   const summary = truncateCodingOutput(
     [
@@ -625,7 +985,10 @@ export async function executePendingCodeAgentApproval(
     message: "Resuming run after approval.",
     metadata: { status: "running", phase: "approval-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 /**
@@ -635,7 +998,7 @@ export async function executePendingCodeAgentApproval(
  */
 export async function executeDenyCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -677,7 +1040,10 @@ export async function executeDenyCodeAgentApproval(
     message: "Resuming run after denial — model will adapt its plan.",
     metadata: { status: "running", phase: "approval-denied-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 function latestUserPrompt(runId: string): string {
@@ -795,8 +1161,8 @@ function runWithOptionalCodeAgentRequestContext<T>(
   const userEmail =
     metadataString(run, "ownerEmail") ??
     metadataString(run, "userEmail") ??
-    process.env.AGENT_USER_EMAIL;
-  const orgId = metadataString(run, "orgId") ?? process.env.AGENT_ORG_ID;
+    getAmbientUserEmail();
+  const orgId = metadataString(run, "orgId") ?? getAmbientOrgId();
   if (!userEmail && !orgId) return fn();
   return runWithRequestContext({ userEmail, orgId }, fn);
 }
@@ -1228,7 +1594,7 @@ export async function buildCodeAgentSystemPrompt(
   }
 
   const repoInstructionsBlock = buildRepoInstructionsBlock(agentsMdContent);
-  const skillsBlock = generateSkillsPromptBlock(bundle);
+  const skillsBlock = generateDevelopmentSkillsPromptBlock(bundle);
 
   return codeAgentSystemPrompt(
     cwd,
@@ -1333,6 +1699,7 @@ function createLocalCodeAgentActions(
     meta: StructuredToolMetadata,
   ) => void,
   onBashOutputChunk?: (chunk: string) => void,
+  toolProfile?: CodeAgentToolProfile,
 ): Record<string, ActionEntry> {
   const actions = createCodingToolRegistry({
     cwd,
@@ -1371,6 +1738,24 @@ function createLocalCodeAgentActions(
       return null;
     },
   });
+  if (toolProfile === RECAP_SOURCE_TOOL_PROFILE) {
+    const allowedOutput = path.resolve(cwd, RECAP_SOURCE_OUTPUT_FILE);
+    const writeAction = actions.write;
+    return {
+      read: actions.read,
+      write: {
+        ...writeAction,
+        run: async (args, context) => {
+          const requestedPath =
+            args && typeof args.path === "string" ? args.path : "";
+          if (path.resolve(cwd, requestedPath) !== allowedOutput) {
+            return `Error: only ${RECAP_SOURCE_OUTPUT_FILE} may be written in the recap-source tool profile.`;
+          }
+          return writeAction.run(args, context);
+        },
+      },
+    };
+  }
   if (permissionMode === "read-only") {
     return {
       bash: actions.bash,
@@ -1378,6 +1763,15 @@ function createLocalCodeAgentActions(
     };
   }
   return actions;
+}
+
+function resolveCodeAgentToolProfile(
+  value: string | undefined,
+): CodeAgentToolProfile | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (normalized === RECAP_SOURCE_TOOL_PROFILE) return normalized;
+  throw new Error(`Unsupported Agent-Native Code tool profile: ${normalized}`);
 }
 
 export type CodeAgentCommandPermission =
@@ -1531,6 +1925,27 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
         ? candidate.permissionMode
         : "full-auto",
   };
+}
+
+export function writeCodeAgentUsageSnapshot(
+  cwd: string,
+  usage: AgentLoopUsage | null,
+): void {
+  const configuredPath = process.env.AGENT_NATIVE_CODE_USAGE_FILE?.trim();
+  if (!configuredPath || !usage) return;
+
+  const outputPath = path.isAbsolute(configuredPath)
+    ? configuredPath
+    : path.resolve(cwd, configuredPath);
+  try {
+    fs.writeFileSync(outputPath, `${JSON.stringify(usage)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  } catch {
+    // Usage reporting is best-effort and must not turn a completed agent run
+    // into a failed recap when the optional sidecar cannot be written.
+  }
 }
 
 // --------------- Token usage accumulator ---------------

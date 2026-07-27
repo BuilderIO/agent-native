@@ -34,20 +34,42 @@ Convert the user's requested local date/timezone to UTC before querying. For
 example, May 1, 2026 in America/New_York is `2026-05-01T04:00:00Z`
 through `2026-05-02T04:00:00Z`.
 
-## Showing Charts In Chat
+## Inline Charts In Chat
 
-For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Full shape in `AGENTS.md` ("Inline Charts in Chat" section). Reach for `generate-chart` only when you're building a `save-analysis` artifact whose markdown will render outside the app.
+For an in-chat answer, **emit a live `/chart` embed** — never `generate-chart`. The embed mounts a live `SqlChart` that re-queries when its source changes, and it doesn't choke on rigid JSON params the way the PNG action does. Reach for `generate-chart` only when you're building a dashboard artifact that needs a persisted report image.
 
 If `generate-chart` returns an error in any chat-answering flow, the recovery is to switch to the live embed, not to retry with reformatted params.
+
+**How it renders.** The core chat markdown renderer turns any fenced block tagged `embed` into a sandboxed, same-origin iframe. Emit:
+
+````markdown
+```embed
+src: /chart?panel=<base64url-encoded panel JSON>
+title: Daily pageviews
+height: 320
+```
+````
+
+Fence keys: `src` (required, same-origin path), `title`, and either `height` (px) or `aspect` (`16/9`, `4/3`, `1/1`, `21/9`, `3/2`, `2/1`; default `16/9`). A cross-origin `src` renders an "Embed blocked" notice instead of a chart.
+
+**Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
+
+- `sql` — required, non-empty.
+- `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.
+- `chartType` — required, one of `line`, `area`, `bar`, `metric`, `table`, `pie`. Dashboard-layout types (`section`, `heatmap`, `callout`, `extension`) are rejected.
+- `id` (defaults `"embed"`), `title` (rendered above the chart), `width` (dashboard-only, ignored here), `config` (passed through unvalidated — `xKey`/`yKeys`, `colors`, `yFormatter`, `rightYKeys`/`rightYFormatter` for a dual-axis line/area/bar chart, `columns`, `stacked`, `legend`, …).
+
+An unknown `source`/`chartType` or blank `sql` renders an error card, not a chart.
+
+**Encoding.** JSON-stringify the panel, base64-encode it, then make it URL-safe: `+` → `-`, `/` → `_`, strip `=` padding. No further URL-encoding is needed. Keep the SQL short — it rides in a query string; if it's long, save it as a dashboard panel and link to the dashboard instead.
+
+Full details (per-field validation, `config` keys, a verified round-trip example, and how this differs from `generate-chart`) are in `references/inline-chart-embeds.md` — read it with `docs-search --slug "skill-data-querying--references-inline-chart-embeds"`.
 
 ## Script Patterns
 
 ### Reusing Existing Actions
 
 ```bash
-# GitHub PRs
-pnpm action github-prs --org=<org> --query="is:open label:bug"
-
 # Jira tickets
 pnpm action jira-search --jql="summary ~ SSO" --fields=key,summary,status
 
@@ -63,6 +85,18 @@ pnpm action hubspot-records --objectType=companies --query=builder.io --properti
 # Gong call content for a customer deep dive
 pnpm action gong-calls --company="The Knot" --days=180 --includeTranscripts=true --transcriptLimit=5
 ```
+
+The first-class actions above are convenience shortcuts for the common cases, not
+the limit of what you can do. Many providers (GitHub, Amplitude, PostHog,
+Mixpanel, Apollo, Common Room, Twitter/X, Notion, Pylon, GA4, plus any
+endpoint/filter a shortcut can't express) have **no bespoke action** — reach
+them through the shared provider API escape-hatch pattern:
+`provider-api-catalog` / `provider-api-docs` to learn the endpoint, then
+`provider-api-request` (or `providerFetch` inside `run-code`) against the
+provider's real HTTP API. For broad/corpus-wide questions ("how many", "which",
+"any/none across all …") prefer this raw-API + `run-code` path from the first
+step — fetch the full cohort with `fetchAllPages`/`saveToFile` and
+grep/aggregate locally — rather than stretching a capped shortcut action.
 
 ### Writing Ad-Hoc Scripts
 
@@ -102,6 +136,7 @@ For complete answers, combine data from multiple sources:
 ## After Completing an Analysis — Capture New Knowledge
 
 When you complete an analysis and discover:
+
 - A new confirmed metric definition or how a field is actually calculated
 - A provider gotcha (wrong column name, API quirk, unexpected behavior)
 - A schema discovery (table exists but wasn't in the dictionary, a column name differs)
@@ -126,7 +161,7 @@ future analyses.
 - Before finalizing an analytics answer, make the evidence trail explicit enough
   to audit: source(s), time window, filters, sample size or row count, join or
   match method, caveats/gaps, and what action to take next when useful.
-- Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, `generate-chart`, and `save-analysis` are not data queries. For analyses and dashboards, run at least one provider query action and preserve the result evidence in the final answer or `resultData`.
+- Data-source status, data-dictionary reads, dashboard dry-runs, `update-dashboard`, and `generate-chart` are not data queries. For dashboard artifacts, run at least one provider query action and preserve the result evidence in the final answer or dashboard config/description.
 - Use action arguments such as `query`, `objectType`, `properties`, `owner`, `limit`, or provider-specific filters to narrow output; if an action returns a broad batch, filter it in your analysis and cite the records used.
 - Update the relevant `.agents/skills/<provider>/SKILL.md` when you discover new patterns.
 - For BigQuery queries, check `.agents/skills/bigquery/SKILL.md` first; if the data dictionary does not contain the exact table/columns, call `search-bigquery-schema`.

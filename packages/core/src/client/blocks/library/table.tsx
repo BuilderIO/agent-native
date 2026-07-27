@@ -1,11 +1,4 @@
 import {
-  useLayoutEffect,
-  useRef,
-  type ClipboardEvent,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
-import {
   IconColumnInsertRight,
   IconPlus,
   IconRowInsertBottom,
@@ -13,6 +6,14 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import {
+  useLayoutEffect,
+  useRef,
+  type ClipboardEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+
 import { defineBlock } from "../types.js";
 import type {
   BlockEditProps,

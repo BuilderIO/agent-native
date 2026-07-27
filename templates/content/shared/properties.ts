@@ -13,6 +13,11 @@ export const EDITABLE_DOCUMENT_PROPERTY_TYPES = [
   "email",
   "phone",
   "relation",
+  // Capacities-style rich-text body field. Each Blocks field is its OWN
+  // independent content (NOT an alias of the page body). The default "Content"
+  // field is backed by `documents.content`; additional Blocks fields each get
+  // their own row in `document_block_field_contents`.
+  "blocks",
 ] as const;
 
 export const COMPUTED_DOCUMENT_PROPERTY_TYPES = [
@@ -44,6 +49,7 @@ export const CREATABLE_DOCUMENT_PROPERTY_TYPES = [
   "url",
   "email",
   "phone",
+  "blocks",
   "id",
   "created_time",
   "created_by",
@@ -83,6 +89,8 @@ export interface DocumentPropertyOption {
   id: string;
   name: string;
   color: DocumentPropertyOptionColor;
+  /** Stable guidance for when this select/status value should be chosen. */
+  description?: string;
 }
 
 export interface DocumentPropertyOptions {
@@ -90,6 +98,13 @@ export interface DocumentPropertyOptions {
   formula?: string;
   relation?: {
     databaseId?: string | null;
+  };
+  // Set on the default/primary "Content" Blocks field. The primary field is the
+  // one whose content is backed by `documents.content` (the page body editor).
+  // Exactly one Blocks field per database should be primary; additional Blocks
+  // fields store their content independently in `document_block_field_contents`.
+  blocks?: {
+    primary?: boolean;
   };
   rollup?: {
     relationPropertyId?: string | null;
@@ -137,6 +152,7 @@ export const DOCUMENT_PROPERTY_TYPE_LABELS: Record<
   email: "Email",
   phone: "Phone",
   relation: "Relation",
+  blocks: "Blocks",
   formula: "Formula",
   rollup: "Rollup",
   id: "ID",
@@ -159,6 +175,88 @@ export function isComputedPropertyType(
   type: DocumentPropertyType,
 ): type is ComputedDocumentPropertyType {
   return (COMPUTED_DOCUMENT_PROPERTY_TYPES as readonly string[]).includes(type);
+}
+
+// The default name a database's seeded Blocks field gets.
+export const DEFAULT_BLOCKS_FIELD_NAME = "Content";
+
+export function isBlocksPropertyType(type: DocumentPropertyType): boolean {
+  return type === "blocks";
+}
+
+// The primary Blocks field is the one backed by `documents.content`. There is
+// at most one per database; it is the field seeded by default and is what the
+// page-body editor reads/writes.
+export function isPrimaryBlocksField(
+  options: DocumentPropertyOptions,
+): boolean {
+  return options.blocks?.primary === true;
+}
+
+// Word count for a Blocks field's markdown content. Strips the lightest layer
+// of markdown punctuation so a "412 words" table cell reflects prose, not
+// syntax. Kept dependency-free because `shared/properties` is bundled into the
+// browser.
+export function countWords(content: string | null | undefined): number {
+  const text = (content ?? "")
+    // Drop fenced code blocks wholesale — they're not prose.
+    .replace(/```[\s\S]*?```/g, " ")
+    // Strip inline/other markdown punctuation that would split or pad tokens.
+    .replace(/[#>*_`~\-+=|[\]()!]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return 0;
+  return text.split(" ").filter(Boolean).length;
+}
+
+// "412 words" / "1 word" / "Empty" for table cells.
+export function formatWordCount(content: string | null | undefined): string {
+  const count = countWords(content);
+  if (count === 0) return "Empty";
+  return `${count.toLocaleString()} ${count === 1 ? "word" : "words"}`;
+}
+
+// Render decision for a set of Blocks-field types on one row:
+// - 0 or 1 Blocks field → "solo" (chromeless: no header, just the body).
+// - 2+                  → "multi" (each field gets a header + is collapsible).
+export function blocksRenderMode(blocksFieldCount: number): "solo" | "multi" {
+  return blocksFieldCount >= 2 ? "multi" : "solo";
+}
+
+// Whether deleting a property triggers the "only Blocks field" warning — i.e.
+// it is a Blocks field and it is the last one in the type, so removing it drops
+// the body for every object of this type.
+export function isOnlyBlocksFieldDeletion(args: {
+  type: DocumentPropertyType;
+  blocksFieldCount: number;
+}): boolean {
+  return isBlocksPropertyType(args.type) && args.blocksFieldCount <= 1;
+}
+
+// Where a Blocks field's content is stored. The primary "Content" field lives
+// on `documents.content` (the body); every other Blocks field has its own row
+// in the block-field content store. This single decision keeps reads and writes
+// in lockstep and guarantees no two fields ever share a backing location.
+export type BlocksStorageTarget = "document_body" | "block_field_store";
+
+export function blocksStorageTarget(
+  options: DocumentPropertyOptions,
+): BlocksStorageTarget {
+  return isPrimaryBlocksField(options) ? "document_body" : "block_field_store";
+}
+
+// Resolve a Blocks field's value for one row given the document body and the
+// (additional) block-field content store. Each field reads from exactly one
+// place — the primary from the body, others from their own keyed entry — so two
+// Blocks fields can never resolve to the same content.
+export function resolveBlocksFieldValue(args: {
+  options: DocumentPropertyOptions;
+  documentBody: string | null | undefined;
+  blockFieldContent: string | null | undefined;
+}): string {
+  return blocksStorageTarget(args.options) === "document_body"
+    ? (args.documentBody ?? "")
+    : (args.blockFieldContent ?? "");
 }
 
 export function defaultPropertyOptions(
@@ -198,6 +296,12 @@ export function defaultPropertyOptions(
     };
   }
 
+  // A manually-added Blocks field is independent (non-primary). The seeded
+  // default "Content" field is marked primary explicitly at seed time.
+  if (type === "blocks") {
+    return { blocks: { primary: false } };
+  }
+
   return {};
 }
 
@@ -220,6 +324,10 @@ export function parsePropertyOptions(
                   ? parsed.relation.databaseId
                   : null,
             }
+          : undefined,
+      blocks:
+        parsed.blocks && typeof parsed.blocks === "object"
+          ? { primary: parsed.blocks.primary === true }
           : undefined,
       rollup:
         parsed.rollup && typeof parsed.rollup === "object"
@@ -346,6 +454,14 @@ export function normalizeDatePropertyValue(
 ): DocumentPropertyDateValue | null {
   if (value === undefined || value === null || value === "") return null;
 
+  // Accept epoch timestamps (e.g. Builder CMS date fields come back as
+  // milliseconds-since-epoch numbers) by coercing to an ISO string first.
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const epoch = new Date(value);
+    if (Number.isNaN(epoch.getTime())) return null;
+    value = epoch.toISOString();
+  }
+
   const includeTime = documentPropertyDateIncludesTime(value);
   const start = documentPropertyDatePart(value, "start");
   const end = documentPropertyDatePart(value, "end");
@@ -428,10 +544,55 @@ export function normalizePropertyValue(
     case "url":
     case "email":
     case "phone":
+    // A Blocks field's value is its markdown content — a plain string, same
+    // shape as `documents.content`.
+    case "blocks":
       return String(value);
     case "date":
       return normalizeDatePropertyValue(value);
   }
+}
+
+function optionMatchKey(value: string) {
+  return value.trim().toLowerCase();
+}
+
+export function normalizePropertyValueWithOptions(
+  type: DocumentPropertyType,
+  value: unknown,
+  options?: DocumentPropertyOptions,
+): DocumentPropertyValue {
+  const normalized = normalizePropertyValue(type, value);
+  const optionList = options?.options ?? [];
+  if (
+    normalized === null ||
+    optionList.length === 0 ||
+    (type !== "select" && type !== "status" && type !== "multi_select")
+  ) {
+    return normalized;
+  }
+
+  const optionIdByName = new Map(
+    optionList.map((option) => [optionMatchKey(option.name), option.id]),
+  );
+  const optionIds = new Set(optionList.map((option) => option.id));
+  const resolveOptionId = (candidate: string) =>
+    optionIds.has(candidate)
+      ? candidate
+      : (optionIdByName.get(optionMatchKey(candidate)) ?? candidate);
+
+  if (type === "multi_select") {
+    const resolved = new Set<string>();
+    for (const item of Array.isArray(normalized) ? normalized : []) {
+      const optionId = resolveOptionId(item);
+      if (optionId.trim()) resolved.add(optionId);
+    }
+    return Array.from(resolved);
+  }
+
+  return typeof normalized === "string"
+    ? resolveOptionId(normalized)
+    : normalized;
 }
 
 export function formulaValueText(value: DocumentPropertyValue): string {
@@ -468,7 +629,31 @@ export function evaluatePropertyFormula(
   );
 }
 
+/**
+ * Evaluate a source-key normalization formula into its canonical-key string.
+ *
+ * Unlike `evaluatePropertyFormula`, this does NOT fall back to literal
+ * `{token}` substitution when the expression yields null — a broken or
+ * null-producing formula returns `null` (an un-joinable key) so it fails
+ * visibly as "no match" instead of silently producing a garbage key. An empty
+ * result also collapses to `null`, so empty keys never match each other.
+ */
+export function evaluateNormalizationFormula(
+  formula: string | null | undefined,
+  valuesByName: Record<string, DocumentPropertyValue>,
+): string | null {
+  const trimmed = sanitizeNormalizationFormula(formula);
+  if (!trimmed) return null;
+  const value = evaluateFormulaExpression(trimmed, valuesByName);
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text === "" ? null : text;
+}
+
 type FormulaPrimitive = string | number | boolean | null;
+
+const MAX_NORMALIZATION_FORMULA_LENGTH = 1000;
+const MAX_REGEX_PATTERN_LENGTH = 160;
 
 type FormulaToken =
   | { type: "number"; value: number }
@@ -798,9 +983,167 @@ function evaluateFormulaFunction(
     }
     case "length":
       return formulaTextValue(args[0]).length;
+    case "lower":
+      return formulaTextValue(args[0]).toLowerCase();
+    case "upper":
+      return formulaTextValue(args[0]).toUpperCase();
+    case "trim":
+      return formulaTextValue(args[0]).trim();
+    case "replace": {
+      const subject = formulaTextValue(args[0]);
+      const find = formulaTextValue(args[1]);
+      if (find === "") return subject;
+      return subject.split(find).join(formulaTextValue(args[2]));
+    }
+    case "slug":
+      return slugifyFormulaText(formulaTextValue(args[0]));
+    case "striphost":
+      return stripUrlHost(formulaTextValue(args[0]));
+    case "regexextract":
+      return regexExtractFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        args.length > 2 ? formulaNumberValue(args[2]) : null,
+      );
+    case "regexreplace":
+      return regexReplaceFormula(
+        formulaTextValue(args[0]),
+        formulaTextValue(args[1]),
+        formulaTextValue(args[2]),
+      );
     default:
       return null;
   }
+}
+
+// URL-style slug (lowercase, non-alphanumeric runs → "-", trimmed). Distinct
+// from `slugifySourceField` in _database-source-utils, which slugs field *keys*
+// with "_" — different output space, kept separate on purpose.
+export function slugifyFormulaText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Reduce a URL to its path so a host-qualified URL normalizes to the same key
+// as a relative one.
+function stripUrlHost(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const urlLike = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : /^[^/\s?#]+\.[^/\s?#]+(?:[/?#]|$)/i.test(trimmed)
+      ? `http://${trimmed}`
+      : trimmed;
+  try {
+    const path = new URL(urlLike, "http://agent-native.local").pathname;
+    return path.length > 1 ? path.replace(/\/+$/, "") : path;
+  } catch {
+    return trimmed.replace(/[?#].*$/, "").replace(/\/+$/, "");
+  }
+}
+
+function isSafeRegexPattern(pattern: string) {
+  if (!pattern || pattern.length > MAX_REGEX_PATTERN_LENGTH) return false;
+  if (/\\[1-9]/.test(pattern)) return false;
+  if (/\(\?<?[=!]/.test(pattern)) return false;
+  const quantifier = "(?:[+*]|\\{\\d+(?:,\\d*)?\\})";
+  const nestedQuantifier = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*${quantifier}(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (nestedQuantifier.test(pattern)) return false;
+  const quantifiedAlternation = new RegExp(
+    `\\((?:[^()\\\\]|\\\\.)*\\|(?:[^()\\\\]|\\\\.)*\\)${quantifier}`,
+  );
+  if (quantifiedAlternation.test(pattern)) return false;
+  return true;
+}
+
+function safeRegExp(pattern: string, flags = "") {
+  if (!isSafeRegexPattern(pattern)) return null;
+  try {
+    return new RegExp(pattern, flags);
+  } catch {
+    return null;
+  }
+}
+
+function regexPatternStringsFromFormula(expression: string) {
+  const tokens = tokenizeFormulaExpression(expression);
+  if (!tokens) return null;
+  const patterns: string[] = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (
+      token.type !== "identifier" ||
+      !["regexextract", "regexreplace"].includes(token.value.toLowerCase()) ||
+      tokens[index + 1]?.type !== "punctuation" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    let depth = 0;
+    let argIndex = 0;
+    for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
+      const inner = tokens[cursor];
+      if (inner.type === "punctuation" && inner.value === "(") {
+        depth += 1;
+        continue;
+      }
+      if (inner.type === "punctuation" && inner.value === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+        continue;
+      }
+      if (depth === 1 && inner.type === "punctuation" && inner.value === ",") {
+        argIndex += 1;
+        continue;
+      }
+      if (depth === 1 && argIndex === 1 && inner.type === "string") {
+        patterns.push(inner.value);
+      }
+    }
+  }
+  return patterns;
+}
+
+export function sanitizeNormalizationFormula(
+  formula: string | null | undefined,
+): string | null {
+  const trimmed = formula?.trim() ?? "";
+  if (!trimmed || trimmed.length > MAX_NORMALIZATION_FORMULA_LENGTH) {
+    return null;
+  }
+  const patterns = regexPatternStringsFromFormula(trimmed);
+  if (!patterns) return null;
+  if (patterns.some((pattern) => !isSafeRegexPattern(pattern))) return null;
+  return trimmed;
+}
+
+// A bad pattern yields null (an un-joinable key) rather than throwing on the
+// read path — a broken formula fails visibly as "no match", never silently.
+function regexExtractFormula(
+  value: string,
+  pattern: string,
+  group: number | null,
+): FormulaPrimitive {
+  const regex = safeRegExp(pattern);
+  if (!regex) return null;
+  const match = regex.exec(value);
+  if (!match) return null;
+  const index = group === null ? 0 : Math.trunc(group);
+  return match[index] ?? null;
+}
+
+function regexReplaceFormula(
+  value: string,
+  pattern: string,
+  replacement: string,
+): FormulaPrimitive {
+  const regex = safeRegExp(pattern, "g");
+  return regex ? value.replace(regex, replacement) : null;
 }
 
 export function evaluateNumericExpression(expression: string): number | null {

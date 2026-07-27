@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
+
+import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
 import {
+  describeCredentialScopeGap,
   resolveCredential,
   type CredentialContext,
 } from "../credentials/index.js";
@@ -8,16 +11,33 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "../extensions/url-safety.js";
 import {
+  processWebContent,
+  type WebContentSearchOptions,
+  type WebExtractMode,
+  type WebResponseMode,
+} from "../extensions/web-content.js";
+import {
+  deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
+import { resolveSecret } from "../server/credential-provider.js";
+import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { mergeDefinitionsById } from "../shared/merge-by-id.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
-import type { WorkspaceConnectionTemplateUse } from "../connections/catalog.js";
+import { resolveWorkspaceConnectionForApp } from "../workspace-connections/store.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
 } from "./custom-registry.js";
+import {
+  createProviderQuotaIdentity,
+  createProviderRequestDedupeKey,
+  executeWithProviderQuota,
+  type ProviderQuotaIdentity,
+  type ProviderQuotaExhaustedDetail,
+} from "./quota-governor.js";
 
 export type {
   CustomProviderConfig,
@@ -31,24 +51,30 @@ export {
   listCustomProviders,
   getCustomProvider,
   validateCustomBaseUrl,
+  assertCanMutateCustomProviderScope,
+  CustomProviderAuthError,
 } from "./custom-registry.js";
 
 export const PROVIDER_API_IDS = [
   "amplitude",
   "apollo",
   "bigquery",
+  "clay",
   "commonroom",
   "dataforseo",
   "ga4",
   "gcloud",
   "github",
+  "figma",
   "gmail",
   "gong",
   "google_calendar",
   "google_drive",
+  "google_slides",
   "granola",
   "grafana",
   "hubspot",
+  "salesforce",
   "jira",
   "mixpanel",
   "notion",
@@ -82,7 +108,12 @@ export interface FetchAllPagesConfig {
    * Query parameter name to pass the cursor on the next request,
    * e.g. "cursor" or "page_token".
    */
-  cursorParam: string;
+  cursorParam?: string;
+  /**
+   * Dot-path in the JSON request body to set to the cursor on the next request.
+   * Use this for POST-body pagination, e.g. Gong's top-level `cursor`.
+   */
+  cursorBodyPath?: string;
   /**
    * Dot-path to the items array in each response body.
    * When omitted, the whole response body is appended to the items array.
@@ -120,6 +151,174 @@ export interface ProviderApiRequestArgs {
   fetchAllPages?: FetchAllPagesConfig;
 }
 
+export interface GitHubRepositoryRef {
+  owner: string;
+  repo: string;
+}
+
+export interface GitHubRepositoryFileEntry {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "symlink" | "submodule" | "unknown";
+  sha: string | null;
+  size: number | null;
+  url: string | null;
+  htmlUrl: string | null;
+  downloadUrl: string | null;
+}
+
+export interface GitHubRepositoryFileListArgs extends GitHubRepositoryRef {
+  path?: string;
+  ref?: string;
+  recursive?: boolean;
+  includeDirectories?: boolean;
+  maxFiles?: number;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileSearchArgs extends GitHubRepositoryRef {
+  query?: string;
+  path?: string;
+  filename?: string;
+  extension?: string;
+  language?: string;
+  ref?: string;
+  perPage?: number;
+  page?: number;
+  maxFiles?: number;
+  includeTextMatches?: boolean;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileReadArgs extends GitHubRepositoryRef {
+  path: string;
+  ref?: string;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileWriteArgs extends GitHubRepositoryRef {
+  path: string;
+  content: string;
+  message: string;
+  branch?: string;
+  sha?: string;
+  overwriteExisting?: boolean;
+  committer?: GitHubRepositoryCommitIdentity;
+  author?: GitHubRepositoryCommitIdentity;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryFileDeleteArgs extends GitHubRepositoryRef {
+  path: string;
+  message: string;
+  branch?: string;
+  sha?: string;
+  committer?: GitHubRepositoryCommitIdentity;
+  author?: GitHubRepositoryCommitIdentity;
+  connectionId?: string | null;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
+export interface GitHubRepositoryCommitIdentity {
+  name: string;
+  email: string;
+  date?: string;
+}
+
+export interface GitHubRepositoryFileListResult {
+  repository: GitHubRepositoryRef;
+  ref: string | null;
+  path: string;
+  recursive: boolean;
+  entries: GitHubRepositoryFileEntry[];
+  totalCount: number;
+  truncated: boolean;
+  providerTruncated: boolean;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileSearchResult {
+  repository: GitHubRepositoryRef;
+  mode: "code-search" | "tree-filter";
+  query: string | null;
+  ref: string | null;
+  items: GitHubRepositoryFileEntry[];
+  totalCount: number;
+  truncated: boolean;
+  incompleteResults: boolean;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileReadResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  ref: string | null;
+  name: string;
+  type: string;
+  sha: string;
+  size: number;
+  encoding: string | null;
+  content: string | null;
+  contentBase64: string | null;
+  url: string | null;
+  htmlUrl: string | null;
+  downloadUrl: string | null;
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileWriteResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  branch: string | null;
+  content: {
+    name: string | null;
+    path: string | null;
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+  };
+  commit: {
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+    message: string | null;
+  };
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface GitHubRepositoryFileDeleteResult {
+  repository: GitHubRepositoryRef;
+  path: string;
+  branch: string | null;
+  commit: {
+    sha: string | null;
+    url: string | null;
+    htmlUrl: string | null;
+    message: string | null;
+  };
+  response: Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok">;
+}
+
+export interface ProviderApiDocsOptions {
+  provider: ProviderApiId | string;
+  url?: string;
+  maxBytes?: number;
+  maxChars?: number;
+  responseMode?: WebResponseMode;
+  extract?: WebExtractMode;
+  includeLinks?: boolean;
+  search?: WebContentSearchOptions;
+}
+
 export type ProviderApiAuthKind =
   | { type: "none" }
   | {
@@ -152,6 +351,32 @@ export type ProviderApiAuthKind =
       type: "oauth-bearer";
       oauthProvider: string;
       tokenLabel: string;
+      workspaceProvider?: string;
+    }
+  | {
+      type: "oauth-bearer-or-api-key-header";
+      oauthProvider: string;
+      tokenLabel: string;
+      key: string;
+      fallbackKeys?: readonly string[];
+      header: string;
+      workspaceProvider: string;
+    }
+  | {
+      type: "oauth-bearer-or-bearer-key";
+      oauthProvider: string;
+      tokenLabel: string;
+      key: string;
+      fallbackKeys?: readonly string[];
+      workspaceProvider: string;
+    }
+  | {
+      type: "oauth-bearer-or-basic";
+      oauthProvider: string;
+      tokenLabel: string;
+      usernameKey: string;
+      passwordKey: string;
+      workspaceProvider: string;
     }
   | {
       type: "prometheus";
@@ -161,6 +386,7 @@ export interface ProviderApiConfig {
   id: ProviderApiId;
   label: string;
   defaultBaseUrl: string;
+  requiresConnectionId?: boolean;
   baseUrlCredentialKey?: string;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
@@ -171,6 +397,8 @@ export interface ProviderApiConfig {
   placeholders?: readonly ProviderApiPlaceholder[];
   examples?: readonly ProviderApiExample[];
   notes?: readonly string[];
+  accessErrorGuidance?: string;
+  corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
 }
 
@@ -184,7 +412,42 @@ export interface ProviderApiExample {
   label: string;
   method: ProviderApiMethod;
   path: string;
+  query?: unknown;
   body?: unknown;
+}
+
+export interface ProviderApiCorpusRecipe {
+  label: string;
+  useWhen: string;
+  workflow: readonly string[];
+  request: {
+    method: ProviderApiMethod;
+    path: string;
+    body?: unknown;
+    query?: unknown;
+  };
+  pagination?: {
+    itemsPath?: string;
+    nextCursorPath?: string;
+    cursorParam?: string;
+    cursorBodyPath?: string;
+    pageParam?: string;
+    offsetParam?: string;
+    pageSize?: number;
+    maxPages?: number;
+  };
+  batch?: {
+    inputValuePath?: string;
+    itemBodyPath?: string;
+    itemQueryParam?: string;
+    responseItemsPath?: string;
+    batchSize?: number;
+  };
+  search?: {
+    textPaths?: readonly string[];
+    idPaths?: readonly string[];
+    metadataPaths?: readonly string[];
+  };
 }
 
 export interface ProviderApiResolvedCredential {
@@ -216,9 +479,17 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   providerIds?: readonly (ProviderApiId | string)[];
+  /** App-owned definitions replace matching built-ins by id without dropping other providers. */
+  providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
+  /**
+   * Template-specific OAuth token provider overrides for built-in provider API
+   * configs. Use when an app stores a provider's OAuth grant under a narrower
+   * local provider id, e.g. Google Drive scoped to a "google-docs" connection.
+   */
+  oauthProviderOverrides?: Record<string, string>;
   /**
    * Optional loader for custom providers registered at runtime. When provided,
    * custom providers are merged with the static built-in registry for catalog,
@@ -227,23 +498,74 @@ export interface ProviderApiRuntimeOptions {
   getCustomProviders?: () => Promise<CustomProviderConfig[]>;
 }
 
-interface ProviderApiRuntime {
+export interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
-  fetchDocs(options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  }): Promise<unknown>;
+  fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
+  resolveOAuthAccessToken(args: {
+    provider: ProviderApiId;
+    connectionId?: string | null;
+    accountId?: string | null;
+  }): Promise<ProviderApiOAuthAccessToken>;
+  listGitHubRepositoryFiles(
+    args: GitHubRepositoryFileListArgs,
+  ): Promise<GitHubRepositoryFileListResult>;
+  searchGitHubRepositoryFiles(
+    args: GitHubRepositoryFileSearchArgs,
+  ): Promise<GitHubRepositoryFileSearchResult>;
+  readGitHubRepositoryFile(
+    args: GitHubRepositoryFileReadArgs,
+  ): Promise<GitHubRepositoryFileReadResult>;
+  writeGitHubRepositoryFile(
+    args: GitHubRepositoryFileWriteArgs,
+  ): Promise<GitHubRepositoryFileWriteResult>;
+  deleteGitHubRepositoryFile(
+    args: GitHubRepositoryFileDeleteArgs,
+  ): Promise<GitHubRepositoryFileDeleteResult>;
+}
+
+export interface ProviderApiOAuthAccessToken {
+  accessToken: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  connectionId: string | null;
+  connectionLabel: string | null;
 }
 
 interface ResolvedAuth {
   headers: Record<string, string>;
   credentialSources: Array<Omit<ProviderApiResolvedCredential, "value">>;
   secretValues: string[];
+}
+
+interface ProviderApiHttpResponse {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  elapsedMs: number;
+  headers: Record<string, string>;
+  contentType: string | null;
+  size: number;
+  truncated: boolean;
+  text?: string;
+  json?: unknown;
+  quota?: {
+    exhausted: boolean;
+    providerId: string;
+    retryAfterMs: number;
+    retryAt: string;
+    reason: string;
+  };
+}
+
+interface ProviderApiFetchQuotaOptions {
+  identity: ProviderQuotaIdentity;
+  method: ProviderApiMethod;
+  target: string;
+  requestKey?: string;
 }
 
 interface OAuthTokens {
@@ -257,6 +579,12 @@ interface OAuthTokens {
   token_type?: string;
   scope?: string;
 }
+
+const PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS = new Set([
+  "invalid_grant",
+  "unauthorized_client",
+  "invalid_client",
+]);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -321,7 +649,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["APOLLO_API_KEY"],
     docsUrls: ["https://docs.apollo.io/reference/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       {
         label: "Search people",
@@ -369,6 +697,56 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         path: "/projects/{projectId}/queries",
         body: { query: "SELECT 1", useLegacySql: false },
       },
+    ],
+  },
+  clay: {
+    id: "clay",
+    label: "Clay Public API",
+    defaultBaseUrl: "https://api.clay.com/public/v0",
+    auth: {
+      type: "api-key-header",
+      key: "CLAY_PUBLIC_API_KEY",
+      header: "clay-api-key",
+    },
+    credentialKeys: ["CLAY_PUBLIC_API_KEY"],
+    docsUrls: [
+      "https://developers.clay.com/llms.txt",
+      "https://developers.clay.com/public-api/authentication",
+      "https://developers.clay.com/concepts/execution-model.md",
+    ],
+    specUrls: ["https://developers.clay.com/openapi.json"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "Get authenticated user and workspace",
+        method: "GET",
+        path: "/me",
+      },
+      {
+        label: "List people search filter fields",
+        method: "GET",
+        path: "/search/filters-mode/fields",
+        query: { source_type: "people" },
+      },
+      {
+        label: "Create a people search",
+        method: "POST",
+        path: "/search/filters-mode",
+        body: {
+          source_type: "people",
+          filters: {
+            job_title_keywords: ["software engineer"],
+            location_cities_include: ["New York"],
+          },
+        },
+      },
+    ],
+    notes: [
+      "Clay is a GTM provider API capability, not a messaging channel.",
+      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent Native access does not require that plugin session.",
+      "Search results use a stateful forward-only iterator: repeat POST /search/filters-mode/{search_id}/run while has_more is true.",
+      "The Tables API is query-only, requires an Enterprise plan, and needs a known table id; the Public API does not list, create, or update tables.",
+      "Routine runs are asynchronous. Start a run, then poll the documented results endpoint or use a verified completion webhook.",
     ],
   },
   commonroom: {
@@ -484,8 +862,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "GitHub REST API",
     defaultBaseUrl: "https://api.github.com",
     auth: {
-      type: "bearer",
-      keys: ["GITHUB_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "github",
+      tokenLabel: "GitHub OAuth token",
+      key: "GITHUB_TOKEN",
       workspaceProvider: "github",
     },
     credentialKeys: ["GITHUB_TOKEN"],
@@ -497,10 +877,60 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    templateUses: ["analytics", "brain", "dispatch"],
+    templateUses: ["analytics", "brain", "design", "dispatch"],
     examples: [
       { label: "Authenticated user", method: "GET", path: "/user" },
       { label: "Search issues", method: "GET", path: "/search/issues" },
+    ],
+  },
+  figma: {
+    id: "figma",
+    label: "Figma REST API",
+    defaultBaseUrl: "https://api.figma.com/v1",
+    auth: {
+      type: "oauth-bearer-or-api-key-header",
+      oauthProvider: "figma",
+      tokenLabel: "Figma OAuth token",
+      key: "FIGMA_ACCESS_TOKEN",
+      header: "X-Figma-Token",
+      workspaceProvider: "figma",
+    },
+    credentialKeys: ["FIGMA_ACCESS_TOKEN"],
+    docsUrls: [
+      "https://developers.figma.com/docs/rest-api/",
+      "https://developers.figma.com/docs/rest-api/scopes/",
+      "https://developers.figma.com/docs/rest-api/file-endpoints/",
+    ],
+    allowedHostSuffixes: ["figma.com"],
+    templateUses: ["design"],
+    examples: [
+      {
+        label: "Get file document",
+        method: "GET",
+        path: "/files/{fileKey}",
+      },
+      {
+        label: "Get exact file nodes",
+        method: "GET",
+        path: "/files/{fileKey}/nodes",
+        query: { ids: "1:2" },
+      },
+      {
+        label: "List file components",
+        method: "GET",
+        path: "/files/{fileKey}/components",
+      },
+      {
+        label: "Render file nodes",
+        method: "GET",
+        path: "/images/{fileKey}",
+        query: { ids: "1:2", format: "svg" },
+      },
+    ],
+    notes: [
+      "Personal access tokens should include current_user:read for validation and file_content:read for file/node imports. Add library_content:read for file libraries, team_library_content:read for team libraries, or library_assets:read for individual published assets only when needed.",
+      "Enterprise Variables endpoints require file_variables:read; writes additionally require file_variables:write, a Full seat, and edit access.",
+      "The REST API cannot create arbitrary canvas frames or layers. Use Figma's official OAuth MCP write tools when connected, or export a Design selection as Figma-compatible SVG for visual handoff.",
     ],
   },
   gmail: {
@@ -546,7 +976,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET", "GONG_API_BASE"],
     docsUrls: ["https://gong.app.gong.io/settings/api/documentation"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [
       { label: "List calls", method: "GET", path: "/calls" },
       {
@@ -554,6 +984,77 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         method: "POST",
         path: "/calls/transcript",
         body: { filter: { callIds: ["<call-id>"] } },
+      },
+      {
+        label: "Calls with parties/content",
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: { fromDateTime: "<iso-date-time>" },
+          contentSelector: {
+            exposedFields: {
+              parties: true,
+              content: { brief: true, keyPoints: true },
+            },
+          },
+        },
+      },
+    ],
+    notes: [
+      "For broad corpus work, call /calls/extensive with provider-api-request and stageAs/saveToFile. Gong returns the next cursor at records.cursor and expects the next cursor in the POST body at cursor, so use pagination { nextCursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for stageAs or fetchAllPages { cursorPath: 'records.cursor', cursorBodyPath: 'cursor' } for saveToFile.",
+      "Batch transcripts with POST /calls/transcript and body { filter: { callIds: [...] } } after narrowing or staging call ids.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Batch-search Gong call transcripts from staged call ids",
+        useWhen:
+          "Use when the user asks to search, count, or prove absence across Gong transcript text for a bounded cohort of call ids.",
+        workflow: [
+          "Stage or otherwise collect the exact call ids in scope first.",
+          "Start provider-corpus-job with mode=batch-search against /calls/transcript.",
+          "Inject each batch into body path filter.callIds and search responseItemsPath callTranscripts.",
+          "Search transcript.sentence text fields, then report call-id coverage, batches processed, matches, and gaps.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/transcript",
+          body: { filter: { callIds: [] } },
+        },
+        batch: {
+          inputValuePath: "id",
+          itemBodyPath: "filter.callIds",
+          responseItemsPath: "callTranscripts",
+          batchSize: 20,
+        },
+        search: {
+          textPaths: ["transcript.sentences.text", "transcript"],
+          idPaths: ["callId"],
+          metadataPaths: ["callId"],
+        },
+      },
+      {
+        label: "Stage Gong calls with parties/content",
+        useWhen:
+          "Use when the user needs a complete Gong call cohort before a transcript/message join or coverage-sensitive search.",
+        workflow: [
+          "Call provider-api-request with stageAs and pagination.",
+          "Use /calls/extensive when party fields or content summaries are needed; use /calls for lightweight metadata.",
+          "Do not treat staged call metadata as transcript text.",
+        ],
+        request: {
+          method: "POST",
+          path: "/calls/extensive",
+          body: {
+            filter: { fromDateTime: "<iso-date-time>" },
+            contentSelector: { exposedFields: { parties: true } },
+          },
+        },
+        pagination: {
+          itemsPath: "calls",
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 200,
+        },
       },
     ],
   },
@@ -570,7 +1071,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/calendar/api/v3/reference"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "calendar", "dispatch"],
+    templateUses: ["brain", "calendar", "dispatch", "mail"],
     examples: [
       {
         label: "List calendars",
@@ -595,17 +1096,47 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_drive",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch"],
+    templateUses: ["brain", "content", "slides", "dispatch", "analytics"],
     examples: [
       { label: "List files", method: "GET", path: "/files" },
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
     ],
     notes: [
+      "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
+    ],
+  },
+  google_slides: {
+    id: "google_slides",
+    label: "Google Slides API",
+    defaultBaseUrl: "https://slides.googleapis.com/v1",
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "google",
+      tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_drive",
+    },
+    credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developers.google.com/workspace/slides/api/reference/rest",
+    ],
+    specUrls: ["https://slides.googleapis.com/$discovery/rest?version=v1"],
+    allowedHostSuffixes: ["googleapis.com"],
+    templateUses: ["brain", "content", "slides", "dispatch"],
+    examples: [
+      {
+        label: "Get presentation with slides and speaker notes",
+        method: "GET",
+        path: "/presentations/{presentationId}",
+      },
+    ],
+    notes: [
+      "Creative context imports use the non-sensitive drive.file scope. A user must choose each presentation through Google Picker before the Slides API can read it; unrestricted Drive-wide discovery is intentionally unavailable.",
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
     ],
   },
@@ -647,13 +1178,16 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "HubSpot",
     defaultBaseUrl: "https://api.hubapi.com",
     auth: {
-      type: "bearer",
-      keys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "hubspot",
+      tokenLabel: "HubSpot OAuth token",
+      key: "HUBSPOT_PRIVATE_APP_TOKEN",
+      fallbackKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
       workspaceProvider: "hubspot",
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     docsUrls: ["https://developers.hubspot.com/docs/api/overview"],
-    templateUses: ["analytics", "brain", "mail", "dispatch"],
+    templateUses: ["analytics", "brain", "calendar", "mail", "dispatch"],
     examples: [
       {
         label: "Search deals with any HubSpot CRM filter",
@@ -682,15 +1216,55 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  salesforce: {
+    id: "salesforce",
+    label: "Salesforce",
+    defaultBaseUrl: "https://login.salesforce.com",
+    requiresConnectionId: true,
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "salesforce",
+      tokenLabel: "Salesforce OAuth token",
+      workspaceProvider: "salesforce",
+    },
+    credentialKeys: ["SALESFORCE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/",
+    ],
+    allowedHostSuffixes: [],
+    templateUses: ["analytics", "brain", "crm", "dispatch"],
+    examples: [
+      {
+        label: "List recent Accounts",
+        method: "GET",
+        path: "/services/data/v60.0/sobjects/Account",
+      },
+      {
+        label: "Query Opportunity records with SOQL",
+        method: "GET",
+        path: "/services/data/v60.0/query",
+        query: {
+          q: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity LIMIT 100",
+        },
+      },
+    ],
+    notes: [
+      "Workspace OAuth stores the Salesforce instance URL on the connection. Requests with a connectionId use that instance instead of the login host.",
+      "CRM templates own object allow-lists, field projections, and API-version selection.",
+    ],
+  },
   jira: {
     id: "jira",
     label: "Jira Cloud",
     defaultBaseUrl: "https://example.atlassian.net",
     baseUrlCredentialKey: "JIRA_BASE_URL",
     auth: {
-      type: "basic",
+      type: "oauth-bearer-or-basic",
+      oauthProvider: "jira",
+      tokenLabel: "Jira",
       usernameKey: "JIRA_USER_EMAIL",
       passwordKey: "JIRA_API_TOKEN",
+      workspaceProvider: "jira",
     },
     credentialKeys: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
     docsUrls: [
@@ -743,15 +1317,51 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Notion",
     defaultBaseUrl: "https://api.notion.com/v1",
     auth: {
-      type: "bearer",
-      keys: ["NOTION_API_KEY"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "notion",
+      tokenLabel: "Notion OAuth token",
+      key: "NOTION_API_KEY",
       workspaceProvider: "notion",
     },
     credentialKeys: ["NOTION_API_KEY"],
     docsUrls: ["https://developers.notion.com/reference/intro"],
-    defaultHeaders: { "Notion-Version": "2022-06-28" },
+    defaultHeaders: { "Notion-Version": "2026-03-11" },
     templateUses: ["analytics", "brain", "content", "dispatch"],
     examples: [{ label: "Search", method: "POST", path: "/search", body: {} }],
+    notes: [
+      "The name GET /users/me returns is the label whoever minted the token typed into Notion, so it often names an unrelated product or team. Call it the Notion-side integration label and never restate it as the workspace, app, or product the user is currently in.",
+    ],
+    accessErrorGuidance:
+      "Notion 401/403/404 on a specific page or database usually means that object was never shared with the integration, not that the id is wrong or the key is invalid. Fix: open the page or database in Notion, then ••• → Connections → add the integration. When naming the integration, describe it as the Notion-side integration label from GET /users/me and note that it may not match this app or workspace.",
+    corpusRecipes: [
+      {
+        label: "Search a Notion data source with complete cursor coverage",
+        useWhen:
+          "Use for coverage-sensitive searches across one known Notion data source's page properties. This does not search page block bodies.",
+        workflow: [
+          "Resolve the exact data source id and apply the narrowest provider-side filter and filter_properties projection first.",
+          "Start provider-corpus-job with mode=paginated-search and pass next_cursor back as start_cursor in the POST body.",
+          "Search only the returned properties and report the 10,000-result API ceiling plus any incomplete request_status.",
+          "For page body text, stage page ids and fetch block children through a separate bounded data program; property search is not body search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/data_sources/<data-source-id>/query",
+          body: { page_size: 100 },
+        },
+        pagination: {
+          itemsPath: "results",
+          nextCursorPath: "next_cursor",
+          cursorBodyPath: "start_cursor",
+          maxPages: 100,
+        },
+        search: {
+          textPaths: ["properties"],
+          idPaths: ["id"],
+          metadataPaths: ["id", "url", "created_time", "last_edited_time"],
+        },
+      },
+    ],
   },
   posthog: {
     id: "posthog",
@@ -774,10 +1384,20 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     examples: [
       {
-        label: "List events",
-        method: "GET",
-        path: "/api/projects/{projectId}/events/",
+        label: "Aggregate events with HogQL",
+        method: "POST",
+        path: "/api/projects/{projectId}/query/",
+        body: {
+          query: {
+            kind: "HogQLQuery",
+            query:
+              "SELECT event, count() AS events FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event ORDER BY events DESC LIMIT 100",
+          },
+        },
       },
+    ],
+    notes: [
+      "Prefer the query endpoint with a bounded HogQL projection or server-side aggregation over paging raw events into the agent context.",
     ],
   },
   prometheus: {
@@ -812,7 +1432,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     },
     credentialKeys: ["PYLON_API_KEY"],
     docsUrls: ["https://docs.usepylon.com/pylon-docs/developer/api-reference"],
-    templateUses: ["analytics"],
+    templateUses: ["analytics", "calendar"],
     examples: [{ label: "List issues", method: "GET", path: "/issues" }],
   },
   sentry: {
@@ -820,8 +1440,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Sentry",
     defaultBaseUrl: "https://sentry.io/api/0",
     auth: {
-      type: "bearer",
-      keys: ["SENTRY_AUTH_TOKEN", "SENTRY_SERVER_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "sentry",
+      tokenLabel: "Sentry OAuth token",
+      key: "SENTRY_AUTH_TOKEN",
+      fallbackKeys: ["SENTRY_AUTH_TOKEN", "SENTRY_SERVER_TOKEN"],
+      workspaceProvider: "sentry",
     },
     credentialKeys: [
       "SENTRY_AUTH_TOKEN",
@@ -864,6 +1488,39 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       { label: "Search messages", method: "GET", path: "/search.messages" },
       { label: "Post message", method: "POST", path: "/chat.postMessage" },
     ],
+    notes: [
+      "Bot-token reads must not call conversations.join implicitly. A bot can read only conversations it is already a member of with the required history scope.",
+      "search.messages requires a compatible user token; do not assume a bot token can use it. Use conversations.history for channel-scoped bot reads.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Search complete Slack channel history",
+        useWhen:
+          "Use for all-message, mention, phrase, or absence-sensitive searches in one known Slack conversation without one agent turn per cursor page.",
+        workflow: [
+          "Resolve the exact channel id without joining or mutating membership.",
+          "Start provider-corpus-job with mode=paginated-search against conversations.history, bounded by oldest/latest when possible.",
+          "Pass response_metadata.next_cursor back as cursor and let quota_wait pause/resume rate-limited installations.",
+          "Report channel id, time bounds, pages, messages searched, matches, and is_limited or access gaps.",
+        ],
+        request: {
+          method: "GET",
+          path: "/conversations.history",
+          query: { channel: "<channel-id>" },
+        },
+        pagination: {
+          itemsPath: "messages",
+          nextCursorPath: "response_metadata.next_cursor",
+          cursorParam: "cursor",
+          maxPages: 500,
+        },
+        search: {
+          textPaths: ["text", "blocks", "attachments"],
+          idPaths: ["ts", "client_msg_id"],
+          metadataPaths: ["ts", "user", "thread_ts", "type", "subtype"],
+        },
+      },
+    ],
   },
   stripe: {
     id: "stripe",
@@ -905,10 +1562,26 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
 
 export function getProviderApiConfig(
   provider: ProviderApiId | string,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig {
-  const config = PROVIDER_CONFIGS[provider as ProviderApiId];
+  const config = mergeProviderApiConfigs(overrides).find(
+    (candidate) => candidate.id === provider,
+  );
   if (!config) throw new Error(`Unsupported provider API: ${provider}`);
   return config;
+}
+
+export function mergeProviderApiConfigs(
+  overrides: readonly ProviderApiConfig[] = [],
+): ProviderApiConfig[] {
+  for (const override of overrides) {
+    if (!isProviderApiId(override.id)) {
+      throw new Error(
+        `Provider API overrides must replace a built-in id: ${override.id}`,
+      );
+    }
+  }
+  return mergeDefinitionsById(Object.values(PROVIDER_CONFIGS), overrides);
 }
 
 export function isProviderApiId(provider: string): provider is ProviderApiId {
@@ -917,27 +1590,37 @@ export function isProviderApiId(provider: string): provider is ProviderApiId {
 
 export function listProviderApiIdsForTemplateUse(
   templateUse: WorkspaceConnectionTemplateUse,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiId[] {
+  const configs = new Map(
+    mergeProviderApiConfigs(overrides).map((config) => [config.id, config]),
+  );
   return PROVIDER_API_IDS.filter((id) =>
-    (PROVIDER_CONFIGS[id].templateUses ?? []).includes(templateUse),
+    (configs.get(id)?.templateUses ?? []).includes(templateUse),
   );
 }
 
 export function listProviderApiCatalog(
   provider?: ProviderApiId | string,
-  options: { providerIds?: readonly (ProviderApiId | string)[] } = {},
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  } = {},
 ) {
   const providerIds = normalizeProviderIds(options.providerIds);
   if (provider) {
     assertProviderAllowed(provider, providerIds);
   }
   const configs = provider
-    ? [getProviderApiConfig(provider)]
-    : providerIds.map((id) => getProviderApiConfig(id));
+    ? [getProviderApiConfig(provider, options.providerOverrides)]
+    : providerIds.map((id) =>
+        getProviderApiConfig(id, options.providerOverrides),
+      );
   return configs.map((config) => ({
     id: config.id,
     label: config.label,
     defaultBaseUrl: config.defaultBaseUrl,
+    requiresConnectionId: config.requiresConnectionId ?? false,
     baseUrlCredentialKey: config.baseUrlCredentialKey ?? null,
     auth: describeAuth(config.auth),
     credentialKeys: config.credentialKeys,
@@ -948,6 +1631,8 @@ export function listProviderApiCatalog(
     defaultHeaders: config.defaultHeaders ?? {},
     examples: config.examples ?? [],
     notes: config.notes ?? [],
+    accessErrorGuidance: config.accessErrorGuidance ?? null,
+    corpusRecipes: config.corpusRecipes ?? [],
     templateUses: config.templateUses ?? [],
   }));
 }
@@ -955,6 +1640,7 @@ export function listProviderApiCatalog(
 export function createProviderApiRuntime(
   options: ProviderApiRuntimeOptions,
 ): ProviderApiRuntime {
+  mergeProviderApiConfigs(options.providerOverrides);
   const providerIds = normalizeProviderIds(options.providerIds);
   const runtimeOptions: Required<
     Pick<ProviderApiRuntimeOptions, "appId" | "localCredentialSource">
@@ -969,28 +1655,36 @@ export function createProviderApiRuntime(
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
         provider,
-        { providerIds },
+        { providerIds, providerOverrides: options.providerOverrides },
         runtimeOptions,
       ),
     fetchDocs: (docsOptions) =>
       fetchProviderApiDocs(docsOptions, runtimeOptions),
     executeRequest: (args) => executeProviderApiRequest(args, runtimeOptions),
+    resolveOAuthAccessToken: (args) =>
+      resolveProviderApiOAuthAccessToken(args, runtimeOptions),
+    listGitHubRepositoryFiles: (args) =>
+      listGitHubRepositoryFiles(args, runtimeOptions),
+    searchGitHubRepositoryFiles: (args) =>
+      searchGitHubRepositoryFiles(args, runtimeOptions),
+    readGitHubRepositoryFile: (args) =>
+      readGitHubRepositoryFile(args, runtimeOptions),
+    writeGitHubRepositoryFile: (args) =>
+      writeGitHubRepositoryFile(args, runtimeOptions),
+    deleteGitHubRepositoryFile: (args) =>
+      deleteGitHubRepositoryFile(args, runtimeOptions),
   };
 }
 
 export async function fetchProviderApiDocs(
-  options: {
-    provider: ProviderApiId | string;
-    url?: string;
-    maxBytes?: number;
-  },
+  options: ProviderApiDocsOptions,
   runtime: ProviderApiRuntimeOptions = { appId: "app" },
 ) {
   await assertProviderAllowedAsync(options.provider, runtime);
 
   // Resolve config — may be a built-in or a custom provider.
   const builtIn = isProviderApiId(options.provider)
-    ? getProviderApiConfig(options.provider)
+    ? getProviderApiConfig(options.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1004,7 +1698,9 @@ export async function fetchProviderApiDocs(
   }
 
   const catalog = builtIn
-    ? listProviderApiCatalog(options.provider)[0]
+    ? listProviderApiCatalog(options.provider, {
+        providerOverrides: runtime.providerOverrides,
+      })[0]
     : customProviderToCatalogEntry(customConfig!);
 
   if (!options.url) {
@@ -1035,11 +1731,42 @@ export async function fetchProviderApiDocs(
     method: "GET",
     maxBytes: clampMaxBytes(options.maxBytes),
   });
+
+  const responseBody =
+    response.text ??
+    (response.json !== undefined ? JSON.stringify(response.json, null, 2) : "");
+  const content = processWebContent({
+    url: url.href,
+    body: responseBody,
+    contentType: response.contentType,
+    responseMode: options.responseMode ?? "auto",
+    extract: options.extract ?? "readability",
+    includeLinks: options.includeLinks ?? true,
+    search: options.search,
+    maxChars: options.maxChars,
+  });
+  const responseForOutput =
+    content.mode === "raw" ? response : compactProviderDocsResponse(response);
+
   return {
     provider: options.provider,
     catalog,
     request: { url: url.href },
-    response,
+    response: responseForOutput,
+    ...(content.mode === "raw" ? {} : { content }),
+  };
+}
+
+function compactProviderDocsResponse(response: ProviderApiHttpResponse) {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    elapsedMs: response.elapsedMs,
+    headers: response.headers,
+    contentType: response.contentType,
+    size: response.size,
+    truncated: response.truncated,
   };
 }
 
@@ -1051,7 +1778,7 @@ export async function executeProviderApiRequest(
 
   // Check whether this is a built-in or custom provider.
   const builtIn = isProviderApiId(args.provider)
-    ? getProviderApiConfig(args.provider)
+    ? getProviderApiConfig(args.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1070,6 +1797,11 @@ export async function executeProviderApiRequest(
 
   // --- built-in provider path (original code) ---
   const config = builtIn!;
+  if (config.requiresConnectionId && !args.connectionId?.trim()) {
+    throw new Error(
+      `${config.label} Provider API requests require a workspace connectionId.`,
+    );
+  }
   const ctx = requireRuntimeCredentialContext(
     runtime,
     config.credentialKeys[0] ?? config.id,
@@ -1102,45 +1834,78 @@ export async function executeProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: config.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
-          ? mergeQueryObjects(
-              substituteUnknown(args.query, placeholders),
-              extraQuery,
-            )
-          : substituteUnknown(args.query, placeholders);
-        const pageUrl = buildProviderUrl({
-          config,
-          baseUrl,
-          rawPath: substituteString(args.path, placeholders),
-          query: queryWithCursor,
-        });
-        const pageBody = prepareBody(
-          substituteUnknown(args.body, placeholders),
-          { ...headers },
-        );
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(
+            substituteUnknown(args.query, placeholders),
+            extra.query,
+          )
+        : substituteUnknown(args.query, placeholders);
+      const pageUrl = buildProviderUrl({
+        config,
+        baseUrl,
+        rawPath: substituteString(args.path, placeholders),
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            substituteUnknown(args.body, placeholders),
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : substituteUnknown(args.body, placeholders);
+      const pageBody = prepareBody(bodyWithCursor, headers);
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {
@@ -1148,6 +1913,8 @@ export async function executeProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -1165,6 +1932,12 @@ export async function executeProviderApiRequest(
 
   // --- Single request ---
   const body = prepareBody(substituteUnknown(args.body, placeholders), headers);
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    body,
+    headers,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
@@ -1172,6 +1945,12 @@ export async function executeProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey,
+    },
   });
 
   // saveToFile: write full body to workspace file and return compact summary.
@@ -1219,9 +1998,761 @@ export async function executeProviderApiRequest(
       ...(args.connectionId ? { connectionId: args.connectionId } : {}),
     },
     response,
-    guidance:
+    guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
+      providerAccessErrorGuidance(config, response.status),
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
+}
+
+const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
+
+function providerAccessErrorGuidance(
+  config: ProviderApiConfig,
+  status: number,
+): string | null {
+  if (!PROVIDER_ACCESS_ERROR_STATUSES.has(status)) return null;
+  return config.accessErrorGuidance ?? null;
+}
+
+/**
+ * Resolve a provider OAuth token for a trusted server-side integration bridge
+ * such as a CRM adapter or Google Picker. Callers must keep the result out of
+ * agent, MCP, A2A, logs, persistence, and extension/tool surfaces.
+ */
+export async function resolveProviderApiOAuthAccessToken(
+  args: {
+    provider: ProviderApiId;
+    connectionId?: string | null;
+    accountId?: string | null;
+  },
+  runtime: ProviderApiRuntimeOptions,
+): Promise<ProviderApiOAuthAccessToken> {
+  await assertProviderAllowedAsync(args.provider, runtime);
+  const config = getProviderApiConfig(args.provider, runtime.providerOverrides);
+  const auth = config.auth;
+  const oauthAuth =
+    auth.type === "oauth-bearer"
+      ? auth
+      : auth.type === "oauth-bearer-or-api-key-header" ||
+          auth.type === "oauth-bearer-or-bearer-key"
+        ? {
+            type: "oauth-bearer" as const,
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: auth.tokenLabel,
+            workspaceProvider: auth.workspaceProvider,
+          }
+        : auth.type === "oauth-bearer-or-basic"
+          ? {
+              type: "oauth-bearer" as const,
+              oauthProvider: auth.oauthProvider,
+              tokenLabel: auth.tokenLabel,
+              workspaceProvider: auth.workspaceProvider,
+            }
+          : null;
+  if (!oauthAuth) {
+    throw new Error(
+      `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
+    );
+  }
+  const ctx = requireRuntimeCredentialContext(
+    runtime,
+    config.credentialKeys[0] ?? config.id,
+  );
+  const credential = oauthAuth.workspaceProvider
+    ? await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: oauthAuth,
+        runtime,
+        ctx,
+        workspaceProvider: oauthAuth.workspaceProvider,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+      })
+    : await resolveOAuthBearerToken({
+        auth: oauthAuth,
+        ctx,
+        accountId: args.accountId,
+      });
+  if (!credential) {
+    throw new Error(
+      `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
+    );
+  }
+  return {
+    accessToken: credential.value,
+    accountId: credential.accountId ?? null,
+    accountLabel: credential.accountLabel ?? null,
+    connectionId: credential.connectionId ?? null,
+    connectionLabel: credential.connectionLabel ?? null,
+  };
+}
+
+const GITHUB_REPO_FILES_DEFAULT_MAX = 1_000;
+const GITHUB_REPO_FILES_MAX = 10_000;
+const GITHUB_CODE_SEARCH_DEFAULT_PER_PAGE = 30;
+const GITHUB_CODE_SEARCH_MAX_PER_PAGE = 100;
+
+export async function listGitHubRepositoryFiles(
+  args: GitHubRepositoryFileListArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileListResult> {
+  const repository = normalizeGitHubRepository(args);
+  const pathPrefix = normalizeGitHubFilePath(args.path);
+  const maxFiles = clampPositiveInt(
+    args.maxFiles,
+    GITHUB_REPO_FILES_DEFAULT_MAX,
+    GITHUB_REPO_FILES_MAX,
+  );
+
+  if (args.recursive) {
+    const ref =
+      args.ref?.trim() || (await resolveGitHubDefaultBranch(args, runtime));
+    const { json, response } = await executeGitHubJsonRequest({
+      runtime,
+      label: "list repository tree",
+      args: {
+        provider: "github",
+        path: `${githubRepoApiPath(repository)}/git/trees/${encodeURIComponent(
+          ref,
+        )}`,
+        query: { recursive: "1" },
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+    });
+    const tree = asRecord(json);
+    const rawEntries = Array.isArray(tree.tree) ? tree.tree : [];
+    const entries = rawEntries
+      .map((entry) =>
+        normalizeGitHubTreeEntry(entry, {
+          owner: repository.owner,
+          repo: repository.repo,
+          ref,
+        }),
+      )
+      .filter((entry): entry is GitHubRepositoryFileEntry => !!entry)
+      .filter((entry) => args.includeDirectories || entry.type === "file")
+      .filter((entry) => githubPathMatchesPrefix(entry.path, pathPrefix));
+    const limitedEntries = entries.slice(0, maxFiles);
+
+    return {
+      repository,
+      ref,
+      path: pathPrefix,
+      recursive: true,
+      entries: limitedEntries,
+      totalCount: entries.length,
+      truncated:
+        Boolean(tree.truncated) || entries.length > limitedEntries.length,
+      providerTruncated: Boolean(tree.truncated),
+      response: compactResponseStatus(response),
+    };
+  }
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "list repository contents",
+    args: {
+      provider: "github",
+      path: githubContentsApiPath(repository, pathPrefix),
+      query: args.ref ? { ref: args.ref } : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const rawEntries = Array.isArray(json) ? json : [json];
+  const entries = rawEntries
+    .map(normalizeGitHubContentsEntry)
+    .filter((entry): entry is GitHubRepositoryFileEntry => !!entry)
+    .filter((entry) => args.includeDirectories || entry.type === "file");
+  const limitedEntries = entries.slice(0, maxFiles);
+
+  return {
+    repository,
+    ref: args.ref?.trim() || null,
+    path: pathPrefix,
+    recursive: false,
+    entries: limitedEntries,
+    totalCount: entries.length,
+    truncated: entries.length > limitedEntries.length,
+    providerTruncated: false,
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function searchGitHubRepositoryFiles(
+  args: GitHubRepositoryFileSearchArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileSearchResult> {
+  const repository = normalizeGitHubRepository(args);
+  const query = args.query?.trim() ?? "";
+
+  if (!query) {
+    const listed = await listGitHubRepositoryFiles(
+      {
+        owner: repository.owner,
+        repo: repository.repo,
+        path: args.path,
+        ref: args.ref,
+        recursive: true,
+        includeDirectories: false,
+        maxFiles: GITHUB_REPO_FILES_MAX,
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+      runtime,
+    );
+    const filtered = listed.entries.filter((entry) =>
+      githubTreeEntryMatchesSearchFilters(entry, args),
+    );
+    const maxFiles = clampPositiveInt(
+      args.maxFiles,
+      GITHUB_REPO_FILES_DEFAULT_MAX,
+      GITHUB_REPO_FILES_MAX,
+    );
+    const limitedItems = filtered.slice(0, maxFiles);
+    return {
+      repository,
+      mode: "tree-filter",
+      query: null,
+      ref: listed.ref,
+      items: limitedItems,
+      totalCount: filtered.length,
+      truncated: listed.truncated || filtered.length > limitedItems.length,
+      incompleteResults: listed.providerTruncated,
+      response: listed.response,
+    };
+  }
+
+  const perPage = clampPositiveInt(
+    args.perPage,
+    GITHUB_CODE_SEARCH_DEFAULT_PER_PAGE,
+    GITHUB_CODE_SEARCH_MAX_PER_PAGE,
+  );
+  const page = clampPositiveInt(args.page, 1, 100);
+  const q = buildGitHubCodeSearchQuery(repository, args, query);
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "search repository code",
+    args: {
+      provider: "github",
+      path: "/search/code",
+      query: { q, per_page: perPage, page },
+      headers: args.includeTextMatches
+        ? { Accept: "application/vnd.github.text-match+json" }
+        : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const body = asRecord(json);
+  const rawItems = Array.isArray(body.items) ? body.items : [];
+  const items = rawItems
+    .map(normalizeGitHubCodeSearchEntry)
+    .filter((entry): entry is GitHubRepositoryFileEntry => !!entry);
+
+  return {
+    repository,
+    mode: "code-search",
+    query: q,
+    ref: null,
+    items,
+    totalCount:
+      typeof body.total_count === "number" && Number.isFinite(body.total_count)
+        ? body.total_count
+        : items.length,
+    truncated: items.length >= perPage,
+    incompleteResults: Boolean(body.incomplete_results),
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function readGitHubRepositoryFile(
+  args: GitHubRepositoryFileReadArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileReadResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "read repository file",
+    args: {
+      provider: "github",
+      path: githubContentsApiPath(repository, path),
+      query: args.ref ? { ref: args.ref } : undefined,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  if (Array.isArray(json)) {
+    throw new Error(
+      `GitHub path "${path}" is a directory. Use listGitHubRepositoryFiles or the github-repo-files action with operation="list".`,
+    );
+  }
+  const file = asRecord(json);
+  const encoding =
+    typeof file.encoding === "string" ? file.encoding.toLowerCase() : null;
+  const rawBase64 =
+    encoding === "base64" && typeof file.content === "string"
+      ? file.content.replace(/\s+/g, "")
+      : null;
+  const content = rawBase64
+    ? Buffer.from(rawBase64, "base64").toString("utf8")
+    : null;
+  const sha = typeof file.sha === "string" ? file.sha : "";
+  if (!sha) throw new Error(`GitHub read for "${path}" did not return a SHA.`);
+
+  return {
+    repository,
+    path: typeof file.path === "string" ? file.path : path,
+    ref: args.ref?.trim() || null,
+    name: typeof file.name === "string" ? file.name : githubBasename(path),
+    type: typeof file.type === "string" ? file.type : "file",
+    sha,
+    size: typeof file.size === "number" ? file.size : 0,
+    encoding,
+    content,
+    contentBase64: rawBase64,
+    url: typeof file.url === "string" ? file.url : null,
+    htmlUrl: typeof file.html_url === "string" ? file.html_url : null,
+    downloadUrl:
+      typeof file.download_url === "string" ? file.download_url : null,
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function writeGitHubRepositoryFile(
+  args: GitHubRepositoryFileWriteArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileWriteResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const message = args.message.trim();
+  if (!message) throw new Error("GitHub file write requires a commit message.");
+
+  let sha = args.sha?.trim();
+  if (!sha && args.overwriteExisting) {
+    try {
+      const existing = await readGitHubRepositoryFile(
+        {
+          owner: repository.owner,
+          repo: repository.repo,
+          path,
+          ref: args.branch,
+          connectionId: args.connectionId,
+          timeoutMs: args.timeoutMs,
+          maxBytes: args.maxBytes,
+        },
+        runtime,
+      );
+      sha = existing.sha;
+    } catch (error) {
+      if (!isGitHubNotFoundError(error)) throw error;
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    message,
+    content: Buffer.from(args.content, "utf8").toString("base64"),
+  };
+  if (sha) body.sha = sha;
+  if (args.branch?.trim()) body.branch = args.branch.trim();
+  if (args.committer) body.committer = args.committer;
+  if (args.author) body.author = args.author;
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "write repository file",
+    args: {
+      provider: "github",
+      method: "PUT",
+      path: githubContentsApiPath(repository, path),
+      body,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const result = asRecord(json);
+  const content = asRecord(result.content);
+  const commit = asRecord(result.commit);
+
+  return {
+    repository,
+    path,
+    branch: args.branch?.trim() || null,
+    content: {
+      name: stringOrNull(content.name),
+      path: stringOrNull(content.path),
+      sha: stringOrNull(content.sha),
+      url: stringOrNull(content.url),
+      htmlUrl: stringOrNull(content.html_url),
+    },
+    commit: {
+      sha: stringOrNull(commit.sha),
+      url: stringOrNull(commit.url),
+      htmlUrl: stringOrNull(commit.html_url),
+      message: stringOrNull(commit.message),
+    },
+    response: compactResponseStatus(response),
+  };
+}
+
+export async function deleteGitHubRepositoryFile(
+  args: GitHubRepositoryFileDeleteArgs,
+  runtime: ProviderApiRuntimeOptions,
+): Promise<GitHubRepositoryFileDeleteResult> {
+  const repository = normalizeGitHubRepository(args);
+  const path = requireGitHubFilePath(args.path);
+  const message = args.message.trim();
+  if (!message) {
+    throw new Error("GitHub file delete requires a commit message.");
+  }
+
+  let sha = args.sha?.trim();
+  if (!sha) {
+    const existing = await readGitHubRepositoryFile(
+      {
+        owner: repository.owner,
+        repo: repository.repo,
+        path,
+        ref: args.branch,
+        connectionId: args.connectionId,
+        timeoutMs: args.timeoutMs,
+        maxBytes: args.maxBytes,
+      },
+      runtime,
+    );
+    sha = existing.sha;
+  }
+
+  const body: Record<string, unknown> = { message, sha };
+  if (args.branch?.trim()) body.branch = args.branch.trim();
+  if (args.committer) body.committer = args.committer;
+  if (args.author) body.author = args.author;
+
+  const { json, response } = await executeGitHubJsonRequest({
+    runtime,
+    label: "delete repository file",
+    args: {
+      provider: "github",
+      method: "DELETE",
+      path: githubContentsApiPath(repository, path),
+      body,
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const result = asRecord(json);
+  const commit = asRecord(result.commit);
+
+  return {
+    repository,
+    path,
+    branch: args.branch?.trim() || null,
+    commit: {
+      sha: stringOrNull(commit.sha),
+      url: stringOrNull(commit.url),
+      htmlUrl: stringOrNull(commit.html_url),
+      message: stringOrNull(commit.message),
+    },
+    response: compactResponseStatus(response),
+  };
+}
+
+async function executeGitHubJsonRequest(options: {
+  runtime: ProviderApiRuntimeOptions;
+  label: string;
+  args: Omit<ProviderApiRequestArgs, "provider"> & { provider?: "github" };
+}): Promise<{ json: unknown; response: ProviderApiHttpResponse }> {
+  const result = (await executeProviderApiRequest(
+    { provider: "github", ...options.args },
+    options.runtime,
+  )) as Record<string, unknown>;
+  const response = result.response as ProviderApiHttpResponse | undefined;
+  if (!response) {
+    throw new Error(`GitHub ${options.label} returned an unexpected result.`);
+  }
+  if (!response.ok) {
+    throw new Error(
+      `GitHub ${options.label} failed with HTTP ${response.status}${
+        response.statusText ? ` ${response.statusText}` : ""
+      }${providerResponseErrorDetail(response)}`,
+    );
+  }
+  return { json: response.json, response };
+}
+
+async function resolveGitHubDefaultBranch(
+  args: GitHubRepositoryRef & {
+    connectionId?: string | null;
+    timeoutMs?: number;
+    maxBytes?: number;
+  },
+  runtime: ProviderApiRuntimeOptions,
+): Promise<string> {
+  const repository = normalizeGitHubRepository(args);
+  const { json } = await executeGitHubJsonRequest({
+    runtime,
+    label: "get repository metadata",
+    args: {
+      provider: "github",
+      path: githubRepoApiPath(repository),
+      connectionId: args.connectionId,
+      timeoutMs: args.timeoutMs,
+      maxBytes: args.maxBytes,
+    },
+  });
+  const body = asRecord(json);
+  const defaultBranch = stringOrNull(body.default_branch);
+  if (!defaultBranch) {
+    throw new Error(
+      `GitHub repository ${repository.owner}/${repository.repo} did not return a default branch.`,
+    );
+  }
+  return defaultBranch;
+}
+
+function normalizeGitHubRepository(
+  args: GitHubRepositoryRef,
+): GitHubRepositoryRef {
+  const owner = args.owner.trim();
+  const repo = args.repo.trim().replace(/\.git$/i, "");
+  if (!owner) throw new Error("GitHub repository owner is required.");
+  if (!repo) throw new Error("GitHub repository name is required.");
+  return { owner, repo };
+}
+
+function githubRepoApiPath(repository: GitHubRepositoryRef): string {
+  return `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(
+    repository.repo,
+  )}`;
+}
+
+function githubContentsApiPath(
+  repository: GitHubRepositoryRef,
+  filePath: string,
+): string {
+  const encodedPath = encodeGitHubFilePath(filePath);
+  return `${githubRepoApiPath(repository)}/contents${
+    encodedPath ? `/${encodedPath}` : ""
+  }`;
+}
+
+function encodeGitHubFilePath(filePath: string): string {
+  return normalizeGitHubFilePath(filePath)
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function normalizeGitHubFilePath(filePath: string | undefined): string {
+  return (filePath ?? "").trim().replace(/^\/+|\/+$/g, "");
+}
+
+function requireGitHubFilePath(filePath: string): string {
+  const normalized = normalizeGitHubFilePath(filePath);
+  if (!normalized) throw new Error("GitHub file path is required.");
+  return normalized;
+}
+
+function githubBasename(filePath: string): string {
+  return filePath.split("/").filter(Boolean).pop() ?? filePath;
+}
+
+function githubPathMatchesPrefix(path: string, prefix: string): boolean {
+  if (!prefix) return true;
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
+function normalizeGitHubTreeEntry(
+  value: unknown,
+  options: GitHubRepositoryRef & { ref: string },
+): GitHubRepositoryFileEntry | null {
+  const entry = asRecord(value);
+  const path = stringOrNull(entry.path);
+  if (!path) return null;
+  const type = stringOrNull(entry.type);
+  const normalizedType =
+    type === "blob"
+      ? "file"
+      : type === "tree"
+        ? "dir"
+        : type === "commit"
+          ? "submodule"
+          : "unknown";
+  return {
+    name: githubBasename(path),
+    path,
+    type: normalizedType,
+    sha: stringOrNull(entry.sha),
+    size: numberOrNull(entry.size),
+    url: stringOrNull(entry.url),
+    htmlUrl:
+      normalizedType === "file"
+        ? githubWebFileUrl(options, path)
+        : normalizedType === "dir"
+          ? githubWebTreeUrl(options, path)
+          : null,
+    downloadUrl: null,
+  };
+}
+
+function normalizeGitHubContentsEntry(
+  value: unknown,
+): GitHubRepositoryFileEntry | null {
+  const entry = asRecord(value);
+  const path = stringOrNull(entry.path);
+  if (!path) return null;
+  const type = stringOrNull(entry.type);
+  return {
+    name: stringOrNull(entry.name) ?? githubBasename(path),
+    path,
+    type:
+      type === "file" ||
+      type === "dir" ||
+      type === "symlink" ||
+      type === "submodule"
+        ? type
+        : "unknown",
+    sha: stringOrNull(entry.sha),
+    size: numberOrNull(entry.size),
+    url: stringOrNull(entry.url),
+    htmlUrl: stringOrNull(entry.html_url),
+    downloadUrl: stringOrNull(entry.download_url),
+  };
+}
+
+function normalizeGitHubCodeSearchEntry(
+  value: unknown,
+): GitHubRepositoryFileEntry | null {
+  return normalizeGitHubContentsEntry({ ...asRecord(value), type: "file" });
+}
+
+function githubTreeEntryMatchesSearchFilters(
+  entry: GitHubRepositoryFileEntry,
+  args: GitHubRepositoryFileSearchArgs,
+): boolean {
+  const filename = args.filename?.trim();
+  if (filename && entry.name !== filename) return false;
+  const extension = args.extension?.trim().replace(/^\./, "");
+  if (extension && !entry.path.endsWith(`.${extension}`)) return false;
+  const pathFilter = normalizeGitHubFilePath(args.path);
+  if (pathFilter && !entry.path.includes(pathFilter)) return false;
+  return true;
+}
+
+function buildGitHubCodeSearchQuery(
+  repository: GitHubRepositoryRef,
+  args: GitHubRepositoryFileSearchArgs,
+  query: string,
+): string {
+  const qualifiers = [`repo:${repository.owner}/${repository.repo}`];
+  const path = normalizeGitHubFilePath(args.path);
+  if (path) qualifiers.push(`path:${quoteGitHubSearchQualifier(path)}`);
+  if (args.filename?.trim()) {
+    qualifiers.push(
+      `filename:${quoteGitHubSearchQualifier(args.filename.trim())}`,
+    );
+  }
+  if (args.extension?.trim()) {
+    qualifiers.push(
+      `extension:${quoteGitHubSearchQualifier(
+        args.extension.trim().replace(/^\./, ""),
+      )}`,
+    );
+  }
+  if (args.language?.trim()) {
+    qualifiers.push(
+      `language:${quoteGitHubSearchQualifier(args.language.trim())}`,
+    );
+  }
+  return [query, "in:file", ...qualifiers].join(" ");
+}
+
+function quoteGitHubSearchQualifier(value: string): string {
+  return /\s/.test(value) ? JSON.stringify(value) : value;
+}
+
+function githubWebFileUrl(
+  options: GitHubRepositoryRef & { ref: string },
+  filePath: string,
+): string {
+  return `https://github.com/${encodeURIComponent(
+    options.owner,
+  )}/${encodeURIComponent(options.repo)}/blob/${encodeURIComponent(
+    options.ref,
+  )}/${encodeGitHubFilePath(filePath)}`;
+}
+
+function githubWebTreeUrl(
+  options: GitHubRepositoryRef & { ref: string },
+  filePath: string,
+): string {
+  return `https://github.com/${encodeURIComponent(
+    options.owner,
+  )}/${encodeURIComponent(options.repo)}/tree/${encodeURIComponent(
+    options.ref,
+  )}/${encodeGitHubFilePath(filePath)}`;
+}
+
+function clampPositiveInt(
+  value: number | undefined,
+  defaultValue: number,
+  maxValue: number,
+): number {
+  if (!Number.isFinite(value) || value! <= 0) return defaultValue;
+  return Math.min(maxValue, Math.floor(value!));
+}
+
+function compactResponseStatus(
+  response: ProviderApiHttpResponse,
+): Pick<ProviderApiHttpResponse, "status" | "statusText" | "ok"> {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+  };
+}
+
+function providerResponseErrorDetail(
+  response: ProviderApiHttpResponse,
+): string {
+  const body = asRecord(response.json);
+  const message = stringOrNull(body.message);
+  const detail =
+    message ??
+    (typeof response.text === "string"
+      ? response.text.replace(/\s+/g, " ").trim().slice(0, 500)
+      : "");
+  return detail ? `: ${detail}` : "";
+}
+
+function isGitHubNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /\bHTTP 404\b/.test(error.message);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1277,39 +2808,75 @@ async function executeCustomProviderApiRequest(
   const effectiveMaxBytes = args.saveToFile
     ? SAVE_TO_FILE_MAX_BYTES
     : clampMaxBytes(args.maxBytes);
+  const quotaIdentity = createProviderQuotaIdentity({
+    appId: runtimeOptionsAppId(runtime),
+    providerId: customConfig.id,
+    ctx,
+    credentialSources: auth.credentialSources,
+    connectionId: args.connectionId,
+    accountId: args.accountId,
+  });
 
   // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extraQuery) => {
-        const queryWithCursor = extraQuery
-          ? mergeQueryObjects(args.query, extraQuery)
-          : args.query;
-        const pageUrl = buildProviderUrl({
-          config: syntheticConfig,
-          baseUrl,
-          rawPath: args.path,
-          query: queryWithCursor,
-        });
-        const pageBody = prepareBody(args.body, { ...headers });
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(args.query, extra.query)
+        : args.query;
+      const pageUrl = buildProviderUrl({
+        config: syntheticConfig,
+        baseUrl,
+        rawPath: args.path,
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            args.body,
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : args.body;
+      const pageBody = prepareBody(bodyWithCursor, headers);
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {
@@ -1321,6 +2888,8 @@ async function executeCustomProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -1343,6 +2912,17 @@ async function executeCustomProviderApiRequest(
     maxBytes: effectiveMaxBytes,
     timeoutMs: clampTimeout(args.timeoutMs),
     secretValues: auth.secretValues,
+    quota: {
+      identity: quotaIdentity,
+      method,
+      target: describeProviderRequestTarget(url.href, auth.secretValues),
+      requestKey: createProviderRequestDedupeKey({
+        method,
+        url: url.href,
+        body,
+        headers,
+      }),
+    },
   });
 
   if (args.saveToFile) {
@@ -1534,6 +3114,7 @@ function customProviderToCatalogEntry(config: CustomProviderConfig) {
     defaultHeaders: config.defaultHeaders,
     examples: [] as unknown[],
     notes: config.notes ? [config.notes] : ([] as string[]),
+    corpusRecipes: [] as unknown[],
     templateUses: [] as string[],
     custom: true,
   };
@@ -1557,7 +3138,10 @@ function extractCredentialKeysFromCustomAuth(
  */
 async function listProviderApiCatalogWithCustom(
   provider: ProviderApiId | string | undefined,
-  options: { providerIds?: readonly (ProviderApiId | string)[] },
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  },
   runtime: ProviderApiRuntimeOptions,
 ): Promise<unknown[]> {
   const customConfigs = runtime.getCustomProviders
@@ -1717,6 +3301,15 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-bearer-or-api-key-header") {
+    return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
+  }
+  if (auth.type === "oauth-bearer-or-bearer-key") {
+    return `oauth-bearer:${auth.oauthProvider}-or-bearer-key:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
+  }
+  if (auth.type === "oauth-bearer-or-basic") {
+    return `oauth-bearer:${auth.oauthProvider}-or-basic:${auth.usernameKey}:${auth.passwordKey}`;
+  }
   return "prometheus-basic-or-bearer";
 }
 
@@ -1739,15 +3332,93 @@ async function resolveBaseUrl(
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
 ): Promise<string> {
+  const oauthBaseUrl = await resolveWorkspaceOAuthBaseUrl(
+    config,
+    runtime,
+    args,
+  );
+  if (oauthBaseUrl) return oauthBaseUrl;
   if (!config.baseUrlCredentialKey) return config.defaultBaseUrl;
+  const auth = config.auth;
+  const workspaceProvider =
+    auth.type === "oauth-bearer" ||
+    auth.type === "oauth-bearer-or-api-key-header" ||
+    auth.type === "oauth-bearer-or-bearer-key" ||
+    auth.type === "oauth-bearer-or-basic"
+      ? auth.workspaceProvider
+      : undefined;
   const configured = await resolveCredentialValue({
     config,
     runtime,
     ctx,
     key: config.baseUrlCredentialKey,
     args,
+    workspaceProvider,
   });
   return (configured || config.defaultBaseUrl).replace(/\/+$/, "");
+}
+
+async function resolveWorkspaceOAuthBaseUrl(
+  config: ProviderApiConfig,
+  runtime: ProviderApiRuntimeOptions,
+  args: ProviderApiRequestArgs,
+): Promise<string | null> {
+  const auth = config.auth;
+  const workspaceProvider =
+    auth.type === "oauth-bearer" ||
+    auth.type === "oauth-bearer-or-api-key-header" ||
+    auth.type === "oauth-bearer-or-bearer-key" ||
+    auth.type === "oauth-bearer-or-basic"
+      ? auth.workspaceProvider
+      : undefined;
+  if (workspaceProvider !== "jira" && workspaceProvider !== "salesforce") {
+    return null;
+  }
+  let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
+  try {
+    resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Workspace connections require an authenticated user."
+    ) {
+      return null;
+    }
+    throw error;
+  }
+  if (!resolved.available || !resolved.connection) return null;
+  const connectionConfig = resolved.connection.config;
+  if (connectionConfig.credentialMode !== "oauth") return null;
+  const baseUrl =
+    workspaceProvider === "salesforce"
+      ? connectionConfig.salesforceInstanceUrl
+      : connectionConfig.atlassianApiBaseUrl;
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
+  if (workspaceProvider === "salesforce" && !isSalesforceInstanceUrl(baseUrl)) {
+    return null;
+  }
+  return baseUrl.replace(/\/+$/, "");
+}
+
+function isSalesforceInstanceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      (host === "salesforce.com" || host.endsWith(".salesforce.com"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function resolvePlaceholders(
@@ -1833,7 +3504,7 @@ function buildProviderUrl(options: {
   const rawPath = options.rawPath.trim();
   const url = /^https?:\/\//i.test(rawPath)
     ? new URL(rawPath)
-    : new URL(rawPath.startsWith("/") ? rawPath : `/${rawPath}`, base);
+    : new URL(joinProviderUrlPath(base, rawPath), base.origin);
 
   if (!isAllowedProviderUrl(url, base, options.config)) {
     throw new Error(
@@ -1846,6 +3517,22 @@ function buildProviderUrl(options: {
   }
 
   return url;
+}
+
+function joinProviderUrlPath(base: URL, rawPath: string): string {
+  const basePath = base.pathname.replace(/\/+$/, "");
+  const providerPath = rawPath.replace(/^\/+/, "");
+  if (!providerPath) return basePath || "/";
+  const baseSegments = basePath.split("/").filter(Boolean);
+  const providerSegments = providerPath.split("/").filter(Boolean);
+  if (
+    baseSegments.length > 0 &&
+    providerSegments.length >= baseSegments.length &&
+    baseSegments.every((segment, index) => segment === providerSegments[index])
+  ) {
+    return `/${providerPath}`;
+  }
+  return `${basePath}/${providerPath}`;
 }
 
 function isAllowedProviderUrl(
@@ -1984,15 +3671,215 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer") {
-    const credential = await resolveOAuthBearerToken({
-      auth,
+    const oauthProvider =
+      runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
+    const credential =
+      auth.workspaceProvider && args.connectionId
+        ? await resolveConnectionBoundOAuthBearerToken({
+            auth: { ...auth, oauthProvider },
+            runtime,
+            ctx,
+            workspaceProvider: auth.workspaceProvider,
+            connectionId: args.connectionId,
+            accountId: args.accountId,
+          })
+        : await resolveOAuthBearerToken({
+            auth: { ...auth, oauthProvider },
+            ctx,
+            accountId: args.accountId,
+          });
+    return {
+      headers: { Authorization: `Bearer ${credential.value}` },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-api-key-header") {
+    const explicitConnectionFallback =
+      Boolean(args.connectionId?.trim()) && Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitConnectionFallback
+      ? await resolveHybridFallbackCredential({
+          auth,
+          config,
+          runtime,
+          ctx,
+          args,
+        })
+      : null;
+    if (resolvedFallback) {
+      return {
+        headers: { [auth.header]: resolvedFallback.value },
+        credentialSources: [omitCredentialValue(resolvedFallback)],
+        secretValues: [resolvedFallback.value],
+      };
+    }
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
+      });
+    if (workspaceCredential) {
+      return {
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
+      };
+    }
+    if (!explicitConnectionFallback) {
+      const resolvedFallback = await resolveHybridFallbackCredential({
+        auth,
+        config,
+        runtime,
+        ctx,
+        args,
+      });
+      if (resolvedFallback) {
+        return {
+          headers: { [auth.header]: resolvedFallback.value },
+          credentialSources: [omitCredentialValue(resolvedFallback)],
+          secretValues: [resolvedFallback.value],
+        };
+      }
+    }
+    const credential = await resolveAnyCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      keys: auth.fallbackKeys ?? [auth.key],
       ctx,
-      accountId: args.accountId,
+      runtime,
+    });
+    return {
+      headers: { [auth.header]: credential.value },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-bearer-key") {
+    const explicitConnectionFallback =
+      Boolean(args.connectionId?.trim()) && Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitConnectionFallback
+      ? await resolveHybridFallbackCredential({
+          auth,
+          config,
+          runtime,
+          ctx,
+          args,
+        })
+      : null;
+    if (resolvedFallback) {
+      return {
+        headers: { Authorization: `Bearer ${resolvedFallback.value}` },
+        credentialSources: [omitCredentialValue(resolvedFallback)],
+        secretValues: [resolvedFallback.value],
+      };
+    }
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
+      });
+    if (workspaceCredential) {
+      return {
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
+      };
+    }
+    if (!explicitConnectionFallback) {
+      const resolvedFallback = await resolveHybridFallbackCredential({
+        auth,
+        config,
+        runtime,
+        ctx,
+        args,
+      });
+      if (resolvedFallback) {
+        return {
+          headers: { Authorization: `Bearer ${resolvedFallback.value}` },
+          credentialSources: [omitCredentialValue(resolvedFallback)],
+          secretValues: [resolvedFallback.value],
+        };
+      }
+    }
+    const credential = await resolveAnyCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      keys: auth.fallbackKeys ?? [auth.key],
+      ctx,
+      runtime,
     });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
       credentialSources: [omitCredentialValue(credential)],
       secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-basic") {
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
+      });
+    if (workspaceCredential) {
+      return {
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
+      };
+    }
+    const username = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.usernameKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const password = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.passwordKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const encoded = Buffer.from(`${username.value}:${password.value}`).toString(
+      "base64",
+    );
+    return {
+      headers: { Authorization: `Basic ${encoded}` },
+      credentialSources: [
+        omitCredentialValue(username),
+        omitCredentialValue(password),
+      ],
+      secretValues: [username.value, password.value, encoded],
     };
   }
 
@@ -2056,6 +3943,28 @@ function emptyAuth(): ResolvedAuth {
   return { headers: {}, credentialSources: [], secretValues: [] };
 }
 
+async function resolveHybridFallbackCredential(options: {
+  auth:
+    | Extract<ProviderApiAuthKind, { type: "oauth-bearer-or-api-key-header" }>
+    | Extract<ProviderApiAuthKind, { type: "oauth-bearer-or-bearer-key" }>;
+  config: ProviderApiConfig;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  args: ProviderApiRequestArgs;
+}): Promise<ProviderApiResolvedCredential | null> {
+  // App-specific resolvers keep existing provider credentials working when a
+  // caller explicitly selects a connection or account.
+  if (!options.runtime.resolveCredential) return null;
+  return resolveOptionalCredential({
+    provider: options.config.id,
+    workspaceProvider: options.auth.workspaceProvider,
+    key: options.auth.key,
+    ctx: options.ctx,
+    runtime: options.runtime,
+    connectionId: options.args.connectionId,
+  });
+}
+
 async function resolveAnyCredential(options: {
   provider: ProviderApiId;
   workspaceProvider: string | undefined;
@@ -2068,10 +3977,14 @@ async function resolveAnyCredential(options: {
     const credential = await resolveOptionalCredential({ ...options, key });
     if (credential?.value) return credential;
   }
+  const scopeGap = await describeCredentialScopeGap(
+    options.keys,
+    options.ctx,
+  ).catch(() => null);
   throw new Error(
     `${options.provider} credential not configured. Tried: ${options.keys.join(
       ", ",
-    )}`,
+    )}${scopeGap ? `. ${scopeGap}` : ""}`,
   );
 }
 
@@ -2139,7 +4052,7 @@ async function getGoogleServiceAccountToken(
   if (cached && Date.now() < cached.expiresAt - 30_000) return cached.token;
 
   const credsJson = await resolveCredentialValue({
-    config: getProviderApiConfig("gcloud"),
+    config: getProviderApiConfig("gcloud", runtime.providerOverrides),
     runtime,
     ctx,
     key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
@@ -2205,14 +4118,17 @@ async function resolveOAuthBearerToken(options: {
   auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
   ctx: CredentialContext;
   accountId?: string | null;
+  ownerEmail?: string | null;
+  salesforceLoginUrl?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
+  const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
-    options.ctx.userEmail,
+    ownerEmail,
   );
   if (accounts.length === 0) {
     throw new Error(
-      `${options.auth.tokenLabel} is not connected for ${options.ctx.userEmail}.`,
+      `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
     );
   }
   const accountId = options.accountId?.trim();
@@ -2221,15 +4137,16 @@ async function resolveOAuthBearerToken(options: {
     : accounts[0];
   if (!account) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${accountId} is not available to ${options.ctx.userEmail}.`,
+      `${options.auth.tokenLabel} account ${accountId} is not available to ${ownerEmail}.`,
     );
   }
   const tokens = account.tokens as OAuthTokens;
   const token = await getValidOAuthAccessToken({
     oauthProvider: options.auth.oauthProvider,
     accountId: account.accountId,
-    ownerEmail: options.ctx.userEmail,
+    ownerEmail,
     tokens,
+    salesforceLoginUrl: options.salesforceLoginUrl,
   });
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
@@ -2241,11 +4158,90 @@ async function resolveOAuthBearerToken(options: {
   };
 }
 
+async function resolveConnectionBoundOAuthBearerToken(options: {
+  auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  workspaceProvider: string;
+  connectionId?: string | null;
+  accountId?: string | null;
+}): Promise<ProviderApiResolvedCredential> {
+  const credential =
+    await resolveOptionalConnectionBoundOAuthBearerToken(options);
+  if (credential) return credential;
+  throw new Error(
+    `${options.auth.tokenLabel} requires an available workspace connection.`,
+  );
+}
+
+async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
+  auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  workspaceProvider: string;
+  connectionId?: string | null;
+  accountId?: string | null;
+  allowUnbound?: boolean;
+}): Promise<ProviderApiResolvedCredential | null> {
+  const requestedConnectionId = options.connectionId?.trim();
+  let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
+  try {
+    resolved = await resolveWorkspaceConnectionForApp({
+      appId: options.runtime.appId,
+      provider: options.workspaceProvider,
+      connectionId: requestedConnectionId,
+      requireConnected: true,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Workspace connections require an authenticated user."
+    ) {
+      return null;
+    }
+    throw error;
+  }
+  if (!resolved.available || !resolved.connection) {
+    if (requestedConnectionId) throw new Error(resolved.reason);
+    return null;
+  }
+  const connectionAccountId = resolved.connection.accountId?.trim();
+  if (!connectionAccountId) {
+    if (options.allowUnbound) return null;
+    throw new Error(
+      `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
+    );
+  }
+  const requestedAccountId = options.accountId?.trim();
+  if (requestedAccountId && requestedAccountId !== connectionAccountId) {
+    throw new Error(
+      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+    );
+  }
+  const credential = await resolveOAuthBearerToken({
+    auth: options.auth,
+    ctx: options.ctx,
+    accountId: connectionAccountId,
+    ownerEmail: resolved.connection.ownerEmail,
+    salesforceLoginUrl:
+      options.auth.oauthProvider === "salesforce" &&
+      typeof resolved.connection.config?.salesforceLoginUrl === "string"
+        ? resolved.connection.config.salesforceLoginUrl
+        : null,
+  });
+  return {
+    ...credential,
+    connectionId: resolved.connection.id,
+    connectionLabel: resolved.connection.label,
+  };
+}
+
 async function getValidOAuthAccessToken(options: {
   oauthProvider: string;
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  salesforceLoginUrl?: string | null;
 }): Promise<string> {
   const accessToken =
     options.tokens.access_token ?? options.tokens.accessToken ?? "";
@@ -2266,12 +4262,626 @@ async function getValidOAuthAccessToken(options: {
   const refreshToken =
     options.tokens.refresh_token ?? options.tokens.refreshToken;
   if (!refreshToken) return accessToken;
-  if (options.oauthProvider === "google") {
+  if (
+    options.oauthProvider === "google" ||
+    options.oauthProvider === "google-docs"
+  ) {
     return refreshGoogleOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "figma") {
+    return refreshFigmaOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "notion") {
+    return refreshNotionOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "github") {
+    return refreshGitHubOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "hubspot") {
+    return refreshHubSpotOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "salesforce") {
+    return refreshSalesforceOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "jira") {
+    return refreshJiraOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "sentry") {
+    return refreshSentryOAuthToken(options, refreshToken);
   }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+async function refreshFigmaOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("FIGMA_CLIENT_ID"),
+    resolveSecret("FIGMA_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "FIGMA_CLIENT_ID and FIGMA_CLIENT_SECRET are required to refresh Figma OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://api.figma.com/v1/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Figma",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Figma OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshNotionOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("NOTION_CLIENT_ID"),
+    resolveSecret("NOTION_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "NOTION_CLIENT_ID and NOTION_CLIENT_SECRET are required to refresh Notion OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://api.notion.com/v1/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2026-03-11",
+      },
+      body: JSON.stringify({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Notion",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Notion OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshGitHubOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("GITHUB");
+  if (!credentials.length) {
+    throw new Error(
+      "GITHUB_CLIENT_ID/SECRET not set for GitHub OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      },
+      "GitHub",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`GitHub OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function saveOAuthTokensAndLinkedJiraAccounts(options: {
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  };
+  previousRefreshToken: string;
+  updated: OAuthTokens;
+}): Promise<void> {
+  const serializedTokens = options.updated as unknown as Record<
+    string,
+    unknown
+  >;
+  await saveOAuthTokens(
+    options.options.oauthProvider,
+    options.options.accountId,
+    serializedTokens,
+    options.options.ownerEmail,
+  );
+
+  const accounts = await listOAuthAccountsByOwner(
+    options.options.oauthProvider,
+    options.options.ownerEmail,
+  );
+  for (const account of accounts) {
+    if (account.accountId === options.options.accountId) continue;
+    const accountRefreshToken =
+      (account.tokens.refresh_token as string | undefined) ??
+      (account.tokens.refreshToken as string | undefined);
+    if (accountRefreshToken !== options.previousRefreshToken) continue;
+    await saveOAuthTokens(
+      options.options.oauthProvider,
+      account.accountId,
+      serializedTokens,
+      options.options.ownerEmail,
+    );
+  }
+}
+
+async function refreshHubSpotOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("HUBSPOT");
+  if (!credentials.length) {
+    throw new Error(
+      "HUBSPOT_CLIENT_ID/SECRET not set for HubSpot OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://api.hubapi.com/oauth/v3/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "HubSpot",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`HubSpot OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshSalesforceOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+    salesforceLoginUrl?: string | null;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials =
+    await resolveOAuthClientCredentialCandidates("SALESFORCE");
+  if (!credentials.length) {
+    throw new Error(
+      "SALESFORCE_CLIENT_ID/SECRET not set for Salesforce OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      salesforceOAuthRefreshUrl(options.salesforceLoginUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Salesforce",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(
+      `Salesforce OAuth refresh failed (${response?.status ?? 0}).`,
+    );
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+function salesforceOAuthRefreshUrl(value: string | null | undefined): string {
+  const loginUrl = value?.trim() || "https://login.salesforce.com";
+  try {
+    const url = new URL(loginUrl);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.hostname !== "login.salesforce.com" &&
+        url.hostname !== "test.salesforce.com")
+    ) {
+      throw new Error("Invalid Salesforce OAuth login URL.");
+    }
+    return `${url.origin}/services/oauth2/token`;
+  } catch {
+    throw new Error("Invalid Salesforce OAuth login URL.");
+  }
+}
+
+async function refreshJiraOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("JIRA");
+  if (!credentials.length) {
+    throw new Error("JIRA_CLIENT_ID/SECRET not set for Jira OAuth refresh.");
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://auth.atlassian.com/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Jira",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`Jira OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokensAndLinkedJiraAccounts({
+    options,
+    previousRefreshToken: refreshToken,
+    updated,
+  });
+  return data.access_token;
+}
+
+async function refreshSentryOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("SENTRY");
+  if (!credentials.length) {
+    throw new Error(
+      "SENTRY_CLIENT_ID/SECRET not set for Sentry OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://sentry.io/oauth/token/",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Sentry",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`Sentry OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+const OAUTH_REFRESH_TIMEOUT_MS = 10_000;
+const OAUTH_REFRESH_MAX_BYTES = 256 * 1024;
+
+async function fetchBoundedOAuthRefreshJson<T extends Record<string, unknown>>(
+  url: string,
+  init: RequestInit,
+  providerLabel: string,
+): Promise<{ response: Response; data: T }> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error(`${providerLabel} OAuth refresh request failed.`);
+  }
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > OAUTH_REFRESH_MAX_BYTES
+  ) {
+    throw new Error(
+      `${providerLabel} OAuth refresh response exceeded the size limit.`,
+    );
+  }
+  if (!response.body) return { response, data: {} as T };
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      length += chunk.value.byteLength;
+      if (length > OAUTH_REFRESH_MAX_BYTES) {
+        await reader.cancel();
+        break;
+      }
+      chunks.push(chunk.value);
+    }
+  } catch {
+    throw new Error(`${providerLabel} OAuth refresh request failed.`);
+  }
+  if (length > OAUTH_REFRESH_MAX_BYTES) {
+    throw new Error(
+      `${providerLabel} OAuth refresh response exceeded the size limit.`,
+    );
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return {
+      response,
+      data:
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as T)
+          : ({} as T),
+    };
+  } catch {
+    return { response, data: {} as T };
+  }
 }
 
 async function refreshGoogleOAuthToken(
@@ -2283,33 +4893,64 @@ async function refreshGoogleOAuthToken(
   },
   refreshToken: string,
 ): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const [scopedClientId, scopedClientSecret] = await Promise.all([
+    resolveSecret("GOOGLE_CLIENT_ID"),
+    resolveSecret("GOOGLE_CLIENT_SECRET"),
+  ]);
+  const credentialCandidates = dedupeGoogleOAuthCredentials([
+    ...(scopedClientId && scopedClientSecret
+      ? [{ clientId: scopedClientId, clientSecret: scopedClientSecret }]
+      : []),
+    ...resolveGoogleProviderCredentialCandidates(),
+  ]);
+  if (!credentialCandidates.length) {
     throw new Error(
       "GOOGLE_CLIENT_ID/SECRET not set for Google OAuth refresh.",
     );
   }
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = (await res.json()) as {
+
+  let data: {
     access_token?: string;
     expires_in?: number;
     token_type?: string;
     scope?: string;
     error?: string;
     error_description?: string;
-  };
-  if (!res.ok || !data.access_token) {
-    const detail = data.error_description ?? data.error ?? res.statusText;
+  } | null = null;
+  let lastStatusText = "refresh failed";
+  for (const credentials of credentialCandidates) {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: refreshToken,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        grant_type: "refresh_token",
+      }),
+    });
+    lastStatusText = res.statusText;
+    data = (await res.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      token_type?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
+    if (res.ok && data.access_token) break;
+    if (data.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      continue;
+    }
+    const detail = data.error_description ?? data.error ?? lastStatusText;
+    throw new Error(`Google OAuth refresh failed: ${detail}`);
+  }
+
+  if (!data?.access_token) {
+    if (data?.error && PERMANENT_GOOGLE_OAUTH_REFRESH_ERRORS.has(data.error)) {
+      await deleteOAuthTokens(options.oauthProvider, options.accountId);
+    }
+    const detail = data?.error_description ?? data?.error ?? lastStatusText;
     throw new Error(`Google OAuth refresh failed: ${detail}`);
   }
   const merged: OAuthTokens = {
@@ -2326,6 +4967,52 @@ async function refreshGoogleOAuthToken(
     options.ownerEmail,
   );
   return data.access_token;
+}
+
+function dedupeGoogleOAuthCredentials(
+  candidates: Array<{ clientId: string; clientSecret: string }>,
+): Array<{ clientId: string; clientSecret: string }> {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.clientId)) return false;
+    seen.add(candidate.clientId);
+    return true;
+  });
+}
+
+async function resolveOAuthClientCredentialCandidates(
+  provider: string,
+): Promise<Array<{ clientId: string; clientSecret: string }>> {
+  const [clientId, clientSecret, integrationClientId, integrationClientSecret] =
+    await Promise.all([
+      resolveSecret(`${provider}_CLIENT_ID`),
+      resolveSecret(`${provider}_CLIENT_SECRET`),
+      resolveSecret(`${provider}_INTEGRATION_CLIENT_ID`),
+      resolveSecret(`${provider}_INTEGRATION_CLIENT_SECRET`),
+    ]);
+  const candidates = [
+    integrationClientId && integrationClientSecret
+      ? { clientId: integrationClientId, clientSecret: integrationClientSecret }
+      : null,
+    clientId && clientSecret ? { clientId, clientSecret } : null,
+  ].filter((value): value is { clientId: string; clientSecret: string } =>
+    Boolean(value),
+  );
+  if (provider === "SALESFORCE") {
+    const [consumerKey, consumerSecret] = await Promise.all([
+      resolveSecret("SALESFORCE_CONSUMER_KEY"),
+      resolveSecret("SALESFORCE_CONSUMER_SECRET"),
+    ]);
+    if (consumerKey && consumerSecret) {
+      candidates.push({ clientId: consumerKey, clientSecret: consumerSecret });
+    }
+  }
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.clientId)) return false;
+    seen.add(candidate.clientId);
+    return true;
+  });
 }
 
 function normalizeMethod(
@@ -2374,6 +5061,10 @@ function prepareBody(
   return JSON.stringify(body);
 }
 
+function runtimeOptionsAppId(runtime: ProviderApiRuntimeOptions): string {
+  return runtime.appId || "app";
+}
+
 async function fetchWithTimeout(
   optionsUrl: string,
   options: {
@@ -2383,47 +5074,213 @@ async function fetchWithTimeout(
     timeoutMs?: number;
     maxBytes?: number;
     secretValues?: string[];
+    quota?: ProviderApiFetchQuotaOptions;
   },
-) {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    clampTimeout(options.timeoutMs),
-  );
-  try {
-    const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
-    const fetchOptions: RequestInit & { dispatcher?: unknown } = {
-      method: options.method ?? "GET",
-      headers: options.headers,
-      body: options.body,
-      signal: controller.signal,
-      redirect: "manual",
-    };
-    if (dispatcher) fetchOptions.dispatcher = dispatcher;
-    const startedAt = Date.now();
-    const res = await fetch(optionsUrl, fetchOptions);
-    const elapsedMs = Date.now() - startedAt;
-    const rawText = await readResponseTextWithLimit(
-      res,
-      clampMaxBytes(options.maxBytes),
-    );
+): Promise<ProviderApiHttpResponse> {
+  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+    const controller = new AbortController();
+    const timeoutMs = clampTimeout(options.timeoutMs);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const method = options.method ?? "GET";
     const secretValues = options.secretValues ?? [];
-    const redactedText = redactString(rawText.text, secretValues);
-    const parsed = tryParseJson(redactedText);
-    return {
-      status: res.status,
-      statusText: res.statusText,
-      ok: res.ok,
-      elapsedMs,
-      headers: redactSecrets(headersToObject(res.headers), secretValues),
-      contentType: res.headers.get("content-type") ?? null,
-      size: rawText.size,
-      truncated: rawText.truncated,
-      text: parsed === undefined ? redactedText : undefined,
-      json: parsed,
-    };
-  } finally {
-    clearTimeout(timeout);
+    try {
+      const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
+      const fetchOptions: RequestInit & { dispatcher?: unknown } = {
+        method,
+        headers: options.headers,
+        body: options.body,
+        signal: controller.signal,
+        redirect: "manual",
+      };
+      if (dispatcher) fetchOptions.dispatcher = dispatcher;
+      try {
+        return await fetchProviderResponse(optionsUrl, fetchOptions, {
+          maxBytes: options.maxBytes,
+          secretValues,
+        });
+      } catch (error) {
+        if (dispatcher && isDispatcherCompatibilityError(error)) {
+          const fallbackOptions = { ...fetchOptions };
+          delete fallbackOptions.dispatcher;
+          return await fetchProviderResponse(optionsUrl, fallbackOptions, {
+            maxBytes: options.maxBytes,
+            secretValues,
+          });
+        }
+        throw error;
+      }
+    } catch (error) {
+      throw normalizeFetchError(error, {
+        method,
+        url: optionsUrl,
+        timeoutMs,
+        secretValues,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  if (options.quota) {
+    return executeWithProviderQuota({
+      request: {
+        identity: options.quota.identity,
+        method: options.quota.method,
+        target: options.quota.target,
+        requestKey: options.quota.requestKey,
+      },
+      execute: runOnce,
+      inspect: (result) => ({
+        status: result.status,
+        headers: result.headers,
+      }),
+      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
+    });
+  }
+
+  return runOnce();
+}
+
+function providerQuotaExhaustedResponse(
+  detail: ProviderQuotaExhaustedDetail,
+): ProviderApiHttpResponse {
+  const retryAfterSeconds = Math.max(0, Math.ceil(detail.retryAfterMs / 1000));
+  return {
+    status: 429,
+    statusText: "Provider quota cooldown",
+    ok: false,
+    elapsedMs: 0,
+    headers: {
+      "retry-after": String(retryAfterSeconds),
+      "x-agent-native-provider-quota": "exhausted",
+    },
+    contentType: "application/json",
+    size: 0,
+    truncated: false,
+    json: {
+      error: "provider_quota_exhausted",
+      provider: detail.providerId,
+      message:
+        `Provider API quota is cooling down for ${detail.providerId}. ` +
+        `Retry after ${detail.retryAt}.`,
+      retryAt: detail.retryAt,
+      retryAfterMs: detail.retryAfterMs,
+      reason: detail.reason,
+      method: detail.method,
+      target: detail.target,
+    },
+    quota: {
+      exhausted: true,
+      providerId: detail.providerId,
+      retryAfterMs: detail.retryAfterMs,
+      retryAt: detail.retryAt,
+      reason: detail.reason,
+    },
+  };
+}
+
+async function fetchProviderResponse(
+  url: string,
+  fetchOptions: RequestInit & { dispatcher?: unknown },
+  options: {
+    maxBytes?: number;
+    secretValues: string[];
+  },
+): Promise<ProviderApiHttpResponse> {
+  const startedAt = Date.now();
+  const res = await fetch(url, fetchOptions);
+  const elapsedMs = Date.now() - startedAt;
+  const rawText = await readResponseTextWithLimit(
+    res,
+    clampMaxBytes(options.maxBytes),
+  );
+  const redactedText = redactString(rawText.text, options.secretValues);
+  const parsed = tryParseJson(redactedText);
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    ok: res.ok,
+    elapsedMs,
+    headers: redactSecrets(headersToObject(res.headers), options.secretValues),
+    contentType: res.headers.get("content-type") ?? null,
+    size: rawText.size,
+    truncated: rawText.truncated,
+    text: parsed === undefined ? redactedText : undefined,
+    json: parsed,
+  };
+}
+
+function isDispatcherCompatibilityError(error: unknown): boolean {
+  const err = error as {
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  const code = typeof err?.cause?.code === "string" ? err.cause.code : "";
+  const detail = [
+    typeof err?.message === "string" ? err.message : "",
+    typeof err?.cause?.message === "string" ? err.cause.message : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    code === "UND_ERR_INVALID_ARG" &&
+    detail.includes("invalid onrequeststart method")
+  );
+}
+
+function normalizeFetchError(
+  error: unknown,
+  options: {
+    method: ProviderApiMethod;
+    url: string;
+    timeoutMs: number;
+    secretValues: string[];
+  },
+): Error {
+  const target = describeProviderRequestTarget(
+    options.url,
+    options.secretValues,
+  );
+  const err = error as {
+    name?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown; message?: unknown };
+  };
+  if (err?.name === "AbortError") {
+    return new Error(
+      `Provider API request timed out after ${options.timeoutMs}ms: ${options.method} ${target}`,
+      { cause: error },
+    );
+  }
+
+  const causeCode =
+    typeof err?.cause?.code === "string" && err.cause.code
+      ? ` (${err.cause.code})`
+      : "";
+  const detail =
+    typeof err?.cause?.message === "string" && err.cause.message
+      ? err.cause.message
+      : typeof err?.message === "string" && err.message
+        ? err.message
+        : String(error);
+  return new Error(
+    `Provider API request failed${causeCode}: ${options.method} ${target}: ${redactString(detail, options.secretValues)}`,
+    { cause: error },
+  );
+}
+
+function describeProviderRequestTarget(
+  rawUrl: string,
+  secretValues: string[],
+): string {
+  try {
+    const url = new URL(rawUrl);
+    return redactString(
+      `${url.host}${url.pathname}${url.search}`,
+      secretValues,
+    );
+  } catch {
+    return redactString(rawUrl, secretValues);
   }
 }
 
@@ -2514,6 +5371,28 @@ function mergeQueryObjects(
   return extra;
 }
 
+function setValueAtPath(base: unknown, path: string, value: unknown): unknown {
+  const root =
+    base && typeof base === "object" && !Array.isArray(base)
+      ? { ...(base as Record<string, unknown>) }
+      : {};
+  const parts = path.split(".").filter(Boolean);
+  if (!parts.length) return root;
+
+  let current: Record<string, unknown> = root;
+  for (const part of parts.slice(0, -1)) {
+    const existing = current[part];
+    const next =
+      existing && typeof existing === "object" && !Array.isArray(existing)
+        ? { ...(existing as Record<string, unknown>) }
+        : {};
+    current[part] = next;
+    current = next;
+  }
+  current[parts[parts.length - 1]!] = value;
+  return root;
+}
+
 function clampTimeout(timeoutMs: number | undefined): number {
   if (!Number.isFinite(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, Math.floor(timeoutMs!)));
@@ -2586,7 +5465,10 @@ async function handleSaveToFile(
  */
 async function fetchAllPages(
   config: FetchAllPagesConfig,
-  executeOnePage: (extraQuery?: Record<string, string>) => Promise<{
+  executeOnePage: (extra?: {
+    query?: Record<string, string>;
+    bodyCursor?: { path: string; value: string };
+  }) => Promise<{
     text: string;
     contentType: string | null;
     status: number;
@@ -2597,6 +5479,8 @@ async function fetchAllPages(
   pageCount: number;
   lastStatus: number;
   lastContentType: string | null;
+  truncated: boolean;
+  nextCursor: string | null;
 }> {
   const maxPages = Math.min(
     Number.isFinite(config.maxPages) && config.maxPages! > 0
@@ -2610,15 +5494,44 @@ async function fetchAllPages(
   let pageCount = 0;
   let lastStatus = 0;
   let lastContentType: string | null = null;
+  let truncated = false;
+
+  if (!config.cursorParam && !config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages requires cursorParam or cursorBodyPath to send the next cursor.",
+    );
+  }
+  if (config.cursorParam && config.cursorBodyPath) {
+    throw new Error(
+      "fetchAllPages accepts exactly one cursor method: cursorParam or cursorBodyPath.",
+    );
+  }
 
   while (pageCount < maxPages) {
-    const extraQuery: Record<string, string> = {};
-    if (cursor) extraQuery[config.cursorParam] = cursor;
+    const extra: {
+      query?: Record<string, string>;
+      bodyCursor?: { path: string; value: string };
+    } = {};
+    if (cursor) {
+      if (config.cursorParam) extra.query = { [config.cursorParam]: cursor };
+      if (config.cursorBodyPath) {
+        extra.bodyCursor = { path: config.cursorBodyPath, value: cursor };
+      }
+    }
 
-    const page = await executeOnePage(pageCount > 0 ? extraQuery : undefined);
+    const page = await executeOnePage(pageCount > 0 ? extra : undefined);
     lastStatus = page.status;
     lastContentType = page.contentType;
     pageCount++;
+
+    if (!page.ok) {
+      const preview = page.text.replace(/\s+/g, " ").trim().slice(0, 500);
+      throw new Error(
+        `fetchAllPages request failed with HTTP ${page.status}${
+          preview ? `: ${preview}` : ""
+        }`,
+      );
+    }
 
     let body: unknown;
     try {
@@ -2647,12 +5560,21 @@ async function fetchAllPages(
       nextCursor === null ||
       nextCursor === cursor
     ) {
+      truncated = false;
       break;
     }
     cursor = String(nextCursor);
+    truncated = pageCount >= maxPages;
   }
 
-  return { items, pageCount, lastStatus, lastContentType };
+  return {
+    items,
+    pageCount,
+    lastStatus,
+    lastContentType,
+    truncated,
+    nextCursor: truncated ? (cursor ?? null) : null,
+  };
 }
 
 function fingerprint(value: string): string {

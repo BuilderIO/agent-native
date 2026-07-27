@@ -1,12 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import {
   readAgentsBundleFromFs,
   parseSkillFrontmatter,
   generateSkillsPromptBlock,
+  generateDevelopmentSkillsPromptBlock,
   getRuntimeSkills,
+  getDevelopmentSkills,
   normalizeSkillScope,
   __resetAgentsBundleCache,
   type AgentsBundle,
@@ -71,6 +75,12 @@ function bundleWith(skills: Skill[]): AgentsBundle {
     workspaceAgentsMd: "",
     skills: Object.fromEntries(skills.map((s) => [s.meta.name, s])),
   };
+}
+
+function repoPath(...segments: string[]): string {
+  const fromPackageRoot = path.resolve(process.cwd(), "..", "..", ...segments);
+  if (fs.existsSync(fromPackageRoot)) return fromPackageRoot;
+  return path.resolve(process.cwd(), ...segments);
 }
 
 describe("parseSkillFrontmatter", () => {
@@ -163,6 +173,20 @@ describe("getRuntimeSkills", () => {
   });
 });
 
+describe("getDevelopmentSkills", () => {
+  it("excludes scope: runtime and includes dev/both", () => {
+    const bundle = bundleWith([
+      skill("r", "runtime"),
+      skill("b", "both"),
+      skill("d", "dev"),
+    ]);
+    const names = getDevelopmentSkills(bundle)
+      .map((s) => s.meta.name)
+      .sort();
+    expect(names).toEqual(["b", "d"]);
+  });
+});
+
 describe("generateSkillsPromptBlock scope filtering", () => {
   it("omits scope: dev skills from the prompt block", () => {
     const bundle = bundleWith([
@@ -172,11 +196,29 @@ describe("generateSkillsPromptBlock scope filtering", () => {
     const block = generateSkillsPromptBlock(bundle);
     expect(block).toContain("runtime-one");
     expect(block).not.toContain("dev-one");
+    expect(block).toContain('docs-search --slug "skill-runtime-one"');
+    expect(block).not.toContain('bash(command="cat <skill-dir>/SKILL.md")');
   });
 
   it("returns empty string when every skill is dev-scoped", () => {
     const bundle = bundleWith([skill("dev-one", "dev")]);
     expect(generateSkillsPromptBlock(bundle)).toBe("");
+  });
+});
+
+describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
+  it("omits scope: runtime skills from the coding-agent prompt block", () => {
+    const bundle = bundleWith([
+      skill("runtime-one", "runtime"),
+      skill("dev-one", "dev"),
+      skill("shared-one", "both"),
+    ]);
+    const block = generateDevelopmentSkillsPromptBlock(bundle);
+    expect(block).toContain("dev-one");
+    expect(block).toContain("shared-one");
+    expect(block).not.toContain("runtime-one");
+    expect(block).toContain('bash(command="cat <skill-dir>/SKILL.md")');
+    expect(block).not.toContain('docs-search --slug "skill-dev-one"');
   });
 });
 
@@ -308,5 +350,32 @@ describe("readAgentsBundleFromFs", () => {
       fs.rmSync(tpl, { recursive: true, force: true });
       fs.rmSync(ws.dir, { recursive: true, force: true });
     }
+  });
+
+  it("loads Design template runtime skills with usable trigger descriptions", () => {
+    const bundle = readAgentsBundleFromFs(repoPath("templates", "design"));
+    const runtimeSkills = getRuntimeSkills(bundle);
+    const expected = [
+      "design-generation",
+      "design-systems",
+      "export-handoff",
+      "visual-edit",
+    ];
+
+    for (const name of expected) {
+      const skill = runtimeSkills.find((candidate) => {
+        return candidate.meta.name === name;
+      });
+      expect(skill, `expected runtime skill ${name}`).toBeDefined();
+      expect(skill!.meta.description.trim()).toContain("Use when");
+    }
+
+    const promptBlock = generateSkillsPromptBlock(bundle);
+    expect(promptBlock).toContain("Generate or refine complete interactive");
+    expect(promptBlock).toContain("Export Design work");
+    expect(promptBlock).toContain(
+      'docs-search --slug "skill-design-generation"',
+    );
+    expect(promptBlock).toContain('docs-search --slug "skill-visual-edit"');
   });
 });

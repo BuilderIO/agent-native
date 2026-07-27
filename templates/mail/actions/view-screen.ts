@@ -1,7 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { getSetting } from "@agent-native/core/settings";
+import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
+
+import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
+import { gmailGetThread } from "../server/lib/google-api.js";
 import {
   isConnected,
   getClients,
@@ -10,16 +15,12 @@ import {
   gmailToEmailMessage,
   fetchGmailLabelMap,
 } from "../server/lib/google-auth.js";
-import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
-import { gmailGetThread } from "../server/lib/google-api.js";
-import { getSetting } from "@agent-native/core/settings";
-import { getAccessTokens, fetchLabelMap } from "./helpers.js";
+import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
 import {
   listQueuedDrafts,
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
-import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
-import { emailMessageMatchesSearch } from "@shared/search.js";
+import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 function latestPerThread(emails: any[]): any[] {
   const byThread = new Map<string, any>();

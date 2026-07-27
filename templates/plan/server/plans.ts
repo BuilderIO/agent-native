@@ -1,15 +1,23 @@
-import { buildDeepLink } from "@agent-native/core/server";
+import { Buffer } from "node:buffer";
+
 import { emit } from "@agent-native/core/event-bus";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   assertAccess,
   ForbiddenError,
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { asc, eq, inArray } from "drizzle-orm";
-import { Buffer } from "node:buffer";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, schema } from "./db/index.js";
+
+import {
+  extractCommentMentions,
+  normalizeCommentMentions,
+  normalizePlanCommentResolutionTarget,
+  parsePlanCommentAnchor,
+  type PlanCommentMention,
+} from "../shared/comment-context.js";
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
@@ -27,19 +35,13 @@ import {
   type PlanSection,
   type PlanSummary,
 } from "../shared/types.js";
-import {
-  extractCommentMentions,
-  normalizeCommentMentions,
-  normalizePlanCommentResolutionTarget,
-  parsePlanCommentAnchor,
-  type PlanCommentMention,
-} from "../shared/comment-context.js";
+import { getDb, schema } from "./db/index.js";
+import { resolvePlanAccessContext } from "./lib/local-identity.js";
 import {
   buildPlanContentHtml,
   parsePlanContent,
   sanitizeStoredPlanHtml,
 } from "./plan-content.js";
-import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 type ImplementationFile = {
   id: string;
@@ -432,6 +434,11 @@ export function buildUpdatedPlanCommentRows(input: {
   return rows;
 }
 
+// Chunk size for batched comment inserts. Keeps a single INSERT well under
+// SQLite's default 999-bound-parameter limit and Postgres' practical
+// statement-size limits even for a wide comment row shape.
+const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
+
 export async function insertInitialPlanComments(input: {
   planId: string;
   comments: PlanCommentInput[];
@@ -440,9 +447,11 @@ export async function insertInitialPlanComments(input: {
   now: string;
 }) {
   const rows = buildInitialPlanCommentRows(input);
+  if (rows.length === 0) return;
   const db = getDb();
-  for (const row of rows) {
-    await db.insert(schema.planComments).values(row);
+  for (let i = 0; i < rows.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
+    await db.insert(schema.planComments).values(chunk);
   }
 }
 
@@ -520,6 +529,8 @@ export function toComment(
     resolvedBy: row.resolvedBy,
     resolvedAt: row.resolvedAt,
     consumedAt: row.consumedAt,
+    deletedAt: row.deletedAt,
+    deletedBy: row.deletedBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -690,12 +701,33 @@ export function emitPlanStatusChanged(input: {
 }
 
 export async function assertPlanEditor(planId: string) {
-  return assertAccess(
-    "plan",
-    planId,
-    "editor",
-    resolvePlanAccessContext(currentAccess()),
-  );
+  const ctx = resolvePlanAccessContext(currentAccess());
+  try {
+    const access = await assertAccess("plan", planId, "editor", ctx);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${planId} not found`);
+    }
+    return access;
+  } catch (error) {
+    if (!(error instanceof ForbiddenError)) throw error;
+    // The caller failed the editor gate. If they can still READ the resource
+    // (viewer on an org/public plan or recap), replace core's bare role error
+    // ("Requires editor role on plan X (have viewer)") with a teaching error
+    // that names the resource kind and the sanctioned next step. Agents retry
+    // bare role errors verbatim in a loop; they act on errors that say what to
+    // do instead. Callers with no read access (or a deleted plan) keep the
+    // original non-leaking error.
+    const readable = await resolveAccess("plan", planId, ctx).catch(() => null);
+    const resource = readable?.resource as
+      | typeof schema.plans.$inferSelect
+      | undefined;
+    if (!readable || !resource || resource.deletedAt) throw error;
+    throw new ForbiddenError(
+      resource.kind === "recap"
+        ? `Recap ${planId} is read-only for you (your role: ${readable.role}). Recaps are published review snapshots owned by whoever published them (often the PR recap workflow), and changing one requires editor access. Do not retry this call with the same arguments. Instead: (1) add review feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access; (2) publish an updated recap you own with create-visual-recap (pass its planId only when replacing a recap you own); or (3) ask the recap owner to share editor access.`
+        : `Plan ${planId} is read-only for you (your role: ${readable.role}); this operation requires editor access. Do not retry this call with the same arguments. Instead add feedback with a comment-only update-visual-plan call or reply-to-plan-comment — commenting only needs viewer access — or ask the plan owner to share editor access.`,
+    );
+  }
 }
 
 export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
@@ -708,8 +740,37 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
   // avoid leaking existence). Throw ForbiddenError (statusCode 403) so the action
   // surface returns a clean 4xx instead of a 500 stack — a missing/private plan
   // must never surface as an Internal Server Error.
-  if (!access) throw new ForbiddenError(`Plan ${planId} not found`);
+  if (!access || !access.resource) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
   const plan = access.resource as typeof schema.plans.$inferSelect;
+  if (plan.deletedAt) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
+  return loadPlanBundleForAuthorizedPlan(planId, plan, access.role);
+}
+
+export async function loadPlanBundleForAgentAccess(
+  planId: string,
+): Promise<PlanBundle> {
+  const db = getDb();
+  // guard:allow-unscoped -- callers must verify a plan-scoped agent_access token before using this helper; it intentionally returns a read-only viewer bundle.
+  const [plan] = await db
+    .select()
+    .from(schema.plans)
+    .where(eq(schema.plans.id, planId))
+    .limit(1);
+  if (!plan || plan.deletedAt) {
+    throw new ForbiddenError(`Plan ${planId} not found`);
+  }
+  return loadPlanBundleForAuthorizedPlan(planId, plan, "viewer");
+}
+
+async function loadPlanBundleForAuthorizedPlan(
+  planId: string,
+  plan: typeof schema.plans.$inferSelect,
+  role: PlanBundle["access"]["role"],
+): Promise<PlanBundle> {
   const db = getDb();
   const [sectionRows, commentRows, eventRows] = await Promise.all([
     db
@@ -723,18 +784,30 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     db
       .select()
       .from(schema.planComments)
-      .where(eq(schema.planComments.planId, planId))
+      .where(
+        and(
+          eq(schema.planComments.planId, planId),
+          isNull(schema.planComments.deletedAt),
+        ),
+      )
       .orderBy(asc(schema.planComments.createdAt)),
     db
       .select()
       .from(schema.planEvents)
       .where(eq(schema.planEvents.planId, planId))
-      .orderBy(asc(schema.planEvents.createdAt)),
+      // plan_events is an append-only log with no cap; loadPlanBundle is polled
+      // every 3s while a plan is open (usePlan refetchInterval), so fetching
+      // every event ever written grows unbounded with plan age. Cap to the most
+      // recent 50 and reverse back to ascending order — downstream consumers
+      // (get-plan-feedback, PlansPage) only ever take the last 6-10 of a given
+      // event type, well within this window.
+      .orderBy(desc(schema.planEvents.createdAt))
+      .limit(50),
   ]);
 
   const sections = sectionRows.map(toSection);
   const comments = commentRows.map(toComment);
-  const events = eventRows.map(toEvent);
+  const events = eventRows.reverse().map(toEvent);
   return {
     plan: {
       id: plan.id,
@@ -748,15 +821,19 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
       sourceUrl: plan.sourceUrl,
+      sourceAuthorName: plan.sourceAuthorName,
+      sourceAuthorLogin: plan.sourceAuthorLogin,
       html: plan.html,
       markdown: plan.markdown,
       content: parsePlanContent(plan.content),
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
+      deletedAt: plan.deletedAt,
+      deletedBy: plan.deletedBy,
     },
     access: {
-      role: access.role,
+      role,
       ownerEmail: plan.ownerEmail ?? null,
       orgId: plan.orgId ?? null,
       visibility: plan.visibility ?? "private",
@@ -766,6 +843,22 @@ export async function loadPlanBundle(planId: string): Promise<PlanBundle> {
     events,
     summary: summarizePlan(sections, comments),
   };
+}
+
+/**
+ * Full append-only event log for a plan, ascending. `loadPlanBundle` caps its
+ * events at the most recent 50 because it sits on a 3s poll; durable receipts
+ * (export-visual-plan) call this instead so the exported history stays
+ * complete. Callers must have already resolved access to the plan.
+ */
+export async function loadFullPlanEvents(planId: string): Promise<PlanEvent[]> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.planEvents)
+    .where(eq(schema.planEvents.planId, planId))
+    .orderBy(asc(schema.planEvents.createdAt));
+  return rows.map(toEvent);
 }
 
 export function summarizePlan(
@@ -799,11 +892,17 @@ export async function summarizePlans(
       | "hostedPlanId"
       | "hostedPlanUrl"
       | "sourceUrl"
+      | "sourceAuthorName"
+      | "sourceAuthorLogin"
       | "createdAt"
       | "updatedAt"
       | "approvedAt"
+      | "deletedAt"
+      | "deletedBy"
+      | "ownerEmail"
     >
   >,
+  options: { deleteOwnerEmail?: string | null } = {},
 ): Promise<PlanSummary[]> {
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
@@ -826,7 +925,12 @@ export async function summarizePlans(
         status: schema.planComments.status,
       })
       .from(schema.planComments)
-      .where(inArray(schema.planComments.planId, ids)),
+      .where(
+        and(
+          inArray(schema.planComments.planId, ids),
+          isNull(schema.planComments.deletedAt),
+        ),
+      ),
   ]);
   return plans.map((plan) => {
     // summarizePlan only needs type (sections) and status (comments).
@@ -848,9 +952,18 @@ export async function summarizePlans(
       hostedPlanId: plan.hostedPlanId,
       hostedPlanUrl: plan.hostedPlanUrl,
       sourceUrl: plan.sourceUrl,
+      sourceAuthorName: plan.sourceAuthorName,
+      sourceAuthorLogin: plan.sourceAuthorLogin,
       createdAt: plan.createdAt,
       updatedAt: plan.updatedAt,
       approvedAt: plan.approvedAt,
+      deletedAt: plan.deletedAt,
+      deletedBy: plan.deletedBy,
+      ownerEmail: plan.ownerEmail ?? null,
+      canDelete: Boolean(
+        options.deleteOwnerEmail &&
+        plan.ownerEmail === options.deleteOwnerEmail,
+      ),
       ...summarizePlan(sections, comments),
     };
   });
@@ -1024,12 +1137,12 @@ function parseImplementationFiles(
   body: string,
   repoPath?: string | null,
 ): ImplementationFile[] {
-  const files = new Map<string, ImplementationFile>();
+  const implementationFiles = new Map<string, ImplementationFile>();
   const lines = body.split(/\r?\n/);
 
   for (const line of lines) {
     for (const ref of findFileReferences(line)) {
-      const existing = files.get(ref.path);
+      const existing = implementationFiles.get(ref.path);
       const summary = cleanImplementationSummary(line, ref.path);
       const symbols = extractSymbols(line, ref.path);
       if (existing) {
@@ -1040,7 +1153,7 @@ function parseImplementationFiles(
         }
         continue;
       }
-      files.set(ref.path, {
+      implementationFiles.set(ref.path, {
         id: stableDomId(`impl-${ref.path}`),
         path: ref.path,
         absolutePath: resolveImplementationPath(repoPath, ref.path),
@@ -1067,14 +1180,16 @@ function parseImplementationFiles(
     const hintedRef =
       findFileReferences(fence.info)[0] || nearbyRefs[nearbyRefs.length - 1];
     const item = hintedRef
-      ? files.get(hintedRef.path)
-      : Array.from(files.values()).find((candidate) => !candidate.previewCode);
+      ? implementationFiles.get(hintedRef.path)
+      : Array.from(implementationFiles.values()).find(
+          (candidate) => !candidate.previewCode,
+        );
     if (!item) continue;
     item.previewCode = fence.code;
     item.language = inferLanguage(item.path, fence.info) || item.language;
   }
 
-  return Array.from(files.values()).slice(0, 12);
+  return Array.from(implementationFiles.values()).slice(0, 12);
 }
 
 function cleanImplementationSummary(line: string, path: string) {

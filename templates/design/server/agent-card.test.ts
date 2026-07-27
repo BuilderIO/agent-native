@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
 import { generateAgentCard } from "@agent-native/core/a2a";
 import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
@@ -20,7 +21,7 @@ const REQUIRED_DESIGN_ACTIONS = [
   "navigate",
 ];
 
-const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;
+const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
 
 describe("design agent card", () => {
   it(

@@ -1,6 +1,17 @@
-import { and, eq, isNull, or } from "drizzle-orm";
 import { getDbExec } from "@agent-native/core/db";
+import { and, eq, isNull, or } from "drizzle-orm";
+
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  EXCEPTION_EVENT_NAME,
+  ingestAnalyticsExceptionEvents,
+  type DerivedExceptionFields,
+} from "./error-capture.js";
+import {
+  firstPartyCacheKey,
+  withFirstPartyCache,
+} from "./first-party-analytics-cache.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -22,8 +33,19 @@ export interface AnalyticsQueryResult {
   schema: { name: string; type: string }[];
 }
 
+export interface AnalyticsQueryOptions {
+  /** Cache only callers with a stable dashboard-panel lifecycle. */
+  cache?: boolean;
+  /** Bound the database work for callers with a smaller delivery deadline. */
+  timeoutMs?: number;
+}
+
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
+const FIRST_PARTY_QUERY_TABLES = new Set([
+  "analytics_events",
+  "session_recordings",
+]);
 const RESERVED_ALIAS_WORDS = new Set([
   "where",
   "on",
@@ -43,6 +65,10 @@ const RESERVED_ALIAS_WORDS = new Set([
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function todayIsoDate(): string {
+  return nowIso().slice(0, 10);
 }
 
 function randomHex(bytes: number): string {
@@ -74,6 +100,9 @@ export async function createAnalyticsPublicKey(
     name: name.trim() || "Default key",
     publicKey,
     publicKeyPrefix: publicKey.slice(0, 13),
+    replayAllowedOrigins: "[]",
+    replayMaxBytesPerDay: 100 * 1024 * 1024,
+    replayMaxRequestsPerMinute: 120,
     createdAt,
     ownerEmail: scope.userEmail,
     orgId: scope.orgId,
@@ -84,6 +113,9 @@ export async function createAnalyticsPublicKey(
     name: row.name,
     publicKey,
     publicKeyPrefix: row.publicKeyPrefix,
+    replayAllowedOrigins: [],
+    replayMaxBytesPerDay: row.replayMaxBytesPerDay,
+    replayMaxRequestsPerMinute: row.replayMaxRequestsPerMinute,
     createdAt,
     orgId: row.orgId,
     revokedAt: null,
@@ -117,11 +149,33 @@ export async function listAnalyticsPublicKeys(
     id: row.id,
     name: row.name,
     publicKeyPrefix: row.publicKeyPrefix,
+    replayAllowedOrigins: parseReplayAllowedOrigins(row.replayAllowedOrigins),
+    replayMaxBytesPerDay: row.replayMaxBytesPerDay ?? 100 * 1024 * 1024,
+    replayMaxRequestsPerMinute: row.replayMaxRequestsPerMinute ?? 120,
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt ?? null,
     revokedAt: row.revokedAt ?? null,
     orgId: row.orgId ?? null,
   }));
+}
+
+function parseReplayAllowedOrigins(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === "string");
+    }
+  } catch {
+    return value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
 }
 
 export async function revokeAnalyticsPublicKey(
@@ -171,17 +225,34 @@ function asString(value: unknown): string | null {
   return null;
 }
 
-function normalizeTimestamp(value: unknown): string {
-  if (value instanceof Date) return value.toISOString();
+export function normalizeAnalyticsTimestamp(
+  value: unknown,
+  receivedAt = nowIso(),
+): string {
+  const fallback = (() => {
+    const date = new Date(receivedAt);
+    return Number.isNaN(date.getTime()) ? nowIso() : date.toISOString();
+  })();
+  const fallbackTime = new Date(fallback).getTime();
+  const normalize = (date: Date) => {
+    if (Number.isNaN(date.getTime())) return fallback;
+    return date.getTime() > fallbackTime ? fallback : date.toISOString();
+  };
+
+  if (value instanceof Date) return normalize(value);
   if (typeof value === "number") {
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? nowIso() : d.toISOString();
+    return normalize(d);
   }
   if (typeof value === "string" && value.trim()) {
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? nowIso() : d.toISOString();
+    return normalize(d);
   }
-  return nowIso();
+  return fallback;
+}
+
+function eventDateFromTimestamp(timestamp: string): string {
+  return timestamp.slice(0, 10);
 }
 
 function urlParts(url: string | null): {
@@ -201,6 +272,36 @@ function urlParts(url: string | null): {
   } catch {
     return { url, path: null, hostname: null };
   }
+}
+
+export function resolveAnalyticsEventDimensions({
+  properties,
+  context,
+  hostname,
+}: {
+  properties: Record<string, unknown>;
+  context: Record<string, unknown>;
+  hostname: string | null;
+}): { app: string | null; template: string | null } {
+  const app =
+    asString(properties.app) ||
+    asString((properties as any).agent_native_app) ||
+    asString((properties as any).agentNativeApp) ||
+    asString((context as any).app) ||
+    asString((context as any).agent_native_app) ||
+    asString((context as any).agentNativeApp) ||
+    (hostname ? hostname.split(".")[0] : null);
+  const template =
+    asString(properties.template) ||
+    asString((properties as any).templateId) ||
+    asString((properties as any).agent_native_template) ||
+    asString((properties as any).agentNativeTemplate) ||
+    asString((context as any).template) ||
+    asString((context as any).templateId) ||
+    asString((context as any).agent_native_template) ||
+    asString((context as any).agentNativeTemplate) ||
+    app;
+  return { app, template };
 }
 
 export function parseAnalyticsTrackPayload(raw: unknown): {
@@ -267,6 +368,10 @@ export async function recordAnalyticsEvents(
   }
 
   const receivedAt = nowIso();
+  const exceptionSources: Array<{
+    properties: Record<string, unknown>;
+    derived: DerivedExceptionFields;
+  }> = [];
   const rows = events.map((event) => {
     const properties = event.properties ?? {};
     const context = event.context ?? {};
@@ -279,31 +384,52 @@ export async function recordAnalyticsEvents(
       parts.hostname ||
       asString(properties.hostname) ||
       asString((context as any).hostname);
-    const app =
-      asString(properties.app) ||
-      asString((context as any).app) ||
-      (hostname ? hostname.split(".")[0] : null);
-    const template =
-      asString(properties.template) ||
-      asString((properties as any).templateId) ||
-      app;
+    const { app, template } = resolveAnalyticsEventDimensions({
+      properties,
+      context,
+      hostname,
+    });
     const signedIn =
       asString((properties as any).signed_in) ||
       asString((properties as any).signedIn) ||
       asString((context as any).signed_in) ||
       asString((context as any).signedIn);
+    const userId = event.userId ?? asString((properties as any).userId);
+    const anonymousId =
+      event.anonymousId ??
+      asString((properties as any).anonymousId) ??
+      asString((properties as any).distinctId);
+    const userKey = userId || anonymousId;
+    const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
+    const sessionId =
+      event.sessionId ?? asString((properties as any).sessionId);
+
+    if (event.event === EXCEPTION_EVENT_NAME) {
+      exceptionSources.push({
+        properties,
+        derived: {
+          app,
+          template,
+          url: parts.url,
+          userId,
+          anonymousId,
+          userKey,
+          sessionId,
+          timestamp,
+        },
+      });
+    }
 
     return {
       id: id("evt"),
       publicKeyId: key.id,
       eventName: event.event,
-      userId: event.userId ?? asString((properties as any).userId),
-      anonymousId:
-        event.anonymousId ??
-        asString((properties as any).anonymousId) ??
-        asString((properties as any).distinctId),
-      sessionId: event.sessionId ?? asString((properties as any).sessionId),
-      timestamp: normalizeTimestamp(event.timestamp),
+      userId,
+      anonymousId,
+      userKey,
+      sessionId,
+      timestamp,
+      eventDate: eventDateFromTimestamp(timestamp),
       receivedAt,
       url: parts.url,
       path: parts.path ?? asString(properties.path),
@@ -326,6 +452,25 @@ export async function recordAnalyticsEvents(
       .update(schema.analyticsPublicKeys)
       .set({ lastUsedAt: receivedAt })
       .where(eq(schema.analyticsPublicKeys.id, key.id));
+  }
+
+  // Fork captured exceptions into the dedicated error-capture tables. This is
+  // best-effort: a malformed `$exception` payload must never reject the whole
+  // analytics ingest (the event is still recorded in analytics_events above,
+  // which keeps alerting working).
+  if (exceptionSources.length) {
+    try {
+      await ingestAnalyticsExceptionEvents(
+        {
+          ownerEmail: key.ownerEmail,
+          orgId: key.orgId ?? null,
+          publicKeyId: key.id,
+        },
+        exceptionSources,
+      );
+    } catch (error) {
+      console.warn("[first-party-analytics] Exception ingest failed:", error);
+    }
   }
 
   return { accepted: rows.length, keyId: key.id };
@@ -394,6 +539,14 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   if (stripped.includes("?")) {
     throw new Error("Bind placeholders are not supported in dashboard SQL");
   }
+  if (/\$\d+\b/.test(stripped)) {
+    throw new Error("Bind placeholders are not supported in dashboard SQL");
+  }
+  if (/\bsession_replay_chunks\b/i.test(stripped)) {
+    throw new Error(
+      "First-party analytics queries cannot read session replay chunks",
+    );
+  }
 
   const cteNames = new Set<string>();
   const cteRe = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s+as\s*\(/gi;
@@ -401,22 +554,24 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
     cteNames.add(match[1].toLowerCase());
   }
 
-  let usesAnalyticsEvents = false;
+  let usesAllowedTable = false;
   const tableRe =
     /\b(?:from|join)\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)?)/gi;
   for (const match of stripped.matchAll(tableRe)) {
     const ref = match[1].toLowerCase();
-    if (ref === "analytics_events") {
-      usesAnalyticsEvents = true;
+    if (FIRST_PARTY_QUERY_TABLES.has(ref)) {
+      usesAllowedTable = true;
       continue;
     }
     if (cteNames.has(ref)) continue;
     throw new Error(
-      `First-party analytics queries can only read analytics_events (found ${match[1]})`,
+      `First-party analytics queries can only read analytics_events or session_recordings (found ${match[1]})`,
     );
   }
-  if (!usesAnalyticsEvents) {
-    throw new Error("Query must read from analytics_events");
+  if (!usesAllowedTable) {
+    throw new Error(
+      "Query must read from analytics_events or session_recordings",
+    );
   }
 }
 
@@ -436,24 +591,38 @@ function scopeClause(scope: AnalyticsScope): {
   };
 }
 
-function scopedAnalyticsSql(
+function freshnessClause(tableName: string): string {
+  if (tableName === "analytics_events") {
+    return "(COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)) <= ?)";
+  }
+  return "(substr(started_at, 1, 10) <= ?)";
+}
+
+export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
+  today = todayIsoDate(),
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
   const aliasRe =
-    /\b(from|join)\s+analytics_events\b(\s+(?:as\s+)?(?!where\b|on\b|group\b|order\b|limit\b|join\b|left\b|right\b|inner\b|outer\b|cross\b|full\b|having\b|union\b)([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
-  const rewritten = sql.replace(aliasRe, (full, keyword, aliasPart, alias) => {
-    const normalizedAlias =
-      typeof alias === "string" ? alias.toLowerCase() : "";
-    const usableAlias =
-      aliasPart && normalizedAlias && !RESERVED_ALIAS_WORDS.has(normalizedAlias)
-        ? aliasPart
-        : " AS analytics_events";
-    const scopeDef = scopeClause(scope);
-    args.push(...scopeDef.args);
-    return `${keyword} (SELECT * FROM analytics_events WHERE ${scopeDef.sql})${usableAlias}`;
-  });
+    /\b(from|join)\s+(analytics_events|session_recordings)\b(\s+(?:as\s+)?(?!where\b|on\b|group\b|order\b|limit\b|join\b|left\b|right\b|inner\b|outer\b|cross\b|full\b|having\b|union\b)([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
+  const rewritten = sql.replace(
+    aliasRe,
+    (full, keyword, tableName, aliasPart, alias) => {
+      const normalizedTable = String(tableName).toLowerCase();
+      const normalizedAlias =
+        typeof alias === "string" ? alias.toLowerCase() : "";
+      const usableAlias =
+        aliasPart &&
+        normalizedAlias &&
+        !RESERVED_ALIAS_WORDS.has(normalizedAlias)
+          ? aliasPart
+          : ` AS ${normalizedTable}`;
+      const scopeDef = scopeClause(scope);
+      args.push(...scopeDef.args, today);
+      return `${keyword} (SELECT * FROM ${normalizedTable} WHERE ${scopeDef.sql} AND ${freshnessClause(normalizedTable)})${usableAlias}`;
+    },
+  );
   return { sql: rewritten, args };
 }
 
@@ -478,14 +647,30 @@ function inferSchema(rows: Record<string, unknown>[]): {
 export async function queryFirstPartyAnalytics(
   sql: string,
   scope: AnalyticsScope,
+  options: AnalyticsQueryOptions = {},
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSql(sql);
   const scoped = scopedAnalyticsSql(sql, scope);
-  const exec = getDbExec();
-  const result = await exec.execute({
-    sql: `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`,
-    args: scoped.args,
-  });
-  const rows = result.rows as Record<string, unknown>[];
-  return { rows, schema: inferSchema(rows) };
+  const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  const timeoutMs = Math.max(
+    1,
+    options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+  );
+  // The cache key is the fully scoped SQL + args, which already embeds
+  // org_id/owner_email (see scopeClause) — a cache hit can only ever return
+  // rows the same tenant was already entitled to query.
+  const cacheKey = firstPartyCacheKey(wrappedSql, scoped.args);
+  const compute = async (): Promise<AnalyticsQueryResult> => {
+    const exec = getDbExec();
+    const result = await exec.execute({
+      sql: wrappedSql,
+      args: scoped.args,
+      timeoutMs,
+      maxAttempts: 1,
+    });
+    const rows = result.rows as Record<string, unknown>[];
+    return { rows, schema: inferSchema(rows) };
+  };
+  if (!options.cache) return compute();
+  return withFirstPartyCache(cacheKey, wrappedSql, compute, { timeoutMs });
 }

@@ -8,6 +8,22 @@ import {
 } from "./provider-credentials";
 
 const API_BASE = "https://api.hubapi.com";
+const HUBSPOT_SEARCH_MIN_INTERVAL_MS = 200;
+
+let hubspotSearchSchedule = Promise.resolve();
+let nextHubSpotSearchAt = 0;
+
+async function waitForHubSpotSearchSlot(): Promise<void> {
+  const scheduled = hubspotSearchSchedule.then(async () => {
+    const delay = Math.max(0, nextHubSpotSearchAt - Date.now());
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    nextHubSpotSearchAt = Date.now() + HUBSPOT_SEARCH_MIN_INTERVAL_MS;
+  });
+  hubspotSearchSchedule = scheduled.catch(() => undefined);
+  await scheduled;
+}
 
 // In-memory cache
 const cache = new Map<string, { data: unknown; ts: number }>();
@@ -89,6 +105,10 @@ async function apiPost<T>(
     return cached.data as T;
   }
 
+  if (path.endsWith("/search")) {
+    await waitForHubSpotSearchSlot();
+  }
+
   const res = await hubspotFetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: {
@@ -162,6 +182,18 @@ export interface Deal {
     hs_deal_stage_probability: string | null;
     [key: string]: string | null | undefined;
   };
+}
+
+export interface HubSpotSearchFilter {
+  propertyName: string;
+  operator: string;
+  value?: string;
+  values?: string[];
+  highValue?: string;
+}
+
+export interface HubSpotSearchFilterGroup {
+  filters: HubSpotSearchFilter[];
 }
 
 export interface HubSpotOwner {
@@ -398,6 +430,7 @@ async function resolveObjectProperties(
 export async function searchHubSpotObjects(options: {
   objectType: HubSpotObjectType;
   query?: string;
+  filterGroups?: HubSpotSearchFilterGroup[];
   properties?: string[];
   limit?: number;
   after?: string;
@@ -408,19 +441,23 @@ export async function searchHubSpotObjects(options: {
   properties: string[];
 }> {
   const objectType = options.objectType;
-  const limit = Math.max(1, Math.min(100, options.limit ?? 25));
+  const limit = Math.max(1, Math.min(200, options.limit ?? 25));
   const query = options.query?.trim();
+  const filterGroups = options.filterGroups?.filter(
+    (group) => group.filters.length > 0,
+  );
   const properties = await resolveObjectProperties(
     objectType,
     options.properties ?? [],
   );
 
-  if (query) {
+  if (query || filterGroups?.length) {
     const body: Record<string, unknown> = {
-      query,
       limit,
       properties,
     };
+    if (query) body.query = query;
+    if (filterGroups?.length) body.filterGroups = filterGroups;
     if (options.after) body.after = options.after;
     const data = await apiPost<HubSpotObjectListResponse>(
       `/crm/v3/objects/${objectType}/search`,

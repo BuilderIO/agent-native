@@ -4,6 +4,7 @@ description: >-
   Triage feedback docs or pasted feedback into bugs to fix, UX suggestions to
   propose, unclear questions, and skipped noise; verify bugs, check Sentry when
   relevant, and keep UI changes minimal.
+scope: dev
 metadata:
   internal: true
 ---
@@ -74,7 +75,8 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
 6. Verify changed behavior.
 
    - Run the smallest relevant test or typecheck command.
-   - For UI fixes, verify in a browser when feasible and inspect the actual screen.
+   - For UI fixes, inspect the actual screen with a browser tool you already
+     have. Do not write a browser-automation script to check a small fix.
    - If you cannot run a useful verification, say why.
 
 ## Report Format

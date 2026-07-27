@@ -1,6 +1,6 @@
+import { writeFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { writeFileSync } from "node:fs";
 
 const CORE_SRC = join(import.meta.dirname, "../../core/src");
 const OUTPUT = join(import.meta.dirname, "../public/source-index.json");

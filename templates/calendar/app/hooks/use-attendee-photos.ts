@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+
 import { appApiPath } from "@/lib/api-path";
 
 /**

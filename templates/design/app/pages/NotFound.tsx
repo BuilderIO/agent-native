@@ -1,20 +1,38 @@
+import { useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
+import { IconArrowLeft, IconLogin2 } from "@tabler/icons-react";
 import { Link } from "react-router";
-import { IconArrowLeft } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
+  const t = useT();
+  const { session, isLoading } = useSession();
+  const showSignIn = !isLoading && !session?.email;
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center">
+    <div className="flex min-h-full w-full flex-col items-center justify-center bg-background px-4 py-12">
       <h1 className="text-6xl font-bold text-muted-foreground/60 mb-4">404</h1>
       <p className="text-sm text-muted-foreground mb-6">
-        The page you are looking for does not exist.
+        {t("pages.notFoundDescription")}
       </p>
-      <Button asChild variant="outline" className="cursor-pointer">
-        <Link to="/">
-          <IconArrowLeft className="w-4 h-4" />
-          Back to designs
-        </Link>
-      </Button>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        {showSignIn && (
+          <Button asChild className="cursor-pointer">
+            <a href={buildSignInReturnHref()}>
+              <IconLogin2 className="size-4" />
+              {t("pages.notFoundSignIn")}
+            </a>
+          </Button>
+        )}
+        <Button asChild variant="outline" className="cursor-pointer">
+          <Link to="/">
+            <IconArrowLeft className="size-4 rtl:-scale-x-100" />
+            {t("pages.notFoundBackToDesigns")}
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }

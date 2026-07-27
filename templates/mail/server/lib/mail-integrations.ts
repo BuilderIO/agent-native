@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+
+import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
-import { resolveOrgIdForEmail } from "@agent-native/core/org";
 
 type SlackSenderProfile = {
   email: string | null;
@@ -90,6 +91,9 @@ async function resolveSlackSenderProfile(
 async function resolveIncomingEmail(
   incoming: IncomingMessage,
 ): Promise<string | null> {
+  if (incoming.senderVerified === true && incoming.senderEmail?.trim()) {
+    return incoming.senderEmail.trim().toLowerCase();
+  }
   if (incoming.platform === "slack") {
     return (await resolveSlackSenderProfile(incoming)).email;
   }

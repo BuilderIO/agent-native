@@ -585,6 +585,33 @@ function dispatchHostEvent(
   return { dispatched: true };
 }
 
+/**
+ * Cooldown for host-issued `hardReload` / `hard-reload` commands. A reload is
+ * already in flight after the first command, so repeats inside this window are
+ * acknowledged (`{ reloading: true }` — the page IS reloading) but do not call
+ * `window.location.reload()` again. Without this, an embedding host that sends
+ * the command on a loop (health checks, per-edit refresh logic) can keep the
+ * page permanently mid-reload.
+ */
+const HARD_RELOAD_COOLDOWN_MS = 2_000;
+let lastHardReloadAt = 0;
+
+/** @internal Exported for tests only. */
+export function _resetHostHardReloadCooldownForTests(): void {
+  lastHardReloadAt = 0;
+}
+
+function runGuardedHardReload(): { reloading: true } {
+  if (typeof window !== "undefined") {
+    const now = Date.now();
+    if (now - lastHardReloadAt >= HARD_RELOAD_COOLDOWN_MS) {
+      lastHardReloadAt = now;
+      window.location.reload();
+    }
+  }
+  return { reloading: true };
+}
+
 export const defaultAgentNativeHostCommands: AgentNativeHostCommandHandlers = {
   navigate: ({ payload }) => dispatchHostEvent("agentNative:navigate", payload),
   refreshData: ({ payload }) =>
@@ -595,14 +622,8 @@ export const defaultAgentNativeHostCommands: AgentNativeHostCommandHandlers = {
     dispatchHostEvent("agentNative:remount-view", payload),
   "remount-view": ({ payload }) =>
     dispatchHostEvent("agentNative:remount-view", payload),
-  hardReload: () => {
-    if (typeof window !== "undefined") window.location.reload();
-    return { reloading: true };
-  },
-  "hard-reload": () => {
-    if (typeof window !== "undefined") window.location.reload();
-    return { reloading: true };
-  },
+  hardReload: () => runGuardedHardReload(),
+  "hard-reload": () => runGuardedHardReload(),
   openResource: ({ payload }) =>
     dispatchHostEvent("agentNative:open-resource", payload),
   "open-resource": ({ payload }) =>

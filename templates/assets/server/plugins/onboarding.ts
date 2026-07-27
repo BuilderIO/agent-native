@@ -10,18 +10,19 @@
  * context as the framework onboarding route handlers (in-memory Map).
  */
 
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
-import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "@agent-native/core/server";
-import { isObjectStorageConfigured } from "../lib/storage.js";
-import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+
 import { isBuilderImageGenerationEnabled } from "../lib/generation.js";
+import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
+import { isObjectStorageConfigured } from "../lib/storage.js";
 
 const basePlugin = createOnboardingPlugin();
 

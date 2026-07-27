@@ -39,14 +39,14 @@ export interface CodeAgentGoalDefinition {
 export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
   {
     id: "task",
-    label: "New session",
+    label: "New task",
     slashCommand: "/task",
     description:
-      "Start a general coding session from a prompt, then keep transcript events and follow-ups attached to the same run.",
+      "Start a general task from a prompt, then keep progress, outcomes, and follow-ups attached to the same run.",
     cliCommand: "task",
-    runNoun: "coding session",
-    surfaceLabel: "Native transcript",
-    primaryActionLabel: "New Session",
+    runNoun: "agent task",
+    surfaceLabel: "Task workspace",
+    primaryActionLabel: "New Task",
     surfaceKind: "native",
   },
   {
@@ -54,10 +54,10 @@ export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
     label: "App migration",
     slashCommand: "/migrate",
     description:
-      "Start a slash-command session that ports an existing path, URL, or described product into agent-native.",
+      "Start a migration task that ports an existing path, URL, or described product into agent-native.",
     cliCommand: "migrate",
-    runNoun: "slash-command session",
-    surfaceLabel: "Native migration session",
+    runNoun: "migration task",
+    surfaceLabel: "Migration workspace",
     primaryActionLabel: "Start /migrate",
     surfaceKind: "native",
   },
@@ -66,9 +66,9 @@ export const CODE_AGENT_GOALS: CodeAgentGoalDefinition[] = [
     label: "Agent web audit",
     slashCommand: "/audit",
     description:
-      "Start a slash-command session that checks a public URL for agent-readable surfaces such as llms.txt, sitemap, and Markdown mirrors.",
+      "Start an audit task that checks a public URL for agent-readable surfaces such as llms.txt, sitemap, and Markdown mirrors.",
     cliCommand: "audit-agent-web",
-    runNoun: "slash-command session",
+    runNoun: "audit task",
     surfaceLabel: "Native audit feedback",
     primaryActionLabel: "Start /audit",
     surfaceKind: "native",

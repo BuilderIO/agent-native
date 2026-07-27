@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import {
   DEFAULT_PLAN_HOSTED_URL,
   planConnectCommand,
@@ -88,7 +90,7 @@ describe("plan-publish auth resolution", () => {
 
   it("builds the connect command", () => {
     expect(planConnectCommand("https://plan.example.com")).toBe(
-      "agent-native connect https://plan.example.com",
+      "npx @agent-native/core@latest connect https://plan.example.com",
     );
   });
 });

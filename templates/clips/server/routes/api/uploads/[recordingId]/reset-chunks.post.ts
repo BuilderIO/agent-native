@@ -25,22 +25,35 @@
  */
 
 import {
+  writeAppState,
+  deleteAppStateByPrefix,
+} from "@agent-native/core/application-state";
+import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
+import type { UploadMode } from "@shared/recording-core.js";
+import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
+import { and, eq } from "drizzle-orm";
+import {
   defineEventHandler,
   getRouterParam,
   readBody,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
-import {
-  writeAppState,
-  deleteAppStateByPrefix,
-} from "@agent-native/core/application-state";
 
-const MAX_RECORDING_UPLOAD_BYTES = 64 * 1024 * 1024;
+import { getDb, schema } from "../../../../db/index.js";
+import { isMediaVerificationPending } from "../../../../lib/media-verification-state.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
+import {
+  deleteResumableSession,
+  setResumableSession,
+} from "../../../../lib/resumable-session.js";
+import { shouldEnableStreamingUpload } from "../../../../lib/streaming-upload-mode.js";
+import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
+import { allowsSqlRecordingChunkScratch } from "../../../../lib/video-storage.js";
 
 interface CompressionMeta {
   originalBytes?: number;
@@ -48,6 +61,16 @@ interface CompressionMeta {
   ratio?: number;
   elapsedMs?: number;
   outputMimeType?: string;
+}
+
+function normalizeVideoMimeType(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const mimeType = value.split(";")[0]?.trim().toLowerCase();
+  return mimeType === "video/mp4" ||
+    mimeType === "video/quicktime" ||
+    mimeType === "video/webm"
+    ? mimeType
+    : null;
 }
 
 function pickNumber(value: unknown): number | undefined {
@@ -73,6 +96,8 @@ export default defineEventHandler(async (event: H3Event) => {
   const { userEmail: ownerEmail, orgId } = await getEventOwnerContext(event);
   const body = (await readBody(event).catch(() => null)) as {
     compression?: CompressionMeta | null;
+    requestStreaming?: boolean;
+    mimeType?: string;
   } | null;
 
   // Sanitize compression metadata. The recorder is the only client we trust
@@ -92,12 +117,16 @@ export default defineEventHandler(async (event: H3Event) => {
     const db = getDb();
 
     const [existing] = await db
-      .select({ id: schema.recordings.id })
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+      })
       .from(schema.recordings)
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 
@@ -106,9 +135,89 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Recording not found" };
     }
 
+    if (existing.status === "ready" && existing.videoUrl) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is already ready" };
+    }
+
+    if (
+      await isMediaVerificationPending({
+        ownerEmail,
+        recordingId,
+        recordingStatus: existing.status,
+      })
+    ) {
+      setResponseStatus(event, 409);
+      return { error: "Recording is still being verified" };
+    }
+
     const cleared = await deleteAppStateByPrefix(
       `recording-chunks-${recordingId}-`,
     );
+    // Clear any stale resumable session so a buffered retry does not
+    // accidentally route through handleResumableChunk with stale offsets.
+    await deleteResumableSession(recordingId).catch(() => {});
+
+    let uploadMode: UploadMode = "buffered";
+    if (body?.requestStreaming === true) {
+      const mimeType = normalizeVideoMimeType(body.mimeType);
+      if (!mimeType) {
+        setResponseStatus(event, 400);
+        return { error: "A supported video mimeType is required for retry" };
+      }
+
+      const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
+      const uploadProvider = await getActiveFileUploadProviderForRequest();
+      if (
+        shouldEnableStreamingUpload({
+          client: "desktop",
+          mimeType,
+          bufferedFallbackAvailable,
+        }) &&
+        uploadProvider?.resumable
+      ) {
+        try {
+          const extension = /mp4|quicktime/.test(mimeType) ? "mp4" : "webm";
+          const filename = `${recordingId}.${extension}`;
+          const session = await uploadProvider.resumable.startSession(
+            filename,
+            mimeType,
+            MAX_RECORDING_UPLOAD_BYTES,
+          );
+          await setResumableSession(recordingId, {
+            providerId: uploadProvider.id,
+            sessionId: session.sessionId,
+            meta: {
+              ...session.meta,
+              stableUrl: true,
+              recordAsset: false,
+            },
+            bytesUploaded: 0,
+            lastCommittedIndex: -1,
+          });
+          uploadMode = "streaming";
+        } catch (err) {
+          if (!bufferedFallbackAvailable) {
+            setResponseStatus(event, 502);
+            return {
+              error: `Could not restart recording upload: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+            };
+          }
+          console.warn(
+            `[reset-chunks-${recordingId}] resumable restart failed; using buffered retry:`,
+            err,
+          );
+        }
+      } else if (!bufferedFallbackAvailable) {
+        setResponseStatus(event, 409);
+        return {
+          error:
+            "Recording upload storage could not start a resumable retry session.",
+        };
+      }
+    }
 
     // Reset the per-recording upload progress so the UI poller sees the
     // re-upload restart from 0 and doesn't briefly show "100% then
@@ -142,6 +251,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         failureReason: null,
         uploadProgress: 0,
+        // A retry re-takes the lease. Without this the row would go back to
+        // 'uploading' still carrying the expired lease that killed it.
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
         updatedAt: now,
       })
       .where(eq(schema.recordings.id, recordingId));
@@ -151,6 +263,7 @@ export default defineEventHandler(async (event: H3Event) => {
       recordingId,
       chunksCleared: cleared,
       compressionRecorded: !!compression,
+      uploadMode,
     };
   });
 });

@@ -6,7 +6,9 @@ import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
+
 import * as Sentry from "@sentry/node";
+
 import { extractOAuthStateAppId } from "../shared/oauth-state.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -14,6 +16,12 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import {
+  attachGatewaySocketErrorSink,
+  normalizeOrigin,
+  rewriteRedirectLocation,
+  escapeHtml,
+} from "./gateway-helpers.js";
 
 export interface WorkspaceApp {
   id: string;
@@ -75,21 +83,13 @@ const DEFAULT_PROXY_RESPONSE_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_NON_HTML_RESPONSE_TIMEOUT_MS = 120_000;
 const APP_OUTPUT_TAIL_BYTES = 8_000;
 const POLLING_WATCH_INTERVAL_MS = "1000";
+const reportedDiscoverAppsReadFailures = new Set<string>();
 const STARTING_APP_RESPONSE_HEADERS: http.OutgoingHttpHeaders = {
   "content-type": "text/html; charset=utf-8",
   "cache-control": "no-store, no-cache, max-age=0, must-revalidate",
   pragma: "no-cache",
   expires: "0",
 };
-
-function normalizeOrigin(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return undefined;
-  }
-}
 
 function workspaceOAuthOrigin(
   env: NodeJS.ProcessEnv,
@@ -288,6 +288,23 @@ function readJson(file: string): any {
   }
 }
 
+function shouldReportDiscoverAppsReadFailure(
+  appsDir: string,
+  code: string | undefined,
+): boolean {
+  if (code === "ENOENT") return false;
+  const key = `${appsDir}:${code ?? "unknown"}`;
+  if (reportedDiscoverAppsReadFailures.has(key)) return false;
+  reportedDiscoverAppsReadFailures.add(key);
+  return true;
+}
+
+function shouldCaptureDiscoverAppsReadFailure(
+  code: string | undefined,
+): boolean {
+  return code !== "EACCES" && code !== "EPERM";
+}
+
 function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
   if (!fs.existsSync(appsDir)) return [];
   // existsSync -> readdirSync is a TOCTOU race. Treat ENOENT as "no apps
@@ -297,15 +314,17 @@ function discoverApps(appsDir: string, appPortStart: number): WorkspaceApp[] {
     entries = fs.readdirSync(appsDir, { withFileTypes: true });
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
+    if (shouldReportDiscoverAppsReadFailure(appsDir, code)) {
       console.warn(
         `[workspace] Could not read ${appsDir} (${code ?? "unknown"}): ` +
           `${(err as Error).message}`,
       );
-      Sentry.captureException(err, {
-        tags: { handled: "dev-discover-readdir" },
-        level: "warning",
-      });
+      if (shouldCaptureDiscoverAppsReadFailure(code)) {
+        Sentry.captureException(err, {
+          tags: { handled: "dev-discover-readdir" },
+          level: "warning",
+        });
+      }
     }
     return [];
   }
@@ -446,7 +465,7 @@ function probeHttpReady(
       },
       (res) => {
         res.resume();
-        finish(true);
+        finish((res.statusCode ?? 500) < 500);
       },
     );
     req.setTimeout(timeoutMs, () => finish(false));
@@ -529,23 +548,6 @@ function renderStartingApp(app: WorkspaceApp): string {
     </main>
   </body>
 </html>`;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
 }
 
 function renderIndex(apps: WorkspaceApp[]): string {
@@ -1057,10 +1059,28 @@ export async function runWorkspaceDev(
           settled = true;
           clearTimeout(responseTimer);
           app.ready = true;
-          res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+          const statusCode = proxyRes.statusCode ?? 502;
+          const responseHeaders = { ...proxyRes.headers };
+          if (statusCode >= 300 && statusCode < 400) {
+            const rewritten = rewriteRedirectLocation(
+              app,
+              firstHeaderValue(responseHeaders.location),
+            );
+            if (rewritten) responseHeaders.location = rewritten;
+          }
+          res.writeHead(statusCode, responseHeaders);
+          proxyRes.once("error", () => {
+            if (!res.destroyed) res.destroy();
+          });
           proxyRes.pipe(res);
         },
       );
+      proxyReq.once("socket", (socket) => {
+        attachGatewaySocketErrorSink(socket);
+      });
+      res.once("error", () => {
+        proxyReq.destroy();
+      });
       responseTimer = setTimeout(() => {
         if (settled) return;
         settled = true;
@@ -1133,6 +1153,13 @@ export async function runWorkspaceDev(
     head: Buffer,
   ): void {
     startApp(app);
+    let target: net.Socket | undefined;
+    attachGatewaySocketErrorSink(socket, () => {
+      target?.destroy();
+    });
+    socket.once("close", () => {
+      target?.destroy();
+    });
     void waitForPort(app.port, Date.now() + proxyReadyTimeoutMs).then(
       (ready) => {
         if (!ready) {
@@ -1140,8 +1167,9 @@ export async function runWorkspaceDev(
           socket.destroy();
           return;
         }
+        if (socket.destroyed) return;
         app.ready = true;
-        const target = net.connect(app.port, "127.0.0.1", () => {
+        const upstream = net.connect(app.port, "127.0.0.1", () => {
           const headers = Object.entries(
             proxyHeaders(req, `127.0.0.1:${app.port}`),
           )
@@ -1151,14 +1179,20 @@ export async function runWorkspaceDev(
                 : [`${key}: ${value ?? ""}`],
             )
             .join("\r\n");
-          target.write(
+          upstream.write(
             `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`,
           );
-          if (head.length) target.write(head);
-          socket.pipe(target).pipe(socket);
+          if (head.length) upstream.write(head);
+          socket.pipe(upstream).pipe(socket);
         });
+        target = upstream;
 
-        target.on("error", () => socket.destroy());
+        attachGatewaySocketErrorSink(upstream, () => {
+          if (!socket.destroyed) socket.destroy();
+        });
+        upstream.once("close", () => {
+          if (!socket.destroyed) socket.destroy();
+        });
       },
     );
   }

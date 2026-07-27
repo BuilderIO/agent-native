@@ -1,16 +1,17 @@
-import { useState } from "react";
 import {
   IconLayoutNavbar,
   IconPencil,
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "../../utils.js";
+import { useState } from "react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover.js";
+import { cn } from "../../utils.js";
 import { defineBlock } from "../types.js";
 import type {
   BlockContainerRegion,
@@ -18,6 +19,7 @@ import type {
   BlockEditProps,
   NestedBlock,
 } from "../types.js";
+import { NarrowContainerProvider } from "./narrow-container.js";
 import {
   tabsSchema,
   tabsMdx,
@@ -25,7 +27,6 @@ import {
   type TabsOrientation,
   type TabsTab,
 } from "./tabs.config.js";
-import { NarrowContainerProvider } from "./narrow-container.js";
 
 /**
  * Standard `tabs` block: a horizontal pill-tab container whose tabs each hold a
@@ -60,6 +61,46 @@ const tabSettingsInputClass =
 
 function tabOrientation(data: Pick<TabsData, "orientation">): TabsOrientation {
   return data.orientation === "vertical" ? "vertical" : "horizontal";
+}
+
+function tabsUseWideLayout(data: TabsData): boolean {
+  return (
+    tabOrientation(data) === "vertical" ||
+    data.tabs.some((tab) => nestedBlocksContainDiffLike(tab.blocks))
+  );
+}
+
+function nestedBlocksContainDiffLike(blocks: NestedBlock[]): boolean {
+  return blocks.some(nestedBlockContainsDiffLike);
+}
+
+function nestedBlockContainsDiffLike(block: NestedBlock): boolean {
+  if (block.type === "diff" || block.type === "annotated-code") return true;
+
+  const data = (block as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return false;
+
+  const tabs = (data as { tabs?: unknown }).tabs;
+  if (Array.isArray(tabs)) {
+    return tabs.some((tab) => {
+      const blocks = (tab as { blocks?: unknown }).blocks;
+      return Array.isArray(blocks)
+        ? nestedBlocksContainDiffLike(blocks as NestedBlock[])
+        : false;
+    });
+  }
+
+  const columns = (data as { columns?: unknown }).columns;
+  if (Array.isArray(columns)) {
+    return columns.some((column) => {
+      const blocks = (column as { blocks?: unknown }).blocks;
+      return Array.isArray(blocks)
+        ? nestedBlocksContainDiffLike(blocks as NestedBlock[])
+        : false;
+    });
+  }
+
+  return false;
 }
 
 function tabsWith(data: TabsData, tabs: TabsTab[]): TabsData {
@@ -140,12 +181,19 @@ export function TabsBlockReader({
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
+  const wideLayout = tabsUseWideLayout(data);
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      className="plan-block"
+      data-block-id={blockId}
+      data-tabs-orientation={orientation}
+      data-wide-layout-block={wideLayout ? "" : undefined}
+    >
       {title && <div className="plan-block-label">{title}</div>}
-      <div className={cn(vertical && "@container/tabs")}>
+      <div className={cn("min-w-0 max-w-full", vertical && "@container/tabs")}>
         <div
           className={cn(
+            "min-w-0 max-w-full",
             vertical &&
               "grid min-w-0 gap-5 @xl/tabs:grid-cols-[minmax(10rem,14rem)_minmax(0,1fr)] @xl/tabs:items-start",
           )}
@@ -159,9 +207,9 @@ export function TabsBlockReader({
           {active &&
             (vertical ? (
               <NarrowContainerProvider>
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-full">
                   {active.blocks.map((child) => (
-                    <div key={child.id}>
+                    <div key={child.id} className="min-w-0 max-w-full">
                       {ctx.renderBlock?.({
                         block: child,
                         editing: false,
@@ -172,9 +220,9 @@ export function TabsBlockReader({
                 </div>
               </NarrowContainerProvider>
             ) : (
-              <div>
+              <div className="min-w-0 max-w-full">
                 {active.blocks.map((child) => (
-                  <div key={child.id}>
+                  <div key={child.id} className="min-w-0 max-w-full">
                     {ctx.renderBlock?.({
                       block: child,
                       editing: false,
@@ -210,6 +258,7 @@ export function TabsBlockEditor({
   const compact = isCompact(title);
   const orientation = tabOrientation(data);
   const vertical = orientation === "vertical";
+  const wideLayout = tabsUseWideLayout(data);
 
   const commit = (tabs: TabsTab[]) => onChange(tabsWith(data, tabs));
 
@@ -262,6 +311,8 @@ export function TabsBlockEditor({
     <div
       className={cn("min-w-0", vertical && "@container/tabs")}
       data-tabs-edit-block={blockId}
+      data-tabs-orientation={orientation}
+      data-wide-layout-block={wideLayout ? "" : undefined}
     >
       <div
         className={cn(
@@ -354,7 +405,7 @@ export function TabsBlockEditor({
           )}
         </div>
         {active && (
-          <div className={cn(vertical && "min-w-0")}>
+          <div className="min-w-0 max-w-full">
             {ctx.renderBlocksEditor
               ? ctx.renderBlocksEditor({
                   blocks: active.blocks,
@@ -382,7 +433,7 @@ export function TabsBlockEditor({
                   compactVisuals: compact,
                 })
               : active.blocks.map((child) => (
-                  <div key={child.id}>
+                  <div key={child.id} className="min-w-0 max-w-full">
                     {ctx.renderBlock?.({
                       block: child,
                       editing: true,

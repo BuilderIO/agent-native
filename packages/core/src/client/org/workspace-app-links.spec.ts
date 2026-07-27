@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   defaultOrgAppLinks,
   dispatchAppsHref,
@@ -10,7 +11,7 @@ describe("org switcher app links", () => {
   it("lists the default app suite with Dispatch pinned", () => {
     const apps = defaultOrgAppLinks();
 
-    expect(apps).toHaveLength(12);
+    expect(apps).toHaveLength(13);
     expect(apps[0]).toMatchObject({
       id: "dispatch",
       name: "Dispatch",
@@ -20,12 +21,16 @@ describe("org switcher app links", () => {
     });
     expect(apps.find((app) => app.id === "brain")?.icon).toBe("Brain");
     expect(apps.find((app) => app.id === "analytics")?.icon).toBe("BarChart2");
+    expect(apps.find((app) => app.id === "analytics")?.description).toContain(
+      "connect data sources",
+    );
     expect(apps.map((app) => app.id)).toEqual(
       expect.arrayContaining([
         "analytics",
         "assets",
         "brain",
         "calendar",
+        "chat",
         "clips",
         "content",
         "design",
@@ -36,7 +41,6 @@ describe("org switcher app links", () => {
       ]),
     );
     expect(apps.map((app) => app.id)).not.toContain("starter");
-    expect(apps.map((app) => app.id)).not.toContain("videos");
   });
 
   it("normalizes workspace app manifests against the workspace gateway", () => {

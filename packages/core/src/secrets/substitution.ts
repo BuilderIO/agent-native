@@ -25,13 +25,13 @@
  * org-admin write-gate is verified to be active.
  */
 
-import { readAppSecret, readAppSecretMeta } from "./storage.js";
-import type { SecretScope } from "./register.js";
 import { resolveCredentialForScope } from "../credentials/index.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import type { SecretScope } from "./register.js";
+import { readAppSecret, readAppSecretMeta } from "./storage.js";
 
 const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
 
@@ -98,7 +98,7 @@ export async function resolveKeyReferences(
     }
     if (!result) {
       throw new Error(
-        `Referenced key "${name}" is not defined for scope "${scope}". Create it in Settings or via the secrets API before using this automation.`,
+        `Referenced key "${name}" is not defined for scope "${scope}". Create it in the Dispatch Vault, app Settings, or via the secrets API before using this automation.`,
       );
     }
     resolutions.set(name, result.value);
@@ -148,7 +148,7 @@ export async function resolveKeyReferencesWithRequestScopes(
     const result = await readRequestScopedSecret(name, userScopeId);
     if (!result) {
       throw new Error(
-        `Referenced key "${name}" is not defined for this user or active workspace. Create it in Settings or the Dispatch vault before using this extension.`,
+        `Referenced key "${name}" is not defined for this user or active workspace. Create it in the Dispatch Vault or app Settings before using this extension.`,
       );
     }
     resolutions.set(name, result.value);

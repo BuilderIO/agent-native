@@ -1,16 +1,22 @@
+import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
+
 import { App } from "./app";
-import { Countdown } from "./overlays/countdown";
-import { Toolbar } from "./overlays/toolbar";
+import { initDesktopSentry } from "./lib/sentry";
 import { Bubble } from "./overlays/bubble";
+import { Countdown } from "./overlays/countdown";
 import { Finalizing } from "./overlays/finalizing";
-import { Onboarding } from "./overlays/onboarding";
+import { FlowBar } from "./overlays/flow-bar";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
-import { FlowBar } from "./overlays/flow-bar";
+import { Onboarding } from "./overlays/onboarding";
+import { Preparing } from "./overlays/preparing";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
+import { RegionRecordBorder } from "./overlays/region-record-border";
+import { Toolbar } from "./overlays/toolbar";
+
 import "./styles.css";
 
 /**
@@ -38,6 +44,8 @@ function pickRoute(route: string): React.ReactElement {
       return <Bubble />;
     case "finalizing":
       return <Finalizing />;
+    case "preparing":
+      return <Preparing />;
     case "onboarding":
       return <Onboarding />;
     case "meeting-notif":
@@ -52,6 +60,10 @@ function pickRoute(route: string): React.ReactElement {
       return <RegionGuides />;
     case "region-guides-editor":
       return <RegionGuideEditor />;
+    case "region-capture-selector":
+      return <RegionGuideEditor mode="capture" />;
+    case "region-record-border":
+      return <RegionRecordBorder />;
     default:
       return <App />;
   }
@@ -145,10 +157,66 @@ function installHeapDebugLog(): void {
   }, 30_000);
 }
 
+/**
+ * Tee the webview console into the persistent backend log file.
+ *
+ * In production the webview has no devtools and `console.*` output is lost, so
+ * frontend errors can't be debugged after the fact. We wrap each console method
+ * to also forward its message to the Rust `frontend_log` command, which prints
+ * it into the same redirected stdout/stderr that backs `clips-tray.log`. The
+ * original console behavior is preserved (tee, not replace)
+ */
+function installConsoleCapture(route: string): void {
+  const serialize = (value: unknown): string => {
+    if (typeof value === "string") return value;
+    if (value instanceof Error)
+      return value.stack || `${value.name}: ${value.message}`;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const forward = (level: string, args: unknown[]): void => {
+    try {
+      const message = `[${route}] ${args.map(serialize).join(" ")}`;
+      // Swallow failures — logging must never throw into the app, and we must
+      // not call console here or we'd recurse.
+      void invoke("frontend_log", { level, message }).catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+
+  const levels = ["log", "info", "warn", "error", "debug"] as const;
+  for (const level of levels) {
+    const original = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      original(...args);
+      forward(level, args);
+    };
+  }
+
+  window.addEventListener("error", (event) => {
+    forward("error", [
+      `uncaught: ${event.message}`,
+      event.error instanceof Error
+        ? event.error
+        : `${event.filename}:${event.lineno}`,
+    ]);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    forward("error", ["unhandledrejection:", event.reason]);
+  });
+}
+
 const rootEl = document.getElementById("root");
 if (rootEl) {
   const route = currentRoute();
   installRouteAttributes(route);
+  initDesktopSentry(route);
+  installConsoleCapture(route);
   installBeforeUnloadCleanup();
   installHeapDebugLog();
   // NOTE: intentionally NOT wrapping in React.StrictMode. StrictMode

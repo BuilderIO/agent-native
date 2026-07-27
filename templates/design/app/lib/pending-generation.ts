@@ -1,5 +1,7 @@
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { sourceContentHash } from "@shared/source-workspace";
+
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 
 // Pending generation state is a UI recovery aid, not a generation deadline.
 // Keep it long enough for thorough designs while still clearing abandoned runs.
@@ -10,15 +12,50 @@ export interface PendingGeneration {
   files?: UploadedFile[];
   title?: string;
   source?: string;
+  templateId?: string;
   designSystemId?: string | null;
   model?: PromptComposerSubmitOptions["model"];
   engine?: PromptComposerSubmitOptions["engine"];
   effort?: PromptComposerSubmitOptions["effort"];
   autoGenerate?: boolean;
+  skipQuestions?: boolean;
   attempt?: number;
   createdAt?: number;
   startedAt?: number;
   runTabId?: string;
+  templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
+}
+
+export function hasPendingGenerationOutput(
+  pending: PendingGeneration | null,
+  files: readonly {
+    id: string;
+    content: string;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+  }[],
+): boolean {
+  if (!pending?.templateId) return files.length > 0;
+
+  if (pending.templateBaselineFiles?.length) {
+    const baseline = new Map(
+      pending.templateBaselineFiles.map((file) => [file.id, file.contentHash]),
+    );
+    return files.some(
+      (file) =>
+        !baseline.has(file.id) ||
+        baseline.get(file.id) !== sourceContentHash(file.content),
+    );
+  }
+
+  // Recovery for template refinements started before baseline hashes were
+  // recorded. Freshly copied files have matching creation/update revisions;
+  // only a later write is evidence that refinement produced output.
+  return files.some(
+    (file) =>
+      Boolean(file.createdAt && file.updatedAt) &&
+      file.createdAt !== file.updatedAt,
+  );
 }
 
 export function pendingGenerationKey(id: string): string {

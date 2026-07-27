@@ -4,6 +4,7 @@ description: >-
   How to keep template code database-agnostic and hosting-agnostic. Use when
   defining schemas, writing raw SQL, creating server routes, or anything that
   could leak a SQLite-only, Postgres-only, or Node-only assumption.
+scope: dev
 metadata:
   internal: true
 ---

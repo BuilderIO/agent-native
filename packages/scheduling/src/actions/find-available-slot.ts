@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { getEventTypeById } from "../server/event-types-repo.js";
+
 import { getAvailableSlots } from "../server/availability-engine.js";
+import { getEventTypeById } from "../server/event-types-repo.js";
 import { currentUserEmail } from "./_helpers.js";
 
 export default defineAction({

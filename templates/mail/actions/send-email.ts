@@ -1,24 +1,12 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens } from "./helpers.js";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
-import {
-  getAccountDisplayName,
-  invalidateListCacheForOwner,
-  setAccountDisplayName,
-} from "../server/lib/google-auth.js";
-import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
-import {
-  bodyToHtml,
-  buildRawEmail,
-  resolveComposeAttachments,
-  splitReplyQuote,
-} from "../server/lib/outgoing-email.js";
-import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { emit } from "@agent-native/core/event-bus";
+import { setOAuthDisplayName } from "@agent-native/core/oauth-tokens";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { getAppProductionUrl } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import {
   collectLinks,
   newClickToken,
@@ -26,9 +14,27 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../server/lib/email-tracking.js";
-import { getAppProductionUrl } from "@agent-native/core/server";
-import type { UserSettings } from "../shared/types.js";
+import { gmailGetMessage, gmailSendMessage } from "../server/lib/google-api.js";
+import {
+  getAccountDisplayName,
+  invalidateListCacheForOwner,
+  setAccountDisplayName,
+} from "../server/lib/google-auth.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "../server/lib/local-email-store.js";
+import {
+  bodyToHtml,
+  buildRawEmail,
+  resolveComposeAttachments,
+  splitReplyQuote,
+} from "../server/lib/outgoing-email.js";
+import { resolveGoogleSenderIdentity } from "../server/lib/sender-identity.js";
 import { markdownPreviewSnippet } from "../shared/markdown.js";
+import type { UserSettings } from "../shared/types.js";
+import { getAccessTokens } from "./helpers.js";
 
 async function readSettings(): Promise<{
   name: string;
@@ -122,6 +128,13 @@ export default defineAction({
         "Files to attach. Each entry must reference a previously-uploaded file by its server-side `filename`. The upload must have been created via the media-upload endpoint before calling this action.",
       ),
   }),
+  // Human-in-the-loop gate: actually sending an email is outward-facing and
+  // hard to undo, so the agent can never send without a human approving the
+  // specific call. The loop pauses with `approval_required`; the user approves
+  // before the message goes out. Drafting/queueing is unaffected — only the
+  // real send is gated. This is the canonical (and intentionally rare) use of
+  // `needsApproval` in the framework.
+  needsApproval: true,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -146,73 +159,73 @@ export default defineAction({
 
     const accounts = await getAccessTokens();
     if (accounts.length === 0) {
-      const data = await getUserSetting(ownerEmail, "local-emails");
-      const emails =
-        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
-      const newEmail = {
-        id: `msg-${nanoid(8)}`,
-        threadId: args.replyToId
-          ? (emails.find((e: any) => e.id === args.replyToId)?.threadId ??
-            `thread-${nanoid(8)}`)
-          : `thread-${nanoid(8)}`,
-        from: { name: settings.name, email: settings.email },
-        to: args.to.split(",").map((value) => {
-          const trimmed = value.trim();
-          return { name: trimmed, email: trimmed };
-        }),
-        ...(args.cc
-          ? {
-              cc: args.cc.split(",").map((value) => {
-                const trimmed = value.trim();
-                return { name: trimmed, email: trimmed };
-              }),
-            }
-          : {}),
-        ...(args.bcc
-          ? {
-              bcc: args.bcc.split(",").map((value) => {
-                const trimmed = value.trim();
-                return { name: trimmed, email: trimmed };
-              }),
-            }
-          : {}),
-        subject: args.subject,
-        snippet: markdownPreviewSnippet(args.body),
-        body: args.body,
-        bodyHtml: bodyToHtml(args.body),
-        date: new Date().toISOString(),
-        isRead: true,
-        isStarred: false,
-        isSent: true,
-        isArchived: false,
-        isTrashed: false,
-        labelIds: ["sent"],
-        ...(resolvedAttachments.length > 0
-          ? {
-              attachments: resolvedAttachments.map((att) => ({
-                id: att.filename,
-                filename: att.originalName,
-                mimeType: att.mimeType,
-                size: att.size,
-                url: att.url,
-              })),
-            }
-          : {}),
-      };
-      emails.push(newEmail);
-      await putUserSetting(ownerEmail, "local-emails", { emails });
-      try {
-        emit(
-          "mail.message.sent",
-          {
-            messageId: newEmail.id,
-            to: args.to,
-            subject: args.subject,
-          },
-          { owner: ownerEmail },
-        );
-      } catch {}
-      return JSON.stringify(newEmail, null, 2);
+      return withLocalEmailMutationLock(ownerEmail, async () => {
+        const emails = await readLocalEmails(ownerEmail);
+        const newEmail = {
+          id: `msg-${nanoid(8)}`,
+          threadId: args.replyToId
+            ? (emails.find((e: any) => e.id === args.replyToId)?.threadId ??
+              `thread-${nanoid(8)}`)
+            : `thread-${nanoid(8)}`,
+          from: { name: settings.name, email: settings.email },
+          to: args.to.split(",").map((value) => {
+            const trimmed = value.trim();
+            return { name: trimmed, email: trimmed };
+          }),
+          ...(args.cc
+            ? {
+                cc: args.cc.split(",").map((value) => {
+                  const trimmed = value.trim();
+                  return { name: trimmed, email: trimmed };
+                }),
+              }
+            : {}),
+          ...(args.bcc
+            ? {
+                bcc: args.bcc.split(",").map((value) => {
+                  const trimmed = value.trim();
+                  return { name: trimmed, email: trimmed };
+                }),
+              }
+            : {}),
+          subject: args.subject,
+          snippet: markdownPreviewSnippet(args.body),
+          body: args.body,
+          bodyHtml: bodyToHtml(args.body),
+          date: new Date().toISOString(),
+          isRead: true,
+          isStarred: false,
+          isSent: true,
+          isArchived: false,
+          isTrashed: false,
+          labelIds: ["sent"],
+          ...(resolvedAttachments.length > 0
+            ? {
+                attachments: resolvedAttachments.map((att) => ({
+                  id: att.filename,
+                  filename: att.originalName,
+                  mimeType: att.mimeType,
+                  size: att.size,
+                  url: att.url,
+                })),
+              }
+            : {}),
+        };
+        emails.push(newEmail);
+        await writeLocalEmails(ownerEmail, emails);
+        try {
+          emit(
+            "mail.message.sent",
+            {
+              messageId: newEmail.id,
+              to: args.to,
+              subject: args.subject,
+            },
+            { owner: ownerEmail },
+          );
+        } catch {}
+        return JSON.stringify(newEmail, null, 2);
+      });
     }
 
     let selectedToken = accounts[0].accessToken;

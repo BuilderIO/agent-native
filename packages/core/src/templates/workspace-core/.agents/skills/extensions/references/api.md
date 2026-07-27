@@ -37,6 +37,37 @@ auto-mounted at `/_agent-native/actions/:name`.
 </div>
 ```
 
+### Connected MCP and provider APIs
+
+The host injects connector helpers that reuse the current user's or
+organization's server-side grants. OAuth tokens, refresh tokens, client
+secrets, and remote server URLs stay in the parent/runtime and are never
+serialized into the iframe.
+
+```javascript
+const tools = await agentNative.mcp.listTools();
+const linearTools = await agentNative.mcp.listTools("org_linear");
+const result = await agentNative.mcp.callTool("org_linear", "list_issues", {
+  project: "<PROJECT_ID>",
+});
+```
+
+For regular provider connectors, use the shared provider API actions when the
+template exposes them:
+
+```javascript
+const catalog = await agentNative.providerApi.catalog({ provider: "github" });
+const docs = await agentNative.providerApi.docs({ provider: "github" });
+```
+
+These helpers are also available as
+`agentNative.connectors.mcp` and `agentNative.connectors.providerApi`. They
+are action-backed, so the host enforces authentication, app grants, provider
+allow-lists, audit behavior, and any local-file `permissions.appActions`
+declarations. Extensions can discover provider APIs and use connected MCP tools,
+but they cannot issue arbitrary provider requests. Use a purpose-built app action
+for a bounded operation instead.
+
 ### `appFetch(path, options)` — Call allowed framework endpoints
 
 General-purpose fetch to allowed framework endpoints (for example,
@@ -105,6 +136,8 @@ await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
 | `extensionData.list(collection, opts?)`          | List items in a collection                               | `extensionData.list('todos', { scope: 'all' })`                                                                  |
 | `extensionData.get(collection, id, opts?)`       | Get a single item by id                                  | `extensionData.get('todos', 'todo-1')`                                                                           |
 | `extensionData.remove(collection, id, opts?)`    | Delete an item                                           | `extensionData.remove('todos', 'todo-1')`                                                                        |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state     | `agentNative.ui.output({ threshold })`                                                                           |
+| `agentNative.chat.send(message, opts?)`          | Send a visible prompt or selected value back to chat     | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`                                                         |
 
 ## Persisting Custom Data
 
@@ -153,9 +186,28 @@ await extensionData.remove("todos", "team-todo-1", { scope: "org" });
 
 Data is scoped per-extension. User-scoped items are private per-user;
 org-scoped items are shared across the org. Any org member can read,
-update, or delete org-scoped items. **Prefer `extensionData` over raw
-`dbExec` for extension-specific persistence** — it handles table creation,
-scoping, and upserts automatically.
+update, or delete org-scoped items when the caller has editor/admin/owner
+access to the extension. Viewer access is read-only. **Prefer
+`extensionData` over raw `dbExec` for extension-specific persistence** — it
+handles table creation, scoping, and upserts automatically.
+
+### Authenticated extension data routes
+
+`extensionData` uses the same authenticated HTTP routes that external
+logged-in clients may call directly:
+
+| Method | Path                                                              | Access             |
+| ------ | ----------------------------------------------------------------- | ------------------ |
+| GET    | `/_agent-native/extensions/data/:extensionId/:collection`         | viewer or above    |
+| POST   | `/_agent-native/extensions/data/:extensionId/:collection`         | editor/admin/owner |
+| DELETE | `/_agent-native/extensions/data/:extensionId/:collection/:itemId` | editor/admin/owner |
+
+Reads accept `?scope=user`, `?scope=org`, `?scope=all`, and `?limit=100`.
+Writes accept `{ id, data, scope }` where `scope` is `user` or `org`. These
+routes use the caller's app session and extension sharing role; they are not a
+public API-key or anonymous ingestion surface. If a template needs
+server-to-server access, add a template-specific action or route with explicit
+scoped keys and rate limits.
 
 ## Using `extensionFetch()` for API calls
 
@@ -251,15 +303,18 @@ set-url-path({ "pathname": "/extensions/EXTENSION_ID" })
 
 ## Routes
 
-| Method | Path                                   | Purpose                                       |
-| ------ | -------------------------------------- | --------------------------------------------- |
-| GET    | `/_agent-native/extensions`            | List extensions (filtered by ownership/share) |
-| POST   | `/_agent-native/extensions`            | Create an extension                           |
-| GET    | `/_agent-native/extensions/:id`        | Get an extension                              |
-| PUT    | `/_agent-native/extensions/:id`        | Update (supports `patches` for diffing)       |
-| DELETE | `/_agent-native/extensions/:id`        | Delete an extension                           |
-| GET    | `/_agent-native/extensions/:id/render` | Render HTML for iframe                        |
-| POST   | `/_agent-native/extensions/proxy`      | Authenticated proxy with secret injection     |
+| Method | Path                                                     | Purpose                                       |
+| ------ | -------------------------------------------------------- | --------------------------------------------- |
+| GET    | `/_agent-native/extensions`                              | List extensions (filtered by ownership/share) |
+| POST   | `/_agent-native/extensions`                              | Create an extension                           |
+| GET    | `/_agent-native/extensions/:id`                          | Get an extension                              |
+| PUT    | `/_agent-native/extensions/:id`                          | Update (supports `patches` for diffing)       |
+| DELETE | `/_agent-native/extensions/:id`                          | Delete an extension                           |
+| GET    | `/_agent-native/extensions/:id/render`                   | Render HTML for iframe                        |
+| POST   | `/_agent-native/extensions/proxy`                        | Authenticated proxy with secret injection     |
+| GET    | `/_agent-native/extensions/data/:id/:collection`         | List authenticated extension data             |
+| POST   | `/_agent-native/extensions/data/:id/:collection`         | Upsert authenticated extension data           |
+| DELETE | `/_agent-native/extensions/data/:id/:collection/:itemId` | Delete authenticated extension data           |
 
 ## Database & API names — back-compat reference
 

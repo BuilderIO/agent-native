@@ -19,7 +19,8 @@ function isLastOpenedItem(value: unknown): value is LastOpenedItem {
     typeof item.id === "string" &&
     item.id.length > 0 &&
     typeof item.path === "string" &&
-    (item.path.startsWith("/adhoc/") ||
+    (item.path.startsWith("/dashboards/") ||
+      item.path.startsWith("/adhoc/") ||
       item.path.startsWith("/analyses/") ||
       item.path.startsWith("/extensions/")) &&
     typeof item.updatedAt === "number"

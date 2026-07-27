@@ -68,9 +68,20 @@ export interface SharedConnectionStatus {
 const dataSourceWorkspaceProviderIds: Record<string, string> = {
   github: "github",
   hubspot: "hubspot",
+  jira: "jira",
   notion: "notion",
+  sentry: "sentry",
   slack: "slack",
 };
+
+export function getGoogleDriveConnection(
+  data: DataSourceStatusResponse | undefined,
+): WorkspaceConnectionProviderSummary | undefined {
+  return data?.workspaceConnections?.providers.find(
+    (provider) =>
+      provider.provider === "google_drive" || provider.id === "google_drive",
+  );
+}
 
 const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   ready: "Ready via workspace",
@@ -78,6 +89,10 @@ const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   needs_credentials: "Needs credentials",
   local_credentials: "Local credentials",
 };
+
+function normalizeCredentialKey(key: string): string {
+  return key.trim().toUpperCase();
+}
 
 export function credentialRowsFromStatus(
   data: DataSourceStatusResponse | EnvKeyStatus[] | undefined,
@@ -90,7 +105,9 @@ export function getOptionalCredentialKeys(source: DataSource): Set<string> {
   return new Set(
     source.walkthroughSteps
       .filter((step) => step.optional)
-      .map((step) => step.inputKey)
+      .map((step) =>
+        step.inputKey ? normalizeCredentialKey(step.inputKey) : undefined,
+      )
       .filter((k): k is string => Boolean(k)),
   );
 }
@@ -99,11 +116,21 @@ export function isSourceConfigured(
   source: DataSource,
   envStatus: EnvKeyStatus[],
 ): boolean {
-  const statusMap = new Map(envStatus.map((s) => [s.key, s.configured]));
+  const statusMap = new Map(
+    envStatus.map((s) => [normalizeCredentialKey(s.key), s.configured]),
+  );
   const optionalKeys = getOptionalCredentialKeys(source);
-  return source.envKeys
-    .filter((key) => !optionalKeys.has(key))
-    .every((key) => statusMap.get(key) === true);
+  const requiredKeys = source.envKeys.filter(
+    (key) => !optionalKeys.has(normalizeCredentialKey(key)),
+  );
+  if (source.credentialRequirementMode === "any") {
+    return requiredKeys.some(
+      (key) => statusMap.get(normalizeCredentialKey(key)) === true,
+    );
+  }
+  return requiredKeys.every(
+    (key) => statusMap.get(normalizeCredentialKey(key)) === true,
+  );
 }
 
 export function getWorkspaceProviderIdForSource(
@@ -130,6 +157,14 @@ export function getWorkspaceConnectionForSource(
     (provider) =>
       provider.provider === providerId || provider.id === providerId,
   );
+}
+
+export function getProviderStatusForSource(
+  source: DataSource,
+  data: DataSourceStatusResponse | undefined,
+): DataSourceProviderStatus | undefined {
+  const providerId = getWorkspaceProviderIdForSource(source) ?? source.id;
+  return data?.providers?.find((provider) => provider.provider === providerId);
 }
 
 export function getSharedConnectionStatus(
@@ -178,12 +213,29 @@ export function isSourceReady(
 ): boolean {
   return (
     isSourceConfigured(source, envStatus) ||
+    getProviderStatusForSource(source, data)?.configured === true ||
     getSharedConnectionStatus(source, data, envStatus)?.kind === "ready"
   );
 }
 
+export function isSourceLocallyConfigured(
+  source: DataSource,
+  data: DataSourceStatusResponse | undefined,
+  envStatus: EnvKeyStatus[],
+): boolean {
+  if (isSourceConfigured(source, envStatus)) return true;
+  const providerStatus = getProviderStatusForSource(source, data);
+  if (!providerStatus?.configured) return false;
+  return providerStatus.configuredKeys.length > 0;
+}
+
 export function getConfiguredDataSources(
   envStatus: EnvKeyStatus[],
+  data?: DataSourceStatusResponse,
 ): DataSource[] {
-  return dataSources.filter((source) => isSourceConfigured(source, envStatus));
+  return dataSources.filter((source) =>
+    data
+      ? isSourceReady(source, data, envStatus)
+      : isSourceConfigured(source, envStatus),
+  );
 }

@@ -5,12 +5,12 @@
  * workspace. The transform:
  *
  *   1. Rewrites package.json:
- *      - @agent-native/core and package-backed apps stay as regular npm deps
+ *      - Published framework packages stay as regular npm deps
  *      - Adds @<workspace-scope>/shared as a workspace:* dep so the app
  *        inherits shared plugins/skills/AGENTS.md via the three-layer model.
  *   2. Removes files that only make sense in standalone apps
  *      (`learnings.defaults.md`, etc.).
- *   3. Replaces starter's stock auth/chat wrappers with inherited wrappers so
+ *   3. Replaces chat's stock auth/chat wrappers with inherited wrappers so
  *      the workspace core can own those plugin slots while framework defaults
  *      still mount when the workspace core is empty.
  *   4. Leaves app source code untouched. The three-layer framework
@@ -24,13 +24,19 @@ import fs from "fs";
 import path from "path";
 
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const REACT_ROUTER_BUILD_DEPENDENCIES = [
+  "@react-router/dev",
+  "@react-router/fs-routes",
+  "react-router",
+  "vite",
+] as const;
 
 export interface WorkspacifyOptions {
   /** Target app directory (already populated with the copied template) */
   appDir: string;
   /** App name (e.g. "mail") */
   appName: string;
-  /** Source template name (e.g. "starter" when appName is "crm") */
+  /** Source template name (e.g. "chat" when appName is "crm") */
   templateName?: string;
   /** Workspace root directory */
   workspaceRoot: string;
@@ -40,17 +46,20 @@ export interface WorkspacifyOptions {
   coreDependencyVersion?: string;
   /** Version range to use for the package-backed Dispatch app */
   dispatchDependencyVersion?: string;
+  /** Version range to use for the published @agent-native/toolkit package */
+  toolkitDependencyVersion?: string;
 }
 
 export function workspacifyApp(opts: WorkspacifyOptions): void {
   const { appDir, workspaceCoreName } = opts;
   const coreDependencyVersion = opts.coreDependencyVersion ?? "latest";
   const dispatchDependencyVersion = opts.dispatchDependencyVersion ?? "latest";
+  const toolkitDependencyVersion = opts.toolkitDependencyVersion ?? "latest";
 
   // 1) Rewrite package.json to add the workspace core dep and resolve
-  //    @agent-native/core / @agent-native/dispatch workspace:* refs to
-  //    published package ranges. Other workspace:* deps (e.g.
-  //    @agent-native/scheduling) stay as-is — they resolve within the
+  //    published framework-package workspace:* refs to package ranges.
+  //    Other workspace:* deps (e.g. @agent-native/scheduling) stay as-is —
+  //    they resolve within the
   //    workspace because the required package is scaffolded alongside the app.
   const pkgPath = path.join(appDir, "package.json");
   if (fs.existsSync(pkgPath)) {
@@ -71,6 +80,9 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
             if (key === "@agent-native/dispatch") {
               deps[key] = dispatchDependencyVersion;
             }
+            if (key === "@agent-native/toolkit") {
+              deps[key] = toolkitDependencyVersion;
+            }
           }
         }
       }
@@ -81,6 +93,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
       // Add the runtime package to workspace apps so production bundles do
       // not fail only after a hosted Postgres database is configured.
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+      ensureReactRouterBuildDependencies(pkg);
       // pnpm build-script approvals belong at the workspace root. Leaving the
       // template's per-app setting in place makes pnpm warn on every install.
       if (pkg.pnpm && typeof pkg.pnpm === "object") {
@@ -141,20 +154,43 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  if ((opts.templateName ?? opts.appName) === "starter") {
-    writeInheritedStarterPlugin(appDir, workspaceCoreName, {
+  if (["starter", "chat"].includes(opts.templateName ?? opts.appName)) {
+    writeInheritedChatPlugin(appDir, workspaceCoreName, {
       fileName: "auth.ts",
       exportName: "defaultAuthPlugin",
     });
-    writeInheritedStarterAgentChatPlugin(
-      appDir,
-      workspaceCoreName,
-      opts.appName,
-    );
+    writeInheritedChatAgentChatPlugin(appDir, workspaceCoreName, opts.appName);
   }
 }
 
-function writeInheritedStarterPlugin(
+function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
+  const allDeps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+  if (
+    !allDeps["@react-router/dev"] &&
+    !allDeps["react-router"] &&
+    !allDeps["@react-router/fs-routes"]
+  ) {
+    return;
+  }
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  for (const key of REACT_ROUTER_BUILD_DEPENDENCIES) {
+    const existing =
+      pkg.dependencies[key] ??
+      pkg.devDependencies?.[key] ??
+      pkg.peerDependencies?.[key];
+    if (!existing) continue;
+    pkg.dependencies[key] = existing;
+    delete pkg.devDependencies?.[key];
+    delete pkg.peerDependencies?.[key];
+  }
+}
+
+function writeInheritedChatPlugin(
   appDir: string,
   workspaceCoreName: string,
   opts: { fileName: string; exportName: string },
@@ -178,7 +214,7 @@ function writeInheritedStarterPlugin(
   );
 }
 
-function writeInheritedStarterAgentChatPlugin(
+function writeInheritedChatAgentChatPlugin(
   appDir: string,
   workspaceCoreName: string,
   appId: string,

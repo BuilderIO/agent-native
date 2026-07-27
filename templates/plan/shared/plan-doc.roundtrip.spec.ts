@@ -2,8 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 import type { PlanBlock } from "./plan-content";
+import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
 
 /**
  * Round-trip / idempotency contract for the plan doc ⇄ blocks[] serializer.

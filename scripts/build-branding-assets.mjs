@@ -97,8 +97,7 @@ const TEMPLATE_DIRS = [
   "templates/macros",
   "templates/mail",
   "templates/slides",
-  "templates/starter",
-  "templates/videos",
+  "templates/chat",
 ];
 
 for (const t of TEMPLATE_DIRS) {

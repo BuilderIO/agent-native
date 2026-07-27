@@ -8,6 +8,7 @@ import {
   onCleanup,
   type Component,
 } from "solid-js";
+
 import type { ElementContext } from "../../types/index.js";
 import { icons } from "../icons/index.js";
 

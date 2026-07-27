@@ -1,18 +1,35 @@
-import { and, desc, eq, sql } from "drizzle-orm";
-import type { H3Event } from "h3";
-import { getDb, schema } from "../db/index.js";
+import { readAppState } from "@agent-native/core/application-state";
+import { implicitServiceOrgRole, orgMembers } from "@agent-native/core/org";
 import { getSession } from "@agent-native/core/server";
-import { orgMembers } from "@agent-native/core/org";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
-import { readAppState } from "@agent-native/core/application-state";
+import { and, count, desc, eq, sql } from "drizzle-orm";
+import { HTTPError, type H3Event } from "h3";
+
+import { getDb, schema } from "../db/index.js";
 
 export function getCurrentOwnerEmail(): string {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
-  return email;
+  return normalizeOwnerEmail(email);
+}
+
+export function normalizeOwnerEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function ownerEmailMatches(column: unknown, email: string) {
+  return sql`lower(${column as any}) = ${normalizeOwnerEmail(email)}`;
+}
+
+export function sameOwnerEmail(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return normalizeOwnerEmail(a) === normalizeOwnerEmail(b);
 }
 
 export async function getEventOwnerContext(event: H3Event): Promise<{
@@ -42,6 +59,45 @@ export async function getEventOwnerEmail(event: H3Event): Promise<string> {
 }
 
 export type OrganizationAccessRole = "owner" | "admin" | "member";
+
+export type RecordingVisibility = "private" | "org" | "public";
+
+export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility = "public";
+
+export function isRecordingVisibility(
+  value: unknown,
+): value is RecordingVisibility {
+  return value === "private" || value === "org" || value === "public";
+}
+
+export function resolveRecordingVisibility(
+  explicit: RecordingVisibility | null | undefined,
+  configured: unknown,
+): RecordingVisibility {
+  if (explicit) return explicit;
+  return isRecordingVisibility(configured)
+    ? configured
+    : DEFAULT_RECORDING_VISIBILITY;
+}
+
+export async function getOrganizationDefaultVisibility(
+  organizationId: string | null | undefined,
+): Promise<RecordingVisibility> {
+  if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
+
+  try {
+    const [row] = await getDb()
+      .select({
+        defaultVisibility: schema.organizationSettings.defaultVisibility,
+      })
+      .from(schema.organizationSettings)
+      .where(eq(schema.organizationSettings.organizationId, organizationId))
+      .limit(1);
+    return resolveRecordingVisibility(undefined, row?.defaultVisibility);
+  } catch {
+    return DEFAULT_RECORDING_VISIBILITY;
+  }
+}
 
 const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {
   member: 1,
@@ -86,7 +142,11 @@ export async function getOrganizationRoleForEmail(
     // org_members table may not exist yet on first boot before migrations finish.
   }
 
-  return null;
+  return implicitServiceOrgRole({
+    email,
+    orgId: organizationId,
+    requestOrgId: getRequestOrgId(),
+  });
 }
 
 export async function requireOrganizationAccess(
@@ -103,7 +163,10 @@ export async function requireOrganizationAccess(
   const email = getCurrentOwnerEmail();
   const role = await getOrganizationRoleForEmail(resolvedOrganizationId, email);
   if (!role || !organizationRoleAllowed(role, allowedRoles)) {
-    throw new Error("Organization not found or access denied");
+    throw new HTTPError({
+      statusCode: 403,
+      statusMessage: "Organization not found or access denied",
+    });
   }
   return { organizationId: resolvedOrganizationId, email, role };
 }
@@ -211,7 +274,7 @@ export interface RecordingRow {
   durationMs: number;
   videoUrl: string | null;
   status: "uploading" | "processing" | "ready" | "failed";
-  visibility: "private" | "org" | "public";
+  visibility: RecordingVisibility;
   ownerEmail: string;
   folderId: string | null;
   spaceIds: string[];
@@ -257,7 +320,7 @@ export async function getRecordingOrThrow(id: string): Promise<RecordingRow> {
         eq(schema.recordings.id, id),
         // visibility check happens at the action layer via the framework
         // sharing helpers; this is just the ownership-or-visible fallback.
-        eq(schema.recordings.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     );
   if (!row) throw new Error(`Recording not found: ${id}`);
@@ -302,4 +365,48 @@ export function shouldCountView(
   scrubbedToEnd: boolean,
 ): boolean {
   return totalWatchMs >= 5000 || completedPct >= 75 || scrubbedToEnd;
+}
+
+/**
+ * The single definition of a counted *viewer*: one `recording_viewers` row
+ * whose `countedView` flag is set. That is one row per person, so it answers
+ * "how many distinct viewers", not "how many views" — use
+ * `countRecordingViews` for the total. The in-memory twin is
+ * `isCountedViewerRow` in `shared/view-analytics.ts`.
+ */
+export function countedViewCondition() {
+  return eq(schema.recordingViewers.countedView, true);
+}
+
+/**
+ * Total views for a recording: one per counted view *session*, so a returning
+ * viewer's second visit counts again. Every surface that reports a view count
+ * (library list, insights, player, public share page) goes through this.
+ */
+export async function countRecordingViews(
+  recordingId: string,
+): Promise<number> {
+  const db = getDb();
+  const [viewerRow] = await db
+    .select({ value: count() })
+    .from(schema.recordingViewers)
+    .where(
+      and(
+        eq(schema.recordingViewers.recordingId, recordingId),
+        countedViewCondition(),
+      ),
+    );
+  const [viewLogRow] = await db
+    .select({ value: count() })
+    .from(schema.recordingViews)
+    .where(eq(schema.recordingViews.recordingId, recordingId));
+
+  // `recording_views` only exists from migration v46, so clips recorded before
+  // it have zero log rows. Floor the total at the counted-viewer count so those
+  // clips keep reporting a real number instead of dropping to 0, and so the
+  // total can never read below the unique-viewer count beside it.
+  return Math.max(
+    Number(viewLogRow?.value ?? 0),
+    Number(viewerRow?.value ?? 0),
+  );
 }

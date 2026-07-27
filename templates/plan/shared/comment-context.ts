@@ -1,4 +1,5 @@
 export const PLAN_COMMENT_RESOLUTION_TARGETS = ["agent", "human"] as const;
+export const SOURCE_AUTHOR_COMMENT_MENTION_EMAIL = "source-author@plan.local";
 
 export type PlanCommentResolutionTarget =
   (typeof PLAN_COMMENT_RESOLUTION_TARGETS)[number];

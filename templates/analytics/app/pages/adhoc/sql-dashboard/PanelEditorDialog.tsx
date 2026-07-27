@@ -1,16 +1,27 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from "react";
-import { useSendToAgentChat } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { toast } from "sonner";
+
+import { SqlEditor } from "@/components/SqlEditor";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
@@ -23,14 +34,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  IconAlertTriangle,
-  IconAlignLeft,
-  IconLoader2,
-} from "@tabler/icons-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
+
+import { dashboardExtensionSlotId } from "./extension-slot";
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -41,22 +50,85 @@ import {
   type SqlPanel,
 } from "./types";
 
-const CHART_TYPES: { value: ChartType; label: string }[] = [
-  { value: "line", label: "Line" },
-  { value: "area", label: "Area" },
-  { value: "bar", label: "Bar" },
-  { value: "pie", label: "Pie" },
-  { value: "metric", label: "Metric" },
-  { value: "table", label: "Table" },
+const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
+  { value: "line", labelKey: "panelEditor.chartTypeLine" },
+  { value: "area", labelKey: "panelEditor.chartTypeArea" },
+  { value: "bar", labelKey: "panelEditor.chartTypeBar" },
+  { value: "pie", labelKey: "panelEditor.chartTypePie" },
+  { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
+  { value: "table", labelKey: "panelEditor.chartTypeTable" },
+  { value: "extension", labelKey: "panelEditor.chartTypeExtension" },
 ];
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "bigquery", label: "BigQuery" },
-  { value: "ga4", label: "Google Analytics" },
+  { value: "ga4", label: "Google Analytics" }, // i18n-ignore stable provider label
   { value: "amplitude", label: "Amplitude" },
-  { value: "first-party", label: "First-party Analytics" },
+  { value: "first-party", label: "First-party Analytics" }, // i18n-ignore stable source label
+  { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
+  { value: "program", label: "Data program" }, // i18n-ignore stable source label
 ];
+
+interface DataProgramSummary {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  archivedAt: string | null;
+}
+
+export interface ExtensionSummary {
+  id: string;
+  name: string;
+}
+
+export function extensionOptionsWithSelectedFallback(
+  extensions: ExtensionSummary[],
+  selectedId: string,
+): ExtensionSummary[] {
+  const id = selectedId.trim();
+  if (!id || extensions.some((extension) => extension.id === id)) {
+    return extensions;
+  }
+  return [{ id, name: id }, ...extensions];
+}
+
+/** Parsed shape of a `program` panel's `sql` field: {programId, params?}. */
+function parseProgramDescriptor(sql: string): {
+  programId: string;
+  paramsText: string;
+} {
+  if (!sql.trim()) return { programId: "", paramsText: "" };
+  try {
+    const parsed = JSON.parse(sql) as { programId?: unknown; params?: unknown };
+    const programId =
+      typeof parsed.programId === "string" ? parsed.programId : "";
+    const paramsText = parsed.params
+      ? JSON.stringify(parsed.params, null, 2)
+      : "";
+    return { programId, paramsText };
+  } catch {
+    return { programId: "", paramsText: "" };
+  }
+}
+
+function serializeProgramDescriptor(
+  programId: string,
+  paramsText: string,
+): string {
+  const trimmedParams = paramsText.trim();
+  if (!trimmedParams) return JSON.stringify({ programId });
+  let params: unknown;
+  try {
+    params = JSON.parse(trimmedParams);
+  } catch {
+    // Preserve the raw text so the user's edits aren't discarded; the save
+    // attempt will surface the same JSON error from the server.
+    throw new Error("Params must be valid JSON.");
+  }
+  return JSON.stringify({ programId, params });
+}
 
 function generatePanelId(title: string): string {
   const slug =
@@ -72,15 +144,20 @@ export interface PanelFormValues {
   title: string;
   chartType: ChartType;
   source: DataSourceType;
+  /** Legacy storage field retained for existing dashboards. Row widths are
+   *  now inferred from how many panels share the row. */
   width: number;
   /** Section panels only: number of grid columns the panels following this
    *  section should use. Ignored when `chartType` is not `"section"`. */
   columns: number;
   sql: string;
   description: string;
+  extensionMode: "shared" | "slot";
+  extensionId: string;
+  extensionSlotId: string;
 }
 
-function panelToForm(panel: SqlPanel | null): PanelFormValues {
+export function panelToForm(panel: SqlPanel | null): PanelFormValues {
   if (!panel) {
     return {
       title: "",
@@ -90,6 +167,9 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
       columns: DEFAULT_DASHBOARD_COLUMNS,
       sql: "",
       description: "",
+      extensionMode: "shared",
+      extensionId: "",
+      extensionSlotId: "",
     };
   }
   return {
@@ -100,12 +180,17 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
     columns: clampDashboardColumns(panel.columns ?? DEFAULT_DASHBOARD_COLUMNS),
     sql: panel.sql,
     description: panel.config?.description ?? "",
+    extensionMode: panel.config?.extensionSlotId ? "slot" : "shared",
+    extensionId: panel.config?.extensionId ?? "",
+    extensionSlotId: panel.config?.extensionSlotId ?? "",
   };
 }
 
-function formToPanel(
+export function formToPanel(
   form: PanelFormValues,
   existing: SqlPanel | null,
+  untitledPanel: string,
+  dashboardId: string,
 ): SqlPanel {
   const id = existing?.id ?? generatePanelId(form.title);
   const description = form.description.trim();
@@ -116,11 +201,23 @@ function formToPanel(
   } else {
     delete config.description;
   }
+  const isExtension = form.chartType === "extension";
+  if (isExtension && form.extensionMode === "slot") {
+    delete config.extensionId;
+    config.extensionSlotId =
+      form.extensionSlotId.trim() || dashboardExtensionSlotId(dashboardId, id);
+  } else if (isExtension) {
+    config.extensionId = form.extensionId.trim();
+    delete config.extensionSlotId;
+  } else {
+    delete config.extensionId;
+    delete config.extensionSlotId;
+  }
   const isSection = form.chartType === "section";
   return {
     id,
-    title: form.title.trim() || "Untitled panel",
-    sql: form.sql,
+    title: form.title.trim() || untitledPanel,
+    sql: isExtension ? "" : form.sql,
     source: form.source,
     chartType: form.chartType,
     width: clampPanelWidth(form.width, MAX_DASHBOARD_COLUMNS),
@@ -171,10 +268,10 @@ function PanelEditorContent({
   dashboardId,
   existingPanelTitles,
 }: PanelEditorDialogProps) {
+  const t = useT();
   const [form, setForm] = useState<PanelFormValues>(() => panelToForm(panel));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
   const [tab, setTab] = useState<"describe" | "manual">("describe");
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -184,58 +281,128 @@ function PanelEditorContent({
       setForm(panelToForm(panel));
       setError(null);
       setSaving(false);
-      setPrompt("");
       // Editing an existing panel always goes straight to the manual form.
       setTab(panel ? "manual" : "describe");
     }
   }, [open, panel]);
 
   const isEdit = !!panel;
-  const canSave = form.title.trim().length > 0 && form.sql.trim().length > 0;
-  const canGenerate = prompt.trim().length > 0 && !isGenerating;
-  const canFormat = canFormatPanelSql(form.source);
+  const isExtensionPanel = form.chartType === "extension";
+  const isProgramSource = form.source === "program";
+  const { programId, paramsText: initialParamsText } = useMemo(
+    () =>
+      isProgramSource
+        ? parseProgramDescriptor(form.sql)
+        : { programId: "", paramsText: "" },
+    // Only re-derive when switching into program mode or loading a new panel;
+    // subsequent edits are tracked in local state below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [open, panel],
+  );
+  const [selectedProgramId, setSelectedProgramId] = useState(programId);
+  const [programParamsText, setProgramParamsText] = useState(initialParamsText);
+  useEffect(() => {
+    if (open) {
+      setSelectedProgramId(programId);
+      setProgramParamsText(initialParamsText);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, panel]);
+
+  const { data: programsData, isLoading: programsLoading } = useActionQuery<{
+    programs: DataProgramSummary[];
+  }>("list-data-programs", undefined, { enabled: isProgramSource });
+  const availablePrograms = (programsData?.programs ?? []).filter(
+    (p) => !p.archivedAt,
+  );
+  const { data: extensionsData, isLoading: extensionsLoading } =
+    useActionQuery<{
+      ok: boolean;
+      count: number;
+      extensions: ExtensionSummary[];
+    }>("list-extensions", { limit: 100 }, { enabled: isExtensionPanel });
+  const availableExtensions = extensionsData?.extensions ?? [];
+  const extensionOptions = extensionOptionsWithSelectedFallback(
+    availableExtensions,
+    form.extensionId,
+  );
+
+  const canSave = isExtensionPanel
+    ? form.title.trim().length > 0 &&
+      (form.extensionMode === "slot" || form.extensionId.trim().length > 0)
+    : isProgramSource
+      ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
+      : form.title.trim().length > 0 && form.sql.trim().length > 0;
+  const canFormat = !isExtensionPanel && canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
     if (!canSave || saving) return;
     setSaving(true);
     setError(null);
     try {
-      await onSave(formToPanel(form, panel));
+      let sqlForSave = form.sql;
+      if (isProgramSource) {
+        try {
+          sqlForSave = serializeProgramDescriptor(
+            selectedProgramId,
+            programParamsText,
+          );
+        } catch (err) {
+          throw err instanceof Error
+            ? err
+            : new Error(t("panelEditor.failedToSavePanel"));
+        }
+      }
+      await onSave(
+        formToPanel(
+          { ...form, sql: sqlForSave },
+          panel,
+          t("panelEditor.untitledPanel"),
+          dashboardId,
+        ),
+      );
       onOpenChange(false);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to save panel";
+        err instanceof Error ? err.message : t("panelEditor.failedToSavePanel");
       setError(message);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDescribe = () => {
-    if (!canGenerate) return;
+  const handleDescribe = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) return;
     const titlesLine = existingPanelTitles.length
       ? `Existing panels on this dashboard: ${existingPanelTitles.join(", ")}.`
       : "This dashboard has no panels yet.";
     send({
-      message: prompt.trim(),
+      message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
-        `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, and dry-run validation do not count as data queries. ` +
+        `REAL_DATA_REQUIRED: before saving or answering with a data panel, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, \`mutate-dashboard\`, and dry-run validation do not count as data queries. Embedding an existing extension without presenting new data does not require a data-source query. ` +
+        `The \`demo\` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. ` +
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
-        `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
-        `to append, or an appropriate index to place the panel in the right spot. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (number of grid columns to span, 1..6), columns? (section panels only — 1..6 grid columns for the panels following this section), config? }. ` +
+        `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
+        `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
+        `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
-        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend }. ` +
+        `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
+        `For extension panels, use config.extensionId by default so every dashboard viewer and scheduled report renders the author-selected shared extension. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
+        `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), rightYKeys, rightYFormatter, description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
+        `For line/area/bar series that share an x-axis but not a unit (a count next to a rate), put the smaller-unit series on a second y-axis with config.rightYKeys (a subset of yKeys) and an optional config.rightYFormatter — do not build an extension for a dual-axis chart. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
+        `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
-        `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
+        `After the mutation saves, verify the returned panelCount, appliedOps, and insertedPanelIds; the UI refreshes automatically.`,
       submit: true,
     });
-    setPrompt("");
     onOpenChange(false);
   };
 
@@ -246,7 +413,7 @@ function PanelEditorContent({
       setError(null);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to format SQL";
+        err instanceof Error ? err.message : t("panelEditor.failedToFormatSql");
       setError(message);
       toast.error(message);
     }
@@ -255,18 +422,18 @@ function PanelEditorContent({
   const manualForm = (
     <div className="grid gap-4 py-2">
       <div className="grid gap-1.5">
-        <Label htmlFor="panel-title">Title</Label>
+        <Label htmlFor="panel-title">{t("panelEditor.title")}</Label>
         <Input
           id="panel-title"
           value={form.title}
           onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-          placeholder="e.g. Weekly signups"
+          placeholder={t("panelEditor.titlePlaceholder")}
         />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="grid gap-1.5">
-          <Label htmlFor="panel-chart-type">Chart type</Label>
+          <Label htmlFor="panel-chart-type">{t("panelEditor.chartType")}</Label>
           <Select
             value={form.chartType}
             onValueChange={(v: ChartType) =>
@@ -277,41 +444,41 @@ function PanelEditorContent({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CHART_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
+              {CHART_TYPES.map((chartType) => (
+                <SelectItem key={chartType.value} value={chartType.value}>
+                  {t(chartType.labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="panel-source">Source</Label>
-          <Select
-            value={form.source}
-            onValueChange={(v: DataSourceType) =>
-              setForm((f) => ({ ...f, source: v }))
-            }
-          >
-            <SelectTrigger id="panel-source" className="h-9 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SOURCES.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!isExtensionPanel ? (
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-source">{t("panelEditor.source")}</Label>
+            <Select
+              value={form.source}
+              onValueChange={(v: DataSourceType) =>
+                setForm((f) => ({ ...f, source: v }))
+              }
+            >
+              <SelectTrigger id="panel-source" className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
-        <div className="grid gap-1.5">
-          <Label>
-            {form.chartType === "section" ? "Section columns" : "Span"}
-          </Label>
-          {form.chartType === "section" ? (
+        {form.chartType === "section" ? (
+          <div className="grid gap-1.5">
+            <Label>{t("panelEditor.sectionColumns")}</Label>
             <ToggleGroup
               type="single"
               value={String(form.columns)}
@@ -335,75 +502,197 @@ function PanelEditorContent({
                 </ToggleGroupItem>
               ))}
             </ToggleGroup>
+          </div>
+        ) : null}
+      </div>
+
+      {isExtensionPanel ? (
+        <div className="grid gap-4 rounded-lg bg-card p-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-extension-mode">
+              {t("panelEditor.extensionDisplay")}
+            </Label>
+            <Select
+              value={form.extensionMode}
+              onValueChange={(value: "shared" | "slot") =>
+                setForm((current) => ({
+                  ...current,
+                  extensionMode: value,
+                }))
+              }
+            >
+              <SelectTrigger id="panel-extension-mode" className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="shared">
+                  {t("panelEditor.sharedExtension")}
+                </SelectItem>
+                <SelectItem value="slot">
+                  {t("panelEditor.perViewerSlot")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {form.extensionMode === "shared" ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="panel-extension">
+                {t("panelEditor.extension")}
+              </Label>
+              <Select
+                value={form.extensionId || undefined}
+                onValueChange={(extensionId) =>
+                  setForm((current) => ({ ...current, extensionId }))
+                }
+              >
+                <SelectTrigger id="panel-extension" className="h-9 text-sm">
+                  <SelectValue
+                    placeholder={
+                      extensionsLoading
+                        ? t("panelEditor.loadingExtensions")
+                        : t("panelEditor.selectExtension")
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {extensionOptions.map((extension) => (
+                    <SelectItem key={extension.id} value={extension.id}>
+                      {extension.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!extensionsLoading && availableExtensions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("panelEditor.noExtensions")}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.sharedExtensionHelp")}
+              </p>
+            </div>
           ) : (
-            <ToggleGroup
-              type="single"
-              value={String(form.width)}
-              onValueChange={(v) => {
-                if (!v) return;
-                const next = clampPanelWidth(Number(v), MAX_DASHBOARD_COLUMNS);
-                setForm((f) => ({ ...f, width: next }));
-              }}
-              className="justify-start h-9"
-            >
-              {Array.from(
-                { length: MAX_DASHBOARD_COLUMNS },
-                (_, i) => i + 1,
-              ).map((n) => (
-                <ToggleGroupItem
-                  key={n}
-                  value={String(n)}
-                  className="h-9 w-9 px-0 text-xs"
-                >
-                  {n}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <div className="grid gap-1.5">
+              <Label htmlFor="panel-extension-slot">
+                {t("panelEditor.slotIdOptional")}
+              </Label>
+              <Input
+                id="panel-extension-slot"
+                value={form.extensionSlotId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    extensionSlotId: event.target.value,
+                  }))
+                }
+                placeholder={dashboardExtensionSlotId(
+                  dashboardId,
+                  panel?.id ?? "generated-panel-id",
+                )}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.perViewerSlotHelp")}
+              </p>
+            </div>
           )}
         </div>
-      </div>
-
-      <div className="grid gap-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="panel-sql">SQL</Label>
-          {canFormat && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={handleFormatSql}
-              disabled={!form.sql.trim()}
-              className="h-7 px-2 text-xs"
+      ) : isProgramSource ? (
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-program">
+              {t("panelEditor.dataProgram")}
+            </Label>
+            <Select
+              value={selectedProgramId || undefined}
+              onValueChange={(v) => setSelectedProgramId(v)}
             >
-              <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
-              Format
-            </Button>
-          )}
+              <SelectTrigger id="panel-program" className="h-9 text-sm">
+                <SelectValue
+                  placeholder={
+                    programsLoading
+                      ? t("panelEditor.loadingDataPrograms")
+                      : t("panelEditor.selectDataProgram")
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {availablePrograms.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!programsLoading && availablePrograms.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.noDataPrograms")}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-program-params">
+              {t("panelEditor.programParamsOptionalJson")}
+            </Label>
+            <Textarea
+              id="panel-program-params"
+              value={programParamsText}
+              onChange={(e) => setProgramParamsText(e.target.value)}
+              rows={4}
+              placeholder='{"riskStatuses": ["at_risk"]}'
+              className="font-mono text-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("panelEditor.programParamsHelp")}
+            </p>
+          </div>
         </div>
-        <Textarea
-          id="panel-sql"
-          value={form.sql}
-          onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
-          rows={10}
-          spellCheck={false}
-          className="font-mono text-xs resize-y min-h-[200px]"
-          placeholder="SELECT ..."
-        />
-        <p className="text-xs text-muted-foreground">
-          Use <code className="font-mono">{"{{varName}}"}</code> to interpolate
-          filter values.
-        </p>
-      </div>
+      ) : (
+        <div className="grid gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="panel-sql">SQL</Label>
+            {canFormat && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleFormatSql}
+                disabled={!form.sql.trim()}
+                className="h-7 px-2 text-xs"
+              >
+                <IconAlignLeft className="h-3.5 w-3.5 mr-1" />
+                {t("panelEditor.format")}
+              </Button>
+            )}
+          </div>
+          <SqlEditor
+            id="panel-sql"
+            value={form.sql}
+            onChange={(e) => setForm((f) => ({ ...f, sql: e.target.value }))}
+            rows={10}
+            placeholder="SELECT ..."
+          />
+          <p className="text-xs text-muted-foreground">
+            {t("panelEditor.filterInterpolation", {
+              example: "{{varName}}",
+            })}
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-1.5">
-        <Label htmlFor="panel-description">Description (optional)</Label>
+        <Label htmlFor="panel-description">
+          {t("panelEditor.descriptionOptional")}
+        </Label>
         <Input
           id="panel-description"
           value={form.description}
           onChange={(e) =>
             setForm((f) => ({ ...f, description: e.target.value }))
           }
-          placeholder="Short description shown under the panel title"
+          placeholder={t("panelEditor.descriptionPlaceholder")}
         />
       </div>
 
@@ -432,14 +721,14 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={saving}
           >
-            Cancel
+            {t("panelEditor.cancel")}
           </Button>
           <Button
             size="sm"
             onClick={handleSubmit}
             disabled={!canSave || saving}
           >
-            {saving ? "Saving..." : "Save changes"}
+            {saving ? t("panelEditor.saving") : t("panelEditor.saveChanges")}
           </Button>
         </EditorFooter>
       </>
@@ -449,36 +738,20 @@ function PanelEditorContent({
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as "describe" | "manual")}>
       <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="describe">Describe</TabsTrigger>
-        <TabsTrigger value="manual">Manual</TabsTrigger>
+        <TabsTrigger value="describe">{t("panelEditor.describe")}</TabsTrigger>
+        <TabsTrigger value="manual">{t("panelEditor.manual")}</TabsTrigger>
       </TabsList>
 
       <TabsContent value="describe" className="mt-4">
         <div className="grid gap-3">
-          <Label htmlFor="panel-prompt">What do you want to chart?</Label>
-          <Textarea
-            id="panel-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Weekly signups by channel over the last 6 months, stacked area"
-            className="min-h-[140px] resize-y text-sm"
+          <Label>{t("panelEditor.whatToChart")}</Label>
+          <PromptComposer
             autoFocus
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleDescribe();
-              }
-            }}
+            disabled={isGenerating}
+            placeholder={t("panelEditor.promptPlaceholder")}
+            draftScope="analytics:add-panel"
+            onSubmit={handleDescribe}
           />
-          <p className="text-xs text-muted-foreground">
-            The agent will consult the data dictionary, write the SQL, and
-            append the panel. Press{" "}
-            <kbd className="px-1 rounded border bg-muted font-mono text-[10px]">
-              {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-              +Enter
-            </kbd>{" "}
-            to submit.
-          </p>
         </div>
         <EditorFooter className="mt-4">
           <Button
@@ -487,17 +760,7 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={isGenerating}
           >
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleDescribe} disabled={!canGenerate}>
-            {isGenerating ? (
-              <>
-                <IconLoader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              "Generate"
-            )}
+            {t("panelEditor.cancel")}
           </Button>
         </EditorFooter>
       </TabsContent>
@@ -511,14 +774,14 @@ function PanelEditorContent({
             onClick={() => onOpenChange(false)}
             disabled={saving}
           >
-            Cancel
+            {t("panelEditor.cancel")}
           </Button>
           <Button
             size="sm"
             onClick={handleSubmit}
             disabled={!canSave || saving}
           >
-            {saving ? "Saving..." : "Add panel"}
+            {saving ? t("panelEditor.saving") : t("panelEditor.addPanel")}
           </Button>
         </EditorFooter>
       </TabsContent>
@@ -527,13 +790,14 @@ function PanelEditorContent({
 }
 
 export function PanelEditorDialog(props: PanelEditorDialogProps) {
+  const t = useT();
   if (!props.panel) return null;
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit panel</DialogTitle>
+          <DialogTitle>{t("panelEditor.editPanel")}</DialogTitle>
         </DialogHeader>
 
         <PanelEditorContent {...props} />
@@ -559,6 +823,7 @@ export function AddPanelPopover({
   align = "end",
   side = "bottom",
 }: AddPanelPopoverProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   return (
@@ -568,12 +833,12 @@ export function AddPanelPopover({
         align={align}
         side={side}
         sideOffset={8}
-        aria-label="Add panel"
+        aria-label={t("panelEditor.addPanel")}
         className="w-[calc(100vw-2rem)] sm:w-[640px] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-5"
       >
         <div className="mb-4">
           <h2 className="text-base font-semibold leading-none tracking-tight">
-            Add panel
+            {t("panelEditor.addPanel")}
           </h2>
         </div>
         <PanelEditorContent

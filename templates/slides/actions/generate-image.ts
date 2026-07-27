@@ -28,8 +28,10 @@ const config = async () => {
 };
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import pLimit from "p-limit";
+
 import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
+import pLimit from "p-limit";
+
 import { DEFAULT_STYLE_REFERENCE_URLS } from "../shared/api.js";
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -190,10 +192,10 @@ Options:
   const modelChoice = opts["model"] || "auto";
   let provider: Awaited<ReturnType<typeof getProvider>>;
   try {
-    provider = getProvider(modelChoice);
+    provider = await getProvider(modelChoice);
   } catch {
     console.error(
-      "Error: No image generation provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.",
+      "Error: No image generation provider configured. Save GEMINI_API_KEY or OPENAI_API_KEY in settings.",
     );
     throw new Error("Script failed");
   }

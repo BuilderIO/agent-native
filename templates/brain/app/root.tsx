@@ -1,3 +1,20 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconMoon, IconSun } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useState } from "react";
 import {
   Links,
   Meta,
@@ -6,25 +23,17 @@ import {
   ScrollRestoration,
   useNavigate,
 } from "react-router";
-import { useCallback, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { IconMoon, IconSun } from "@tabler/icons-react";
-import { useDbSync } from "@agent-native/core";
-import {
-  AppProviders,
-  CommandMenu,
-  appPath,
-  createAgentNativeQueryClient,
-  getThemeInitScript,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+import type { LinksFunction } from "react-router";
+
 import { Layout as AppLayout } from "@/components/layout/Layout";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useDistillationBridge } from "@/hooks/use-distillation-bridge";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
-import type { LinksFunction } from "react-router";
+
+import changelog from "../CHANGELOG.md?raw";
+import { i18nCatalog } from "./i18n";
+
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -51,6 +60,7 @@ function getHydrationStableThemeInitScript() {
 }
 
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -65,6 +75,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181b" />
@@ -119,6 +134,7 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -126,7 +142,7 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle {isDark ? "light" : "dark"} mode
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
 }
@@ -134,37 +150,57 @@ function ThemeToggleItem() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
+  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Navigate">
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="brain"
+      >
+        <CommandMenu.Group heading={t("root.commandNavigate")}>
           <CommandMenu.Item onSelect={() => navigate("/")}>
-            Ask Brain
+            {t("navigation.askBrain")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/search")}>
-            Search
+            {t("navigation.search")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/knowledge")}>
-            Knowledge
+            {t("navigation.knowledge")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/review")}>
-            Review queue
+            {t("navigation.reviewQueue")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/sources")}>
-            Sources
+            {t("navigation.sources")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/ops")}>
-            Ops
+            {t("navigation.ops")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/extensions")}>
-            Extensions
+            {t("navigation.extensions")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
-            Settings
+            {t("navigation.settings")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
@@ -183,9 +219,6 @@ export default function Root() {
           // Brain has a faster sync cadence for source distillation status;
           // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Brain shows live ingestion progress — refetch on focus to pick
-          // up background sync jobs that don't emit DB events.
-          refetchOnWindowFocus: true,
           // Flat retry: Brain data fetches are rarely auth failures so a
           // flat count is sufficient.
           retry: 1,
@@ -195,11 +228,17 @@ export default function Root() {
   );
 
   return (
-    <AppProviders queryClient={queryClient} tooltipDelayDuration={250}>
-      <DbSyncSetup />
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        tooltipDelayDuration={250}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <DbSyncSetup />
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

@@ -1,56 +1,6 @@
-import {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  forwardRef,
-  Fragment,
-} from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
-import {
-  cn,
-  formatEmailDate,
-  formatFileSize,
-  formatShortcut,
-} from "@/lib/utils";
-import { useTheme } from "next-themes";
-import { useComposeState } from "@/hooks/use-compose-state";
-import { useAccountFilter } from "@/hooks/use-account-filter";
-import {
-  useThreadMessages,
-  useArchiveEmail,
-  useTrashEmail,
-  useUntrashEmail,
-  useToggleStar,
-  useMarkRead,
-  useMarkThreadRead,
-  useUnarchiveEmail,
-  useSettings,
-  useUpdateSettings,
-  useEmailTracking,
-  unsuppressThread,
-} from "@/hooks/use-emails";
-import { useQueryClient } from "@tanstack/react-query";
-import { ensureThread, warmThreads } from "@/lib/thread-cache";
-import { getResolvedTheme } from "@/lib/theme";
-import { appApiPath } from "@agent-native/core/client";
-import {
-  decodeHtmlEntities,
-  processHtmlImages,
-} from "@/lib/email-image-policy";
-import { isMcpEmbedSurface } from "@/lib/mcp-embed";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { setUndoAction } from "@/hooks/use-undo";
-import { toast } from "sonner";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage, MobileActionId } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   IconArchive,
   IconArrowLeft,
@@ -71,12 +21,66 @@ import {
   IconArrowsMinimize,
   IconTrash,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  forwardRef,
+  Fragment,
+} from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router";
+import { toast } from "sonner";
+
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import { useComposeState } from "@/hooks/use-compose-state";
+import {
+  useThreadMessages,
+  useArchiveEmail,
+  useTrashEmail,
+  useUntrashEmail,
+  useToggleStar,
+  useMarkRead,
+  useMarkThreadRead,
+  useUnarchiveEmail,
+  useSettings,
+  useUpdateSettings,
+  useEmailTracking,
+  unsuppressThread,
+} from "@/hooks/use-emails";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { setUndoAction } from "@/hooks/use-undo";
+import {
+  decodeHtmlEntities,
+  processHtmlImages,
+} from "@/lib/email-image-policy";
+import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { getResolvedTheme } from "@/lib/theme";
+import { ensureThread, warmThreads } from "@/lib/thread-cache";
+import type { ThreadSummary } from "@/lib/threads";
+import {
+  cn,
+  formatEmailDate,
+  formatFileSize,
+  formatShortcut,
+} from "@/lib/utils";
+
+import { buildEmailIframeDocument } from "./email-iframe-document";
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
 } from "./InlineReplyComposer";
 import { MobileActionBar, DEFAULT_MOBILE_ACTIONS } from "./MobileActionBar";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 export function EmailThread({
   activeThreadId,
@@ -111,6 +115,7 @@ export function EmailThread({
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
 }) {
+  const t = useT();
   const { view = "inbox", threadId: routeThreadId } = useParams<{
     view: string;
     threadId: string;
@@ -405,7 +410,10 @@ export function EmailThread({
           (t.latestMessage.threadId || t.latestMessage.id) === nextThreadId,
       );
       setSelectedIds?.(new Set());
-      void ensureThread(nextThreadId, nextThread?.latestMessage.accountEmail);
+      void ensureThread(
+        nextThreadId,
+        nextThread?.latestMessage.accountEmail,
+      ).catch(() => {});
       onNavigateThread?.(nextThreadId);
       navigate(`/${view}/${nextThreadId}${routeSearchSuffix}`);
     },
@@ -1047,7 +1055,7 @@ export function EmailThread({
       const data = await res.json();
 
       if (data.ok) {
-        toast.success("Unsubscribe request sent");
+        toast.success(t("mail.toasts.unsubscribeSent"));
         // Also open the URL so user can confirm if needed
         if (data.url || unsubscribeInfo.url) {
           window.open(data.url || unsubscribeInfo.url, "_blank");
@@ -1057,7 +1065,7 @@ export function EmailThread({
         if (unsubscribeInfo.url) {
           window.open(unsubscribeInfo.url, "_blank");
         } else {
-          toast.error("Could not unsubscribe");
+          toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
     } catch {
@@ -1119,7 +1127,7 @@ export function EmailThread({
                 onClick={goBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1166,7 +1174,7 @@ export function EmailThread({
                 )}
                 <button
                   onClick={() => goToSibling(-1)}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                 >
                   <IconChevronUp className="h-3.5 w-3.5" />
                 </button>
@@ -1181,7 +1189,7 @@ export function EmailThread({
                     <TooltipTrigger asChild>
                       <button
                         onClick={onToggleMaximize}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
                         aria-label={isMaximized ? "Minimize" : "Maximize"}
                         aria-pressed={isMaximized}
                       >
@@ -1211,7 +1219,7 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                       >
                         <IconExternalLink className="h-3 w-3" />
-                        View Pull Request
+                        {t("mail.thread.viewPullRequest")}
                       </a>
                     </TooltipTrigger>
                     <TooltipContent
@@ -1219,7 +1227,7 @@ export function EmailThread({
                       align="start"
                       className="flex items-center gap-1.5 text-[12px] font-medium"
                     >
-                      View Pull Request
+                      {t("mail.thread.viewPullRequest")}
                       <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
                         {formatShortcut("cmd")}
                       </kbd>
@@ -1238,11 +1246,13 @@ export function EmailThread({
                         className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors disabled:opacity-50"
                       >
                         <IconMailOff className="h-3 w-3" />
-                        {unsubscribing ? "Unsubscribing..." : "Unsubscribe"}
+                        {unsubscribing
+                          ? t("mail.thread.unsubscribing")
+                          : t("mail.thread.unsubscribe")}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      Unsubscribe from this mailing list
+                      {t("mail.thread.unsubscribeTooltip")}
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1498,7 +1508,7 @@ function ThreadLoadingState({
                 onClick={onBack}
                 className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
-                <IconArrowLeft className="h-[14px] w-[14px]" />
+                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
               </button>
             </TooltipTrigger>
             <TooltipContent>Back (Esc)</TooltipContent>
@@ -1524,7 +1534,7 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1575,7 +1585,7 @@ function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-4 py-4">
+    <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-4 py-4">
       <div className="flex items-start gap-3">
         <Skeleton className="h-9 w-9 rounded-full shrink-0" />
         <div className="flex-1 space-y-3">
@@ -1639,7 +1649,7 @@ const CollapsedMessageRow = forwardRef<
       <span className="text-[13px] text-muted-foreground truncate flex-1">
         {email.snippet}
       </span>
-      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ml-2">
+      <span className="text-[12px] text-muted-foreground/60 tabular-nums shrink-0 ms-2">
         {formatEmailDate(email.date)}
       </span>
     </div>
@@ -1679,6 +1689,7 @@ const ExpandedMessageCard = forwardRef<
   },
   ref,
 ) {
+  const t = useT();
   const [showDetails, setShowDetails] = useState(false);
   const senderName = email.from.name || email.from.email;
   const recipients = [
@@ -1710,7 +1721,7 @@ const ExpandedMessageCard = forwardRef<
       ref={ref}
       onClick={onFocus}
       className={cn(
-        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden cursor-pointer",
+        "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
         isFocused
           ? "ring-1 ring-primary/40"
           : "ring-1 ring-transparent hover:ring-border/30",
@@ -1795,7 +1806,7 @@ const ExpandedMessageCard = forwardRef<
                 e.stopPropagation();
                 setShowDetails(true);
               }}
-              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-left"
+              className="text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors truncate text-start"
             >
               to {recipients}
             </button>
@@ -1812,7 +1823,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Reply</TooltipContent>
@@ -1826,10 +1837,12 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Reply All</TooltipContent>
+              <TooltipContent>
+                {t("mail.mobileActions.replyAll")}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1840,7 +1853,7 @@ const ExpandedMessageCard = forwardRef<
                   }}
                   className="flex h-9 w-9 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground/40 hover:text-foreground transition-colors"
                 >
-                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px]" />
+                  <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
               </TooltipTrigger>
               <TooltipContent>Forward</TooltipContent>
@@ -1960,7 +1973,7 @@ const ExpandedMessageCard = forwardRef<
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
               >
                 <IconDownload className="h-3 w-3" />
-                Download all
+                {t("mail.thread.downloadAll")}
               </button>
             )}
           </div>
@@ -2070,6 +2083,7 @@ function PlainTextBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const [showQuoted, setShowQuoted] = useState(false);
   const [showSig, setShowSig] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2169,7 +2183,7 @@ function PlainTextBody({
       {hasSig && !showSig && !forceShowAll && (
         <button
           type="button"
-          aria-label="Show signature"
+          aria-label={t("mail.thread.showSignature")}
           onClick={() => setShowSig(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2179,7 +2193,7 @@ function PlainTextBody({
       {hasQuoted && !showQuoted && !forceShowAll && (showSig || !hasSig) && (
         <button
           type="button"
-          aria-label="Show quoted text"
+          aria-label={t("mail.thread.showQuotedText")}
           onClick={() => setShowQuoted(true)}
           className="mt-1 inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-muted-foreground"
         >
@@ -2192,9 +2206,85 @@ function PlainTextBody({
 
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
-// Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
-const IFRAME_BG_DARK = "#17181a";
+// Let normalized dark-mode emails inherit the message card's themed surface.
+// The iframe and its document are transparent, so theme token changes stay in sync.
+const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
+
+function buildEmailIframeCss(
+  useDarkIframeCss: boolean,
+  iframeBackground: string,
+): string {
+  return useDarkIframeCss
+    ? `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${iframeBackground} !important;
+      color: #e4e4e7 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+      color-scheme: dark;
+    }
+    /* Force dark backgrounds on all container elements */
+    div, table, tr, td, th, span, p, blockquote, pre, ul, ol, li,
+    h1, h2, h3, h4, h5, h6, header, footer, section, article,
+    form, fieldset, center, font, main, aside, nav {
+      background-color: transparent !important;
+      background-image: none !important;
+    }
+    /* Default text color for elements that don't have readable inline colors */
+    body, div, p, span, td, th, li, h1, h2, h3, h4, h5, h6,
+    font, strong, em, b, i, u, small, label, dt, dd, pre, code,
+    blockquote { color: inherit; }
+    a { color: #818cf8 !important; }
+    img { max-width: 100%; height: auto; }
+    hr { border-color: rgba(255,255,255,0.1) !important; }
+    .quoted-hidden { display: none; }
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(161,161,170,0.5);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(161,161,170,0.8); }
+`
+    : `
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: ${iframeBackground};
+      color: #1a1a1a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow: hidden;
+    }
+    img { max-width: 100%; height: auto; }
+    .quoted-hidden { display: none; }
+    .sig-collapsed { display: none; }
+    .quote-toggle, .sig-toggle {
+      display: inline-block;
+      cursor: pointer;
+      color: rgba(0,0,0,0.4);
+      font-size: 13px;
+      letter-spacing: 0.15em;
+      padding: 2px 0;
+      border: none;
+      background: none;
+      margin-top: 4px;
+    }
+    .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
+`;
+}
 
 // ─── Color utilities for dark-mode email processing ─────────────────────────
 
@@ -2530,6 +2620,29 @@ function sanitizeEmailHtml(html: string): SanitizedEmailHtml {
   };
 }
 
+function measureEmailDocumentHeight(doc: Document): number {
+  const body = doc.body;
+  const root = doc.documentElement;
+  if (!body || !root) return 0;
+
+  const bodyTop = body.getBoundingClientRect().top;
+  let contentBottom = body.getBoundingClientRect().bottom - bodyTop;
+  for (const element of body.querySelectorAll<HTMLElement>("*")) {
+    const rect = element.getBoundingClientRect();
+    contentBottom = Math.max(contentBottom, rect.bottom - bodyTop);
+  }
+
+  return Math.ceil(
+    Math.max(
+      body.scrollHeight,
+      body.offsetHeight,
+      root.scrollHeight,
+      root.offsetHeight,
+      contentBottom,
+    ),
+  );
+}
+
 function HtmlEmailBody({
   html,
   senderEmail,
@@ -2541,9 +2654,12 @@ function HtmlEmailBody({
   searchTerm?: string;
   activeLocalIdx?: number | null;
 }) {
+  const t = useT();
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const [iframeReady, setIframeReady] = useState(false);
+  const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
@@ -2589,6 +2705,20 @@ function HtmlEmailBody({
       blockedCount: headBlockedCount + bodyBlockedCount,
     };
   }, [sanitizedHtml.headHtml, sanitizedHtml.bodyHtml, effectivePolicy]);
+  const useDarkIframeCss = isDark && !hasDesignedBg;
+  const iframeCss = useMemo(
+    () => buildEmailIframeCss(useDarkIframeCss, IFRAME_BG),
+    [IFRAME_BG, useDarkIframeCss],
+  );
+  const iframeDocument = useMemo(
+    () =>
+      buildEmailIframeDocument(
+        processedEmailHtml.headHtml,
+        processedEmailHtml.bodyHtml,
+        iframeCss,
+      ),
+    [iframeCss, processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
+  );
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2600,8 +2730,6 @@ function HtmlEmailBody({
     setShowImagesForThread(true);
   };
 
-  const useDarkIframeCss = isDark && !hasDesignedBg;
-
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -2609,93 +2737,18 @@ function HtmlEmailBody({
     const doc = iframe.contentDocument;
     if (!doc) return;
 
-    doc.open();
-    const iframeCss = useDarkIframeCss
-      ? `
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: ${IFRAME_BG} !important;
-      color: #e4e4e7 !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      overflow: hidden;
-      color-scheme: dark;
-    }
-    /* Force dark backgrounds on all container elements */
-    div, table, tr, td, th, span, p, blockquote, pre, ul, ol, li,
-    h1, h2, h3, h4, h5, h6, header, footer, section, article,
-    form, fieldset, center, font, main, aside, nav {
-      background-color: transparent !important;
-      background-image: none !important;
-    }
-    /* Default text color for elements that don't have readable inline colors */
-    body, div, p, span, td, th, li, h1, h2, h3, h4, h5, h6,
-    font, strong, em, b, i, u, small, label, dt, dd, pre, code,
-    blockquote { color: inherit; }
-    a { color: #818cf8 !important; }
-    img { max-width: 100%; height: auto; }
-    hr { border-color: rgba(255,255,255,0.1) !important; }
-    .quoted-hidden { display: none; }
-    .sig-collapsed { display: none; }
-    .quote-toggle, .sig-toggle {
-      display: inline-block;
-      cursor: pointer;
-      color: rgba(161,161,170,0.5);
-      font-size: 13px;
-      letter-spacing: 0.15em;
-      padding: 2px 0;
-      border: none;
-      background: none;
-      margin-top: 4px;
-    }
-    .quote-toggle:hover, .sig-toggle:hover { color: rgba(161,161,170,0.8); }
-`
-      : `
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: ${IFRAME_BG};
-      color: #1a1a1a;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      overflow: hidden;
-    }
-    img { max-width: 100%; height: auto; }
-    .quoted-hidden { display: none; }
-    .sig-collapsed { display: none; }
-    .quote-toggle, .sig-toggle {
-      display: inline-block;
-      cursor: pointer;
-      color: rgba(0,0,0,0.4);
-      font-size: 13px;
-      letter-spacing: 0.15em;
-      padding: 2px 0;
-      border: none;
-      background: none;
-      margin-top: 4px;
-    }
-    .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
-`;
-
-    doc.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  ${processedEmailHtml.headHtml}
-  <style>${iframeCss}  </style>
-</head>
-<body>${processedEmailHtml.bodyHtml}</body>
-</html>`);
-    doc.close();
+    const existingThemeStyle = doc.head.querySelector<HTMLStyleElement>(
+      "style[data-mail-theme]",
+    );
+    const themeStyle = existingThemeStyle ?? doc.createElement("style");
+    const ownsThemeStyle = !existingThemeStyle;
+    themeStyle.setAttribute("data-mail-theme", "");
+    themeStyle.textContent = iframeCss;
+    if (!themeStyle.parentNode) doc.head.appendChild(themeStyle);
 
     const resize = () => {
-      if (doc.body) {
-        const h = doc.body.scrollHeight;
-        if (h > 0) setHeight(h);
-      }
+      const h = measureEmailDocumentHeight(doc);
+      if (h > 0) setHeight((current) => (current === h ? current : h));
     };
 
     const normalizeText = (value: string | null | undefined) =>
@@ -2977,7 +3030,7 @@ function HtmlEmailBody({
         if (lightened) el.setAttribute("color", lightened);
       });
 
-      // Transform dark text color rules in <style> blocks
+      // Transform dark text color rules in <style> blocks // i18n-ignore
       doc.querySelectorAll("style").forEach((tag) => {
         const text = tag.textContent || "";
         tag.textContent = text.replace(
@@ -3028,6 +3081,7 @@ function HtmlEmailBody({
       } catch {}
     });
 
+    let handleRsvpClick: ((e: MouseEvent) => void) | null = null;
     if (calEventId && rsvpLinks.length > 0) {
       const eventId = calEventId;
       rsvpLinks.forEach((a) => {
@@ -3069,7 +3123,7 @@ function HtmlEmailBody({
       });
 
       // Handle RSVP clicks inline
-      const handleRsvpClick = async (e: MouseEvent) => {
+      handleRsvpClick = async (e: MouseEvent) => {
         const anchor = (e.target as Element)?.closest?.(
           'a[href*="calendar.google.com/calendar/event"]',
         ) as HTMLElement | null;
@@ -3169,16 +3223,26 @@ function HtmlEmailBody({
     const images = doc.querySelectorAll("img");
     images.forEach((img) => img.addEventListener("load", resize));
 
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
+    resizeObserver?.observe(doc.documentElement);
+    if (doc.body) resizeObserver?.observe(doc.body);
+    window.addEventListener("resize", resize);
+
     resize();
     const timer = setTimeout(resize, 100);
     const timer2 = setTimeout(resize, 500);
 
     return () => {
       doc.removeEventListener("click", handleLinkClick);
+      if (handleRsvpClick) doc.removeEventListener("click", handleRsvpClick);
       doc.removeEventListener("keydown", forwardKey);
       clearTimeout(timer);
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", resize);
+      if (ownsThemeStyle) themeStyle.remove();
     };
   }, [
     processedEmailHtml.bodyHtml,
@@ -3186,6 +3250,8 @@ function HtmlEmailBody({
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
+    iframeCss,
+    iframeLoadVersion,
   ]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
@@ -3245,14 +3311,14 @@ function HtmlEmailBody({
       }
 
       // Recalculate height after injecting marks
-      const h = doc.body.scrollHeight;
+      const h = measureEmailDocumentHeight(doc);
       if (h > 0) setHeight(h);
     };
 
     // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedEmailHtml.bodyHtml]);
+  }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
 
   // Update which mark is "active" and scroll it into view
   useEffect(() => {
@@ -3273,7 +3339,7 @@ function HtmlEmailBody({
       active.style.color = "#000";
       active.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [activeLocalIdx, searchTerm]);
+  }, [activeLocalIdx, searchTerm, iframeLoadVersion]);
 
   const showBanner =
     effectivePolicy === "block-all" &&
@@ -3287,8 +3353,8 @@ function HtmlEmailBody({
           <IconPhoto className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
           <span>
             {isEmbedded
-              ? "Remote images hidden in this embed."
-              : "Images blocked."}
+              ? t("mail.thread.remoteImagesHidden")
+              : t("mail.thread.imagesBlocked")}
           </span>
           {!isEmbedded && (
             <>
@@ -3296,33 +3362,65 @@ function HtmlEmailBody({
                 onClick={() => setShowImagesForThread(true)}
                 className="text-primary hover:text-primary/80 font-medium transition-colors"
               >
-                Show images
+                {t("mail.thread.showImages")}
               </button>
               {senderEmail && (
                 <button
                   onClick={handleAlwaysTrust}
                   className="text-muted-foreground/60 hover:text-muted-foreground font-medium transition-colors"
                 >
-                  Always from {senderEmail.split("@")[1]}
+                  {t("mail.thread.alwaysFrom", {
+                    domain: senderEmail.split("@")[1],
+                  })}
                 </button>
               )}
             </>
           )}
         </div>
       )}
-      <iframe
-        ref={iframeRef}
-        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        style={{
-          width: "100%",
-          height: `${height}px`,
-          border: "none",
-          background: IFRAME_BG,
-          colorScheme: useDarkIframeCss ? "dark" : "light",
-          borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
-        }}
-        title="Email content"
-      />
+      <div
+        className="relative"
+        aria-busy={!iframeReady}
+        aria-label={!iframeReady ? t("mail.thread.emailContent") : undefined}
+      >
+        {!iframeReady && (
+          <div
+            className="pointer-events-none absolute inset-0 z-10 space-y-2 px-1 pt-1"
+            aria-hidden="true"
+          >
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[92%]" />
+            <Skeleton className="h-3 w-[70%]" />
+            <div className="h-1" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-[84%]" />
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          data-agent-native-session-replay=""
+          srcDoc={iframeDocument}
+          sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          scrolling="no"
+          className={cn(
+            "transition-opacity duration-150 motion-reduce:transition-none",
+            iframeReady ? "opacity-100" : "opacity-0",
+          )}
+          style={{
+            width: "100%",
+            height: `${height}px`,
+            border: "none",
+            background: IFRAME_BG,
+            colorScheme: useDarkIframeCss ? "dark" : "light",
+            borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
+          }}
+          title={t("mail.thread.emailContent")}
+          onLoad={() => {
+            setIframeReady(true);
+            setIframeLoadVersion((version) => version + 1);
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -3348,6 +3446,7 @@ function ThreadSearchBar({
   totalMatches: number;
   inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
+  const t = useT();
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -3368,7 +3467,7 @@ function ThreadSearchBar({
         value={query}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Search in conversation…"
+        placeholder={t("mail.thread.searchConversation")}
         className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none min-w-0"
         autoComplete="off"
         spellCheck={false}
@@ -3376,7 +3475,7 @@ function ThreadSearchBar({
       {query && (
         <span className="text-[12px] text-muted-foreground/50 tabular-nums shrink-0 select-none">
           {totalMatches === 0
-            ? "No matches"
+            ? t("mail.search.noMatches")
             : `${matchIdx + 1} / ${totalMatches}`}
         </span>
       )}
@@ -3409,7 +3508,7 @@ function ThreadSearchBar({
           <TooltipTrigger asChild>
             <button
               onClick={onClose}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ml-1"
+              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
             >
               <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
             </button>

@@ -5,7 +5,7 @@ use crate::state::{
     DictationActive, PopoverShownAt, RecordingActive, TrayAnchor, VoiceWakePopover,
 };
 
-const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 12.0;
+const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
@@ -15,10 +15,10 @@ const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 //
 // Clips-owned recording chrome (toolbar / countdown / finalizing /
 // recording-pill) gets `NSWindow.sharingType = NSWindowSharingNone` so it does
-// not leak into the recorded video. The main popover is different: users expect
-// to screenshot it for feedback, so it stays shareable during normal idle /
-// settings use and is flipped to NSWindowSharingNone only while it is parked as
-// the hidden recording controller.
+// not leak into the recorded video. The main popover follows the same user
+// preference: private by default, shareable only when "Show Clips in screen
+// captures" is enabled. Reopening it during a recording must not silently
+// override that choice.
 // Recording-time exclusion has two effects on macOS: screen pickers don't list
 // excluded windows, and full-screen captures omit them from the compositor
 // output. This is the same mechanism Loom, 1Password, and CleanShot use to keep
@@ -162,6 +162,46 @@ pub fn configure_overlay_behavior(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Spaces are a macOS concept.
 }
 
+/// Raise a window to NSStatusWindowLevel (25).
+///
+/// Tauri's `always_on_top` maps to NSFloatingWindowLevel (3). Within a level
+/// macOS still orders the *active* app's windows ahead of a background app's,
+/// and the recording overlays are deliberately never key — so another app's
+/// floating chrome (call controls, launchers) covers them. Level 25 clears
+/// that whole class while staying below NSPopUpMenuWindowLevel (101) so
+/// context menus still draw on top.
+#[cfg(target_os = "macos")]
+pub fn raise_to_status_level(window: &WebviewWindow) {
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!("[clips-tray] raise_to_status_level({label}): ns_window() failed: {err}");
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] raise_to_status_level({label}): ns_window is null");
+            return;
+        }
+        // SAFETY: ns_window() returns a live NSWindow*; called on main thread.
+        unsafe {
+            let obj = ns_window_ptr as *mut objc2::runtime::AnyObject;
+            let _: () = objc2::msg_send![&*obj, setLevel: 25isize];
+        }
+        dlog!("[clips-tray] raise_to_status_level({label}): NSStatusWindowLevel");
+    }) {
+        eprintln!("[clips-tray] raise_to_status_level: run_on_main_thread failed: {err}");
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn raise_to_status_level(_window: &WebviewWindow) {
+    // No-op on non-macOS platforms. Window levels are an AppKit concept.
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn set_capture_excluded(_window: &WebviewWindow) {
     // No-op on non-macOS platforms. Screen-capture exclusion isn't a public
@@ -183,12 +223,9 @@ pub fn set_capture_included(_window: &WebviewWindow) {
 /// immediately on anything currently on screen. Called from
 /// `set_feature_config` when the toggle flips.
 ///
-/// The popover is intentionally skipped — its sharing-type is dynamic
-/// (`set_capture_included` while shown, `set_capture_excluded` while
-/// parked at 2x2 px during recording). Both of those helpers now consult
-/// the toggle, so the next `show_popover` / `park_popover_offscreen` call
-/// picks up the new setting. Rewriting it here would clobber the parked
-/// state mid-recording.
+/// The popover follows the same preference as ordinary Clips chrome. Applying
+/// it here makes the toggle take effect immediately whether the popover is
+/// visible or parked as the 2x2 recording controller.
 ///
 /// Region-guide overlays are private recorder aids, not Clips chrome demos, so
 /// they stay excluded even when the debug toggle makes the rest visible.
@@ -198,9 +235,6 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
         let visible = crate::config::show_in_screen_capture(app);
         let windows = app.webview_windows();
         for (label, window) in &windows {
-            if label.as_str() == "popover" {
-                continue;
-            }
             // The meeting reminder is a notification, not Clips recording
             // chrome — keep it visible in captures regardless of the debug
             // toggle so it never gets re-excluded on a config change.
@@ -208,7 +242,10 @@ pub fn reapply_capture_exclusion_to_overlays(app: &tauri::AppHandle) {
                 set_window_capture_excluded(window, false);
                 continue;
             }
-            let private_guide = matches!(label.as_str(), "region-guides" | "region-guide-editor");
+            let private_guide = matches!(
+                label.as_str(),
+                "region-guides" | "region-guide-editor" | "region-record-border"
+            );
             set_window_capture_excluded(window, private_guide || !visible);
         }
     }
@@ -271,6 +308,60 @@ pub fn show_without_activation(window: &WebviewWindow) {
     // is a macOS-flavored complaint; if it shows up on Windows / Linux
     // we'll add a per-platform fix.
     let _ = window.show();
+}
+
+/// Show a user-invoked popover and make a best-effort pass at bringing it to
+/// the front even when Clips was launched as a background login item.
+#[cfg(target_os = "macos")]
+pub fn present_interactive_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let win = window.clone();
+    if let Err(err) = win.clone().run_on_main_thread(move || {
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        let label = win.label().to_string();
+        let ns_window_ptr = match win.ns_window() {
+            Ok(p) => p,
+            Err(err) => {
+                eprintln!(
+                    "[clips-tray] present_interactive_window({label}): ns_window() failed: {err}"
+                );
+                return;
+            }
+        };
+        if ns_window_ptr.is_null() {
+            eprintln!("[clips-tray] present_interactive_window({label}): ns_window is null");
+            return;
+        }
+
+        unsafe {
+            if let Ok(class_name) = std::ffi::CString::new("NSApplication") {
+                if let Some(cls) = AnyClass::get(&class_name) {
+                    let ns_app: *mut AnyObject = objc2::msg_send![cls, sharedApplication];
+                    if !ns_app.is_null() {
+                        let _: () =
+                            objc2::msg_send![&*ns_app, activateIgnoringOtherApps: Bool::YES];
+                    }
+                }
+            }
+
+            let obj = ns_window_ptr as *mut AnyObject;
+            let _: () = objc2::msg_send![&*obj, setHidesOnDeactivate: false];
+            let _: () = objc2::msg_send![&*obj, orderFrontRegardless];
+            let _: () =
+                objc2::msg_send![&*obj, makeKeyAndOrderFront: std::ptr::null::<AnyObject>()];
+        }
+        dlog!("[clips-tray] present_interactive_window({label}): ordered front");
+    }) {
+        eprintln!("[clips-tray] present_interactive_window: run_on_main_thread failed: {err}");
+    }
+    let _ = window.set_focus();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn present_interactive_window(window: &WebviewWindow) {
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 /// Returns `(x, y, width, height)` of the monitor where the tray icon was last
@@ -366,6 +457,41 @@ pub fn is_recording_active(app: &AppHandle) -> bool {
     app.try_state::<RecordingActive>()
         .and_then(|s| s.0.lock().ok().map(|g| *g))
         .unwrap_or(false)
+}
+
+pub fn is_meeting_active(app: &AppHandle) -> bool {
+    use crate::state::MeetingActive;
+    app.try_state::<MeetingActive>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false)
+}
+
+/// Bundle id of the frontmost macOS app, or `None` on failure / non-macOS.
+/// Uses a lightweight `osascript` shell-out so callers don't need objc2.
+#[cfg(target_os = "macos")]
+pub fn frontmost_bundle_id() -> Option<String> {
+    use std::process::Command;
+    let out = Command::new("osascript")
+        .args([
+            "-e",
+            "tell application \"System Events\" to get bundle identifier of (first process whose frontmost is true)",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn frontmost_bundle_id() -> Option<String> {
+    None
 }
 
 pub fn set_dictation_active(app: &AppHandle, active: bool) {

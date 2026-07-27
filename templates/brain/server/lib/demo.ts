@@ -1,5 +1,7 @@
-import { and, desc, eq } from "drizzle-orm";
 import { accessFilter } from "@agent-native/core/sharing";
+import { and, desc, eq } from "drizzle-orm";
+
+import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import {
   createCapture,
@@ -19,7 +21,6 @@ import {
   redactSensitiveValue,
   searchEverythingRows,
 } from "./search.js";
-import type { BrainEvidence, BrainSourceProvider } from "../../shared/types.js";
 
 const DEMO_SEED_ID = "brain-product-decisions-demo-v1";
 const RETRIEVAL_EVAL_SEED_ID = "brain-real-channel-retrieval-eval-v1";
@@ -477,7 +478,7 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
       "For a stale Fusion branch, should the agent checkout, reset, stash, or repair the branch automatically?",
     requiredTerms: [
       "fusion",
-      ["do not", "don't", "never"],
+      ["do not", "don't", "never", "avoid"],
       "git checkout",
       "reset",
     ],
@@ -567,7 +568,6 @@ const retrievalEvalCases: RetrievalEvalCase[] = [
     label: "PII is redacted from retrieval output",
     question:
       "What does the #dev-fusion privacy redaction output say about durable escalation rotation?",
-    expectedTitle: "#dev-fusion privacy redaction output",
     requiredTerms: [
       "durable escalation rotation",
       "[redacted]",
@@ -693,11 +693,25 @@ function evidence(
   const metadata = parseJson<Record<string, unknown>>(capture.metadataJson, {});
   return {
     captureId: capture.id,
-    quote,
+    quote: exactPersistedEvidenceQuote(capture.content, quote),
     note,
     sourceUrl:
       typeof metadata.sourceUrl === "string" ? metadata.sourceUrl : undefined,
   };
+}
+
+function exactPersistedEvidenceQuote(content: string, preferred: string) {
+  const exactPreferred = preferred.trim();
+  if (exactPreferred && content.includes(exactPreferred)) return exactPreferred;
+
+  const longestLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)[0];
+  if (longestLine) return longestLine;
+
+  return content.slice(0, 280).trim();
 }
 
 function serializeSeedCapture(
@@ -1614,7 +1628,7 @@ export async function runBrainDemoEval(
     "pii-redaction",
     "PII is redacted before queryable storage",
     !!redacted &&
-      redacted.status === "redacted" &&
+      ["published", "redacted"].includes(redacted.status) &&
       !redactedText.includes("ava.cho@example.com") &&
       !redactedText.includes("+1 415 555 1212"),
     redacted

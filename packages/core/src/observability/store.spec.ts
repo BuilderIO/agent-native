@@ -38,6 +38,7 @@ vi.mock("../db/client.js", () => ({
 const {
   getTraceSummaries,
   getTraceSummary,
+  getLatestTraceSummaryForThread,
   getTraceSpansForRun,
   getFeedback,
   getFeedbackStats,
@@ -89,6 +90,19 @@ describe("observability store: per-user isolation", () => {
       const call = lastSelect();
       expect(call.sql).toMatch(/WHERE run_id = \? AND user_id = \?/);
       expect(call.args).toEqual(["run-from-other-user", "alice"]);
+    });
+
+    it("gets the latest response by thread and owner", async () => {
+      await getLatestTraceSummaryForThread("thread-1", {
+        userId: "alice",
+        excludeRunId: "run-current",
+      });
+      const call = lastSelect();
+      expect(call.sql).toMatch(
+        /WHERE thread_id = \? AND user_id = \? AND run_id <> \?/,
+      );
+      expect(call.sql).toMatch(/ORDER BY created_at DESC\s+LIMIT 1/);
+      expect(call.args).toEqual(["thread-1", "alice", "run-current"]);
     });
 
     it("getTraceSpansForRun scopes by user_id (prevents IDOR)", async () => {

@@ -1,19 +1,21 @@
+import { execFile, execFileSync } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { execFileSync } from "child_process";
-import { setupAgentSymlinks } from "./setup-agents.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,10 +23,29 @@ const __dirname = path.dirname(__filename);
 const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
+const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
+  "@react-router/dev": "8.1.0",
+  "@react-router/fs-routes": "8.1.0",
+  "react-router": "8.1.0",
+};
+const REACT_ROUTER_BUILD_DEPENDENCIES = [
+  "@react-router/dev",
+  "@react-router/fs-routes",
+  "react-router",
+  "vite",
+] as const;
+const MINIMUM_RELEASE_AGE_EXCLUDES = [
+  '"@typescript/*"',
+  '"@sentry/*"',
+  "fast-xml-parser",
+  "typescript",
+  "typescript-7",
+];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
 ];
+const localPackageTarballs = new Map<string, string>();
 
 /**
  * Tagged error for input that fails CLI-level validation (repo names, app
@@ -40,12 +61,11 @@ export class ValidationError extends Error {
 }
 
 /**
- * Move "starter" to the top of the list so it lines up with clack's default
- * highlight on the first option — otherwise users have to scroll to see that
- * Starter is pre-selected.
+ * Move the primitive-first and chat on-ramps to the top of the list so they
+ * line up with clack's default highlight.
  */
-function starterFirst(templates: TemplateMeta[]): TemplateMeta[] {
-  return moveTemplatesToFront(templates, ["starter"]);
+function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
+  return moveTemplatesToFront(templates, ["headless", "chat"]);
 }
 
 function moveTemplatesToFront(
@@ -60,11 +80,11 @@ function moveTemplatesToFront(
   return [...preferred, ...templates.filter((t) => !preferredSet.has(t.name))];
 }
 
-/** Blank scaffold option appended to every picker. */
-const BLANK_OPTION = {
-  name: "blank",
-  label: "Blank",
-  hint: "Empty starter — build from scratch",
+/** Primitive-first scaffold option appended to standalone pickers. */
+const HEADLESS_OPTION = {
+  name: "headless",
+  label: "Headless",
+  hint: "Action-first app with one hello primitive and no UI shell",
 };
 
 export interface CreateAppOptions {
@@ -74,6 +94,12 @@ export interface CreateAppOptions {
   standalone?: boolean;
   /** Internal: skip pnpm install at the end (for tests). */
   noInstall?: boolean;
+  /**
+   * Internal: always scaffold a workspace and skip the start-shape prompt.
+   * Used by the deprecated `create-workspace` alias, whose contract is an
+   * unconditional workspace scaffold.
+   */
+  forceWorkspace?: boolean;
 }
 
 /**
@@ -90,6 +116,12 @@ export async function createApp(
   opts?: CreateAppOptions,
 ): Promise<void> {
   const clack = await import("@clack/prompts");
+
+  // Reject an invalid provided name before any interactive prompt so bad input
+  // fails fast instead of blocking on the start-shape picker below.
+  if (name !== undefined) {
+    assertValidProjectName(name, clack);
+  }
 
   // If we're already inside a workspace, the meaning of `create <name>` is
   // "add a new app to this workspace". Delegate to add-app.
@@ -110,13 +142,113 @@ export async function createApp(
   // Use `--template a,b` or pass no --template to opt into the workspace
   // flow with the multi-select picker.
   const parsed = parseTemplateList(opts?.template);
-  if (parsed.length === 1) {
+  // Headless can't live in a workspace, so reject it when more than one
+  // template is requested or when workspace semantics are forced.
+  if (
+    parsed.includes("headless") &&
+    (parsed.length > 1 || opts?.forceWorkspace)
+  ) {
+    clack.cancel(
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Chat template when adding a UI app to a workspace.",
+    );
+    process.exit(1);
+  }
+  // A single explicit template scaffolds a standalone app, unless the caller
+  // forces workspace semantics (the deprecated `create-workspace` alias), in
+  // which case the template is preselected in the workspace picker below.
+  if (parsed.length === 1 && !opts?.forceWorkspace) {
     await createStandaloneApp(name, opts, clack);
     return;
   }
 
-  // Default: create a workspace.
+  // No template specified: ask what shape to start from before diving into
+  // "which templates?". The on-ramp choice implies the project structure, so
+  // we don't ask a separate "workspace or standalone?" question — Chat and
+  // Headless scaffold a single standalone app (the lightest starts; headless
+  // cannot live in a workspace), while Template continues into the workspace
+  // multi-select.
+  if (parsed.length === 0) {
+    // The deprecated `create-workspace` alias forces workspace semantics, so
+    // it must skip the start-shape prompt and scaffold a workspace directly.
+    if (opts?.forceWorkspace) {
+      await createWorkspaceInteractive(name, opts, clack);
+      return;
+    }
+    const shape = await promptStartShape(clack);
+    if (shape === "headless" || shape === "chat") {
+      await createStandaloneApp(name, { ...opts, template: shape }, clack);
+      return;
+    }
+    // shape === "template" → full app(s) in a workspace.
+    await createWorkspaceInteractive(name, opts, clack);
+    return;
+  }
+
+  // Multiple explicit templates: create a workspace with them.
   await createWorkspaceInteractive(name, opts, clack);
+}
+
+/**
+ * Top-level on-ramp shown by the bare `create <name>` command (no flags). The
+ * choice made here implies the project structure, so we deliberately avoid a
+ * separate "workspace or standalone?" question:
+ *   - "template" → full app(s) in a workspace (the multi-select picker)
+ *   - "chat"     → a single standalone chat UI app
+ *   - "headless" → a single standalone action-first app with no UI shell
+ * Chat and headless are standalone on purpose: a monorepo is unnecessary
+ * ceremony for the lightest on-ramps, and headless cannot be a workspace
+ * member. Either can grow into a workspace later via `add-app`.
+ */
+async function promptStartShape(
+  clack: typeof import("@clack/prompts"),
+): Promise<"template" | "chat" | "headless"> {
+  const choice = await clack.select(startShapePromptOptions());
+  if (clack.isCancel(choice)) {
+    clack.cancel("Cancelled.");
+    process.exit(0);
+  }
+  return choice as "template" | "chat" | "headless";
+}
+
+function startShapePromptOptions() {
+  return {
+    message: "How do you want to start?",
+    initialValue: "chat",
+    options: [
+      {
+        value: "chat",
+        label: "Chat",
+        hint: "A single app with a minimal chat UI and the browser shell wired up",
+      },
+      {
+        value: "template",
+        label: "Full template(s)",
+        hint: "Clone complete apps (Mail, Calendar, Slides, ...) into a workspace",
+      },
+      {
+        value: "headless",
+        label: "Headless",
+        hint: "A single action-first app with one primitive and no UI shell",
+      },
+    ],
+  };
+}
+
+/**
+ * Validate a project name supplied on the command line. Mirrors the rule in
+ * `promptNameIfMissing` so an invalid name is rejected before any interactive
+ * prompt runs (the sub-flows re-validate, which is a harmless no-op).
+ */
+function assertValidProjectName(
+  name: string,
+  clack: typeof import("@clack/prompts"),
+): void {
+  if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+    clack.cancel(
+      `Invalid name "${name}". Use lowercase letters, numbers, and hyphens (must start with a letter).`,
+    );
+    process.exit(1);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -139,8 +271,8 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core add-app`. Starter is a minimal scaffold —",
-      "useful as a blank app to build from scratch alongside the others.",
+      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
     ].join("\n"),
@@ -155,8 +287,8 @@ async function createWorkspaceInteractive(
     preselected.length > 0
       ? preselected.filter((t) => t !== "dispatch")
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["starter"],
-          preferredFirst: ["starter"],
+          defaultTemplates: ["chat"],
+          preferredFirst: ["chat"],
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
@@ -169,44 +301,59 @@ async function createWorkspaceInteractive(
 
   const s = clack.spinner();
   s.start(`Scaffolding workspace "${name}"...`);
+  const appNames = new Set<string>();
+  const scaffoldedApps: string[] = [];
 
   try {
     await scaffoldWorkspaceRoot(targetDir, name);
     const workspaceCoreName = `@${name}/shared`;
 
     for (let i = 0; i < templates.length; i++) {
-      const t = templates[i];
+      const templateName = templates[i];
+      const appName = workspaceAppNameForTemplateSelection(templateName);
+      validateWorkspaceAppName(appName, clack, {
+        allowDispatch: appName === "dispatch" && templateName === "dispatch",
+      });
+      if (appNames.has(appName)) {
+        clack.cancel(
+          `Workspace app "${appName}" is selected more than once. Choose unique app templates or app names.`,
+        );
+        process.exit(1);
+      }
+      appNames.add(appName);
+      scaffoldedApps.push(appName);
       // Distinguish download vs local copy in the spinner so a multi-second
       // GitHub fetch doesn't look like a frozen "Scaffolding..." message.
       // Mirrors the local-vs-remote decision inside scaffoldAppTemplate.
       const willDownload =
-        t !== "blank" && t.startsWith("github:")
+        templateName !== "headless" && templateName.startsWith("github:")
           ? true
-          : !findLocalTemplate(normalizeTemplateName(t));
+          : !findLocalTemplate(normalizeTemplateName(templateName));
       s.message(
         willDownload
-          ? `Downloading ${titleCase(t)} template (${i + 1}/${templates.length})...`
-          : `Scaffolding ${titleCase(t)} (${i + 1}/${templates.length})...`,
+          ? `Downloading ${titleCase(appName)} template (${i + 1}/${templates.length})...`
+          : `Scaffolding ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      const appDir = path.join(targetDir, "apps", t);
-      await scaffoldAppTemplate(appDir, t);
+      const appDir = path.join(targetDir, "apps", appName);
+      await scaffoldAppTemplate(appDir, templateName);
       s.message(
-        `Configuring ${titleCase(t)} (${i + 1}/${templates.length})...`,
+        `Configuring ${titleCase(appName)} (${i + 1}/${templates.length})...`,
       );
-      replacePlaceholders(appDir, t, appTitleForScaffold(t, t), name);
-      rewriteTrackingAppId(appDir, t, t);
+      replacePlaceholders(appDir, appName, appTitleForScaffold(appName), name);
+      rewriteTrackingAppId(appDir, appName, templateName);
       workspacifyApp({
         appDir,
-        appName: t,
-        templateName: t,
+        appName,
+        templateName,
         workspaceRoot: targetDir,
         workspaceCoreName,
         coreDependencyVersion: getCoreDependencyVersion(),
         dispatchDependencyVersion: getDispatchDependencyVersion(),
+        toolkitDependencyVersion: getToolkitDependencyVersion(),
       });
-      fixPackageJsonName(appDir, t);
-      fixWebManifestName(appDir, t, t);
-      rewriteNetlifyToml(appDir, t, "workspace");
+      fixPackageJsonName(appDir, appName, templateName);
+      fixWebManifestName(appDir, appName, templateName);
+      rewriteNetlifyToml(appDir, appName, "workspace");
       renameGitignore(appDir);
       // Each app owns its own .claude / .agents symlinks.
       setupAgentSymlinks(appDir);
@@ -235,10 +382,11 @@ async function createWorkspaceInteractive(
   // makes the structure concrete.
   const treeLines = [
     `  ${name}/                    ← your workspace`,
-    ...templates.map(
-      (t, i) =>
-        `  ${i === templates.length - 1 ? "└─" : "├─"} apps/${t}/`.padEnd(30) +
-        `   ← app`,
+    ...scaffoldedApps.map(
+      (appName, i) =>
+        `  ${i === scaffoldedApps.length - 1 ? "└─" : "├─"} apps/${appName}/`.padEnd(
+          30,
+        ) + `   ← app`,
     ),
   ];
   const dispatchNextStep = [
@@ -272,10 +420,25 @@ async function createWorkspaceInteractive(
       ``,
       ...dispatchNextStep,
       ``,
-      `Add another app later:        npx @agent-native/core add-app`,
+      `Add another app later:        npx @agent-native/core@latest add-app`,
       `Deploy the whole workspace:   pnpm exec agent-native deploy`,
     ].join("\n"),
   );
+}
+
+function workspaceAppNameForTemplateSelection(templateName: string): string {
+  const normalized = normalizeTemplateName(templateName);
+  if (!normalized.startsWith("github:")) return templateName;
+  const repo = normalized.slice("github:".length).trim();
+  const repoName = repo.split("/").filter(Boolean).pop() ?? "app";
+  let appName = repoName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!appName) appName = "app";
+  if (!/^[a-z]/.test(appName)) appName = `app-${appName}`;
+  return appName;
 }
 
 /**
@@ -324,6 +487,8 @@ async function scaffoldWorkspaceRoot(
       );
     }
   }
+
+  applyLocalWorkspaceOverrides(targetDir);
 
   const corePackageDir = path.join(targetDir, "packages", "shared");
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
@@ -408,12 +573,20 @@ export async function addAppToWorkspace(
     process.exit(1);
   }
 
+  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
+
   clack.intro("Add an app to your workspace");
 
   const installed = listInstalledApps(workspace.workspaceRoot);
 
   // Non-interactive path: name + single --template
   const preselected = parseTemplateList(opts?.template);
+  if (preselected.includes("headless")) {
+    clack.cancel(
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Chat template when adding a UI app to a workspace.",
+    );
+    process.exit(1);
+  }
   if (name && preselected.length === 1) {
     const tpl = preselected[0];
     await scaffoldOneAppIntoWorkspace(workspace, name, tpl, clack);
@@ -425,7 +598,7 @@ export async function addAppToWorkspace(
     excludeNames: installed,
     message: "Which apps do you want to add?",
     defaultTemplates: hasDispatch ? undefined : ["dispatch"],
-    preferredFirst: hasDispatch ? ["starter"] : ["dispatch", "starter"],
+    preferredFirst: hasDispatch ? ["chat"] : ["dispatch", "chat"],
     recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
@@ -464,11 +637,11 @@ async function scaffoldOneAppIntoWorkspace(
   );
 
   try {
-    await scaffoldAppTemplate(appDir, templateName);
+    const resolution = await scaffoldAppTemplate(appDir, templateName);
     replacePlaceholders(
       appDir,
       appName,
-      appTitleForScaffold(appName, templateName),
+      appTitleForScaffold(appName),
       path.basename(workspace.workspaceRoot),
     );
     rewriteTrackingAppId(appDir, appName, templateName);
@@ -480,8 +653,12 @@ async function scaffoldOneAppIntoWorkspace(
       workspaceCoreName: workspace.workspaceCoreName,
       coreDependencyVersion: getCoreDependencyVersion(),
       dispatchDependencyVersion: getDispatchDependencyVersion(),
+      toolkitDependencyVersion: getToolkitDependencyVersion(),
     });
-    fixPackageJsonName(appDir, appName, templateName);
+    fixPackageJsonName(appDir, appName, templateName, {
+      ...resolution,
+      shape: "workspace",
+    });
     fixWebManifestName(appDir, appName, templateName);
     rewriteNetlifyToml(appDir, appName, "workspace");
     renameGitignore(appDir);
@@ -533,16 +710,18 @@ async function createStandaloneApp(
     const picked = await clack.select({
       message: "Which template would you like to use?",
       options: [
-        ...starterFirst(coreTemplates()).map((t) => ({
-          value: t.name,
-          label: t.label,
-          hint: t.hint,
-        })),
         {
-          value: BLANK_OPTION.name,
-          label: BLANK_OPTION.label,
-          hint: BLANK_OPTION.hint,
+          value: HEADLESS_OPTION.name,
+          label: HEADLESS_OPTION.label,
+          hint: HEADLESS_OPTION.hint,
         },
+        ...onRampFirst(coreTemplates())
+          .filter((t) => t.name !== HEADLESS_OPTION.name)
+          .map((t) => ({
+            value: t.name,
+            label: t.label,
+            hint: t.hint,
+          })),
       ],
     });
     if (clack.isCancel(picked)) {
@@ -554,11 +733,15 @@ async function createStandaloneApp(
   template = normalizeTemplateName(template);
 
   const s = clack.spinner();
-  s.start(`Downloading the ${template} template from GitHub…`);
+  s.start(
+    template === "headless"
+      ? "Scaffolding the headless agent app..."
+      : `Downloading the ${template} template from GitHub...`,
+  );
   try {
-    await scaffoldAppTemplate(targetDir, template);
+    const resolution = await scaffoldAppTemplate(targetDir, template);
     s.message(`Setting up ${name}…`);
-    postProcessStandalone(name, targetDir, template);
+    postProcessStandalone(name, targetDir, template, resolution);
     s.stop("App created!");
   } catch (err: any) {
     s.stop("Failed to create app.");
@@ -569,7 +752,24 @@ async function createStandaloneApp(
 
   tryGitInit(targetDir);
 
-  clack.outro(`Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`);
+  if (template === "headless") {
+    clack.outro(
+      [
+        "Done! Next steps:",
+        "",
+        `  cd ${name}`,
+        "  pnpm install",
+        "  pnpm action hello --name Builder",
+        `  pnpm agent "Call hello for Builder"`,
+        "",
+        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
+      ].join("\n"),
+    );
+  } else {
+    clack.outro(
+      `Done! Next steps:\n\n  cd ${name}\n  pnpm install\n  pnpm dev`,
+    );
+  }
 }
 
 /**
@@ -592,40 +792,55 @@ function cleanupOnFailure(targetDir: string): void {
  * Shared scaffolding helpers
  * ───────────────────────────────────────────────────────────────────────── */
 
+/** Where a scaffolded template's bytes came from, recorded so
+ *  `agent-native template sync` can reproduce them later. */
+export interface ScaffoldTemplateResolution {
+  templateRef?: string;
+  templateSource?: "github" | "bundled" | "local-checkout";
+}
+
+export interface ScaffoldProvenance extends ScaffoldTemplateResolution {
+  shape?: "workspace" | "standalone";
+}
+
 /**
  * Scaffold a single app template into `targetDir`. Resolves:
- *   - "blank" → bundled default template
+ *   - "headless" / legacy "blank" → bundled action-first template
  *   - "github:user/repo" → download the whole repo
- *   - first-party template name → download that subdir from BuilderIO/agent-native
+ *   - first-party template name → use a bundled copy or download its subdir
+ *     from BuilderIO/agent-native
  */
 async function scaffoldAppTemplate(
   targetDir: string,
   template: string,
-): Promise<void> {
+): Promise<ScaffoldTemplateResolution> {
   fs.mkdirSync(path.dirname(targetDir), { recursive: true });
-
-  if (template === "blank") {
-    const packageRoot = path.resolve(__dirname, "../..");
-    const defaultDir = path.join(packageRoot, "src/templates/default");
-    if (!fs.existsSync(defaultDir)) {
-      throw new Error(
-        `Default template not found at ${defaultDir}. Is the package installed correctly?`,
-      );
-    }
-    copyDir(defaultDir, targetDir);
-    return;
-  }
 
   // Normalize legacy / renamed aliases.
   let resolved = normalizeTemplateName(template);
 
+  if (resolved === "headless") {
+    const packageRoot = path.resolve(__dirname, "../..");
+    const headlessDir = path.join(packageRoot, "src/templates/headless");
+    if (!fs.existsSync(headlessDir)) {
+      throw new Error(
+        `Headless template not found at ${headlessDir}. Is the package installed correctly?`,
+      );
+    }
+    copyDir(headlessDir, targetDir);
+    return {
+      templateSource: "bundled",
+      templateRef: getGitHubTemplateRefCandidates()[0],
+    };
+  }
+
   if (resolved.startsWith("github:")) {
     const repo = resolved.slice("github:".length);
     await downloadGitHubRepo(repo, targetDir);
-    return;
+    return {};
   }
 
-  if (!allTemplateNames().includes(resolved)) {
+  if (!getTemplate(resolved)) {
     throw new Error(
       `Unknown template "${template}". Known: ${allTemplateNames().join(", ")} — or use github:user/repo for community templates.`,
     );
@@ -634,24 +849,61 @@ async function scaffoldAppTemplate(
   // If running from the framework monorepo with a local templates/ dir, use
   // that. Otherwise download from GitHub. This keeps `agent-native create`
   // fast during framework development.
-  const localTemplate = findLocalTemplate(resolved);
+  const sourceTemplate = templateSourceName(resolved);
+  const localTemplate = findLocalTemplate(sourceTemplate);
   if (localTemplate) {
     copyDir(localTemplate, targetDir);
-  } else {
-    await downloadGitHubSubdir(REPO, `${TEMPLATES_DIR}/${resolved}`, targetDir);
+    return {
+      templateSource: localTemplateSourceKind(localTemplate),
+      templateRef: getGitHubTemplateRefCandidates()[0],
+    };
   }
+  const templateRef = await downloadGitHubSubdir(
+    REPO,
+    `${TEMPLATES_DIR}/${sourceTemplate}`,
+    targetDir,
+  );
+  return { templateSource: "github", templateRef };
+}
+
+/** A template dir inside the installed core package ships with the CLI;
+ *  anything above it belongs to a framework checkout. */
+function localTemplateSourceKind(
+  localTemplate: string,
+): "bundled" | "local-checkout" {
+  const packageRoot = path.resolve(__dirname, "../..");
+  const rel = path.relative(packageRoot, path.resolve(localTemplate));
+  return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
+    ? "bundled"
+    : "local-checkout";
+}
+
+function templateSourceName(name: string): string {
+  if (name === "starter") return "chat";
+  return name;
 }
 
 /**
- * When developing the framework itself, prefer the sibling templates/<name>
- * directory. Returns undefined when running as a published package.
+ * Prefer a nearby templates/<name> or src/templates/<name> directory. This
+ * covers the framework checkout, the dist/templates copy bundled into
+ * published CLI packages, and source templates included in package files;
+ * packages that do not bundle a template fall back to GitHub.
  */
 function findLocalTemplate(name: string): string | undefined {
-  let dir = path.resolve(__dirname);
+  return findLocalTemplateFrom(path.resolve(__dirname), name);
+}
+
+function findLocalTemplateFrom(
+  startDir: string,
+  name: string,
+): string | undefined {
+  let dir = path.resolve(startDir);
   for (let i = 0; i < 10; i++) {
-    const candidate = path.join(dir, "templates", name);
-    if (fs.existsSync(path.join(candidate, "package.json"))) {
-      return candidate;
+    for (const templatesDir of ["templates", "src/templates"]) {
+      const candidate = path.join(dir, templatesDir, name);
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        return candidate;
+      }
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -661,7 +913,7 @@ function findLocalTemplate(name: string): string | undefined {
 }
 
 function normalizeTemplateName(template: string): string {
-  if (template === "video") return "videos";
+  if (template === "blank") return "headless";
   if (template === "image" || template === "images" || template === "asset") {
     return "assets";
   }
@@ -684,6 +936,40 @@ function findLocalPackage(name: string): string | undefined {
     dir = parent;
   }
   return undefined;
+}
+
+/**
+ * Pack a local framework package before linking it into a generated app.
+ * Raw file: dependencies retain workspace-only catalog references, while a
+ * packed artifact has the publish-ready manifest that consumers receive.
+ */
+function localPackageTarball(packageDir: string): string {
+  const cached = localPackageTarballs.get(packageDir);
+  if (cached) return cached;
+
+  const packDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "agent-native-local-package-"),
+  );
+  const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+  execFileSync(pnpm, ["pack", "--pack-destination", packDir], {
+    cwd: packageDir,
+    encoding: "utf-8",
+    env: { ...process.env, npm_config_ignore_scripts: "true" },
+    stdio: "pipe",
+  });
+
+  const tarballs = fs
+    .readdirSync(packDir)
+    .filter((entry) => entry.endsWith(".tgz"));
+  if (tarballs.length !== 1) {
+    throw new Error(
+      `Expected one packed local package artifact in ${packDir}, found ${tarballs.length}.`,
+    );
+  }
+
+  const tarball = pathToFileURL(path.join(packDir, tarballs[0]!)).href;
+  localPackageTarballs.set(packageDir, tarball);
+  return tarball;
 }
 
 /**
@@ -716,9 +1002,9 @@ async function scaffoldRequiredPackages(
       await downloadGitHubSubdir(REPO, `packages/${pkgName}`, targetDir);
     }
 
-    // The copied package may have @agent-native/core as a workspace:* dep.
-    // Convert it to this CLI package's published range since
-    // @agent-native/core is an npm package, not a workspace member.
+    // The copied package may have published framework packages as workspace:*
+    // deps. Convert them to published ranges because these package-backed
+    // modules are npm dependencies, not scaffolded workspace members.
     const pkgJsonPath = path.join(targetDir, "package.json");
     if (fs.existsSync(pkgJsonPath)) {
       try {
@@ -738,7 +1024,25 @@ async function scaffoldRequiredPackages(
             ) {
               deps[key] = getCoreDependencyVersion();
             }
+            if (
+              typeof val === "string" &&
+              val.startsWith("workspace:") &&
+              key === "@agent-native/toolkit"
+            ) {
+              deps[key] = getToolkitDependencyVersion();
+            }
           }
+        }
+        // These packages' `exports` maps point at `./dist/*`, and `dist/` is
+        // gitignored (never committed), so a scaffolded workspace must build
+        // it on install. pnpm always runs `prepare` for workspace packages,
+        // unlike `postinstall`, so this is the reliable hook.
+        if (
+          pkg.scripts &&
+          typeof pkg.scripts.build === "string" &&
+          !pkg.scripts.prepare
+        ) {
+          pkg.scripts.prepare = "npm run build";
         }
         fs.writeFileSync(pkgJsonPath, JSON.stringify(pkg, null, 2) + "\n");
       } catch {}
@@ -779,11 +1083,16 @@ function postProcessStandalone(
   name: string,
   targetDir: string,
   templateName?: string,
+  resolution?: ScaffoldTemplateResolution,
 ): void {
-  const appTitle = appTitleForScaffold(name, templateName);
+  const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
-  fixPackageJsonName(targetDir, name, templateName);
+  rewriteAgentChatAppId(targetDir, name, templateName);
+  fixPackageJsonName(targetDir, name, templateName, {
+    ...resolution,
+    shape: "standalone",
+  });
   fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
 
@@ -798,7 +1107,7 @@ function postProcessStandalone(
   renameGitignore(targetDir);
 
   // No monorepo-only files to drop for standalone scaffolds.
-  // DEVELOPING.md is intentionally kept: it documents `pnpm dev`,
+  // DEVELOPING.md is intentionally kept: it documents local run commands,
   // DATABASE_URL defaults, and other local-run instructions that are equally
   // valid for standalone apps.
 
@@ -818,8 +1127,13 @@ function postProcessStandalone(
         const deps = pkg[depType];
         if (!deps) continue;
         for (const [key, val] of Object.entries(deps)) {
-          if (key === "@agent-native/core") {
+          const exactOverride = STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key];
+          if (exactOverride) {
+            deps[key] = exactOverride;
+          } else if (key === "@agent-native/core") {
             deps[key] = getCoreDependencyVersion();
+          } else if (key === "@agent-native/toolkit") {
+            deps[key] = getToolkitDependencyVersion();
           } else if (typeof val === "string" && val.startsWith("workspace:")) {
             deps[key] = "latest";
           } else if (typeof val === "string" && val === "catalog:") {
@@ -832,6 +1146,7 @@ function postProcessStandalone(
       // under pnpm 10+ without prompting for `pnpm approve-builds`.
       pkg.dependencies = pkg.dependencies ?? {};
       pkg.dependencies.postgres ??= POSTGRES_DEPENDENCY_VERSION;
+      ensureReactRouterBuildDependencies(pkg);
 
       const requiredBuilt = ["better-sqlite3", "esbuild", "node-pty"];
       if (!pkg.pnpm || typeof pkg.pnpm !== "object") {
@@ -856,23 +1171,102 @@ function postProcessStandalone(
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
-    const updated = mergeWorkspaceYamlSections(existing, {
-      overrides: {
-        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
-        '"@assistant-ui/tap"': '"^0.5.14"',
-      },
+    const sections: Record<string, Record<string, string>> = {
       allowBuilds: {
         "better-sqlite3": "true",
         esbuild: "true",
         "node-pty": "true",
       },
-    });
+    };
+    if (templateName !== "headless") {
+      sections.overrides = {
+        '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
+        '"@assistant-ui/tap"': '"^0.5.14"',
+        nf3: '"0.3.17"',
+      };
+    }
+    const localToolkit = localToolkitOverride();
+    if (localToolkit) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/toolkit"'] =
+        JSON.stringify(localToolkit);
+    }
+    const localRecapCli = localRecapCliOverride();
+    if (localRecapCli) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/recap-cli"'] =
+        JSON.stringify(localRecapCli);
+    }
+    let updated = mergeWorkspaceYamlSections(existing, sections);
+    updated = mergeWorkspaceYamlListItems(
+      updated,
+      "minimumReleaseAgeExclude",
+      MINIMUM_RELEASE_AGE_EXCLUDES,
+    );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
   } catch {}
 
+  fixStandaloneTsconfig(targetDir, templateName);
+
   setupAgentSymlinks(targetDir);
+}
+
+function ensureReactRouterBuildDependencies(pkg: Record<string, any>): void {
+  const allDeps = {
+    ...pkg.dependencies,
+    ...pkg.devDependencies,
+    ...pkg.peerDependencies,
+  };
+  if (
+    !allDeps["@react-router/dev"] &&
+    !allDeps["react-router"] &&
+    !allDeps["@react-router/fs-routes"]
+  ) {
+    return;
+  }
+
+  pkg.dependencies = pkg.dependencies ?? {};
+  for (const key of REACT_ROUTER_BUILD_DEPENDENCIES) {
+    const existing =
+      pkg.dependencies[key] ??
+      pkg.devDependencies?.[key] ??
+      pkg.peerDependencies?.[key];
+    if (!existing) continue;
+    pkg.dependencies[key] =
+      STANDALONE_EXACT_DEPENDENCY_OVERRIDES[key] ?? existing;
+    delete pkg.devDependencies?.[key];
+    delete pkg.peerDependencies?.[key];
+  }
+}
+
+function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
+  const tsconfigPath = path.join(targetDir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return;
+  try {
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8")) as {
+      compilerOptions?: Record<string, unknown>;
+    };
+    tsconfig.compilerOptions ??= {};
+    const hasUiApp =
+      templateName !== "headless" && fs.existsSync(path.join(targetDir, "app"));
+    const paths = {
+      ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
+    };
+    paths["*"] ??= ["./*"];
+    if (hasUiApp) {
+      paths["@/*"] ??= ["./app/*"];
+      paths["@shared/*"] ??= ["./shared/*"];
+    }
+    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
+    // (tsc, which CI runs). paths already resolve relative to this tsconfig,
+    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
+    // so never emit baseUrl into scaffolds.
+    delete tsconfig.compilerOptions.baseUrl;
+    tsconfig.compilerOptions.paths = paths;
+    fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
+  } catch {}
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -929,7 +1323,7 @@ async function promptTemplatePicker(
   const excluded = new Set(opts?.excludeNames ?? []);
   const orderedTemplates = opts?.preferredFirst
     ? moveTemplatesToFront(coreTemplates(), opts.preferredFirst)
-    : starterFirst(coreTemplates());
+    : onRampFirst(coreTemplates());
   const recommendedNames = new Set(opts?.recommendedNames ?? []);
   const options = orderedTemplates
     .filter((t) => !excluded.has(t.name))
@@ -949,7 +1343,7 @@ async function promptTemplatePicker(
   if (options.length === 0) return [];
 
   // Default pre-selection: what the user passed via --template, falling
-  // back to caller defaults, then to "starter" when available.
+  // back to caller defaults, then to "chat" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
@@ -957,8 +1351,8 @@ async function promptTemplatePicker(
         ? opts.defaultTemplates.filter((p) =>
             options.some((o) => o.value === p),
           )
-        : options.some((o) => o.value === "starter")
-          ? ["starter"]
+        : options.some((o) => o.value === "chat")
+          ? ["chat"]
           : [];
 
   const baseMessage = opts?.message ?? "Which apps would you like to include?";
@@ -1037,10 +1431,29 @@ export {
   rewriteNetlifyToml as _rewriteNetlifyToml,
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
+  getToolkitDependencyVersion as _getToolkitDependencyVersion,
+  getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
+  githubTarballUrl as _githubTarballUrl,
+  findLocalTemplateFrom as _findLocalTemplateFrom,
+  workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
+  startShapePromptOptions as _startShapePromptOptions,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
+  downloadGitHubSubdir as _downloadGitHubSubdir,
+  findLocalTemplate as _findLocalTemplate,
+  templateSourceName as _templateSourceName,
+  normalizeTemplateName as _normalizeTemplateName,
+  appTitleForScaffold as _appTitleForScaffold,
+  replacePlaceholders as _replacePlaceholders,
+  rewriteTrackingAppId as _rewriteTrackingAppId,
+  rewriteAgentChatAppId as _rewriteAgentChatAppId,
+  fixWebManifestName as _fixWebManifestName,
+  copyDir as _copyDir,
+  localTemplateSourceKind as _localTemplateSourceKind,
+  REPO as _REPO,
+  TEMPLATES_DIR as _TEMPLATES_DIR,
 };
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1069,18 +1482,53 @@ function tarExtractArgs(
   return ["xzf", tarPath, "--strip-components=1", ...excludes, "-C", destDir];
 }
 
-function downloadAndExtract(
+function execFileBuffer(
+  command: string,
+  args: string[],
+  options: { maxBuffer: number },
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { ...options, encoding: "buffer" },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr?.toString().trim();
+          if (detail) error.message = `${error.message}: ${detail}`;
+          reject(error);
+          return;
+        }
+        resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+      },
+    );
+  });
+}
+
+async function downloadAndExtract(
   url: string,
   destDir: string,
   options: { skipAgentSymlinks?: boolean } = {},
-): void {
+): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
   // the error body (HTML/JSON) to disk where tar then fails with the opaque
   // "Unrecognized archive format" message.
-  const tarball = execFileSync("curl", ["--fail-with-body", "-sL", url], {
-    maxBuffer: 100 * 1024 * 1024,
-  });
+  // Keep this asynchronous: a synchronous curl blocks the event loop, which
+  // makes the create command's spinner look frozen during the GitHub fetch.
+  const tarball = await execFileBuffer(
+    "curl",
+    [
+      "--fail-with-body",
+      "--connect-timeout",
+      "10",
+      "--max-time",
+      "120",
+      "-sSL",
+      url,
+    ],
+    { maxBuffer: 100 * 1024 * 1024 },
+  );
   const tarPath = path.join(destDir, ".download.tar.gz");
   fs.writeFileSync(tarPath, tarball);
   try {
@@ -1092,23 +1540,34 @@ function downloadAndExtract(
   }
 }
 
+/** Resolves to the ref that actually succeeded so callers can record it. */
 async function downloadGitHubSubdir(
   repo: string,
   subdir: string,
   targetDir: string,
-): Promise<void> {
+  refOverride?: string[],
+): Promise<string> {
   validateRepoName(repo);
-  const refs = getGitHubTemplateRefCandidates();
+  const refs = refOverride?.length
+    ? refOverride
+    : getGitHubTemplateRefCandidates();
+  if (refs.length === 0) {
+    throw new Error(
+      "Cannot download first-party scaffold files without a versioned @agent-native/core package.",
+    );
+  }
   const errors: string[] = [];
   for (const ref of refs) {
-    const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
+    const tarUrl = githubTarballUrl(repo, ref, "tag");
     const tmpDir = path.join(
       targetDir,
       "..",
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      downloadAndExtract(tarUrl, tmpDir, { skipAgentSymlinks: repo === REPO });
+      await downloadAndExtract(tarUrl, tmpDir, {
+        skipAgentSymlinks: repo === REPO,
+      });
       const srcDir = path.join(tmpDir, subdir);
       if (!fs.existsSync(srcDir)) {
         throw new Error(
@@ -1116,7 +1575,7 @@ async function downloadGitHubSubdir(
         );
       }
       copyDir(srcDir, targetDir);
-      return;
+      return ref;
     } catch (err) {
       errors.push(
         `  ${ref}: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
@@ -1135,8 +1594,16 @@ async function downloadGitHubRepo(
   targetDir: string,
 ): Promise<void> {
   validateRepoName(repo);
-  const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
-  downloadAndExtract(tarUrl, targetDir);
+  const tarUrl = githubTarballUrl(repo, "main", "branch");
+  await downloadAndExtract(tarUrl, targetDir);
+}
+
+function githubTarballUrl(
+  repo: string,
+  ref: string,
+  kind: "branch" | "tag",
+): string {
+  return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1172,6 +1639,31 @@ function mergeWorkspaceYamlSections(
           (result ? "\n" : "") +
           `\n${section}:\n  ${key}: ${value}\n`;
       }
+    }
+  }
+  return result;
+}
+
+function mergeWorkspaceYamlListItems(
+  yaml: string,
+  section: string,
+  items: string[],
+): string {
+  let result = yaml;
+  for (const item of items) {
+    const rendered = `  - ${item}`;
+    if (result.includes(rendered)) continue;
+    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
+    const match = sectionHeader.exec(result);
+    if (match) {
+      const insertAt = match.index + match[0].length;
+      result =
+        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+    } else {
+      result =
+        result.trimEnd() +
+        (result ? "\n" : "") +
+        `\n${section}:\n${rendered}\n`;
     }
   }
   return result;
@@ -1223,19 +1715,22 @@ function titleCase(name: string): string {
     .join(" ");
 }
 
-function appTitleForScaffold(appName: string, templateName?: string): string {
-  if (appName === "starter" && (!templateName || templateName === "starter")) {
-    return "Blank app";
-  }
+function appTitleForScaffold(appName: string): string {
   return titleCase(appName);
 }
 
-function defaultPackageDescriptionForScaffold(
-  appName: string,
-  templateName?: string,
-): string {
-  const appTitle = appTitleForScaffold(appName, templateName);
-  if (appTitle === "Blank app") return "Blank agent-native app scaffold.";
+function isChatOnRampTemplate(templateName: string | undefined): boolean {
+  return templateName === "chat" || templateName === "starter";
+}
+
+function trackingTemplateName(
+  templateName: string | undefined,
+): string | undefined {
+  return templateName === "starter" ? "chat" : templateName;
+}
+
+function defaultPackageDescriptionForScaffold(appName: string): string {
+  const appTitle = appTitleForScaffold(appName);
   return `Workspace app for ${appTitle}.`;
 }
 
@@ -1248,27 +1743,61 @@ function fixPackageJsonName(
   appDir: string,
   name: string,
   templateName?: string,
+  provenance?: ScaffoldProvenance,
 ): void {
   const pkgPath = path.join(appDir, "package.json");
   if (!fs.existsSync(pkgPath)) return;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
-    // When the user picked a custom name (e.g. `add-app todo --template=starter`)
+    const appTitle = appTitleForScaffold(name);
+    // When the user picked a custom name (e.g. `add-app todo --template=chat`)
     // the template's displayName would otherwise leak into the workspace apps
     // grid as the new app's label. Overwrite it so the app shows up as "Todo"
     // instead of the source template's branding.
     if (templateName && name !== templateName) {
-      pkg.displayName = titleCase(name);
+      pkg.displayName = appTitle;
     }
-    if (shouldReplaceScaffoldDescription(pkg.description)) {
-      pkg.description = defaultPackageDescriptionForScaffold(
-        name,
-        templateName,
-      );
+    if (
+      shouldReplaceScaffoldDescription(pkg.description) ||
+      (isChatOnRampTemplate(templateName) && name !== templateName)
+    ) {
+      pkg.description = defaultPackageDescriptionForScaffold(name);
+    }
+    const scaffoldGuidance = scaffoldGuidanceForTemplate(templateName);
+    if (scaffoldGuidance) {
+      const agentNative =
+        pkg["agent-native"] &&
+        typeof pkg["agent-native"] === "object" &&
+        !Array.isArray(pkg["agent-native"])
+          ? pkg["agent-native"]
+          : {};
+      const coreVersion = getCorePackageVersion();
+      agentNative.scaffold = {
+        template: trackingTemplateName(templateName),
+        frameworkSkills: scaffoldGuidance,
+        ...(provenance?.templateRef
+          ? { templateRef: provenance.templateRef }
+          : {}),
+        ...(provenance?.templateSource
+          ? { templateSource: provenance.templateSource }
+          : {}),
+        ...(coreVersion ? { coreVersion } : {}),
+        ...(provenance?.shape ? { shape: provenance.shape } : {}),
+      };
+      pkg["agent-native"] = agentNative;
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
   } catch {}
+}
+
+function scaffoldGuidanceForTemplate(
+  templateName: string | undefined,
+): "default" | "headless" | undefined {
+  if (!templateName || templateName.startsWith("github:")) return undefined;
+  const normalized = normalizeTemplateName(templateName);
+  if (normalized === "headless") return "headless";
+  return getTemplate(normalized) ? "default" : undefined;
 }
 
 function fixWebManifestName(
@@ -1276,7 +1805,7 @@ function fixWebManifestName(
   name: string,
   templateName?: string,
 ): void {
-  if (templateName !== "starter" || name === templateName) return;
+  if (!isChatOnRampTemplate(templateName) || name === templateName) return;
   const manifestPath = path.join(appDir, "public", "manifest.json");
   if (!fs.existsSync(manifestPath)) return;
   try {
@@ -1286,12 +1815,9 @@ function fixWebManifestName(
     manifest.short_name = appTitle;
     if (
       typeof manifest.description !== "string" ||
-      /\b(blank app|starter)\b/i.test(manifest.description)
+      /\b(blank app|starter|chat-first)\b/i.test(manifest.description)
     ) {
-      manifest.description = defaultPackageDescriptionForScaffold(
-        name,
-        templateName,
-      );
+      manifest.description = defaultPackageDescriptionForScaffold(name);
     }
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   } catch {}
@@ -1300,14 +1826,25 @@ function fixWebManifestName(
 function getCoreDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localCore = findLocalPackage("core");
-    if (localCore) return pathToFileURL(localCore).href;
+    if (localCore) return localPackageTarball(localCore);
   }
 
-  // Generated apps must install before the current package version is
-  // published. The dist-tag resolves to the newest released core today and to
-  // this package version once the release goes live. Local file deps are
-  // intentionally opt-in so scaffolded repos remain portable by default.
-  return "latest";
+  // Pin to the exact core version running this CLI rather than the npm
+  // `latest` dist-tag. `latest` can drift forward after `create` runs (a
+  // stale/cached CLI invocation, or simply time passing before `npm
+  // install`), installing a newer core release whose internal toolkit
+  // dependency no longer matches the toolkit range this CLI just wrote into
+  // the scaffold via getOwnPackageDependencyVersion() — reintroducing the
+  // exact duplicate/mismatched-toolkit class of bug this pinning exists to
+  // prevent. For the common case — `npx @agent-native/core@<version> create`
+  // against the public registry — this exact version is guaranteed
+  // installable, since npx just fetched it. Private/offline mirrors with a
+  // retention window narrower than "every historical version" are a known
+  // gap; `getCorePackageVersion()` returning undefined (e.g. malformed own
+  // package.json) falls back to `latest` rather than failing scaffolding
+  // outright. Local file deps stay opt-in so scaffolded repos remain
+  // portable by default.
+  return getCorePackageVersion() ?? "latest";
 }
 
 function getDispatchDependencyVersion(): string {
@@ -1316,7 +1853,77 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
+  // Unlike toolkit, core's own package.json does not declare
+  // @agent-native/dispatch as a dependency, so there is no published
+  // compatible range to read here — "latest" is the best available signal.
   return "latest";
+}
+
+function getToolkitDependencyVersion(): string {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
+    const localToolkit = findLocalPackage("toolkit");
+    if (localToolkit) return localPackageTarball(localToolkit);
+  }
+
+  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+}
+
+/**
+ * Toolkit is versioned and published independently of core, so its npm
+ * `latest` dist-tag can briefly point to an incompatible release relative to
+ * the core version currently running this CLI. The published core
+ * `package.json` already carries the exact compatible range changesets
+ * resolved at release time — read it from there instead of trusting
+ * `latest`, which is only safe for pinning `core` itself.
+ */
+function getOwnPackageDependencyVersion(depName: string): string {
+  try {
+    const ownPkgPath = path.join(__dirname, "../../package.json");
+    const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
+    const range = ownPkg.dependencies?.[depName];
+    const isPublishedRange =
+      typeof range === "string" &&
+      range.length > 0 &&
+      !range.startsWith("workspace:") &&
+      range !== "catalog:";
+    if (isPublishedRange) return range;
+  } catch {}
+
+  return "latest";
+}
+
+function localToolkitOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localToolkit = findLocalPackage("toolkit");
+  return localToolkit ? localPackageTarball(localToolkit) : null;
+}
+
+function localRecapCliOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localRecapCli = findLocalPackage("recap-cli");
+  return localRecapCli ? pathToFileURL(localRecapCli).href : null;
+}
+
+function applyLocalWorkspaceOverrides(targetDir: string): void {
+  const localToolkit = localToolkitOverride();
+  const localRecapCli = localRecapCliOverride();
+  if (!localToolkit && !localRecapCli) return;
+
+  const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+  const existing = fs.existsSync(wsPath)
+    ? fs.readFileSync(wsPath, "utf-8")
+    : "";
+  const updated = mergeWorkspaceYamlSections(existing, {
+    overrides: {
+      ...(localToolkit
+        ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
+        : {}),
+      ...(localRecapCli
+        ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
+        : {}),
+    },
+  });
+  if (updated !== existing) fs.writeFileSync(wsPath, updated);
 }
 
 function getCorePackageVersion(): string | undefined {
@@ -1339,9 +1946,11 @@ function getCorePackageVersion(): string | undefined {
  *   - ≥ 0.8.0:  changesets per-package tags
  *               `@agent-native/core@<version>` (current).
  *
- * `main` is the final fallback so dev builds and brand-new releases (where
- * the tag has not propagated yet) still work — at the cost of pulling
- * potentially newer template code than the running CLI was built against.
+ * Published CLIs intentionally use only immutable version tags. Falling back
+ * to mutable `main` can copy a template that imports exports not present in
+ * the installed core package, leaving a generated app broken at SSR startup.
+ * Local framework development uses the checkout's templates and packages
+ * before this downloader runs, so it does not need a mutable fallback.
  */
 function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
@@ -1350,7 +1959,6 @@ function getGitHubTemplateRefCandidates(): string[] {
     candidates.push(`@agent-native/core@${version}`);
     candidates.push(`v${version}`);
   }
-  candidates.push("main");
   return candidates;
 }
 
@@ -1374,6 +1982,9 @@ function rewriteCoreDependencyVersions(projectDir: string): void {
       const deps = pkg[depType];
       if (deps?.["@agent-native/core"]) {
         deps["@agent-native/core"] = getCoreDependencyVersion();
+      }
+      if (deps?.["@agent-native/toolkit"]) {
+        deps["@agent-native/toolkit"] = getToolkitDependencyVersion();
       }
     }
     fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
@@ -1501,7 +2112,7 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -1521,7 +2132,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
+      .replace(/^(\s*)command = ".*"$/m, `$1command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,
@@ -1543,6 +2154,36 @@ function rewriteNetlifyToml(
   } catch {}
 }
 
+function rewriteAgentChatAppId(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+
+  try {
+    const content = fs.readFileSync(pluginPath, "utf-8");
+    const sourceAppIds = ["chat", "starter"];
+    if (templateName && templateName !== appName) {
+      sourceAppIds.push(templateName);
+    }
+    const pattern = new RegExp(
+      `(appId:\\s*)(["'])(${sourceAppIds.map(escapeRegExp).join("|")})\\2`,
+    );
+    if (!pattern.test(content)) return;
+
+    const next = content.replace(
+      pattern,
+      (_match, prefix: string, quote: string) =>
+        `${prefix}${quote}${appName}${quote}`,
+    );
+    if (next !== content) {
+      fs.writeFileSync(pluginPath, next);
+    }
+  } catch {}
+}
+
 function rewriteTrackingAppId(
   appDir: string,
   appName: string,
@@ -1553,9 +2194,13 @@ function rewriteTrackingAppId(
 
   try {
     const content = fs.readFileSync(rootPath, "utf-8");
+    const trackedTemplateName = trackingTemplateName(templateName);
     const sourceAppIds = ["agent-native-[^\"']+", "\\{\\{APP_NAME\\}\\}"];
     if (templateName && templateName !== appName) {
       sourceAppIds.push(escapeRegExp(templateName));
+    }
+    if (isChatOnRampTemplate(templateName)) {
+      sourceAppIds.push("starter", "chat");
     }
     const pattern = new RegExp(
       `(^\\s*app:\\s*)(["'])(?:${sourceAppIds.join("|")})\\2(\\s*,?)`,
@@ -1570,13 +2215,14 @@ function rewriteTrackingAppId(
     );
 
     if (
-      templateName &&
-      templateName !== appName &&
+      trackedTemplateName &&
+      trackedTemplateName !== appName &&
       !hasTrackingTemplate(next)
     ) {
       next = next.replace(
         /(^\s*app:\s*["'][^"']+["'],?\s*$)/m,
-        (line) => `${line}\n    template: ${JSON.stringify(templateName)},`,
+        (line) =>
+          `${line}\n    template: ${JSON.stringify(trackedTemplateName)},`,
       );
     }
 
@@ -1698,11 +2344,35 @@ function copyDir(src: string, dest: string, root?: string): void {
 }
 
 function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
+  const pathParts = srcPath?.split(path.sep);
   if (
-    name === "settings.json" &&
+    name === "plans" &&
+    pathParts?.at(-2) === "plan" &&
+    pathParts.at(-3) === "templates"
+  ) {
+    return true;
+  }
+  if (name === "preview.html" && srcPath?.split(path.sep).includes("plans")) {
+    return true;
+  }
+  if (
+    /^settings(?:\..*)?\.json$/.test(name) &&
     srcPath?.split(path.sep).includes(".claude")
   ) {
     return true;
+  }
+  // `.generated/bridge` is committed source, not a build artifact: the design
+  // app imports it at module load, so skipping it yields a workspace that 500s
+  // on every page. Everything else under `.generated` is regenerated at dev time.
+  if (pathParts?.at(-2) === ".generated") {
+    return name !== "bridge";
+  }
+  if (
+    name === ".generated" &&
+    srcPath &&
+    fs.existsSync(path.join(srcPath, "bridge"))
+  ) {
+    return false;
   }
   if (
     name === "node_modules" ||
@@ -1723,9 +2393,5 @@ function shouldSkipScaffoldEntry(name: string, srcPath?: string): boolean {
   ) {
     return true;
   }
-  return (
-    name.endsWith(".tmp.json") ||
-    /^qa-.*\.db(?:-shm|-wal)?$/.test(name) ||
-    /\.db-(?:shm|wal)$/.test(name)
-  );
+  return name.endsWith(".tmp.json") || /\.db(?:-shm|-wal)?$/.test(name);
 }

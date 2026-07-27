@@ -1,7 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { getBookingByUid } from "../server/bookings-repo.js";
 import { getSchedulingContext } from "../server/context.js";
+import { assertBookingHost } from "./_helpers.js";
 
 export default defineAction({
   description:
@@ -10,6 +12,7 @@ export default defineAction({
   run: async (args) => {
     const booking = await getBookingByUid(args.uid);
     if (!booking) throw new Error(`Booking ${args.uid} not found`);
+    assertBookingHost(booking, "view the reschedule link for this booking");
     const baseUrl = getSchedulingContext().publicBaseUrl ?? "";
     return {
       url: `${baseUrl}/reschedule/${booking.uid}?token=${booking.rescheduleToken}`,

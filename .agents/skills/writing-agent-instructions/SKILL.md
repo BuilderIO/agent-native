@@ -5,6 +5,7 @@ description: >-
   AGENTS.md, skills, and tool/action descriptions. Use when authoring or
   reviewing AGENTS.md, writing a SKILL.md, wording action descriptions, or
   deciding what belongs in instructions vs skills vs memory.
+scope: dev
 metadata:
   internal: true
 ---
@@ -35,6 +36,27 @@ sections and little else:
 If a section is growing past a screen, it belongs in a skill. `AGENTS.md`
 answers "what is this app and what can I do," not "how exactly do I do the hard
 thing."
+
+### The 6,000-character cap is real and silent
+
+A template `AGENTS.md` is injected into the runtime agent's system prompt and
+hard-sliced at `COMPACT_PROMPT_RESOURCE_MAX_CHARS` (6,000). Past that, the agent
+sees a truncation marker instead of your text, so the tail stops being
+always-on guidance and becomes something it has to go fetch. `pnpm
+the repository's `guard:agent-chat-context` check fails the build when a first-party
+file overflows; generated apps do not ship that repository-only guard. Keep files
+under ~5,500 so ordinary edits don't tip them over.
+
+Two consequences worth designing around:
+
+- **Put the skills list second, right after the purpose line.** It is the
+  pointer to every deferred skill. If it lands in the truncated tail, the agent
+  cannot discover any of the depth you carefully moved out.
+- **Markdown tables cost more than they look.** Prettier pads table cells to
+  align columns, and that invisible whitespace counts against the cap — enough
+  padding in a wide action table to push a file back over it on its own. Both
+  `**/AGENTS.md` and `**/SKILL.md` are in `.prettierignore` for this reason;
+  keep them there and write table rows unpadded.
 
 ```markdown
 # Projects App
@@ -95,6 +117,70 @@ contract:
 - Do not create pass-through routes whose main job is to call, repackage, or
   re-export an action.
 
+## Budget the first model request
+
+Treat the initial prompt and tool catalog as a latency budget. The agent should
+start with a compact map of the app, then retrieve depth only when the task
+needs it.
+
+- Set `initialToolNames` to the small set of actions used in the app's primary
+  workflows. Keep `tool-search` available so every other registered action and
+  connected MCP tool remains discoverable on demand.
+- Keep essential, always-applicable rules in `AGENTS.md`. Put workflow detail
+  in skills and long reference material in `references/` or workspace
+  resources that the agent can read when relevant.
+- Do not inject full documents, transcripts, data dictionaries, source trees,
+  or provider catalogs through `systemPrompt` or `extraContext`. Inject a
+  bounded summary, stable ids/paths, and the exact action or resource lookup
+  that retrieves the full content.
+- Avoid duplicating action descriptions in prose. The starter tools already
+  carry schemas; uncommon actions are available through `tool-search`.
+- Keep `view-screen` concise. Return navigation, selection, visible summary,
+  and ids needed for a follow-up read rather than full record bodies.
+
+The goal is progressive disclosure, not reduced capability: a compact first
+request, precise discovery, and full fidelity once the agent knows which depth
+is relevant.
+
+## Say each thing once, in the layer that owns it
+
+Current-generation models do not need a rule repeated in the system prompt, the
+instructions, and the tool description. Repetition is not reinforcement — it is
+three chances to disagree with each other, and the model spends effort
+reconciling them before it can act. Pick the owning layer:
+
+| Layer | Owns |
+| --- | --- |
+| System prompt / `AGENTS.md` | Which capabilities exist, and policy spanning tools: turn shape, what to do first, invariants that hold every turn |
+| Tool / action description | How to call it, argument and result semantics, what to say about a result, when this tool rather than a sibling |
+| Skill | Multi-step workflows, worked examples, field references, edge cases |
+
+The common mistake is restating a tool's mechanics as a numbered core rule.
+Deferred tools are loaded through `tool-search`, so the model always reads the
+description before it can call the tool — a start/update/complete sequence or an
+argument enum in the prompt buys nothing and is charged on every turn. State
+that the capability exists and when it applies; let the description carry how.
+
+## Prefer judgment over rules, and interfaces over examples
+
+Blanket prohibitions were how older models were kept out of worst-case
+behavior. They now mostly cost accuracy, because a rule stated absolutely is
+wrong for some fraction of requests and the model has to guess which fraction it
+is in. Write the intent and let the model apply it:
+
+- Say "match the surrounding code's comment density" rather than "never write
+  comments." Say "response length mirrors the task" rather than "2–5 sentences."
+- Skip arbitrary numeric formatting prescriptions (bullet counts, nesting bans)
+  unless a surface genuinely breaks without them.
+- Keep hard constraints for the areas where a wrong call is expensive and not
+  self-correcting: security, destructive operations, fabricating data or
+  success, and credential handling. Those stay absolute.
+- Don't add few-shot examples of tool calls to teach usage. Examples narrow the
+  model to the shapes you showed. Make the tool's own interface expressive
+  instead — precise parameter names, enums that imply the state machine,
+  `.describe()` on every field. Keep a literal example only where it defines a
+  syntax the schema cannot, such as a `pnpm action` CLI invocation in dev mode.
+
 When documenting version history, restore, or audit trails, use actions for
 full restorable snapshots (`list-<resource>-versions`,
 `get-<resource>-version`, `restore-<resource>-version`). Do not copy legacy
@@ -124,11 +210,17 @@ description: >-
 
 An optional `scope` field decides which agent loads the skill:
 
-- `both` (default when omitted) and `runtime` — loaded by the in-app runtime
-  agent.
+- `both` (default when omitted) — loaded by connected repo agents and the
+  in-app runtime agent.
+- `runtime` — loaded only by the in-app runtime agent.
 - `dev` — for the human's coding agent (e.g. Claude Code) only. A `scope: dev`
   skill is invisible to the runtime agent everywhere (system-prompt skills block
   and `docs-search`).
+
+Use `scope: dev` for internal-only guidance that should help connected repo
+agents such as Codex or Claude Code, but should not influence the deployed
+production agent. Do not use `metadata.internal` for this: it is catalog/package
+metadata and does not control runtime visibility.
 
 ```markdown
 ---

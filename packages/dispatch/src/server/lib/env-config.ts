@@ -3,7 +3,17 @@ import type { EnvKeyConfig } from "@agent-native/core/server";
 export const envKeys: EnvKeyConfig[] = [
   {
     key: "SLACK_BOT_TOKEN",
-    label: "Slack bot token",
+    label: "Slack bot token (legacy)",
+    required: false,
+  },
+  {
+    key: "SLACK_CLIENT_ID",
+    label: "Slack OAuth client ID",
+    required: true,
+  },
+  {
+    key: "SLACK_CLIENT_SECRET",
+    label: "Slack OAuth client secret",
     required: true,
   },
   {
@@ -15,6 +25,41 @@ export const envKeys: EnvKeyConfig[] = [
     key: "TELEGRAM_BOT_TOKEN",
     label: "Telegram bot token",
     required: true,
+  },
+  {
+    key: "TELEGRAM_WEBHOOK_SECRET",
+    label: "Telegram webhook secret",
+    required: true,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_ID",
+    label: "Microsoft Bot app ID",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_PASSWORD",
+    label: "Microsoft Bot client secret",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_APP_TENANT_ID",
+    label: "Microsoft Bot tenant ID",
+    required: false,
+  },
+  {
+    key: "MICROSOFT_TEAMS_ALLOWED_TENANT_IDS",
+    label: "Allowed Microsoft Teams tenant IDs",
+    required: false,
+  },
+  {
+    key: "DISCORD_APPLICATION_ID",
+    label: "Discord application ID",
+    required: false,
+  },
+  {
+    key: "DISCORD_PUBLIC_KEY",
+    label: "Discord public key",
+    required: false,
   },
   {
     key: "EMAIL_AGENT_ADDRESS",
@@ -39,6 +84,11 @@ export const envKeys: EnvKeyConfig[] = [
   {
     key: "WHATSAPP_PHONE_NUMBER_ID",
     label: "WhatsApp phone number ID",
+    required: false,
+  },
+  {
+    key: "WHATSAPP_APP_SECRET",
+    label: "WhatsApp app secret",
     required: false,
   },
   {

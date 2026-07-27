@@ -23,15 +23,21 @@ pub struct TrayMeetings(pub Mutex<Vec<MeetingItem>>);
 pub struct PopoverShownAt(pub Mutex<Option<Instant>>);
 
 /// Whether a recording is currently in progress. Set from JS via
-/// `set_recording_state`. Used to re-purpose the tray icon click as a
-/// stop-recording shortcut while recording, matching Loom.
+/// `set_recording_state`. Keeps the parked popover reachable while recording
+/// and enables the explicit Stop item in the tray menu.
 #[derive(Default)]
 pub struct RecordingActive(pub Mutex<bool>);
 
-#[allow(dead_code)]
-/// Whether a meeting recording is in progress.
+/// Whether a meeting recording is in progress. Set from JS via
+/// `set_meeting_active`. Gates the `ExitRequested` quit-teardown handler in
+/// `lib.rs` so quitting stays instant when no meeting is active.
 #[derive(Default)]
 pub struct MeetingActive(pub Mutex<bool>);
+
+/// Active meeting id, when meeting notes are currently running. Kept separate
+/// from `MeetingActive` so older boolean-only state checks stay simple.
+#[derive(Default)]
+pub struct ActiveMeetingId(pub Mutex<Option<String>>);
 
 #[allow(dead_code)]
 /// Whether dictation is toggled on.

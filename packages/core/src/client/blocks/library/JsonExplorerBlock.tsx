@@ -1,3 +1,4 @@
+import { IconChevronRight } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -6,15 +7,16 @@ import {
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { IconChevronRight } from "@tabler/icons-react";
+
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
+import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 import {
   JSON_EXPLORER_DEFAULT_COLLAPSED_DEPTH,
   JSON_EXPLORER_MAX_COLLAPSED_DEPTH,
   type JsonExplorerData,
 } from "./json-explorer.config.js";
-import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
  * Read + Edit renderers for a `json-explorer` block — a browser-devtools /
@@ -325,7 +327,11 @@ export function JsonExplorerRead({
   const heading = data.title ?? title;
 
   return (
-    <section className="plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block"
+      data-block-id={blockId}
+    >
       {heading && <div className="plan-block-label">{heading}</div>}
       <JsonExplorerSurface data={data} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}

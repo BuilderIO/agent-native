@@ -1,5 +1,6 @@
 import {
   getStoredModelForEngine,
+  normalizeModelForEngine,
   registerBuiltinEngines,
   resolveEngine,
   type AgentEngine,
@@ -7,8 +8,8 @@ import {
   type EngineMessage,
   type EngineStreamOptions,
 } from "../agent/engine/index.js";
-import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import { EngineError } from "../agent/engine/types.js";
+import { getOwnerActiveApiKey } from "../agent/production-agent.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import { getRequestUserEmail } from "./request-context.js";
 
@@ -162,10 +163,11 @@ export async function completeText(
     model: options.model,
     appId: options.appId,
   });
-  const model =
+  const modelCandidate =
     options.model ??
     (await getStoredModelForEngine(engine, { appId: options.appId })) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
   const { signal, cleanup } = createCompletionAbortSignal(
     options.signal,
     options.timeoutMs,

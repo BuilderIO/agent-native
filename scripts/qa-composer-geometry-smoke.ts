@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -61,7 +61,7 @@ function assertSourceContract(): void {
 
   assert.match(
     agentFrame,
-    /agent-composer-root flex flex-col rounded-lg border border-input bg-background/,
+    /agent-composer-root flex flex-col rounded-lg border border-input bg-muted\/45/,
     "AgentComposerFrame should continue owning the shared composer root shell",
   );
   assert.match(

@@ -266,6 +266,48 @@ describe("ydoc-manager applyText (agent full-text path)", () => {
     expect(out).toBe("The quick brown fox");
     expect(storedText(docId)).toBe("The quick brown fox");
   });
+
+  it("rejects a concurrently merged snapshot before persisting or emitting it", async () => {
+    const docId = "design_t4:screen_a";
+    await manager.applyText(docId, "base", "content", "seed");
+    emitMock.fn.mockReset();
+
+    // Simulate a human edit landing through another serverless process. The
+    // durable state advances while this process's cached Y.Doc still has the
+    // common "base" ancestor.
+    const durableBefore = store.rows.get(docId)!;
+    const remoteDoc = new Y.Doc();
+    Y.applyUpdate(remoteDoc, fromB64(durableBefore.yjs_state));
+    remoteDoc.transact(() => {
+      const text = remoteDoc.getText("content");
+      text.delete(0, text.length);
+      text.insert(0, "human");
+    }, "remote");
+    const remoteDurable = {
+      yjs_state: b64(Y.encodeStateAsUpdate(remoteDoc)),
+      text_snapshot: "human",
+      version: durableBefore.version + 1,
+    };
+    store.rows.set(docId, remoteDurable);
+
+    await expect(
+      manager.applyText(docId, "agent", "content", "agent", {
+        validateSnapshot: (snapshot) => {
+          if (snapshot !== "agent") {
+            throw new Error("invalid concurrent merge");
+          }
+        },
+      }),
+    ).rejects.toThrow("invalid concurrent merge");
+
+    // The invalid merged candidate was neither durable nor visible, and the
+    // poisoned local cache was discarded so the next read reloads the human's
+    // last valid state.
+    expect(store.rows.get(docId)).toEqual(remoteDurable);
+    expect(storedText(docId)).toBe("human");
+    expect(emitMock.fn).not.toHaveBeenCalled();
+    expect(await manager.getText(docId)).toBe("human");
+  });
 });
 
 describe("ydoc-manager searchAndReplace", () => {

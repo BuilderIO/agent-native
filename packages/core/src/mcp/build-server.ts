@@ -18,8 +18,6 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
-import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -27,18 +25,21 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import {
+  buildDeepLink,
+  toAbsoluteOpenUrl,
+  toDesktopOpenUrl,
+  toVsCodeOpenUrl,
+} from "../server/deep-link.js";
 import {
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
-import {
-  buildDeepLink,
-  toAbsoluteOpenUrl,
-  toDesktopOpenUrl,
-} from "../server/deep-link.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -49,7 +50,8 @@ import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
-import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -112,25 +114,33 @@ export interface MCPConfig {
    * Curated allow-list of action names served to **external connector** clients
    * on a hosted multi-tenant deployment.
    *
-   * When `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set and this list is non-empty,
-   * the MCP server trims both the advertised tool list *and* the callable
+   * Whenever this list is non-empty it is active by default for **every**
+   * caller — hosted connectors, code/stdio clients, and the local CLI alike.
+   * The MCP server trims both the advertised tool list *and* the callable
    * surface to exactly these names (plus any builtin cross-app tools such as
    * `list_apps` / `open_app`). Any tool call for a name **not** in the list is
    * rejected — it is not merely hidden. This prevents the ~105-tool full
    * catalog from landing in every external agent's context window and removes
    * footguns (db-exec, seed-*, extension tools, browser-session tools, etc.)
-   * from multi-tenant hosted connectors.
+   * from connectors. It is no longer gated behind an environment variable, and
+   * the catalog is never inferred from the client name/user-agent.
    *
-   * Callers who need the full surface can opt up with
-   * `agent-native connect --full-catalog`, which embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT. Local/dev deployments without
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` are unaffected — they always see the
-   * full surface.
+   * `tool-search` stays available in the compact catalog for discovery. A
+   * searched action still needs the connector catalog or authenticated-read
+   * policy before `tools/call`; callers who need the full surface up front opt in
+   * explicitly with `agent-native connect --full-catalog` (embeds a
+   * `catalog_scope: "full"` claim in the connect-minted JWT) or the
+   * deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
    *
    * Declare this in your template's `createAgentChatPlugin` options rather than
    * setting it on `MCPConfig` directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+  /**
+   * Optional policy for automatically exposing explicitly annotated,
+   * authenticated read actions to external MCP callers.
+   */
+  externalAgents?: ExternalAgentPolicy;
 }
 
 /**
@@ -149,6 +159,8 @@ export interface MCPCallerIdentity {
   oauthScopes?: string[];
   /** Present only for standard remote MCP OAuth access tokens. */
   oauthClientId?: string;
+  /** Present only for framework-minted first-party MCP client tokens. */
+  firstPartyMcp?: boolean;
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -181,6 +193,75 @@ export interface MCPRequestMeta {
    * `config.actions`. Set by `mountMCP` from `verifyAuth`.
    */
   fullSurface?: boolean;
+  /**
+   * Whether this request may receive inline MCP App embeds (the `ui://`
+   * resource reference hosts render in an iframe). Resolved once per request by
+   * `createMCPServerForRequest` from `isMcpAppsInlineEnabled(identity)` — the
+   * deploy-toggleable kill switch. When `false`, no MCP App resource is
+   * advertised or referenced and tool results fall back to their deep-link
+   * text. Defaults to disabled when unset.
+   */
+  inlineMcpApps?: boolean;
+}
+
+const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
+const ASK_AGENT_MAX_INLINE_WAIT_MS = 25_000;
+
+function boundedAskAgentWaitMs(raw: unknown): number {
+  if (raw == null || raw === "") return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  return Math.max(
+    0,
+    Math.min(ASK_AGENT_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
+  );
+}
+
+function isExplicitAsyncAskAgent(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+function formatAskAgentResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object") {
+    const record = result as Record<string, unknown>;
+    if (record.status === "completed" && typeof record.response === "string") {
+      return record.response;
+    }
+  }
+  const serialized = JSON.stringify(result);
+  return serialized === undefined ? String(result) : serialized;
+}
+
+/**
+ * Deploy-toggleable kill switch for inline MCP App embeds — the `ui://`
+ * resource reference hosts like Codex / Cursor / ChatGPT render in a sandboxed
+ * iframe. **Off by default**, so a not-yet-verified inline embed never reaches
+ * normal users; flip it on per environment with `AGENT_NATIVE_MCP_APPS_INLINE=1`
+ * and a redeploy. While the global switch is off, accounts listed in
+ * `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` (comma/space separated) still get
+ * inline embeds, so you can keep verifying a fix in production before enabling
+ * it for everyone. Requires no skills/instructions change — when disabled, tool
+ * results simply fall back to their deep-link text.
+ */
+export function isMcpAppsInlineEnabled(
+  identity: MCPCallerIdentity | undefined,
+): boolean {
+  const flag = process.env.AGENT_NATIVE_MCP_APPS_INLINE?.trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") {
+    return true;
+  }
+  const email = identity?.userEmail?.trim().toLowerCase();
+  if (email) {
+    const allowed = (
+      process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS ?? ""
+    )
+      .split(/[\s,]+/)
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    if (allowed.includes(email)) return true;
+  }
+  return false;
 }
 
 type McpOAuthScope = (typeof MCP_OAUTH_SCOPES)[number];
@@ -199,7 +280,12 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
   "ask_app",
+  "ask_app_status",
   "create_embed_session",
+  // `tool-search` MUST stay in every compact/connector surface: it is how a
+  // compacted client discovers and loads any action on demand, which is what
+  // makes "small catalog by default" safe instead of limiting.
+  "tool-search",
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
@@ -220,104 +306,141 @@ function isActionAdvertisedInCompactMcpAppCatalog(
   return false;
 }
 
-const MCP_APP_OAUTH_CLIENT_RE = /\b(chatgpt|openai|claude|anthropic)\b/i;
-const NON_APP_OAUTH_CLIENT_RE =
-  /\b(code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
-const MCP_APP_OAUTH_REDIRECT_HOST_RE =
-  /(^|\.)((chatgpt|openai)\.com|claude\.ai|anthropic\.com)$/i;
-const FULL_CATALOG_CLIENT_RE =
-  /\b(agent-native-mcp-(proxy|stdio|standalone)|code|cli|cursor|codex|goose|postman|mcpjam|inspector)\b/i;
-
-async function isKnownMcpAppOAuthClient(
-  identity: MCPCallerIdentity | undefined,
-): Promise<boolean> {
-  const clientId = identity?.oauthClientId?.trim();
-  if (!clientId) return false;
-
-  function isKnownAppClientName(value: string | undefined | null): boolean {
-    if (!value) return false;
-    return (
-      MCP_APP_OAUTH_CLIENT_RE.test(value) &&
-      !NON_APP_OAUTH_CLIENT_RE.test(value)
-    );
-  }
-
-  function isKnownNonAppClientName(value: string | undefined | null): boolean {
-    return Boolean(value && NON_APP_OAUTH_CLIENT_RE.test(value));
-  }
-
-  function isKnownMcpAppRedirectUri(uri: string): boolean {
-    try {
-      const url = new URL(uri);
-      return (
-        url.protocol === "https:" &&
-        MCP_APP_OAUTH_REDIRECT_HOST_RE.test(url.hostname)
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  if (isKnownAppClientName(clientId)) return true;
-  if (isKnownNonAppClientName(clientId)) return false;
-
-  try {
-    const { getOAuthClient } = await import("./oauth-store.js");
-    const client = await getOAuthClient(clientId);
-    // If the token carries an OAuth client id but its registration is missing,
-    // keep the model on the compact MCP Apps surface instead of exposing every
-    // private action/schema.
-    if (!client) return true;
-    if (isKnownAppClientName(client.clientName)) return true;
-    if (isKnownNonAppClientName(client.clientName)) return false;
-    if (client.redirectUris.some(isKnownMcpAppRedirectUri)) return true;
-    // Most OAuth hosts are UI-oriented MCP clients. Preserve the full catalog
-    // only for known code/CLI clients so unknown browser hosts cannot trigger
-    // massive resources/list payloads.
-    return true;
-  } catch {
-    // On metadata lookup errors, fail compact instead of falling back to the
-    // full action surface; ChatGPT/Claude old tokens otherwise get huge lists.
-    return true;
-  }
-}
-
 function explicitlyRequestsFullMcpCatalog(
   requestMeta: MCPRequestMeta | undefined,
 ): boolean {
+  // Full catalog is a deliberate, rare opt-in — NEVER a default, and NEVER
+  // inferred from the client name / user-agent. It is reached only by an
+  // explicit deployment env or a token minted with
+  // `agent-native connect --full-catalog` (which embeds `catalog_scope: "full"`,
+  // surfaced here as requestMeta.fullCatalog). Dumping ~105 tool schemas
+  // (100k+ tokens) into a context window just because a client called itself
+  // "code"/"cursor"/"codex" was a recurring footgun. Everything else gets the
+  // connector/compact catalog plus `tool-search`, which keeps every tool
+  // discoverable; only permitted actions are callable without full opt-in.
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
-  if (requestMeta?.fullCatalog === true) return true;
-  if (requestMeta?.clientHint) {
-    return FULL_CATALOG_CLIENT_RE.test(requestMeta.clientHint);
-  }
-  return FULL_CATALOG_CLIENT_RE.test(requestMeta?.clientName ?? "");
+  return requestMeta?.fullCatalog === true;
+}
+
+const warnedFullCatalogKeys = new Set<string>();
+
+/**
+ * Loud, deduped warning emitted whenever the full MCP catalog is actually
+ * served. Full catalog is a deliberate, rare opt-in (env or a `--full-catalog`
+ * token claim); logging it makes an accidental ~100k-token tool dump visible
+ * instead of silent, so a regression can't quietly reintroduce the footgun.
+ */
+function warnFullCatalogServed(toolCount: number): void {
+  const source =
+    process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1"
+      ? "AGENT_NATIVE_MCP_FULL_CATALOG=1"
+      : "a token minted with --full-catalog (catalog_scope:full)";
+  const key = `${source}:${toolCount}`;
+  if (warnedFullCatalogKeys.has(key)) return;
+  warnedFullCatalogKeys.add(key);
+  console.warn(
+    `[agent-native] Serving the FULL MCP tool catalog (${toolCount} tools) via ${source}. ` +
+      `This is a large context payload meant to be a rare, explicit opt-in — most ` +
+      `clients should use the default compact/connector catalog + tool-search instead.`,
+  );
+}
+
+export function isAuthenticatedReadAction(entry: ActionEntry): boolean {
+  return (
+    entry.http !== false &&
+    entry.http?.method === "GET" &&
+    entry.readOnly === true &&
+    entry.publicAgent?.expose === true &&
+    entry.publicAgent.readOnly === true &&
+    entry.publicAgent.requiresAuth === true
+  );
 }
 
 /**
- * Returns true when the given action name is in the template's connector
- * catalog, OR is a builtin cross-app tool that is always included for
- * external connector clients. Builtin tool names from
- * `COMPACT_MCP_APP_CATALOG_BUILTINS` are always allowed since they are the
- * stable external-agent verb set.
+ * Hard exclusion list for the `authenticatedReads: "auto"` derivation ONLY
+ * (see `autoAuthenticatedReadNames` below). Explicit `connectorCatalog`
+ * entries are a deliberate, reviewed choice made by the app and are NOT
+ * affected by this list — an app can still list any of these names in
+ * `connectorCatalog` on purpose.
+ *
+ * These are the footgun families this file's other comments already call
+ * out ("removes footguns (db-exec, seed-*, extension tools, browser-session
+ * tools, etc.)" above, and "keeps db-exec / seed-* / extension /
+ * browser-session footguns off the external surface" near the connector
+ * tier below): generic core SQL access, template demo/seed data, the
+ * extension-management suite, live browser-session control, and Context
+ * X-Ray internals. `isAuthenticatedReadAction` only inspects action
+ * metadata (http/readOnly/publicAgent flags) — nothing stops a future
+ * change from mis-annotating one of these with that exact flag set again,
+ * the way `db-query`/`db-schema` were briefly (and accidentally) annotated
+ * before it was caught in review. These names can never be auto-derived
+ * from metadata alone; exposing one to external callers requires an
+ * explicit `connectorCatalog` entry.
  */
-function isActionInConnectorCatalog(name: string, config: MCPConfig): boolean {
-  if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-  if (!Array.isArray(config.connectorCatalog)) return false;
-  return config.connectorCatalog.includes(name);
+const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
+  "db-query",
+  "db-schema",
+  "db-exec",
+  "db-patch",
+  "context-manifest-get",
+  "context-preview-get",
+  "context-pin",
+  "context-evict",
+  "context-restore",
+  "context-report",
+]);
+
+/**
+ * Substring/prefix patterns for excluded name *families* that aren't a
+ * fixed, enumerable set: `seed-*` varies per app/template, and the
+ * extension-management and browser-session tool suites use varying verb
+ * prefixes around a shared noun (e.g. `list-extensions`, `create-extension`,
+ * `hide-extension`; `list-browser-sessions`, `run-browser-session-action`) —
+ * so a leading-prefix match alone would miss most of them.
+ */
+const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
+  /^seed-/,
+  /extension/,
+  /browser-session/,
+];
+
+export function isAutoReadExcludedActionName(name: string): boolean {
+  return (
+    AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
+    AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))
+  );
 }
 
-function shouldUseCompactMcpCatalogByDefault(
-  identity: MCPCallerIdentity | undefined,
-  requestMeta: MCPRequestMeta | undefined,
-): boolean {
-  if (explicitlyRequestsFullMcpCatalog(requestMeta)) return false;
-  // OAuth callers are classified through `isKnownMcpAppOAuthClient`: unknown
-  // OAuth clients compact by default, while known code/CLI clients stay full.
-  if (identity?.oauthClientId) return false;
-  // A real authenticated remote HTTP caller with no OAuth client metadata is
-  // usually a chat-host static-token connector. Keep it on the app-facing
-  // verbs so a host cannot dump every action schema into a giant tool card.
-  return requestMeta?.fullSurface === true;
+function autoAuthenticatedReadNames(
+  actions: Record<string, ActionEntry>,
+  config: MCPConfig,
+): Set<string> {
+  if (config.externalAgents?.authenticatedReads !== "auto") return new Set();
+  return new Set(
+    Object.entries(actions)
+      .filter(
+        ([name, entry]) =>
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name),
+      )
+      .map(([name]) => name),
+  );
+}
+
+function externalAgentDenySet(config: MCPConfig): Set<string> {
+  return new Set(
+    (config.externalAgents?.denyActions ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+}
+
+function externalAgentWritesAreAskAppOnly(config: MCPConfig): boolean {
+  return (
+    config.externalAgents?.writes === "ask_app_only" ||
+    (config.externalAgents?.authenticatedReads === "auto" &&
+      config.externalAgents?.writes !== "allowlisted")
+  );
 }
 
 interface ResolvedMcpAppResource {
@@ -419,31 +542,106 @@ function routePathFromOpenUrl(value: string): string | null {
  * `mcpApp.resource` (the resource path already strips them via
  * `mcpAppStructuredContent`).
  *
- * Depth-capped to avoid pathological / circular structures. Strings that
- * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
- * the URL) are replaced with `[hidden embed URL]`.
+ * Circular structures are replaced with a marker. Strings that embed an
+ * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
+ * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
+ * removed only inside an embed-signaled object/branch, so ordinary business
+ * fields from unrelated read actions remain faithful.
  */
-function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
-  if (depth > 5) return value;
+const EMBED_RESULT_SENSITIVE_KEYS = new Set([
+  "embedTargetPath",
+  "embedExpiresAt",
+  "embedTicket",
+]);
+
+function isEmbedCredentialKey(key: string): boolean {
+  return key === "ticket" || /Ticket$/.test(key);
+}
+
+function containsEmbedRoutingSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
+    seen.delete(value);
+    return result;
+  }
+  for (const [key, val] of Object.entries(value)) {
+    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
+      seen.delete(value);
+      return true;
+    }
+    if (containsEmbedRoutingSignal(val, seen)) {
+      seen.delete(value);
+      return true;
+    }
+  }
+  seen.delete(value);
+  return false;
+}
+
+function purgeEmbedStartUrls(
+  value: unknown,
+  seen = new WeakSet<object>(),
+  embedContext = false,
+): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    // An embed marker in one array item puts the whole result in the embed
+    // routing context. Credential fields in sibling items must not survive
+    // just because the marker lives elsewhere in the array.
+    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
+    const out = value.map((item) =>
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
+    );
+    seen.delete(value);
+    return out;
   }
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    const entries = Object.entries(value as Record<string, unknown>);
+    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, val] of entries) {
+      if (
+        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+        (localEmbedContext && isEmbedCredentialKey(key))
+      ) {
+        continue;
+      }
       if (typeof val === "string" && isEmbedStartUrl(val)) {
         // Drop the key entirely for object-typed inputs so a tool result like
         // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, depth + 1);
+      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
     }
+    seen.delete(value);
     return out;
   }
   return value;
+}
+
+// True when a tool result carries SOME content. An errored/no-plan result comes
+// back empty (`{}` / null) and would render an empty embed box. We gate on "has
+// content", not "has a URL" — valid embeds often carry data but no URL (the
+// shell mints the embed-start itself).
+function mcpResultHasContent(result: unknown): boolean {
+  if (result == null) return false;
+  if (typeof result === "string") return result.trim().length > 0;
+  if (Array.isArray(result)) return result.length > 0;
+  if (typeof result === "object") return Object.keys(result).length > 0;
+  return Boolean(result);
 }
 
 function mcpAppEmbedOpenLinkMeta(
@@ -550,6 +748,7 @@ function mcpAppEmbedOpenLinkMeta(
             ...(view ? { view } : {}),
             webUrl: safeOpenUrl,
             desktopUrl: desktopDeepLinkUrl ?? safeOpenUrl,
+            vscodeUrl: toVsCodeOpenUrl(safeOpenUrl),
           },
         }
       : {}),
@@ -644,6 +843,7 @@ export function buildLinkArtifacts(
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
     const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
       block: { type: "text", text: `\n\n[${lk.label} →](${markdownUrl})` },
@@ -653,6 +853,7 @@ export function buildLinkArtifacts(
           view: lk.view,
           webUrl,
           desktopUrl,
+          vscodeUrl,
         },
       },
     };
@@ -745,7 +946,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v43";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v64";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -949,6 +1150,13 @@ async function resolveMcpAppResource(
 ): Promise<ResolvedMcpAppResource | null> {
   const resource = entry.mcpApp?.resource;
   if (!resource) return null;
+  // NB: the inline kill switch is intentionally NOT enforced here. This
+  // resolver also backs `resources/read`, which must keep serving the shell
+  // for a URI the host already holds (e.g. a cached descriptor) so it degrades
+  // gracefully instead of throwing a hard `-32603`. The switch is enforced at
+  // the *advertisement/render* sites (`tools/list` descriptor meta,
+  // `tools/call` result meta, `resources/list`) so disabled embeds never get
+  // advertised in the first place.
   const resolvedUri = getMcpAppResourceUri(config, actionName, entry);
   if (!resolvedUri) return null;
   const description = resource.description ?? entry.tool.description;
@@ -997,6 +1205,9 @@ async function getMcpAppResources(
   actions: Record<string, ActionEntry>,
   requestMeta?: MCPRequestMeta,
 ): Promise<ResolvedMcpAppResource[]> {
+  // Advertisement path (resources/list + resources/templates/list): suppressed
+  // by the inline kill switch so disabled embeds are never listed.
+  if (!requestMeta?.inlineMcpApps) return [];
   const resources = await Promise.all(
     Object.entries(actions).map(([name, entry]) =>
       resolveMcpAppResourceSafely(config, name, entry, requestMeta),
@@ -1077,11 +1288,12 @@ function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
+  const purged = purgeEmbedStartUrls(result);
   const out: Record<string, unknown> =
-    result && typeof result === "object" && !Array.isArray(result)
-      ? { ...(result as Record<string, unknown>) }
-      : primitiveValue(result)
-        ? { result }
+    purged && typeof purged === "object" && !Array.isArray(purged)
+      ? { ...(purged as Record<string, unknown>) }
+      : primitiveValue(purged)
+        ? { result: purged }
         : {};
   for (const key of ["embedStartUrl", "startUrl"]) {
     const value = out[key];
@@ -1095,17 +1307,6 @@ function mcpAppStructuredContent(
   // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
   // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
   // fields are single-use credentials. Drop all of them unconditionally.
-  for (const key of [
-    "embedTargetPath",
-    "embedExpiresAt",
-    "ticket",
-    "embedTicket",
-  ]) {
-    delete out[key];
-  }
-  for (const key of Object.keys(out)) {
-    if (/Ticket$/.test(key)) delete out[key];
-  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
@@ -1142,6 +1343,63 @@ function conciseMcpAppToolText(
     return `${name} completed for ${id.trim()}.`;
   }
   return `${name} completed.`;
+}
+
+function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return keys.every((key) => {
+    const item = value[key];
+    if (key === "ok" || key === "success") return item === true;
+    if (key === "status") {
+      return item === "ok" || item === "success" || item === "completed";
+    }
+    return false;
+  });
+}
+
+function conciseToolResultText(
+  name: string,
+  result: unknown,
+  options?: { preserveObjectResult?: boolean },
+): string {
+  const purged = purgeEmbedStartUrls(result);
+  if (typeof purged === "string") return truncateToolText(purged);
+  if (purged === true || purged == null) return `${name} completed.`;
+  if (purged && typeof purged === "object" && !Array.isArray(purged)) {
+    const record = purged as Record<string, unknown>;
+    // Read-only actions are data reads, not mutations. Keep their object
+    // payload available to MCP clients in the text fallback too; the
+    // structuredContent branch below is the lossless path for clients that
+    // support it. Mutating/action-style results retain the concise status
+    // text so we do not unexpectedly dump write results into conversations.
+    if (options?.preserveObjectResult) {
+      const text = JSON.stringify(purged);
+      return text === undefined ? `${name} completed.` : truncateToolText(text);
+    }
+    const message = record.message ?? record.summary;
+    if (typeof message === "string" && message.trim()) {
+      return truncateToolText(message.trim());
+    }
+    const id = record.id ?? record.planId ?? record.commentId;
+    const title = record.title ?? record.name;
+    if (typeof title === "string" && title.trim()) {
+      const titleText = title.trim();
+      return typeof id === "string" && id.trim()
+        ? `${titleText} (${id.trim()}) is ready.`
+        : `${titleText} is ready.`;
+    }
+    if (typeof id === "string" && id.trim()) {
+      return `${name} completed for ${id.trim()}.`;
+    }
+    const link = record.url ?? record.webUrl ?? record.path;
+    if (typeof link === "string" && link.trim()) {
+      return `${name} completed: ${truncateToolText(link.trim(), 500)}`;
+    }
+    if (isSuccessOnlyResult(record)) return `${name} completed.`;
+  }
+  const text = JSON.stringify(purged);
+  return text === undefined ? `${name} completed.` : truncateToolText(text);
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,6 +1443,16 @@ export async function createMCPServerForRequest(
       ? { userEmail: ownerFromEnv, orgDomain: undefined }
       : undefined);
 
+  // Resolve the inline-MCP-App kill switch once per request from the effective
+  // identity + environment, then thread it through `requestMeta` so every
+  // resource/tool handler below honors the same decision. An explicit value on
+  // the incoming meta (tests / embedded callers) wins.
+  requestMeta = {
+    ...(requestMeta ?? {}),
+    inlineMcpApps:
+      requestMeta?.inlineMcpApps ?? isMcpAppsInlineEnabled(effectiveIdentity),
+  };
+
   // The action set the request handlers operate on = base actions + generic
   // cross-app builtins (template wins on name collision). An authenticated
   // real caller (connect-minted token / `mcp install` owner / production —
@@ -1204,12 +1472,14 @@ export async function createMCPServerForRequest(
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const compactMcpAppCatalog = explicitlyRequestsFullMcpCatalog(requestMeta)
-    ? false
-    : (Array.isArray(effectiveIdentity?.oauthScopes) &&
-        hasMcpOAuthScope(effectiveIdentity.oauthScopes, "mcp:apps")) ||
-      (await isKnownMcpAppOAuthClient(effectiveIdentity)) ||
-      shouldUseCompactMcpCatalogByDefault(effectiveIdentity, requestMeta);
+  const fullCatalogRequested = explicitlyRequestsFullMcpCatalog(requestMeta);
+  // Compact/connector is the DEFAULT for every caller — hosted connectors,
+  // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
+  // full ~105-tool catalog is served only on the explicit opt-in above, so a
+  // host can never dump every action schema into one giant tool card. The
+  // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
+  // opt-in, everyone else does too.
+  const compactMcpAppCatalog = !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -1217,17 +1487,22 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
-  // Connector-catalog tier: on hosted multi-tenant deployments (signalled by
-  // AGENT_NATIVE_CONNECTOR_CATALOG=1) restrict external callers to the
-  // template-declared allow-list unless the token was minted with
-  // --full-catalog (catalog_scope: "full"). This prevents the ~105-tool full
-  // catalog from bloating every external agent's context window and removes
-  // db-exec / seed-* / extension / browser-session footguns.
+  const autoReadNames = autoAuthenticatedReadNames(visibleActions, config);
+  const connectorNames = new Set([
+    ...(config.connectorCatalog ?? []),
+    ...autoReadNames,
+  ]);
+  const denyNames = externalAgentDenySet(config);
+  const automaticConnectorPolicyActive =
+    config.externalAgents?.authenticatedReads === "auto";
+  // Connector-catalog tier: when a template declares a connector allow-list,
+  // serve exactly that curated surface plus any explicitly annotated
+  // authenticated reads from `externalAgents.authenticatedReads: "auto"`.
+  // This stays compact by default and keeps db-exec / seed-* / extension /
+  // browser-session footguns off the external surface.
   const connectorCatalogActive =
-    process.env.AGENT_NATIVE_CONNECTOR_CATALOG === "1" &&
-    Array.isArray(config.connectorCatalog) &&
-    config.connectorCatalog.length > 0 &&
-    !explicitlyRequestsFullMcpCatalog(requestMeta);
+    (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
+    !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
   // rather than advertisedActionsBeforeConnector. This ensures the connector
   // tier is an independent, template-declared surface that doesn't accidentally
@@ -1235,11 +1510,23 @@ export async function createMCPServerForRequest(
   // would have activated the compact catalog for the same caller.
   const advertisedActions = connectorCatalogActive
     ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name]) =>
-          isActionInConnectorCatalog(name, config),
-        ),
+        Object.entries(visibleActions).filter(([name, entry]) => {
+          if (denyNames.has(name)) return false;
+          if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+          if (!connectorNames.has(name)) return false;
+          if (
+            externalAgentWritesAreAskAppOnly(config) &&
+            entry.readOnly !== true
+          ) {
+            return false;
+          }
+          return true;
+        }),
       )
     : advertisedActionsBeforeConnector;
+  if (fullCatalogRequested) {
+    warnFullCatalogServed(Object.keys(advertisedActions).length);
+  }
   const supportsMcpApps =
     compactMcpAppCatalog ||
     Object.values(advertisedActions).some((entry) =>
@@ -1266,9 +1553,7 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = effectiveIdentity?.orgId
-    ? Promise.resolve(effectiveIdentity.orgId)
-    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
 
   /**
    * Wrap a callback in
@@ -1315,7 +1600,10 @@ export async function createMCPServerForRequest(
               : {};
           const toolMeta = {
             ...rawToolMeta,
-            ...(mcpAppResource
+            // Advertisement path: only tag the tool with its inline-embed
+            // descriptor when the kill switch is on, so disabled embeds never
+            // prompt a host to render/read the `ui://` resource.
+            ...(mcpAppResource && requestMeta?.inlineMcpApps
               ? {
                   ...openAiToolDescriptorMeta(mcpAppResource),
                   [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
@@ -1360,13 +1648,25 @@ export async function createMCPServerForRequest(
           description:
             "Send a natural-language message to the app's AI agent and get a response. " +
             "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app.",
+            "and full context about the app. On hosted MCP, the server waits briefly " +
+            "for fast completions and returns a taskId plus ask_app_status polling " +
+            "instructions when the agent needs longer.",
           inputSchema: {
             type: "object" as const,
             properties: {
               message: {
                 type: "string",
                 description: "The message to send to the agent",
+              },
+              async: {
+                type: "boolean",
+                description:
+                  "Start a durable task and return immediately with a taskId.",
+              },
+              maxWaitMs: {
+                type: "number",
+                description:
+                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
               },
             },
             required: ["message"],
@@ -1410,8 +1710,29 @@ export async function createMCPServerForRequest(
         }
         const message = args?.message ?? "";
         try {
-          const result = await config.askAgent(message);
-          return { content: [{ type: "text", text: result }] };
+          // Keep the legacy meta-tool compatible for local callers, but use
+          // the same durable A2A submission path as ask_app whenever this is
+          // an HTTP/hosted request. A full agent loop must never be held open
+          // for minutes behind one MCP tools/call request. Always route
+          // through ask_app's own run() — even with no request origin, since
+          // it now bounds that case too via its process-local inline-task
+          // fallback (ask-app-inline-tasks.ts) instead of us awaiting
+          // config.askAgent() here unbounded. This is the shared helper: no
+          // second task map to keep in sync.
+          const hostedAskApp = getBuiltinCrossAppTools(
+            config,
+            requestMeta,
+          ).ask_app;
+          const result = await hostedAskApp.run({
+            message,
+            async: isExplicitAsyncAskAgent(args?.async),
+            maxWaitMs: isExplicitAsyncAskAgent(args?.async)
+              ? 0
+              : boundedAskAgentWaitMs(args?.maxWaitMs),
+          });
+          return {
+            content: [{ type: "text", text: formatAskAgentResult(result) }],
+          };
         } catch (err: any) {
           return {
             content: [{ type: "text", text: `Error: ${err.message}` }],
@@ -1456,6 +1777,7 @@ export async function createMCPServerForRequest(
           userEmail: getRequestUserEmail(),
           orgId: getRequestOrgId() ?? null,
           caller: "mcp",
+          actionName: name,
         });
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;
@@ -1465,15 +1787,29 @@ export async function createMCPServerForRequest(
           !!mcpResult.raw &&
           typeof mcpResult.raw === "object" &&
           (mcpResult.raw as Record<string, unknown>).isError === true;
-        const mcpAppResource = await resolveMcpAppResourceSafely(
-          config,
-          name,
-          entry,
-          requestMeta,
-        );
-        const rawResultForClient = mcpAppResource
+        // Render path: only treat the result as an inline embed when the kill
+        // switch is on. When off, `mcpAppResource` is null so every embed
+        // branch below degrades to the plain deep-link artifacts the tool would
+        // otherwise return — no `openai/outputTemplate`, no minted embed-start,
+        // no embed structuredContent — so the host shows a link, not an iframe.
+        const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
+          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
+          : null;
+        const rawResultForClient = mcpAppResourceCandidate
           ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
           : rawResult;
+        // Only attach the embed widget for a non-error result that has content.
+        const embedHasContent = mcpResultHasContent(rawResultForClient);
+        const mcpAppResource =
+          mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
+            ? mcpAppResourceCandidate
+            : null;
+        // `openai/outputTemplate` is declared at the tool level, so the host
+        // renders a widget for every call regardless of result _meta. The only
+        // per-result signal it honors is `isError` (shows error text, no widget),
+        // so treat an embed tool that produced nothing as an error.
+        const embedProducedNothing =
+          !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
         const { block, _meta } = buildLinkArtifacts(
           entry,
           (args as Record<string, any>) ?? {},
@@ -1497,6 +1833,14 @@ export async function createMCPServerForRequest(
           Array.isArray(toolVisibility) &&
           toolVisibility.length > 0 &&
           toolVisibility.every((v) => v === "app");
+        const readOnlyStructuredResult =
+          entry.readOnly === true &&
+          rawResultForClient &&
+          typeof rawResultForClient === "object"
+            ? Array.isArray(rawResultForClient)
+              ? { items: rawResultForClient }
+              : rawResultForClient
+            : undefined;
         const structuredContent = mcpAppResource
           ? mcpAppStructuredContent(rawResultForClient, responseMeta)
           : isAppOnlyVisibility &&
@@ -1504,17 +1848,21 @@ export async function createMCPServerForRequest(
               typeof rawResult === "object" &&
               !Array.isArray(rawResult)
             ? (rawResult as Record<string, unknown>)
-            : undefined;
+            : readOnlyStructuredResult
+              ? mcpAppStructuredContent(readOnlyStructuredResult, responseMeta)
+              : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : typeof resultForClient === "string"
-            ? (purgeEmbedStartUrls(resultForClient) as string)
-            : JSON.stringify(purgeEmbedStartUrls(resultForClient));
+          : conciseToolResultText(name, resultForClient, {
+              preserveObjectResult: entry.readOnly === true,
+            });
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {
           content,
-          ...(mcpResultIsError ? { isError: true } : {}),
+          ...(mcpResultIsError || embedProducedNothing
+            ? { isError: true }
+            : {}),
           ...(structuredContent ? { structuredContent } : {}),
           ...(Object.keys(responseMeta).length > 0
             ? { _meta: responseMeta }
@@ -1709,6 +2057,7 @@ function addSecretCandidate(
 
 async function verifyA2AJwtForMcp(
   token: string,
+  resourceUrl?: string | string[],
 ): Promise<Record<string, unknown> | null> {
   const jose = await import("jose");
   let unverifiedPayload: Record<string, unknown> | null = null;
@@ -1737,19 +2086,41 @@ async function verifyA2AJwtForMcp(
     }
   }
 
+  const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
+  const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
+  if (firstPartyMcp && !audiences?.length) return null;
+
   for (const secret of candidateSecrets) {
-    try {
-      const { payload } = await jose.jwtVerify(
-        token,
-        new TextEncoder().encode(secret),
-      );
-      return payload as Record<string, unknown>;
-    } catch {
-      // Try the next candidate without exposing which secret matched.
+    const encodedSecret = new TextEncoder().encode(secret);
+    for (const audience of audiences ?? [undefined]) {
+      try {
+        const { payload } = await jose.jwtVerify(
+          token,
+          encodedSecret,
+          audience ? { audience } : undefined,
+        );
+        return payload as Record<string, unknown>;
+      } catch {
+        // Try the next candidate without exposing which secret matched.
+      }
     }
   }
 
   return null;
+}
+
+function mcpAudienceList(resource: string | string[] | undefined): string[] {
+  const raw = Array.isArray(resource) ? resource : resource ? [resource] : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of raw) {
+    const normalized = value.replace(/\/+$/, "");
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      out.push(normalized);
+    }
+  }
+  return out;
 }
 
 async function isConnectTokenAllowed(
@@ -1790,8 +2161,8 @@ async function isConnectTokenAllowed(
  */
 export async function verifyAuth(
   authHeader: string | undefined,
-  ownerEmailHeader?: string | undefined,
-  options: { allowDevOpen?: boolean; resourceUrl?: string } = {},
+  ownerEmailHeader?: string,
+  options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
 ): Promise<{
   authed: boolean;
   identity?: MCPCallerIdentity;
@@ -1806,8 +2177,8 @@ export async function verifyAuth(
   /**
    * The caller explicitly opted up to the full connector catalog by minting
    * their token with `--full-catalog` (or equivalent). When `true`, the
-   * connector-catalog tier filter is bypassed even when
-   * `AGENT_NATIVE_CONNECTOR_CATALOG=1` is set. Derived from a
+   * compact/connector-catalog tier filter (active by default whenever a
+   * `connectorCatalog` is declared) is bypassed for this caller. Derived from a
    * `catalog_scope: "full"` claim in the verified A2A/connect JWT.
    */
   fullCatalog?: boolean;
@@ -1865,7 +2236,7 @@ export async function verifyAuth(
 
   // Try an A2A JWT via the shared A2A_SECRET first, then the caller org's
   // synced A2A secret when the token carries org_domain.
-  const payload = await verifyA2AJwtForMcp(token);
+  const payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
   if (payload) {
     const tokenScope =
       typeof payload.scope === "string" ? payload.scope : undefined;
@@ -1900,6 +2271,9 @@ export async function verifyAuth(
           typeof payload.org_domain === "string"
             ? (payload.org_domain as string)
             : undefined,
+        ...(payload.agent_native_first_party_mcp === true
+          ? { firstPartyMcp: true }
+          : {}),
       },
       // Verified JWT (connect-minted or A2A delegation) — a real caller.
       fullSurface: true,
@@ -1958,6 +2332,24 @@ export async function resolveOrgIdFromDomain(
     const { resolveOrgByDomain } = await import("../org/context.js");
     const org = await resolveOrgByDomain(orgDomain);
     return org?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMcpIdentityOrgId(
+  identity: MCPCallerIdentity | undefined,
+): Promise<string | undefined> {
+  if (identity?.orgId) return identity.orgId;
+
+  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
+  if (orgIdFromDomain) return orgIdFromDomain;
+
+  const userEmail = identity?.userEmail?.trim();
+  if (!userEmail) return undefined;
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
   } catch {
     return undefined;
   }

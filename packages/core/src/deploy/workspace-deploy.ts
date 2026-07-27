@@ -17,8 +17,22 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
+
+import {
+  AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  isDurableBackgroundFlagExplicitlyDisabled,
+} from "../agent/durable-background.js";
+import {
+  INTEGRATION_RETRY_SWEEP_PATH,
+  INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isIntegrationDurableDispatchConfigured,
+} from "../integrations/integration-durable-dispatch-config.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
-import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -28,6 +42,8 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
+import { assertEmittedBackgroundFunctionOnDisk } from "./build.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -408,7 +424,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
   const dispatch = apps
     .map(
       (a) =>
-        `  if (pathname === "/${a}" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
+        `  if (pathname === "/${a}" || pathname === "/${a}.data" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
@@ -665,6 +681,312 @@ function copyNetlifyFunctionIntoWorkspace(
   fs.rmSync(dest, { recursive: true, force: true });
   copyDir(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
+
+  // Durable background agent runs. Additive ONLY: when explicitly opted out
+  // this emits nothing and the single-function deploy is unchanged.
+  const integrationDurableDispatch =
+    app === "dispatch" && isIntegrationDurableDispatchConfigured();
+  if (
+    isDurableBackgroundWorkspaceDeployEnabled() ||
+    integrationDurableDispatch
+  ) {
+    emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
+  }
+  if (integrationDurableDispatch) {
+    emitNetlifyIntegrationRecoveryFunction(
+      workspaceRoot,
+      app,
+      src,
+      workspaceApps,
+    );
+  }
+}
+
+/**
+ * Deploy-time gate for emitting the per-app `-background` Netlify function.
+ *
+ * DELIBERATELY WIDER THAN THE SINGLE-TEMPLATE GATE, and it must stay exactly as
+ * wide as the WORKSPACE half of the runtime gate: a workspace app opts in
+ * through its agent-chat plugin (`durableBackgroundRuns`), which
+ * `isAgentChatDurableBackgroundEnabled({ appOptIn: true })` honors unless the
+ * env flag is EXPLICITLY falsy. So the emit condition is "not explicitly
+ * disabled" — narrowing it to the env-only opt-in would leave plugin-opted-in
+ * apps dispatching at a function that was never deployed. The predicates come
+ * from durable-background.ts so the deploy and runtime parses cannot drift
+ * (they had: this file's former local copy claimed to match a default-off gate
+ * while implementing a default-on one).
+ */
+export function isDurableBackgroundWorkspaceDeployEnabled(): boolean {
+  return !isDurableBackgroundFlagExplicitlyDisabled();
+}
+
+/**
+ * Emit a SECOND Netlify function for `app` whose name ends in `-background`,
+ * re-exporting the SAME `main.mjs` handler bundle. Netlify invokes any function
+ * with `config.background: true` asynchronously (202 immediately, up to 15-min
+ * budget), which is exactly what the durable-background chat dispatch
+ * (`fireInternalDispatch` → the function's default url) needs.
+ *
+ * DOC-CORRECT DEFAULT-URL APPROACH (mirrors the single-template emit in
+ * deploy/build.ts): the function declares NO custom `config.path`, so it keeps
+ * its DEFAULT url `/.netlify/functions/<app>-agent-background`. The `<app>-server`
+ * function's catch-all already excludes `/.netlify/*`, so that default-url
+ * namespace is NEVER shadowed by the synchronous function — no overlapping
+ * `config.path` and no catch-all patch are needed. The foreground dispatches to
+ * that default url (`resolveAgentChatProcessRunDispatchPath` resolves the per-app
+ * name from `AGENT_NATIVE_WORKSPACE_APP_ID`); `fireInternalDispatch` strips the
+ * app base path for `/.netlify/*` targets so the request reaches the host-root
+ * function url. The entry then REWRITES the incoming pathname to the
+ * base-path-prefixed `_process-run` route before delegating to the Nitro router.
+ *
+ * It shares the same bundle (`includedFiles: ["**"]`) so `A2A_SECRET`, the DB
+ * URL, and the rest of the env/bundle are present. A prior attempt gave the
+ * function a custom `config.path` (the framework route) that overlapped the
+ * synchronous `<app>-server` catch-all; that path was not honored as a route in
+ * prod (probe → 404). The default url is the doc-correct fix.
+ *
+ * Safety net: if the dispatch fast-fails the foreground degrades to an inline
+ * 40s synchronous run (see production-agent.ts).
+ */
+function emitNetlifyBackgroundFunction(
+  workspaceRoot: string,
+  app: string,
+  srcServerDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  // Name MUST end in `-background` (Netlify async convention + the runtime guard
+  // reads the -background Lambda-name suffix as a fallback). It is reached at its
+  // DEFAULT url /.netlify/functions/<app>-agent-background.
+  const backgroundName = `${app}-agent-background`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(srcServerDir, dest);
+
+  const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
+  // The Nitro router for this app expects the base-path-prefixed framework route.
+  // The function is reached at its default url, so the entry rewrites the
+  // incoming pathname to `/<app>/_agent-native/agent-chat/_process-run`.
+  const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
+  const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
+  const integrationProcessTaskPath = `${basePath}/_agent-native/integrations/process-task`;
+  const server = `// Mark this isolate as the durable background runtime BEFORE the handler bundle
+// is imported, so isInBackgroundFunctionRuntime() reliably returns true in this
+// function (the deployed Lambda name is not guaranteed to end in -background). A
+// globalThis flag (NOT process.env) avoids the no-env-mutation guard and carries
+// no cross-request state.
+globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+
+const basePath = ${JSON.stringify(basePath)};
+// The base-path-prefixed framework route the Nitro router dispatches to.
+const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
+const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
+const INTEGRATION_PROCESS_TASK_PATH = ${JSON.stringify(integrationProcessTaskPath)};
+const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
+const BACKGROUND_PROCESSOR_INTEGRATION = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_INTEGRATION)};
+const BACKGROUND_PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function processorPathFromBody(body) {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
+      return A2A_PROCESS_TASK_PATH;
+    }
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] ===
+      BACKGROUND_PROCESSOR_INTEGRATION
+    ) {
+      return INTEGRATION_PROCESS_TASK_PATH;
+    }
+    const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
+      typeof route === "string" &&
+      route.startsWith(basePath + "/api/_agent-native-background/") &&
+      !route.includes("?") &&
+      !route.includes("#")
+    ) {
+      return route;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+setBasePathEnv();
+
+let cachedHandler;
+
+// Reached at the DEFAULT url /.netlify/functions/${backgroundName}; REWRITE the
+// incoming pathname to the base-path-prefixed _process-run route so the Nitro
+// router runs the plugin. Method, ALL headers (the HMAC Authorization: Bearer
+// MUST survive) and the body are preserved.
+export default async function handler(request) {
+  setBasePathEnv();
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  const method = request.method || "POST";
+  const hasBody = method !== "GET" && method !== "HEAD";
+  const body = hasBody ? await request.text() : undefined;
+  url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH;
+  const rewritten = new Request(url.toString(), {
+    method,
+    headers: request.headers,
+    body,
+  });
+  return cachedHandler(rewritten);
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} agent background handler`)},
+  generator: "agent-native workspace deploy",
+  // background: true → async invoke (202, 15-min budget). NO custom path: the
+  // function keeps its default url /.netlify/functions/${backgroundName}, which
+  // the <app>-server catch-all never shadows (it excludes /.netlify/*).
+  background: true,
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  // Remove the original Nitro entry (server.mjs) so only our background entry
+  // is the function entrypoint, mirroring patchNetlifyFunctionEntry.
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+  fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
+  assertEmittedBackgroundFunctionOnDisk(dest, backgroundName);
+  console.log(
+    `[workspace-deploy] Emitted durable-background function "${backgroundName}" ` +
+      `for app "${app}" with config { background:true } and NO custom path — ` +
+      `reachable at its default url /.netlify/functions/${backgroundName} ` +
+      `(rewrites to ${processRunPath}). REQUIRES real-deploy verification of ` +
+      `Netlify async (202) invocation — see docs/design/durable-agent-runs.md.`,
+  );
+}
+
+function emitNetlifyIntegrationRecoveryFunction(
+  workspaceRoot: string,
+  app: string,
+  srcServerDir: string,
+  workspaceApps: WorkspaceAppManifestEntry[],
+): void {
+  const functionName = `${app}-integration-recovery`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(srcServerDir, dest);
+  fs.rmSync(path.join(dest, "server.mjs"), { force: true });
+
+  const basePath = `/${app}`;
+  const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
+  const workspaceAppRouteAccess = workspaceAppRouteAccessForApp(
+    workspaceApps,
+    app,
+  );
+  const sweepPath = `${basePath}${INTEGRATION_RETRY_SWEEP_PATH}`;
+  const entry = `import { createHmac } from "node:crypto";
+
+const basePath = ${JSON.stringify(basePath)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+
+function setBasePathEnv() {
+  const processRef = globalThis.process ??= { env: {} };
+  processRef.env ??= {};
+  Object.assign(processRef.env, {
+    AGENT_NATIVE_WORKSPACE: "1",
+    AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    APP_BASE_PATH: basePath,
+    AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE: "1",
+    VITE_AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
+    VITE_APP_BASE_PATH: basePath,
+    VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: ${JSON.stringify(workspaceAppAudience)},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.publicPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS: ${JSON.stringify(JSON.stringify(workspaceAppRouteAccess.protectedPaths))},
+    VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: ${JSON.stringify(JSON.stringify(workspaceApps))},
+    ${JSON.stringify(WORKSPACE_APPS_ENV_KEY)}: ${JSON.stringify(JSON.stringify(workspaceApps))},
+  });
+}
+
+function enabled() {
+  const raw = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  if (!raw) return false;
+  return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`${INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+setBasePathEnv();
+let cachedHandler;
+
+export default async function handler(request, context) {
+  setBasePathEnv();
+  if (!enabled()) return new Response(null, { status: 204 });
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    console.error("[integration-recovery] A2A_SECRET is required; sweep skipped");
+    return new Response(null, { status: 204 });
+  }
+  cachedHandler ??= (await import("./main.mjs")).default;
+  const url = new URL(request.url);
+  url.pathname = SWEEP_PATH;
+  const rewritten = new Request(url.toString(), {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ taskId: SWEEP_SUBJECT }),
+  });
+  return cachedHandler(rewritten, context);
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} integration pending-task recovery`)},
+  generator: "agent-native workspace deploy",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+  preferStatic: false,
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
 }
 
 function patchNetlifyFunctionEntry(
@@ -685,7 +1007,7 @@ function patchNetlifyFunctionEntry(
   const pathConfig =
     app === "dispatch"
       ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
-      : [basePath, `${basePath}/*`];
+      : [basePath, `${basePath}.data`, `${basePath}/*`];
   const normalizeBasePathHelper =
     app === "dispatch"
       ? ""
@@ -825,10 +1147,20 @@ setBasePathEnv();
 
 let cachedHandler;
 
-export default async function handler(...args) {
-  setBasePathEnv();
-  cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(...normalizeBasePathArgs(args));
+export default {
+  async fetch(...args) {
+    setBasePathEnv();
+    cachedHandler ??= (await import("./main.mjs")).default;
+    // Vercel invokes this { fetch } export web-style with a Web Request, and
+    // Nitro's Vercel entry is itself a web fetch handler ({ fetch }). Require that
+    // shape rather than forwarding a Web Request to a Node-style (req, res) handler.
+    if (typeof cachedHandler?.fetch !== "function") {
+      throw new Error(
+        "agent-native: Vercel workspace function expected a Web fetch handler ({ fetch }) from ./main.mjs",
+      );
+    }
+    return cachedHandler.fetch(...normalizeBasePathArgs(args));
+  },
 }
 `;
   fs.writeFileSync(entryPath, entry);

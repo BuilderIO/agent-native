@@ -1,10 +1,188 @@
-import type { AgentChatEvent } from "../agent/types.js";
 import type { AgentLoopUsage } from "../agent/production-agent.js";
+import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
+import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
+import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function llmProviderFromEngine(
+  engineName: string | undefined,
+  model: string,
+): string {
+  const engine = engineName?.trim();
+  if (engine?.startsWith("ai-sdk:")) return engine.slice("ai-sdk:".length);
+  if (engine) return engine;
+  if (/claude|anthropic/i.test(model)) return "anthropic";
+  if (/gpt|openai|codex/i.test(model)) return "openai";
+  if (/gemini|google/i.test(model)) return "google";
+  return "unknown";
+}
+
+function costUsdFromCenticents(value: number): number {
+  return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
+}
+
+const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
+const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
+const STANDALONE_API_KEY_PATTERN =
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
+
+type GenerationToolCall = {
+  name: string;
+  started_offset_ms: number;
+  duration_ms: number;
+  status: "success" | "error";
+  error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_message?: string;
+};
+
+function truncateToolErrorMessage(value: string): string {
+  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
+    : value;
+}
+
+function redactToolErrorMessage(value: string): string {
+  const credentialName =
+    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
+  return value
+    .replace(
+      new RegExp(
+        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
+        "gi",
+      ),
+      "$1[REDACTED]",
+    )
+    .replace(
+      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
+      "$1[REDACTED]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
+    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+}
+
+function emitLlmGenerationTrackingEvent(args: {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+  parentSpanId: string;
+  llmSpanId: string;
+  engineName: string | undefined;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costCentsX100: number;
+  durationMs: number;
+  status: "success" | "error";
+  errorMessage: string | null;
+  toolCalls: number;
+  successfulTools: number;
+  failedTools: number;
+  tools: GenerationToolCall[];
+  toolsTruncated: boolean;
+  delegation?: {
+    protocol: "a2a" | "mcp";
+    callerApp?: string;
+    taskId?: string;
+    parentRunId?: string;
+    parentTurnId?: string;
+  };
+  createdAt: number;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
+}): void {
+  const provider = llmProviderFromEngine(args.engineName, args.model);
+  const costUsd = costUsdFromCenticents(args.costCentsX100);
+  const error = args.errorMessage ?? undefined;
+  const properties: Record<string, unknown> = {
+    ...trackingIdentityProperties(),
+    source: "agent_observability",
+    span_type: "llm_call",
+    run_id: args.runId,
+    thread_id: args.threadId,
+    parent_span_id: args.parentSpanId,
+    span_id: args.llmSpanId,
+    model: args.model,
+    provider,
+    input_tokens: args.inputTokens,
+    output_tokens: args.outputTokens,
+    total_tokens: args.inputTokens + args.outputTokens,
+    cache_read_tokens: args.cacheReadTokens,
+    cache_write_tokens: args.cacheWriteTokens,
+    cost_cents_x100: args.costCentsX100,
+    cost_usd: costUsd,
+    duration_ms: args.durationMs,
+    status: args.status,
+    tool_calls: args.toolCalls,
+    successful_tools: args.successfulTools,
+    failed_tools: args.failedTools,
+    tools: args.tools,
+    tools_truncated: args.toolsTruncated,
+    delegated: args.delegation ? true : undefined,
+    delegation_protocol: args.delegation?.protocol,
+    caller_app: args.delegation?.callerApp,
+    a2a_task_id: args.delegation?.taskId,
+    parent_run_id: args.delegation?.parentRunId,
+    parent_turn_id: args.delegation?.parentTurnId,
+    model_selection_source: args.modelSelectionSource,
+    created_at: new Date(args.createdAt).toISOString(),
+    created_at_ms: args.createdAt,
+    $ai_trace_id: args.runId,
+    $ai_session_id: args.threadId ?? undefined,
+    $ai_span_id: args.llmSpanId,
+    $ai_span_name: "agent_run",
+    $ai_parent_id: args.parentSpanId,
+    $ai_model: args.model,
+    $ai_provider: provider,
+    $ai_input_tokens: args.inputTokens,
+    $ai_output_tokens: args.outputTokens,
+    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_is_error: args.status === "error",
+    $ai_error: error,
+    $ai_cache_read_input_tokens: args.cacheReadTokens,
+    $ai_cache_creation_input_tokens: args.cacheWriteTokens,
+    $ai_request_count: 1,
+    $ai_total_cost_usd: costUsd,
+  };
+  if (args.experimentAssignments?.length) {
+    properties.experiment_ids = args.experimentAssignments
+      .map((assignment) => assignment.experimentId)
+      .join(",");
+    properties.experiment_variants = args.experimentAssignments
+      .map((assignment) => assignment.variantId)
+      .join(",");
+    if (args.experimentAssignments.length === 1) {
+      properties.experiment_id = args.experimentAssignments[0].experimentId;
+      properties.experiment_variant = args.experimentAssignments[0].variantId;
+    }
+  }
+  if (error) properties.error_message = error;
+
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+
+  try {
+    void import("../tracking/registry.js")
+      .then(({ track }) => {
+        track("$ai_generation", properties, {
+          userId: args.userId ?? undefined,
+        });
+      })
+      .catch(() => {});
+  } catch {
+    // Tracking must never affect the agent run or trace persistence.
+  }
 }
 
 /** Keys whose values are stripped from persisted tool inputs when
@@ -44,17 +222,19 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
+  let stored: Partial<ObservabilityConfig> | null = null;
   try {
     const { getSetting } = await import("../settings/store.js");
-    const stored = await getSetting("observability-config");
-    if (stored) {
-      return {
-        ...DEFAULT_OBSERVABILITY_CONFIG,
-        ...stored,
-      } as ObservabilityConfig;
-    }
+    stored = (await getSetting(
+      "observability-config",
+    )) as Partial<ObservabilityConfig> | null;
   } catch {}
-  return DEFAULT_OBSERVABILITY_CONFIG;
+  const { resolveInferredSentimentConfig } = await import("./sentiment.js");
+  return {
+    ...DEFAULT_OBSERVABILITY_CONFIG,
+    ...(stored ?? {}),
+    ...resolveInferredSentimentConfig(stored),
+  };
 }
 
 export async function instrumentAgentLoop(opts: {
@@ -67,7 +247,9 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
     providerOptions?: any;
+    runId?: string;
   }) => Promise<AgentLoopUsage>;
   loopOpts: {
     engine: any;
@@ -78,7 +260,9 @@ export async function instrumentAgentLoop(opts: {
     actions: Record<string, any>;
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
+    onUsage?: (usage: AgentLoopUsage) => void;
     providerOptions?: any;
+    runId?: string;
   };
   runId: string;
   threadId: string | null;
@@ -88,10 +272,65 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  metadata?: Record<string, unknown> | null;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
+  delegation?: {
+    protocol: "a2a" | "mcp";
+    callerApp?: string;
+    taskId?: string;
+    parentRunId?: string;
+    parentTurnId?: string;
+  };
+  /** Raw user-authored message before prompt/context enrichment. */
+  sentimentInput?: string;
+  classifyError?: (error: unknown) =>
+    | {
+        status?: "success" | "error";
+        errorMessage?: string | null;
+        metadata?: Record<string, unknown> | null;
+      }
+    | null
+    | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
   const runStart = Date.now();
   const parentSpanId = spanId();
+  const precedingResponsePromise =
+    config.inferredSentimentEnabled && opts.sentimentInput && threadId && userId
+      ? import("./store.js")
+          .then(({ getLatestTraceSummaryForThread }) =>
+            getLatestTraceSummaryForThread(threadId, {
+              userId,
+              excludeRunId: runId,
+            }),
+          )
+          .catch(() => null)
+      : Promise.resolve(null);
+
+  // Optional OpenTelemetry root span for this run. No-ops unless a host has
+  // installed `@opentelemetry/api` and registered a provider. The promise is
+  // resolved before the loop runs so child tool/model spans can parent under
+  // it conceptually (we keep them flat in the same tracer, which is enough
+  // for the dashboards an embedding app would build).
+  const otelRunSpanPromise = startAgentSpan("agent.run", {
+    "agent.run_id": runId,
+    "agent.thread_id": threadId ?? undefined,
+    "agent.user_id": userId ?? undefined,
+    "agent.model": loopOpts.model,
+    "agent.model_selection_source": opts.modelSelectionSource,
+    "agent.experiment_id":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].experimentId
+        : undefined,
+    "agent.experiment_variant":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].variantId
+        : undefined,
+  });
 
   const spans: TraceSpan[] = [];
   let toolInvocationCounter = 0;
@@ -100,54 +339,161 @@ export async function instrumentAgentLoop(opts: {
     number,
     {
       spanId: string;
+      callId?: string;
       startMs: number;
       toolName: string;
-      input: Record<string, string>;
+      input: AgentToolInput;
+      otelSpan: AgentSpan | null;
+      endResult?: { status: "success" | "error"; errorMessage: string | null };
     }
   >();
-  // Secondary index: tool name → FIFO queue of pending invocation counters.
-  // tool_start/tool_done events carry only the tool name (no call id), so to
-  // pair starts and dones correctly when the agent runs concurrent calls to the
-  // same tool name (read-only / parallelSafe batches via Promise.all), we keep a
-  // queue per name and match each done to the OLDEST still-pending start.
+  // Secondary index for legacy emitters without call ids. Current tool events
+  // are paired by id first; same-name FIFO remains as a compatibility fallback.
   const toolNameToCounters = new Map<string, number[]>();
+  const toolCallIdToCounter = new Map<string, number>();
+  const generationToolCalls = new Map<number, GenerationToolCall>();
 
   let toolCallCount = 0;
   let successfulTools = 0;
   let failedTools = 0;
+
+  // Track in-flight OTel tool spans so they're all ended even if the loop
+  // throws before a matching `tool_done` arrives.
+  const openOtelToolSpans = new Set<AgentSpan>();
 
   const instrumentedSend = (event: AgentChatEvent): void => {
     try {
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
-        pendingTools.set(counter, {
+        // Start the OTel tool span synchronously-ish: kick off the async
+        // resolution and stash the span once it lands. Tool spans are short
+        // and the api tracer is synchronous in practice, but we tolerate the
+        // microtask gap by recording the span on the pending entry when ready.
+        const entry: {
+          spanId: string;
+          callId?: string;
+          startMs: number;
+          toolName: string;
+          input: AgentToolInput;
+          otelSpan: AgentSpan | null;
+          // Set by the done handler if it fires before the span promise
+          // resolves, so the resolved span is ended with the correct status.
+          endResult?: {
+            status: "success" | "error";
+            errorMessage: string | null;
+          };
+        } = {
           spanId: sid,
+          ...(event.id ? { callId: event.id } : {}),
           startMs: Date.now(),
           toolName: event.tool,
           input: event.input,
+          otelSpan: null,
+        };
+        pendingTools.set(counter, entry);
+        if (event.id) toolCallIdToCounter.set(event.id, counter);
+        void startAgentSpan("tool.call", {
+          "tool.name": event.tool,
+        }).then((span) => {
+          if (!span) return;
+          // If `tool_done` already ran for this call, end the span now with the
+          // status it recorded; otherwise stash it for the done handler.
+          if (entry.endResult) {
+            endAgentSpan(span, {
+              status: entry.endResult.status,
+              errorMessage: entry.endResult.errorMessage,
+            });
+          } else {
+            entry.otelSpan = span;
+            openOtelToolSpans.add(span);
+          }
         });
         const queue = toolNameToCounters.get(event.tool);
         if (queue) queue.push(counter);
         else toolNameToCounters.set(event.tool, [counter]);
       } else if (event.type === "tool_done") {
         const queue = toolNameToCounters.get(event.tool);
-        const counter = queue?.shift();
+        const counterFromId = event.id
+          ? toolCallIdToCounter.get(event.id)
+          : undefined;
+        const legacyQueueIndex =
+          event.id && counterFromId === undefined && queue
+            ? queue.findIndex(
+                (candidate) => !pendingTools.get(candidate)?.callId,
+              )
+            : -1;
+        const counter =
+          counterFromId ??
+          (event.id
+            ? legacyQueueIndex >= 0
+              ? queue?.[legacyQueueIndex]
+              : undefined
+            : queue?.shift());
         const pending =
           counter !== undefined ? pendingTools.get(counter) : undefined;
         if (counter !== undefined) {
           pendingTools.delete(counter);
+          if (pending?.callId) toolCallIdToCounter.delete(pending.callId);
+          if ((counterFromId !== undefined || legacyQueueIndex >= 0) && queue) {
+            const queueIndex = queue.indexOf(counter);
+            if (queueIndex >= 0) queue.splice(queueIndex, 1);
+          }
           if (queue && queue.length === 0)
             toolNameToCounters.delete(event.tool);
         }
         toolCallCount++;
 
+        const finishedAt = Date.now();
+
+        const explicitError = event.isError === true;
         const isError =
-          typeof event.result === "string" &&
-          (event.result.startsWith("Error") ||
-            event.result.startsWith("Error running "));
+          typeof event.isError === "boolean"
+            ? event.isError
+            : typeof event.result === "string" &&
+              (event.result.startsWith("Error") ||
+                event.result.startsWith("Error running "));
         if (isError) failedTools++;
         else successfulTools++;
+
+        if (
+          counter !== undefined &&
+          counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
+          pending
+        ) {
+          generationToolCalls.set(counter, {
+            name: pending.toolName,
+            started_offset_ms: Math.max(0, pending.startMs - runStart),
+            duration_ms: Math.max(0, finishedAt - pending.startMs),
+            status: isError ? "error" : "success",
+            error_class: !isError
+              ? null
+              : explicitError
+                ? "tool_error"
+                : "legacy_inferred_error",
+            error_message:
+              isError && config.captureToolResults
+                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
+                : undefined,
+          });
+        }
+
+        // Finalize the OTel tool span. If the span promise hasn't resolved yet
+        // we record the result on the entry so its `.then` handler ends it.
+        const otelEndResult = {
+          status: (isError ? "error" : "success") as "success" | "error",
+          errorMessage: isError ? (event.result as string) : null,
+        };
+        if (pending?.otelSpan) {
+          openOtelToolSpans.delete(pending.otelSpan);
+          endAgentSpan(pending.otelSpan, {
+            status: otelEndResult.status,
+            errorMessage: otelEndResult.errorMessage,
+            attributes: { "tool.name": event.tool },
+          });
+        } else if (pending) {
+          pending.endResult = otelEndResult;
+        }
 
         const span: TraceSpan = {
           id: pending?.spanId ?? spanId(),
@@ -162,7 +508,7 @@ export async function instrumentAgentLoop(opts: {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           costCentsX100: 0,
-          durationMs: pending ? Date.now() - pending.startMs : 0,
+          durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
           metadata:
@@ -190,15 +536,88 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
+  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
-    usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
+    usage = await runAgentLoop({
+      ...loopOpts,
+      runId,
+      send: instrumentedSend,
+    });
   } catch (err: any) {
-    runStatus = "error";
-    errorMessage = err?.message ?? String(err);
+    const classification = opts.classifyError?.(err) ?? null;
+    runStatus = classification?.status ?? "error";
+    errorMessage =
+      classification?.errorMessage === undefined
+        ? (err?.message ?? String(err))
+        : classification.errorMessage;
+    const errorMetadata = classification?.metadata ?? null;
+    runMetadata =
+      runMetadata || errorMetadata
+        ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
+        : null;
     throw err;
   } finally {
     const runEnd = Date.now();
     const totalDurationMs = runEnd - runStart;
+
+    if (pendingTools.size > 0) {
+      if (runStatus === "success") {
+        runStatus = "error";
+        errorMessage ??= "Agent run ended with interrupted tool calls";
+      }
+      for (const [counter, pending] of pendingTools) {
+        toolCallCount += 1;
+        failedTools += 1;
+        const interruptedMessage = "Tool call interrupted before completion";
+        if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
+          generationToolCalls.set(counter, {
+            name: pending.toolName,
+            started_offset_ms: Math.max(0, pending.startMs - runStart),
+            duration_ms: Math.max(0, runEnd - pending.startMs),
+            status: "error",
+            error_class: "interrupted",
+            error_message: config.captureToolResults
+              ? interruptedMessage
+              : undefined,
+          });
+        }
+        if (pending.otelSpan) {
+          openOtelToolSpans.delete(pending.otelSpan);
+          endAgentSpan(pending.otelSpan, {
+            status: "error",
+            errorMessage: interruptedMessage,
+            attributes: { "tool.name": pending.toolName },
+          });
+        } else {
+          pending.endResult = {
+            status: "error",
+            errorMessage: interruptedMessage,
+          };
+        }
+        spans.push({
+          id: pending.spanId,
+          runId,
+          threadId,
+          userId,
+          parentSpanId,
+          spanType: "tool_call",
+          name: pending.toolName,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costCentsX100: 0,
+          durationMs: Math.max(0, runEnd - pending.startMs),
+          status: "error",
+          errorMessage: interruptedMessage,
+          metadata: null,
+          createdAt: runEnd,
+        });
+      }
+      pendingTools.clear();
+      toolNameToCounters.clear();
+      toolCallIdToCounter.clear();
+    }
 
     let costCentsX100 = 0;
     try {
@@ -215,20 +634,28 @@ export async function instrumentAgentLoop(opts: {
     } catch {}
 
     let llmCallCount = 0;
-    if (usage) {
+    if (usage || runStatus === "error") {
       llmCallCount = 1;
+      const generationUsage = usage ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: loopOpts.model,
+      };
+      const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
-        id: spanId(),
+        id: llmSpanId,
         runId,
         threadId,
         userId,
         parentSpanId,
         spanType: "llm_call",
-        name: usage.model,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
+        name: generationUsage.model,
+        inputTokens: generationUsage.inputTokens,
+        outputTokens: generationUsage.outputTokens,
+        cacheReadTokens: generationUsage.cacheReadTokens,
+        cacheWriteTokens: generationUsage.cacheWriteTokens,
         costCentsX100,
         durationMs: totalDurationMs,
         status: runStatus,
@@ -237,6 +664,38 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
       spans.push(llmSpan);
+      emitLlmGenerationTrackingEvent({
+        runId,
+        threadId,
+        userId,
+        parentSpanId,
+        llmSpanId,
+        engineName:
+          typeof loopOpts.engine?.name === "string"
+            ? loopOpts.engine.name
+            : undefined,
+        model: generationUsage.model,
+        inputTokens: generationUsage.inputTokens,
+        outputTokens: generationUsage.outputTokens,
+        cacheReadTokens: generationUsage.cacheReadTokens,
+        cacheWriteTokens: generationUsage.cacheWriteTokens,
+        costCentsX100,
+        durationMs: totalDurationMs,
+        status: runStatus,
+        errorMessage,
+        toolCalls: toolCallCount,
+        successfulTools,
+        failedTools,
+        tools: [...generationToolCalls.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, detail]) => detail),
+        toolsTruncated:
+          toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+        delegation: opts.delegation,
+        createdAt: runStart,
+        experimentAssignments: opts.experimentAssignments,
+        modelSelectionSource: opts.modelSelectionSource,
+      });
     }
 
     const parentSpan: TraceSpan = {
@@ -255,7 +714,7 @@ export async function instrumentAgentLoop(opts: {
       durationMs: totalDurationMs,
       status: runStatus,
       errorMessage,
-      metadata: null,
+      metadata: runMetadata,
       createdAt: runStart,
     };
     spans.push(parentSpan);
@@ -278,6 +737,74 @@ export async function instrumentAgentLoop(opts: {
     };
 
     writeTraceData(spans, summary, runId, config).catch(() => {});
+
+    // OpenTelemetry export (no-op unless a provider is registered). Emit a
+    // self-contained `llm.call` span carrying model + token usage, end any
+    // tool spans still open (loop threw mid-tool), and end the run span. Awaited
+    // so the spans are emitted before the function returns; cheap when no-op.
+    try {
+      if (usage) {
+        endAgentSpan(await startAgentSpan("llm.call", {}), {
+          status: runStatus,
+          errorMessage,
+          attributes: {
+            "llm.model": usage.model,
+            "llm.input_tokens": usage.inputTokens,
+            "llm.output_tokens": usage.outputTokens,
+            "llm.cache_read_tokens": usage.cacheReadTokens,
+            "llm.cache_write_tokens": usage.cacheWriteTokens,
+            "llm.cost_cents_x100": costCentsX100,
+          },
+        });
+      }
+      for (const toolSpan of openOtelToolSpans) {
+        endAgentSpan(toolSpan, {
+          status: "error",
+          errorMessage: "Agent run ended before tool_done.",
+        });
+      }
+      openOtelToolSpans.clear();
+      endAgentSpan(await otelRunSpanPromise, {
+        status: runStatus,
+        errorMessage,
+        attributes: {
+          "agent.tool_calls": toolCallCount,
+          "agent.successful_tools": successfulTools,
+          "agent.failed_tools": failedTools,
+          "agent.duration_ms": totalDurationMs,
+          "agent.input_tokens": usage?.inputTokens ?? 0,
+          "agent.output_tokens": usage?.outputTokens ?? 0,
+          "agent.cost_cents_x100": costCentsX100,
+        },
+      });
+    } catch {
+      // OTel export must never break the run.
+    }
+  }
+
+  // Classify only after the main loop has finished so the tiny managed Luna
+  // request cannot contend with the user's response for a gateway slot. This
+  // short, awaited tail keeps serverless runtimes alive long enough to emit the
+  // event, while the response content has already streamed to the client.
+  if (usage && opts.sentimentInput) {
+    try {
+      const precedingResponse = await precedingResponsePromise;
+      if (precedingResponse) {
+        const { inferAndTrackSentiment } = await import("./sentiment.js");
+        await inferAndTrackSentiment({
+          classifierModel: config.inferredSentimentModel,
+          precedingResponseModel: precedingResponse.model,
+          text: opts.sentimentInput,
+          precedingRunId: precedingResponse.runId,
+          classificationTriggerRunId: runId,
+          threadId,
+          userId,
+          sampleRate: config.inferredSentimentSampleRate,
+        });
+      }
+    } catch {
+      // Optional inference must never alter the result of the main run.
+    }
   }
 
   return usage!;

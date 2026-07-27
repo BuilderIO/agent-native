@@ -1,12 +1,16 @@
-import type { AgentChatAttachment, RunEvent } from "./types.js";
-import type { EngineMessage } from "./engine/types.js";
+import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
+  type NormalizedCodeAgentThinkingEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import type { EngineMessage } from "./engine/types.js";
+import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -16,6 +20,10 @@ interface ContentPart {
   argsText?: string;
   args?: Record<string, string>;
   result?: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
+  mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
 }
 
 interface BuildAssistantMessageOptions {
@@ -27,10 +35,16 @@ interface BuildAssistantMessageOptions {
    * overwriting the others.
    */
   turnId?: string;
+  runDurationMs?: number;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
 type UserMessage = ReturnType<typeof buildUserMessage>;
+
+const INTERRUPTED_TOOL_RESULT =
+  "Interrupted before this tool returned a result.";
+
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 /**
@@ -115,10 +129,22 @@ export function buildAssistantMessage(
     }
   };
 
-  for (const { event } of events) {
+  const appendReasoning = (text: string) => {
+    const last = content[content.length - 1];
+    if (last && last.type === "reasoning") {
+      last.text = (last.text ?? "") + text;
+    } else {
+      content.push({ type: "reasoning", text });
+    }
+  };
+
+  for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
-      content.length = 0;
-      toolCallCounter = 0;
+      // A live stream always follows `clear` with the chunk that re-emits the
+      // wiped content. A rebuild has no successor, so applying a TRAILING
+      // clear can only destroy the transcript permanently.
+      if (index === events.length - 1) continue;
+      clearAssistantDraftContent(content);
       continue;
     }
 
@@ -127,11 +153,16 @@ export function buildAssistantMessage(
       continue;
     }
 
+    if (event.type === "thinking") {
+      appendReasoning(event.text ?? "");
+      continue;
+    }
+
     if (event.type === "tool_start") {
       toolCallCounter += 1;
-      const toolCallId = runId
-        ? `${runId}:tc_${toolCallCounter}`
-        : `tc_${toolCallCounter}`;
+      const toolCallId =
+        event.id?.trim() ||
+        (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
         type: "tool-call",
@@ -144,16 +175,46 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_done") {
-      for (let i = content.length - 1; i >= 0; i--) {
-        const part = content[i];
-        if (
-          part.type === "tool-call" &&
-          part.toolName === event.tool &&
-          part.result === undefined
-        ) {
-          part.result = event.result ?? "";
-          break;
+      const eventToolCallId = event.id?.trim();
+      let matchingIndex = -1;
+
+      if (eventToolCallId) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolCallId === eventToolCallId &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
         }
+      }
+
+      if (matchingIndex === -1) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolName === event.tool &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
+        }
+      }
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.result = event.result ?? "";
+        if (event.isError !== undefined) part.isError = event.isError;
+        if (event.completedSideEffect !== undefined) {
+          part.completedSideEffect = event.completedSideEffect;
+        }
+        if (event.mcpApp) part.mcpApp = event.mcpApp;
+        if (event.chatUI) part.chatUI = event.chatUI;
       }
       continue;
     }
@@ -206,10 +267,20 @@ export function buildAssistantMessage(
   if (content.length === 0) return null;
 
   const continued = endedAtInternalContinuationBoundary;
+  if (!continued) {
+    settleInterruptedToolCalls(content);
+  }
 
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
   if (runId) custom.foldedRunIds = [runId];
+  if (
+    typeof options.runDurationMs === "number" &&
+    Number.isFinite(options.runDurationMs) &&
+    options.runDurationMs >= 0
+  ) {
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+  }
   if (continued) custom.continued = true;
   if (runError) {
     custom.runError = {
@@ -232,6 +303,26 @@ export function buildAssistantMessage(
       : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
+}
+
+function clearAssistantDraftContent(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (!part) continue;
+    if (part.type === "text" || part.type === "reasoning") {
+      content.splice(index, 1);
+      continue;
+    }
+    if (part.type === "tool-call" && part.result === undefined) {
+      // Keep materialized in-flight tool cards across retry clears so persisted
+      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      const isEphemeral =
+        (part as { activity?: boolean }).activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
+    }
+  }
 }
 
 function getStoredMessage(entry: any): any {
@@ -266,8 +357,17 @@ function getMessageRunId(message: any): string | undefined {
 }
 
 function messageContentIsEmpty(content: unknown): boolean {
-  if (Array.isArray(content)) return content.length === 0;
-  return content == null || content === "";
+  if (typeof content === "string") return content.trim().length === 0;
+  if (Array.isArray(content)) {
+    return !content.some((part: any) => {
+      if (!part || typeof part !== "object") return false;
+      if (part.type === "text") {
+        return typeof part.text === "string" && part.text.trim().length > 0;
+      }
+      return true;
+    });
+  }
+  return content == null;
 }
 
 function messageText(content: unknown): string {
@@ -279,6 +379,14 @@ function messageText(content: unknown): string {
     )
     .map((part: any) => part.text)
     .join("");
+}
+
+function settleInterruptedToolCalls(content: ContentPart[]): void {
+  for (const part of content) {
+    if (part.type === "tool-call" && part.result === undefined) {
+      part.result = INTERRUPTED_TOOL_RESULT;
+    }
+  }
 }
 
 function isTerminalAssistantStatus(status: unknown): boolean {
@@ -368,6 +476,41 @@ function messagesMatch(a: any, b: any): boolean {
   return messageIdentityKeys(a).some((key) => bKeys.has(key));
 }
 
+function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
+  const chosen = getStoredMessage(chosenEntry);
+  const other = getStoredMessage(otherEntry);
+  if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+    return chosenEntry;
+  }
+
+  const chosenCustom =
+    chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+      ? (chosen.metadata.custom as Record<string, unknown>)
+      : {};
+  if (assistantRunDurationMs(chosenCustom) != null) return chosenEntry;
+
+  const otherCustom =
+    other.metadata?.custom && typeof other.metadata.custom === "object"
+      ? (other.metadata.custom as Record<string, unknown>)
+      : {};
+  const durationMs = assistantRunDurationMs(otherCustom);
+  if (durationMs == null) return chosenEntry;
+
+  const nextMessage = {
+    ...chosen,
+    metadata: {
+      ...chosen.metadata,
+      custom: {
+        ...chosenCustom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  return chosenEntry?.message === undefined
+    ? nextMessage
+    : { ...chosenEntry, message: nextMessage };
+}
+
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
@@ -385,12 +528,19 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   ) {
     const existingWeight = assistantContentWeight(existing.content);
     const incomingWeight = assistantContentWeight(incoming.content);
-    if (existingWeight > incomingWeight) return existingEntry;
-    if (incomingWeight > existingWeight) return incomingEntry;
-    return isTerminalAssistantStatus(existing?.status) &&
-      !isTerminalAssistantStatus(incoming?.status)
-      ? existingEntry
-      : incomingEntry;
+    const chosen =
+      existingWeight > incomingWeight
+        ? existingEntry
+        : incomingWeight > existingWeight
+          ? incomingEntry
+          : isTerminalAssistantStatus(existing?.status) &&
+              !isTerminalAssistantStatus(incoming?.status)
+            ? existingEntry
+            : incomingEntry;
+    return preserveAssistantRunDuration(
+      chosen,
+      chosen === existingEntry ? incomingEntry : existingEntry,
+    );
   }
   if (
     existing?.role === "assistant" &&
@@ -398,9 +548,9 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
     isTerminalAssistantStatus(existing?.status) &&
     !isTerminalAssistantStatus(incoming?.status)
   ) {
-    return existingEntry;
+    return preserveAssistantRunDuration(existingEntry, incomingEntry);
   }
-  return incomingEntry;
+  return preserveAssistantRunDuration(incomingEntry, existingEntry);
 }
 
 function normalizeMessageEntry(
@@ -462,7 +612,26 @@ function normalizeAssistantToolCallIds(message: any): any {
  */
 export function normalizeThreadRepository(repo: any): any {
   const normalized = repo && typeof repo === "object" ? { ...repo } : {};
-  const sourceMessages = Array.isArray(repo?.messages) ? repo.messages : [];
+  const sourceMessages: any[] = Array.isArray(repo?.messages)
+    ? repo.messages
+    : [];
+  const firstIndexById = new Map<string, number>();
+  const lastEntryById = new Map<string, any>();
+  sourceMessages.forEach((entry, index) => {
+    const id = messageId(getStoredMessage(entry));
+    if (!id) return;
+    if (!firstIndexById.has(id)) firstIndexById.set(id, index);
+    lastEntryById.set(id, entry);
+  });
+  const uniqueSourceMessages = sourceMessages
+    .filter((entry, index) => {
+      const id = messageId(getStoredMessage(entry));
+      return id && firstIndexById.get(id) === index;
+    })
+    .map((entry) => {
+      const id = messageId(getStoredMessage(entry));
+      return (id && lastEntryById.get(id)) || entry;
+    });
   const messages: Array<{
     message: any;
     parentId: string | null;
@@ -471,7 +640,7 @@ export function normalizeThreadRepository(repo: any): any {
   const seenIds = new Set<string>();
   let previousId: string | null = null;
 
-  for (const entry of sourceMessages) {
+  for (const entry of uniqueSourceMessages) {
     const message = getStoredMessage(entry);
     const id = messageId(message);
     if (!id) continue;
@@ -524,21 +693,94 @@ export function threadDataToEngineMessages(
   for (const entry of data.messages) {
     const m = entry?.message ?? entry;
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
-    const text =
-      typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? m.content
-              .filter(
-                (c: any) => c?.type === "text" && typeof c.text === "string",
-              )
-              .map((c: any) => c.text)
-              .join("\n")
-          : "";
+    const text = threadMessageTextForEngine(m);
     if (!text.trim()) continue;
     messages.push({ role: m.role, content: [{ type: "text", text }] });
   }
   return messages;
+}
+
+const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
+const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
+
+function boundedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed
+    ? trimmed.slice(0, MAX_INTEGRATION_ARTIFACT_FIELD_CHARS)
+    : undefined;
+}
+
+function promptSafeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("&", "\\u0026")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e");
+}
+
+function messageTextContent(message: any): string {
+  if (typeof message?.content === "string") return message.content;
+  if (!Array.isArray(message?.content)) return "";
+  return message.content
+    .filter(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+    .map((part: any) => part.text)
+    .join("\n");
+}
+
+/**
+ * Select the participant-visible delivery for integration turns while keeping
+ * a compact, trusted resource ledger available to the agent. Raw tool results
+ * remain in thread_data for UI/audit use but are not replayed into the prompt.
+ */
+export function threadMessageTextForEngine(message: any): string {
+  const delivery = message?.metadata?.integrationDelivery;
+  const deliveryAttempted =
+    message?.metadata?.integrationDeliveryAttempted === true;
+  const deliveredText =
+    message?.role === "assistant" &&
+    delivery?.status === "delivered" &&
+    typeof delivery.text === "string" &&
+    delivery.text.trim()
+      ? delivery.text
+      : undefined;
+  let text =
+    deliveredText ??
+    (message?.role === "assistant" && deliveryAttempted
+      ? ""
+      : messageTextContent(message));
+
+  if (message?.role !== "assistant") return text;
+  const storedArtifacts = message?.metadata?.integrationArtifacts;
+  if (!Array.isArray(storedArtifacts)) return text;
+
+  const artifacts = storedArtifacts
+    .slice(0, MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT)
+    .map((artifact: any) => ({
+      resourceType: boundedString(artifact?.resourceType),
+      id: boundedString(artifact?.id),
+      sourceAction: boundedString(artifact?.sourceAction),
+      titleAtAction: boundedString(artifact?.titleAtAction),
+      url: boundedString(artifact?.url),
+    }))
+    .filter(
+      (artifact: {
+        resourceType?: string;
+        id?: string;
+        sourceAction?: string;
+      }) => artifact.resourceType && artifact.id && artifact.sourceAction,
+    );
+  if (artifacts.length === 0) return text;
+
+  const context = [
+    "<integration_artifact_context>",
+    "Trusted action history for this conversation. Resource IDs remain stable if participants rename the resource. Fields such as titleAtAction are historical aliases from the time of that action, not current resource state. Use stable IDs to locate an earlier artifact, read its current state before changing it, and omit fields the user did not explicitly ask to change while still deciding whether to update, add, supersede, or create.",
+    promptSafeJson(artifacts),
+    "</integration_artifact_context>",
+  ].join("\n");
+  text = text.trim() ? `${text.trim()}\n\n${context}` : context;
+  return text;
 }
 
 export interface CodeAgentThreadTranscriptEvent {
@@ -552,6 +794,7 @@ export interface CodeAgentThreadTranscriptEvent {
   metadata?: Record<string, unknown>;
   artifactPath?: string;
   artifactUrl?: string;
+  signal?: CoreCodeAgentTranscriptEvent["signal"];
 }
 
 export interface BuildRepositoryFromCodeAgentTranscriptOptions {
@@ -751,7 +994,15 @@ export function mergeThreadDataForClientSave(
   const idRewrites = new Map<string, string>();
 
   for (const existingEntry of existingMessages) {
-    const existingKeys = messageIdentityKeys(getStoredMessage(existingEntry));
+    const existingMessage = getStoredMessage(existingEntry);
+    if (
+      existingMessage?.role === "assistant" &&
+      messageContentIsEmpty(existingMessage.content)
+    ) {
+      continue;
+    }
+
+    const existingKeys = messageIdentityKeys(existingMessage);
     const incomingIndex = incomingKeySets.findIndex(
       (keys: Set<string>, index: number) =>
         !usedIncoming.has(index) && existingKeys.some((key) => keys.has(key)),
@@ -774,7 +1025,15 @@ export function mergeThreadDataForClientSave(
   }
 
   for (let index = 0; index < incomingMessages.length; index++) {
-    if (!usedIncoming.has(index)) nextMessages.push(incomingMessages[index]);
+    if (usedIncoming.has(index)) continue;
+    const incomingMessage = getStoredMessage(incomingMessages[index]);
+    if (
+      incomingMessage?.role === "assistant" &&
+      messageContentIsEmpty(incomingMessage.content)
+    ) {
+      continue;
+    }
+    nextMessages.push(incomingMessages[index]);
   }
 
   merged.messages = nextMessages.map((entry) =>
@@ -844,28 +1103,35 @@ function buildStoredAttachments(
       // of re-shipping megabytes of base64 on every poll save.
       const uploadedUrl = (att as any).url as string | undefined;
       if (uploadedUrl) {
+        const referenceOnly = (att as any).referenceOnly === true;
+        const storedAsImage = att.type === "image" && !referenceOnly;
         return {
           id,
-          type: att.type === "image" ? "image" : "file",
+          type: storedAsImage ? "image" : "file",
           name: att.name,
           contentType: att.contentType,
           status: { type: "complete" },
           // URL reference shape — content[0] uses the hosted URL.
-          content:
-            att.type === "image"
-              ? [{ type: "image", image: uploadedUrl }]
-              : [
-                  {
-                    type: "file",
-                    url: uploadedUrl,
-                    mimeType: att.contentType,
-                    filename: att.name,
-                  },
-                ],
+          content: storedAsImage
+            ? [{ type: "image", image: uploadedUrl }]
+            : [
+                {
+                  type: "file",
+                  url: uploadedUrl,
+                  mimeType: att.contentType,
+                  filename: att.name,
+                },
+              ],
           // Keep the reference metadata for tooling / read-attachment.
           metadata: {
             uploadUrl: uploadedUrl,
             uploadProvider: (att as any).uploadProvider as string | undefined,
+            ...(referenceOnly
+              ? {
+                  referenceOnly: true,
+                  securityNote: (att as any).securityNote as string | undefined,
+                }
+              : {}),
           },
         };
       }
@@ -959,6 +1225,7 @@ function toCoreCodeAgentTranscriptEvent(
       ...(event.artifactPath ? { artifactPath: event.artifactPath } : {}),
       ...(event.artifactUrl ? { artifactUrl: event.artifactUrl } : {}),
     },
+    ...(event.signal ? { signal: event.signal } : {}),
   };
 }
 
@@ -972,11 +1239,21 @@ function contentPartForCodeAgentTranscriptItem(
   if (item.type === "tool") {
     return toolContentPartForCodeAgentTranscriptItem(item);
   }
+  if (item.type === "thinking") {
+    return thinkingContentPartForCodeAgentTranscriptItem(item);
+  }
   if (item.type === "status") {
     const text = statusTextForCodeAgentTranscriptItem(item, options);
     return text ? { type: "text", text } : null;
   }
   return null;
+}
+
+function thinkingContentPartForCodeAgentTranscriptItem(
+  item: NormalizedCodeAgentThinkingEvent,
+): ContentPart | null {
+  const text = item.text.trim();
+  return text ? { type: "reasoning", text } : null;
 }
 
 function toolContentPartForCodeAgentTranscriptItem(
@@ -992,6 +1269,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       ? { result: previewCodeAgentTranscriptValue(item.result) ?? "" }
       : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 
@@ -999,7 +1279,7 @@ function statusTextForCodeAgentTranscriptItem(
   item: NormalizedCodeAgentStatusEvent,
   options: BuildRepositoryFromCodeAgentTranscriptOptions,
 ): string | null {
-  if (options.hideCredentialMessages && isCredentialCodeAgentText(item.text)) {
+  if (options.hideCredentialMessages && isCredentialGapCodeAgentEvent(item)) {
     return null;
   }
   if (item.statusKind === "artifact") {
@@ -1072,10 +1352,6 @@ function stringRecordValue(
 ): string | undefined {
   const value = record?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isCredentialCodeAgentText(value: string): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 export function upsertUserMessage(repo: any, userMsg: UserMessage): any {
@@ -1175,6 +1451,17 @@ function foldedRunIdsOf(message: any): string[] {
   return Array.isArray(ids)
     ? ids.filter((x: unknown): x is string => typeof x === "string")
     : [];
+}
+
+function assistantRunDurationMs(
+  custom: Record<string, unknown>,
+): number | null {
+  const durationMs = custom[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
 }
 
 /** Rough size of an assistant message's content, used only to pick the larger
@@ -1299,6 +1586,20 @@ export function foldAssistantTurn(
     turnId,
     foldedRunIds: mergedFolded,
   };
+  const existingDurationMs = assistantRunDurationMs(existingCustom);
+  const incomingDurationMs = assistantRunDurationMs(incomingCustom);
+  const mergedDurationMs = runAlreadyFolded
+    ? existingDurationMs == null
+      ? incomingDurationMs
+      : incomingDurationMs == null
+        ? existingDurationMs
+        : Math.max(existingDurationMs, incomingDurationMs)
+    : existingDurationMs == null && incomingDurationMs == null
+      ? null
+      : (existingDurationMs ?? 0) + (incomingDurationMs ?? 0);
+  if (mergedDurationMs != null) {
+    mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
+  }
   // Only the freshest chunk decides whether the turn is still continuing.
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
 

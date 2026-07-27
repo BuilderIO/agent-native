@@ -2,6 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { openMcpAppHostLink } from "../mcp-app-host.js";
 import {
   useBuilderStatus,
@@ -48,7 +49,8 @@ function BuilderConnectProbe({
       </button>
       <output data-testid="status">
         {flow.configured ? "configured" : "not-configured"}{" "}
-        {flow.connecting ? "connecting" : "idle"}
+        {flow.connecting ? "connecting" : "idle"}{" "}
+        {flow.statusResolved ? "resolved" : "unresolved"}
       </output>
       <output>{flow.error ?? ""}</output>
     </div>
@@ -131,6 +133,21 @@ describe("useBuilderStatus", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the neutral Builder connection-status route", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(connectedBuilderStatus));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(<BuilderStatusProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/connection-status/builder",
+    );
+  });
+
   it("keeps the last good Builder status when a refresh fails", async () => {
     vi.stubGlobal(
       "fetch",
@@ -200,6 +217,18 @@ describe("useBuilderConnectFlow", () => {
     container.remove();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("polls the neutral Builder connection-status route", async () => {
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:3000/_agent-native/connection-status/builder",
+    );
   });
 
   it("opens a blank web popup and navigates to a freshly fetched cli-auth URL", async () => {
@@ -290,6 +319,26 @@ describe("useBuilderConnectFlow", () => {
 
     expect(openSpy).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a failed status request as a resolved disconnection", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("status unavailable"));
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle unresolved");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("not-configured idle resolved");
   });
 
   it("refreshes an un-timestamped signed prop URL before navigating web popups", async () => {
@@ -433,7 +482,7 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).toContain("configured");
   });
 
-  it("clears the spinner when the callback succeeds but status never confirms credentials", async () => {
+  it("keeps polling when the callback succeeds but status has not confirmed credentials", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -478,11 +527,11 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
 
-    expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain("couldn't confirm");
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("couldn't confirm");
   });
 
-  it("clears the spinner when the popup closes before status confirms credentials", async () => {
+  it("keeps polling when the popup closes before status confirms credentials", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
     setUserAgent("Mozilla/5.0 Chrome/140.0");
@@ -522,8 +571,8 @@ describe("useBuilderConnectFlow", () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
 
-    expect(container.textContent).toContain("not-configured idle");
-    expect(container.textContent).toContain("couldn't confirm");
+    expect(container.textContent).toContain("not-configured connecting");
+    expect(container.textContent).not.toContain("couldn't confirm");
   });
 
   it("does not replace the desktop webview when Electron reports a handled popup as null", async () => {

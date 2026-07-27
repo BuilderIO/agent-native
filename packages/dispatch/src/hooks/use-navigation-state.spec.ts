@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildDispatchNavigationState } from "./use-navigation-state.js";
 
 describe("buildDispatchNavigationState", () => {
@@ -32,6 +33,13 @@ describe("buildDispatchNavigationState", () => {
       dreamId: "dream-1",
       sourceId: "src-1",
       query: "focus",
+    });
+  });
+
+  it("recognizes the automations route", () => {
+    expect(buildDispatchNavigationState("/automations")).toEqual({
+      view: "automations",
+      path: "/automations",
     });
   });
 });

@@ -1,0 +1,117 @@
+---
+title: "Editors & Canvases"
+description: "Choose reusable editor and canvas surfaces without confusing Core compatibility APIs, template patterns, and Toolkit primitives."
+---
+
+# Editors & canvases
+
+Editors and canvases are related product surfaces, not one flagship feature.
+Choose the smallest reusable layer that matches the interaction your app owns.
+
+<WireframeBlock id="doc-block-toolkit-editors-canvases">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:24px;display:flex;flex-direction:column;gap:14px'><div class='wf-card' style='display:flex;align-items:center;gap:6px;padding:8px 10px'><strong style='font-style:italic;width:22px;text-align:center'>I</strong><strong style='width:22px;text-align:center'>B</strong><span style='width:1px;height:16px;background:var(--wf-line)'></span><span class='wf-pill'>H1</span><span class='wf-pill'>H2</span><span style='width:1px;height:16px;background:var(--wf-line)'></span><span data-icon='mail'></span></div><main class='wf-card' style='display:flex;flex-direction:column;gap:10px;flex:1'><div style='display:flex;align-items:center;gap:8px'><span data-icon='dots'></span><h2 style='margin:0'>Q3 rollout plan</h2></div><div style='height:11px;width:92%;background:var(--wf-line);border-radius:4px'></div><div style='height:11px;width:78%;background:var(--wf-line);border-radius:4px'></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='dots'></span><div class='wf-box' style='flex:1'>/&nbsp;&nbsp;<span class='wf-muted'>image, table, code block...</span></div></div><div style='height:11px;width:88%;background:var(--wf-line);border-radius:4px'></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Ownership today
+
+| Surface             | Current owner and maturity                     | Use it when                                                                                                      |
+| ------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Rich editor         | Toolkit-owned                                  | You need portable rich editing, markdown, slash commands, images, drag handles, or collaboration reconciliation. |
+| Blocks              | Core in this phase                             | You need registered, structured blocks and their runtime contract.                                               |
+| Design              | Template pattern plus reusable `design-tweaks` | You are building a Design-like workflow and can own its domain behavior.                                         |
+| Canvas presentation | Toolkit or app composition                     | You need reusable UI around an app-specific canvas model.                                                        |
+
+## Pieces {#pieces}
+
+| Piece                                                               | Purpose                                                                                                                                                    |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<SharedRichEditor>`                                                | The configurable rich editor: markdown in/out, optional Yjs collaboration, extension toggles. Renders its own bubble toolbar, slash menu, and drag handle. |
+| `<RichMarkdownEditor>`                                              | Backwards-compatible alias for `<SharedRichEditor>`.                                                                                                       |
+| `createSharedEditorExtensions()`                                    | The framework Tiptap schema and markdown dialects, for a fully custom editor shell.                                                                        |
+| `<SlashCommandMenu>` / `createImageSlashCommand()`                  | The shared slash-command UI and its image-insert command.                                                                                                  |
+| `<BubbleToolbar>` / `buildDefaultBubbleItems()`                     | The shared selection toolbar for marks, links, and custom inline actions.                                                                                  |
+| `<SharedImage>` / `createImageExtension()` / `pickAndInsertImage()` | Image node, extension factory, and upload-and-insert helper.                                                                                               |
+| `createCodeBlockNode()`                                             | Code block node with a language picker (`DEFAULT_CODE_LANGUAGES`).                                                                                         |
+| `<DragHandle>`                                                      | Per-block drag handle and reorder behavior.                                                                                                                |
+| `createRegistryBlockNode()` / `<RegistryBlockNodeView>`             | Registry-backed block nodes rendered inside the rich editor.                                                                                               |
+| `useCollabReconcile()`                                              | Binds a Yjs doc to markdown as the saved state.                                                                                                            |
+
+## Choose deliberately
+
+Import the portable editor surface from `@agent-native/toolkit/editor`:
+
+```tsx
+import {
+  RichMarkdownEditor,
+  createSharedEditorExtensions,
+  useCollabReconcile,
+} from "@agent-native/toolkit/editor";
+```
+
+`<SharedRichEditor>` already wires the bubble toolbar, slash menu, and drag
+handle for you, so most apps only need it directly:
+
+```tsx
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
+
+<SharedRichEditor
+  value={markdown}
+  onChange={setMarkdown}
+  placeholder="Write notes..."
+  features={{ tables: true, tasks: true, link: true }}
+/>;
+```
+
+Building a fully custom Tiptap surface instead of `<SharedRichEditor>`? Start
+from the shared schema and add only the pieces you need:
+
+```tsx
+import { useEditor, EditorContent } from "@tiptap/react";
+import { createSharedEditorExtensions } from "@agent-native/toolkit/editor";
+
+const editor = useEditor({
+  extensions: createSharedEditorExtensions({ features: { tables: true } }),
+});
+
+<EditorContent editor={editor} />;
+```
+
+The old `@agent-native/core/client` and `@agent-native/core/client/editor`
+import paths are deprecated tombstones, not compatibility re-exports:
+importing from them throws an actionable error naming
+`@agent-native/toolkit/editor` as the replacement (`RegistryBlockDataProvider`
+moved to `@agent-native/core/blocks`, `uploadEditorImage` to
+`@agent-native/core/client/uploads`). Run
+`npx @agent-native/core@latest upgrade --codemods` to rewrite old imports — see
+[Package Lifecycle](/docs/package-lifecycle#migration-manifests-and-tombstones).
+Keep app-specific schemas, commands, persistence, upload actions, and registry
+adapters in your app or Core as appropriate.
+
+Design is not a drop-in replacement for an editor or general canvas. The
+[Design template](/docs/template-design) demonstrates a complete product
+pattern; `design-tweaks` are reusable presentation adjustments within that
+pattern. Reuse them when they fit, but do not assume they supply a complete
+canvas data model, collaboration model, or workflow.
+
+Blocks remain Core-owned because the browser and server contracts share one
+implementation. They are documented here alongside editors and canvases
+because Toolkit docs are the discovery catalog for reusable UI, regardless of
+which package currently owns the implementation. Register and render blocks
+through the Core contract so the agent and UI share the same structured
+vocabulary.
+
+## What's next
+
+- [**Toolkit overview**](/docs/agent-native-toolkit) — the full catalog and ownership boundary.
+- [**Component API**](/docs/components) — the generated reference for every
+  public React export, including editor components.
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — presence and
+  collaborative editing foundations `useCollabReconcile()` builds on.
+- [**Design Template**](/docs/template-design) — the Design product pattern.
+- [**Package Lifecycle**](/docs/package-lifecycle) — deprecated import paths,
+  migration manifests, and the `upgrade --codemods` rewrite.

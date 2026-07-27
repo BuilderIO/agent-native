@@ -3,15 +3,6 @@
 // PlanModeCallout, and getLoopLimitMetadata / getRunErrorMetadata exports used
 // by AssistantChatInner.
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
-import {
-  saveAgentEngineApiKey,
-  type AgentEngineProvider,
-} from "../agent-engine-key.js";
-import { cn } from "../utils.js";
-import { writeClipboardText } from "../clipboard.js";
-import { agentNativePath } from "../api-path.js";
 import {
   IconLoader2,
   IconCheck,
@@ -19,9 +10,7 @@ import {
   IconX,
   IconChevronDown,
   IconExternalLink,
-  IconKey,
   IconGitFork,
-  IconMessage,
   IconGauge,
   IconSettings,
   IconArrowRight,
@@ -31,6 +20,17 @@ import {
   IconPlus,
   IconClipboardList,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+
+import {
+  saveAgentEngineApiKey,
+  type AgentEngineProvider,
+} from "../agent-engine-key.js";
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
+import { useT } from "../i18n.js";
+import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
+import { cn } from "../utils.js";
 
 // ─── Type definitions ─────────────────────────────────────────────────────────
 
@@ -192,10 +192,45 @@ export function BuilderConnectCta({
       onConnected,
     });
 
+  if (variant === "compact") {
+    if (configured) {
+      return (
+        <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
+          <IconCheck size={11} className="text-emerald-500" />
+          {orgName ? `Connected to ${orgName}` : "Connected"}
+        </span>
+      );
+    }
+
+    return (
+      <div className="agent-builder-setup-card__builder-cta flex min-w-0 flex-col items-start gap-1 sm:items-end">
+        <button
+          type="button"
+          onClick={() => start()}
+          disabled={connecting}
+          className="agent-builder-setup-card__builder-button inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-md bg-foreground px-3 text-[11px] font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          aria-busy={connecting}
+        >
+          {connecting ? (
+            <>
+              <IconLoader2 size={10} className="animate-spin" />
+              Waiting…
+            </>
+          ) : (
+            "Connect Builder.io"
+          )}
+        </button>
+        {error && (
+          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-right">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const containerClass =
-    variant === "compact"
-      ? "rounded-md border border-border px-3 py-2.5"
-      : "flex items-center gap-3 rounded-md border border-border px-3 py-3";
+    "flex items-center gap-3 rounded-md border border-border px-3 py-3";
 
   if (configured) {
     return (
@@ -260,6 +295,7 @@ const API_KEY_PROVIDERS: Array<{
 ];
 
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+  const t = useT();
   const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -283,12 +319,11 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 
   return (
     <div className="rounded-md border border-border bg-background/60 p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-        <IconKey size={12} strokeWidth={1.9} />
-        Use your own API key
+      <div className="mb-2 text-[11px] font-medium text-foreground">
+        {t("agentPanel.addOwnKeys", { defaultValue: "Add your own keys" })}
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
-        Stored locally for this app only — no account required.
+        Stored securely for this app only.
       </p>
       <div
         role="tablist"
@@ -363,18 +398,91 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 
 // ─── BuilderSetupCard ─────────────────────────────────────────────────────────
 
+export type BuilderSetupCardLayout = "default" | "sidebar";
+
+export function BuilderSetupContent({
+  onConnected,
+  layout = "default",
+}: {
+  onConnected?: () => void;
+  layout?: BuilderSetupCardLayout;
+}) {
+  const t = useT();
+  const [keyOpen, setKeyOpen] = useState(false);
+  const sidebarLayout = layout === "sidebar";
+
+  return (
+    <div
+      className={cn(
+        "agent-builder-setup-content",
+        sidebarLayout && "agent-builder-setup-card--sidebar",
+      )}
+    >
+      <div
+        className={cn(
+          "agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between",
+          sidebarLayout ? "gap-2" : "gap-3",
+        )}
+      >
+        <div className="agent-builder-setup-card__copy min-w-0">
+          <h3 className="text-[13px] font-medium text-foreground">
+            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
+          </h3>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            {t("agentPanel.builderOrOwnKeys", {
+              defaultValue:
+                "Use Builder.io (free credits), or add your own provider keys.",
+            })}
+          </p>
+        </div>
+        <div
+          className={cn(
+            "agent-builder-setup-card__actions flex shrink-0",
+            sidebarLayout
+              ? "flex-col items-start gap-1 sm:items-center"
+              : "flex-nowrap items-center gap-2",
+          )}
+        >
+          <BuilderConnectCta variant="compact" onConnected={onConnected} />
+          <button
+            type="button"
+            onClick={() => setKeyOpen((open) => !open)}
+            className={cn(
+              "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
+              sidebarLayout
+                ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
+            )}
+            aria-expanded={keyOpen}
+          >
+            {t("agentPanel.addOwnKeys", {
+              defaultValue: "Add your own keys",
+            })}
+          </button>
+        </div>
+      </div>
+
+      {keyOpen ? (
+        <div className="mt-3">
+          <ApiKeyConnect onConnected={onConnected} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  fullWidth,
+  layout = "default",
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  fullWidth?: boolean;
+  layout?: BuilderSetupCardLayout;
 }) {
-  // Progressive disclosure: the card leads with the one-click Builder connect.
-  // The bring-your-own-key path stays tucked behind a single link so the chat
-  // stays clean for people who connect Builder or never use the side chat at
-  // all (they can keep driving the plan from their own coding agent).
-  const [keyOpen, setKeyOpen] = useState(false);
+  const sidebarLayout = layout === "sidebar";
 
   const cardRef = useRef<HTMLDivElement>(null);
   // Replay the bounce keyframe each time bouncePulse increments. Toggling the
@@ -392,44 +500,23 @@ export function BuilderSetupCard({
   return (
     <div
       ref={cardRef}
-      className="mx-4 my-6 rounded-lg border border-border bg-card p-5"
+      className={cn(
+        "agent-builder-setup-card",
+        sidebarLayout && "agent-builder-setup-card--sidebar",
+        fullWidth
+          ? "w-full px-3 pb-2"
+          : sidebarLayout
+            ? "mx-auto w-full max-w-[42rem] px-3 pb-2"
+            : "mx-auto w-full max-w-[42rem] px-3 pb-2 sm:w-fit",
+      )}
     >
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
-          <IconMessage className="h-4.5 w-4.5 text-muted-foreground" />
-        </div>
-        <div>
-          <h3 className="text-sm font-medium text-foreground">
-            Turn on the side chat
-          </h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            One click to connect Builder for free hosted access — no API key or
-            account needed.
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <BuilderConnectCta onConnected={onConnected} />
-
-        {keyOpen ? (
-          <ApiKeyConnect onConnected={onConnected} />
-        ) : (
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setKeyOpen(true)}
-              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Or paste your own Anthropic or OpenAI key
-            </button>
-          </div>
+      <div
+        className={cn(
+          "agent-builder-setup-card__panel rounded-lg border border-border/80 bg-background/80 shadow-sm backdrop-blur",
+          sidebarLayout ? "p-2.5" : "p-3",
         )}
-
-        <p className="text-center text-[11px] leading-relaxed text-muted-foreground">
-          You can skip this and keep editing the plan with your own coding
-          agent.
-        </p>
+      >
+        <BuilderSetupContent onConnected={onConnected} layout={layout} />
       </div>
     </div>
   );
@@ -451,7 +538,9 @@ export function RunErrorRecoveryCard({
   onDismiss: () => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const builderReconnect = useBuilderConnectFlow({
@@ -476,11 +565,15 @@ export function RunErrorRecoveryCard({
     ]
       .filter(Boolean)
       .join("\n\n");
-    void writeClipboardText(text).then((ok) => {
-      if (!ok) return;
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
+    void writeClipboardText(text)
+      .then((ok) => {
+        setCopyState(ok ? "copied" : "failed");
+        setTimeout(() => setCopyState("idle"), 1600);
+      })
+      .catch(() => {
+        setCopyState("failed");
+        setTimeout(() => setCopyState("idle"), 1600);
+      });
   }, [info]);
   const startNewChat = useCallback(() => {
     window.dispatchEvent(new CustomEvent("agent-chat:new-chat"));
@@ -643,8 +736,20 @@ export function RunErrorRecoveryCard({
           onClick={copyDetails}
           className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
-          {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-          {copied ? "Copied" : copyLabel}
+          {copyState === "copied" ? (
+            <IconCheck size={13} />
+          ) : copyState === "failed" ? (
+            <IconX size={13} />
+          ) : (
+            <IconCopy size={13} />
+          )}
+          <span aria-live="polite">
+            {copyState === "copied"
+              ? "Copied"
+              : copyState === "failed"
+                ? "Copy failed"
+                : copyLabel}
+          </span>
         </button>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
@@ -840,6 +945,12 @@ export function LoopLimitContinueCard({
 }
 
 // ─── PlanModeCallout ──────────────────────────────────────────────────────────
+//
+// Renders inside the same width-constrained column as the composer (see
+// `.agent-plan-mode-callout` in agent-native.css and the fullscreen rule
+// injected by AgentPanel) so the pill hugs the composer's right edge in both
+// narrow sidebar chats and wide/centered page layouts, instead of floating
+// against the full pane width.
 
 export function PlanModeCallout({
   canImplementPlan,
@@ -851,42 +962,32 @@ export function PlanModeCallout({
   onSwitchToAct: () => void;
 }) {
   return (
-    <div className="shrink-0 px-3 pt-2">
-      <div className="rounded-lg border border-blue-500/25 bg-blue-500/[0.06] px-3 py-2.5 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300">
-            <IconClipboardList size={15} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              {canImplementPlan ? "Plan ready" : "Plan mode is on"}
-            </p>
-            <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-              {canImplementPlan
-                ? "Switch to Act and run the proposed plan."
-                : "The next turn will stay read-only until you switch to Act."}
-            </p>
-          </div>
-          {canImplementPlan ? (
-            <button
-              type="button"
-              onClick={onImplementPlan}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
-            >
-              <IconPlayerPlay size={13} />
-              Implement Plan
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onSwitchToAct}
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              Act
-              <IconArrowRight size={13} />
-            </button>
-          )}
-        </div>
+    <div className="agent-plan-mode-callout shrink-0 px-3">
+      <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
+        <IconClipboardList size={13} className="shrink-0" />
+        <span className="min-w-0 truncate">
+          {canImplementPlan ? "Plan ready" : "Plan mode"}
+        </span>
+        {canImplementPlan ? (
+          <button
+            type="button"
+            onClick={onImplementPlan}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
+          >
+            <IconPlayerPlay size={12} />
+            Implement
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onSwitchToAct}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
+            aria-label="Switch to Act mode"
+          >
+            Act
+            <IconArrowRight size={12} />
+          </button>
+        )}
       </div>
     </div>
   );

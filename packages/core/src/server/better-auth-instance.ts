@@ -9,30 +9,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail, isEmailConfigured } from "./email.js";
-import {
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
-import { getAppProductionUrl } from "./app-url.js";
-import { getDbExec, isPostgres } from "../db/client.js";
-import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
-import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { identify, track } from "../tracking/index.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import {
-  getDialect,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
-} from "../db/client.js";
+import { jwt } from "better-auth/plugins/jwt";
 import {
   pgTable,
   text as pgText,
@@ -45,9 +25,107 @@ import {
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
 
+import { TEMPLATES } from "../cli/templates-meta.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  closePgliteClients,
+  getPgliteClient,
+  isPgliteUrl,
+  loadPgliteDrizzle,
+  pgPoolOptions,
+  neonPoolMax,
+  attachNeonPoolErrorLogger,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { getAppProductionUrl } from "./app-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+
+async function flushSignupTracking(): Promise<void> {
+  try {
+    await Promise.race([
+      flushTracking(),
+      new Promise<void>((resolve) => setTimeout(resolve, 1500)),
+    ]);
+  } catch {
+    // Signup should never fail because analytics delivery did.
+  }
+}
+
+export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
+  const adapter = await getBetterAuthInternalAdapter().catch(() => undefined);
+  if (!adapter) return false;
+  const existing = await adapter
+    .findUserByEmail(email, { includeAccounts: false })
+    .catch(() => null);
+  return !!existing?.user?.email;
+}
+
+export async function trackSignupEvent({
+  authProvider,
+  authUserId,
+  email,
+  name,
+  attribution,
+}: {
+  authProvider: string;
+  authUserId?: string;
+  email: string;
+  name?: string | null;
+  /**
+   * First-touch referral attribution derived from the visitor's `an_ft`
+   * cookie (see `server/attribution.ts`). Snake_case keys such as
+   * `referral_source`, `referrer_user`, and the UTM passthrough are merged
+   * into the `signup` event so we can measure where new users came from.
+   * `undefined` values are dropped; a missing object is a clean no-op.
+   */
+  attribution?: Record<string, string | undefined>;
+}): Promise<void> {
+  identify(email, {
+    email,
+    name: name ?? undefined,
+    authUserId,
+  });
+  const cleanAttribution: Record<string, string> = {};
+  if (attribution) {
+    for (const [key, value] of Object.entries(attribution)) {
+      if (typeof value === "string" && value.length > 0) {
+        cleanAttribution[key] = value;
+      }
+    }
+  }
+  track(
+    "signup",
+    {
+      ...resolveSignupTrackingProperties(),
+      auth_provider: authProvider,
+      ...(authUserId ? { auth_user_id: authUserId } : {}),
+      ...cleanAttribution,
+    },
+    { userId: email },
+  );
+  await flushSignupTracking();
+}
+
 // ---------------------------------------------------------------------------
 // Persistent auth secret
 // ---------------------------------------------------------------------------
+
+let inMemoryDevAuthSecret: string | undefined;
 
 /**
  * Resolve the Better Auth signing secret.
@@ -57,13 +135,9 @@ import {
  *   2. Hosted workspace deploys can derive a per-purpose secret from the
  *      already-required `A2A_SECRET` root. This keeps fresh workspace branches
  *      bootable without reusing the raw A2A key as a cookie-signing key.
- *   3. `.env.local` in the template cwd — a per-workspace persistent secret
- *      that the framework writes once on first boot when no secret is set.
- *      Gitignored by convention (`.env*` in template .gitignore files), so
- *      it's safe to persist credentials here.
- *   4. Generate a new random 32-byte hex, write it to `.env.local`, and use
- *      it. Subsequent restarts re-read the same file — so session cookies
- *      signed by a previous boot remain valid across dev-server restarts.
+ *   3. Existing `.env.local` values in the template cwd — read-only
+ *      compatibility for projects that already configured this secret.
+ *   4. Generate a per-process in-memory random 32-byte hex in development.
  *
  * Why this matters: before this helper existed, missing `BETTER_AUTH_SECRET`
  * fell through to `GOOGLE_CLIENT_SECRET` / `ACCESS_TOKEN` / a hardcoded
@@ -71,8 +145,8 @@ import {
  * boot would re-fall back to the hardcoded value (still stable) — but
  * rotating Google credentials, toggling `ACCESS_TOKEN`, or churning the
  * fallback chain would invalidate every signed cookie and force everyone
- * to sign in again. Pinning the secret to `.env.local` on first boot
- * removes that footgun.
+ * to sign in again. We still read explicit env configuration, but never
+ * auto-write a generated secret into env files.
  */
 function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
@@ -101,47 +175,26 @@ function resolveAuthSecret(): string {
     );
   }
 
-  // Dev: persist a generated secret to .env.local so sessions survive
-  // dev-server restarts. Falls back to an in-memory random secret only if
-  // the filesystem isn't writable (rare in dev, e.g. read-only mounts) —
-  // sessions reset on every dev-process restart in that case, which is
-  // fine.
-  //
   // SECURITY (audit 09 LOW-2): the previous fallback chain
   // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
   // cross-purpose secrets and a public hardcoded literal as the cookie
   // HMAC. Dropped entirely — better to mint an ephemeral secret than to
   // re-use a Google client secret or a known string.
-  try {
-    const envLocalPath = path.resolve(process.cwd(), ".env.local");
-    const existing = readEnvLocalSecret(envLocalPath);
-    if (existing) {
-      process.env.BETTER_AUTH_SECRET = existing; // guard:allow-env-mutation — boot-time secret resolution from .env.local, runs once at module init
-      return existing;
-    }
+  const existing = readEnvLocalSecret(
+    path.resolve(process.cwd(), ".env.local"),
+  );
+  if (existing) return existing;
 
-    const generated = crypto.randomBytes(32).toString("hex");
-    appendEnvLocalSecret(envLocalPath, generated);
-    process.env.BETTER_AUTH_SECRET = generated; // guard:allow-env-mutation — boot-time secret generation, runs once at module init before any request
-    console.log(
-      "[agent-native] Generated a persistent BETTER_AUTH_SECRET in .env.local. " +
-        "Sessions will now survive dev-server restarts. " +
-        "(Delete .env.local to rotate; set BETTER_AUTH_SECRET in .env to override.)",
-    );
-    return generated;
-  } catch {
-    // Filesystem unwritable (read-only mount, sandboxed test env, etc.).
-    // Mint a per-process random secret so cookies stay unique per boot.
-    // Sessions reset when the dev process restarts — acceptable for dev.
-    const ephemeral = crypto.randomBytes(32).toString("hex");
+  if (!inMemoryDevAuthSecret) {
+    inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
     console.warn(
-      "[agent-native] Could not persist BETTER_AUTH_SECRET to .env.local " +
-        "(filesystem unwritable). Using an ephemeral in-memory secret. " +
-        "Sessions will reset every time this process restarts. " +
-        "Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.",
+      "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
+        "in-memory development secret. Sessions will reset every time this " +
+        "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
+        "sessions valid across restarts.",
     );
-    return ephemeral;
   }
+  return inMemoryDevAuthSecret;
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {
@@ -158,31 +211,118 @@ function readEnvLocalSecret(envLocalPath: string): string | undefined {
   }
 }
 
-function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
-  const header =
-    "# Auto-generated by agent-native on first boot. Gitignored.\n" +
-    "# Keeps signed session cookies valid across dev-server restarts.\n" +
-    "# Delete this file (or this line) to rotate the secret.\n";
-  const line = `BETTER_AUTH_SECRET=${secret}\n`;
+function normalizeTrackingSlug(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  const unscoped = trimmed.startsWith("@")
+    ? (trimmed.split("/").pop() ?? trimmed)
+    : trimmed;
+  const slug = unscoped
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || undefined;
+}
 
-  // If the file already exists, just append; otherwise create with header.
-  if (fs.existsSync(envLocalPath)) {
-    const existing = fs.readFileSync(envLocalPath, "utf8");
-    const needsLeadingNewline = existing.length > 0 && !existing.endsWith("\n");
-    fs.appendFileSync(
-      envLocalPath,
-      (needsLeadingNewline ? "\n" : "") + "\n" + header + line,
-    );
-  } else {
-    fs.writeFileSync(envLocalPath, header + line, { mode: 0o600 });
+function knownTemplateSlug(value: string | undefined): string | undefined {
+  const slug = normalizeTrackingSlug(value);
+  if (!slug) return undefined;
+  const withoutPrefix = slug.startsWith("agent-native-")
+    ? slug.slice("agent-native-".length)
+    : slug;
+  return TEMPLATES.some((template) => template.name === withoutPrefix)
+    ? withoutPrefix
+    : undefined;
+}
+
+function readPackageName(): string | undefined {
+  try {
+    const pkgPath = path.join(process.cwd(), "package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
+      name?: string;
+    };
+    return pkg.name;
+  } catch {
+    return undefined;
   }
+}
+
+function appSlugFromUrl(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+      ? value
+      : `https://${value}`;
+    const hostname = new URL(raw).hostname.toLowerCase();
+    if (hostname.endsWith(".agent-native.com")) {
+      return normalizeTrackingSlug(
+        hostname.slice(0, -".agent-native.com".length),
+      );
+    }
+    return normalizeTrackingSlug(hostname.split(".")[0]);
+  } catch {
+    return undefined;
+  }
+}
+
+/** @internal */
+export function resolveSignupTrackingIdentity(): {
+  app?: string;
+  template?: string;
+} {
+  const explicitApp =
+    normalizeTrackingSlug(process.env.AGENT_NATIVE_APP) ||
+    normalizeTrackingSlug(process.env.VITE_AGENT_NATIVE_APP);
+  const packageApp =
+    normalizeTrackingSlug(process.env.npm_package_name) ||
+    normalizeTrackingSlug(readPackageName());
+  const urlApp =
+    appSlugFromUrl(process.env.APP_URL) ||
+    appSlugFromUrl(process.env.BETTER_AUTH_URL) ||
+    appSlugFromUrl(process.env.URL) ||
+    appSlugFromUrl(process.env.DEPLOY_URL) ||
+    appSlugFromUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL) ||
+    appSlugFromUrl(process.env.VERCEL_URL);
+  const app =
+    explicitApp ||
+    urlApp ||
+    packageApp ||
+    normalizeTrackingSlug(process.env.APP_NAME);
+
+  const template =
+    knownTemplateSlug(process.env.AGENT_NATIVE_TEMPLATE) ||
+    knownTemplateSlug(process.env.VITE_AGENT_NATIVE_TEMPLATE) ||
+    knownTemplateSlug(process.env.APP_TEMPLATE) ||
+    knownTemplateSlug(process.env.VITE_APP_TEMPLATE) ||
+    knownTemplateSlug(app) ||
+    knownTemplateSlug(packageApp) ||
+    knownTemplateSlug(urlApp);
+
+  return {
+    ...(app ? { app } : {}),
+    ...(template ? { template } : {}),
+  };
+}
+
+/** @internal */
+export function resolveSignupTrackingProperties(): Record<string, string> {
+  const identity = resolveSignupTrackingIdentity();
+  return {
+    ...identity,
+    ...(identity.app ? { agent_native_app: identity.app } : {}),
+    ...(identity.template ? { agent_native_template: identity.template } : {}),
+  };
 }
 
 export function shouldSkipEmailVerification(): boolean {
   const value = process.env.AUTH_SKIP_EMAIL_VERIFICATION;
   if (value == null) {
+    const deployContext =
+      process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT || process.env.CONTEXT;
     return (
-      process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test"
+      process.env.NODE_ENV === "development" ||
+      process.env.NODE_ENV === "test" ||
+      deployContext === "deploy-preview"
     );
   }
   const normalized = value.trim().toLowerCase();
@@ -220,6 +360,7 @@ export interface BetterAuthInstance {
         name: string;
         callbackURL?: string;
       };
+      headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
   };
@@ -514,29 +655,62 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
 
 async function ensureBetterAuthTables(): Promise<void> {
   const db = getDbExec();
-  const statements = isPostgres()
-    ? [
-        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
-      ]
-    : [
-        `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
-      ];
 
-  for (const sql of statements) await db.execute(sql);
+  // PG guard: probe information_schema first (no lock) for each table; run
+  // DDL only when missing, bounded by a transaction-scoped lock_timeout.
+  // Probe names are UNQUOTED (what information_schema.tables.table_name stores);
+  // createSql keeps the QUOTED "user"/"session"/… form required by Postgres.
+  if (isPostgres()) {
+    const pgTables: Array<[name: string, createSql: string]> = [
+      [
+        "user",
+        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "session",
+        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+      ],
+      [
+        "account",
+        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "verification",
+        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "organization",
+        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "member",
+        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "invitation",
+        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "jwks",
+        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
+      ],
+    ];
+    for (const [name, sql] of pgTables) await ensureTableExists(name, sql);
+    return;
+  }
+
+  // SQLite (local dev): no lock problem — keep the original behaviour.
+  const sqliteStatements = [
+    `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+    `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
+  ];
+  for (const sql of sqliteStatements) await db.execute(sql);
 }
 
 /**
@@ -566,8 +740,8 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
  * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups + strictly-additive `linkAccount`/`createUser` only — no
- * update/delete of existing identity rows.
+ * Read-only lookups plus account-linking and profile-update operations used by
+ * shared Core surfaces. Better Auth owns the actual identity writes.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
@@ -587,6 +761,11 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
+  /** Optional because older/custom adapter shapes may not expose mutations. */
+  updateUser?: (
+    userId: string,
+    data: { name?: string; image?: string | null },
+  ) => Promise<unknown>;
 }
 
 /**
@@ -632,6 +811,7 @@ export async function resetBetterAuth(): Promise<void> {
     }
     _neonAuthPool = undefined;
   }
+  await closePgliteClients();
 }
 
 // ---------------------------------------------------------------------------
@@ -650,7 +830,17 @@ async function createBetterAuthInstance(
     ...config?.socialProviders,
   };
 
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  const extraScopes = config?.googleScopes ?? [];
+  const googleCredentials =
+    extraScopes.length > 0
+      ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+        ? {
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }
+        : null
+      : resolveGoogleSignInCredentials();
+  if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect
     // Google" round-trip isn't needed. `accessType: "offline"` plus
@@ -658,12 +848,11 @@ async function createBetterAuthInstance(
     // Google only re-issues a refresh token on consent, so re-signing in
     // (e.g. after switching machines) would otherwise leave us with an
     // access token that can't be refreshed.
-    const extraScopes = config?.googleScopes ?? [];
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: googleCredentials.clientId,
+      clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0
         ? {
             scope: mergedScopes,
@@ -689,7 +878,10 @@ async function createBetterAuthInstance(
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
-    isEmailConfigured() && !shouldSkipEmailVerification();
+    (await isEmailConfigured()) && !shouldSkipEmailVerification();
+
+  const shouldMirrorGoogleAccountTokens =
+    (config?.googleScopes?.length ?? 0) > 0;
 
   const auth = betterAuth({
     basePath,
@@ -764,30 +956,48 @@ async function createBetterAuthInstance(
     databaseHooks: {
       user: {
         create: {
-          after: async (user: {
-            id?: string;
-            email?: string;
-            name?: string | null;
-          }) => {
+          after: async (
+            user: {
+              id?: string;
+              email?: string;
+              name?: string | null;
+            },
+            // Better Auth (1.6.x) passes the endpoint context as the 2nd arg.
+            // It carries the originating request's headers (and on OAuth
+            // signups the callback request's headers), which is where the
+            // browser's `an_ft` first-touch cookie rides in.
+            context?: {
+              headers?: Headers | null;
+              request?: { headers?: Headers | null } | null;
+            } | null,
+          ) => {
             // When a newly-created user's email has pending org invitations
             // (common when someone is invited *before* they've signed up),
             // auto-accept them so the user lands in the org on their very
             // first page load instead of a blank-slate workspace.
             const email = user?.email;
             if (!email) return;
-            identify(email, {
-              email,
-              name: user.name ?? undefined,
+            // Derive first-touch referral attribution from the request's
+            // cookie header. Never let attribution parsing throw or block
+            // signup — on any error fall back to `direct`.
+            let attribution: Record<string, string> | undefined;
+            try {
+              const cookieHeader =
+                context?.headers?.get("cookie") ??
+                context?.request?.headers?.get("cookie") ??
+                null;
+              attribution = signupAttributionFromCookieHeader(cookieHeader);
+            } catch (err) {
+              console.error("[auth] failed to derive signup attribution", err);
+              attribution = undefined;
+            }
+            await trackSignupEvent({
+              authProvider: "better-auth",
               authUserId: user.id,
+              email,
+              name: user.name,
+              attribution,
             });
-            track(
-              "signup",
-              {
-                auth_provider: "better-auth",
-                auth_user_id: user.id,
-              },
-              { userId: email },
-            );
             try {
               await acceptPendingInvitationsForEmail(email);
             } catch (err) {
@@ -824,6 +1034,7 @@ async function createBetterAuthInstance(
         // mirroring work; failures never block sign-in.
         create: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (create)",
@@ -834,6 +1045,7 @@ async function createBetterAuthInstance(
         },
         update: {
           after: async (account: any) => {
+            if (!shouldMirrorGoogleAccountTokens) return;
             await mirrorGoogleAccountToOAuthTokens(account).catch((err) => {
               console.error(
                 "[auth] failed to mirror Google account tokens to oauth_tokens (update)",
@@ -897,12 +1109,39 @@ async function createBetterAuthInstance(
   return auth as unknown as BetterAuthInstance;
 }
 
+/**
+ * Configure the local auth connection with the same write contention settings
+ * as the shared app connection. Better Auth uses its own SQLite handle, so the
+ * app connection's busy timeout does not protect first-run account creation.
+ */
+export function configureLocalSqlite(sqlite: {
+  pragma(statement: string): unknown;
+}): void {
+  sqlite.pragma("busy_timeout = 10000");
+  sqlite.pragma("journal_mode = WAL");
+}
+
 async function buildDatabaseConfig(
   dialect: string,
 ): Promise<BetterAuthOptions["database"]> {
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
-    const { isNeonUrl } = await import("../db/create-get-db.js");
+    const {
+      buildResilientNeonPool,
+      buildResilientPostgresJsClient,
+      isNeonUrl,
+    } = await import("../db/create-get-db.js");
+
+    if (isPgliteUrl(url)) {
+      const { drizzle } = await loadPgliteDrizzle();
+      const client = await getPgliteClient(url);
+      const db = drizzle({ client, schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
 
     // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
     // opens a raw TCP connection on port 5432 which frequently times out on
@@ -919,7 +1158,9 @@ async function buildDatabaseConfig(
       });
       attachNeonPoolErrorLogger(_neonAuthPool, "db/neon-auth");
       const { drizzle } = await import("drizzle-orm/neon-serverless");
-      const db = drizzle(_neonAuthPool, { schema: pgAuthSchema });
+      const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
+        schema: pgAuthSchema,
+      });
       const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
       return drizzleAdapter(db, {
         provider: "pg",
@@ -935,7 +1176,9 @@ async function buildDatabaseConfig(
     const { default: postgres } = await import("postgres");
     const sql = postgres(url, pgPoolOptions(url));
     const { drizzle } = await import("drizzle-orm/postgres-js");
-    const db = drizzle(sql, { schema: pgAuthSchema });
+    const db = drizzle(buildResilientPostgresJsClient(sql), {
+      schema: pgAuthSchema,
+    });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
@@ -951,7 +1194,7 @@ async function buildDatabaseConfig(
     const { default: Database } = await import("better-sqlite3");
     const filePath = url.replace(/^file:/, "");
     const sqlite = new Database(filePath);
-    sqlite.pragma("journal_mode = WAL");
+    configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

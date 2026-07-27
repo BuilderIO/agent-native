@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
+
 import {
   defineAction,
   AgentActionStopError,
@@ -80,6 +81,29 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.parallelSafe).toBe(true);
+  });
+
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const action = defineAction({
+      description: "volatile polling read",
+      parameters: { id: { type: "string" } },
+      readOnly: true,
+      dedupe: false,
+      run: async () => "ok",
+    });
+    expect(action.dedupe).toBe(false);
+  });
+
+  it("preserves per-tool timeout and result limits", () => {
+    const action = defineAction({
+      description: "slow provider call",
+      parameters: { x: { type: "string" } },
+      timeoutMs: 120_000,
+      maxResultChars: 10_000,
+      run: async () => "ok",
+    });
+    expect(action.timeoutMs).toBe(120_000);
+    expect(action.maxResultChars).toBe(10_000);
   });
 
   it("threads through agentTool:false (frontend/HTTP-only, hidden from the agent)", () => {
@@ -168,6 +192,46 @@ describe("defineAction", () => {
     });
   });
 
+  it("preserves a boolean needsApproval flag on the returned entry", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: true,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(true);
+  });
+
+  it("preserves a predicate needsApproval gate on the returned entry", () => {
+    const gate = (args: { to: string }) => args.to.endsWith("@external.com");
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: gate,
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBe(gate);
+  });
+
+  it("leaves needsApproval undefined when not specified (default off)", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      run: async () => "sent",
+    });
+    expect(action.needsApproval).toBeUndefined();
+  });
+
+  it("drops a wrong-typed needsApproval value instead of threading it through", () => {
+    const action = defineAction({
+      description: "send an email",
+      parameters: { to: { type: "string" } },
+      needsApproval: "yes" as any,
+      run: async () => "sent",
+    } as any);
+    expect(action.needsApproval).toBeUndefined();
+  });
+
   it("omits http from the entry when http is not specified", () => {
     const action = defineAction({
       description: "no http",
@@ -227,6 +291,33 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("$schema" in (action.tool.parameters as any)).toBe(false);
   });
 
+  it("strips propertyNames (from z.record) so OpenAI/Gemini function schemas are not rejected", () => {
+    const action = defineAction({
+      description: "with a record field",
+      schema: z.object({
+        styleBrief: z.record(z.string(), z.unknown()).optional(),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain("propertyNames");
+  });
+
+  it("preserves a `propertyNames` data key inside a default value while stripping the schema keyword", () => {
+    const action = defineAction({
+      description: "record with a default object",
+      schema: z.object({
+        cfg: z.record(z.string(), z.string()).default({ propertyNames: "x" }),
+      }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    // The structural `propertyNames` keyword on the record is stripped…
+    expect("propertyNames" in params.properties.cfg).toBe(false);
+    // …but the identically-named key inside the default *data* survives.
+    expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({
@@ -235,6 +326,97 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     expect(action.schema).toBe(schema);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agentInputSchema — advertised-only schema override. Lets an action swap in
+// a compact JSON Schema for the tool definition shown to the model/MCP/A2A
+// listings while runtime validation keeps enforcing the full `schema`.
+// ---------------------------------------------------------------------------
+describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {
+  it("advertises the compact schema instead of the full schema", () => {
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({
+        title: z.string(),
+        // Pretend this is a deep block-type union like the plan actions.
+        blocks: z.array(
+          z.discriminatedUnion("type", [
+            z.object({
+              type: z.literal("a"),
+              data: z.object({ a: z.string() }),
+            }),
+            z.object({
+              type: z.literal("b"),
+              data: z.object({ b: z.number() }),
+            }),
+          ]),
+        ),
+      }),
+      agentInputSchema: z.object({
+        title: z.string(),
+        blocks: z
+          .array(
+            z.object({
+              type: z
+                .enum(["a", "b"])
+                .describe(
+                  "Block type — call get-blocks for full field shapes.",
+                ),
+            }),
+          )
+          .describe("Call get-blocks before authoring blocks."),
+      }),
+      run: async () => "ok",
+    });
+
+    const params = action.tool.parameters as any;
+    // Top-level shape survives (both fields still present, title required).
+    expect(params.required).toEqual(["title", "blocks"]);
+    // The advertised `blocks` items only carry `type`, not the full union's
+    // nested `data` fields — this is what keeps the request small.
+    const blockItemProps = params.properties.blocks.items.properties;
+    expect(Object.keys(blockItemProps)).toEqual(["type"]);
+    expect(blockItemProps.type.enum).toEqual(["a", "b"]);
+  });
+
+  it("still runs full validation against `schema`, ignoring the compact override", async () => {
+    const run = vi.fn(async (args: any) => args);
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({
+        title: z.string(),
+        count: z.number().int().min(1),
+      }),
+      agentInputSchema: z.object({
+        title: z.string(),
+        // Compact override omits `count` entirely from what's advertised…
+      }),
+      run,
+    });
+
+    // …but a call missing `count` still fails full-schema validation.
+    await expect(action.run({ title: "x" } as any)).rejects.toThrow(
+      /Missing required parameter.*count/s,
+    );
+    expect(run).not.toHaveBeenCalled();
+
+    // A call satisfying the full schema still succeeds and reaches run().
+    await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual({
+      title: "x",
+      count: 2,
+    });
+  });
+
+  it("falls back to the full schema when agentInputSchema is not set", () => {
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({ title: z.string(), count: z.number() }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    expect(Object.keys(params.properties)).toEqual(["title", "count"]);
   });
 });
 
@@ -353,6 +535,133 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
 });
 
 // ---------------------------------------------------------------------------
+// outputSchema — validate the action's RETURN value (Mastra/Flue-style
+// structured output). Default "warn" never alters behavior; "strict" throws;
+// "fallback" substitutes a safe value.
+// ---------------------------------------------------------------------------
+describe("defineAction — outputSchema (return-value validation)", () => {
+  it("passes the result through untouched when no outputSchema is provided", async () => {
+    const original = { id: "abc", extra: 123 };
+    const action = defineAction({
+      description: "no output schema",
+      schema: z.object({ x: z.string() }),
+      run: async () => original,
+    });
+    const out = await action.run({ x: "hi" });
+    // Same reference: zero wrapping when outputSchema is absent.
+    expect(out).toBe(original);
+    expect("outputSchema" in action).toBe(false);
+    expect(action.outputErrorStrategy).toBeUndefined();
+  });
+
+  it("returns the validated result when it matches the outputSchema", async () => {
+    const action = defineAction({
+      description: "valid output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      run: async () => ({ id: "abc", count: 2 }),
+    });
+    const out = await action.run({ x: "hi" });
+    expect(out).toEqual({ id: "abc", count: 2 });
+    // Defaults to the non-breaking "warn" strategy.
+    expect(action.outputErrorStrategy).toBe("warn");
+    expect(action.outputSchema).toBeDefined();
+  });
+
+  it('warns and returns the ORIGINAL result on mismatch under the default "warn" strategy', async () => {
+    const bad = { id: "abc", count: "not-a-number" };
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...inputArgs: unknown[]) => {
+      warnings.push(inputArgs);
+    };
+    try {
+      const action = defineAction({
+        description: "warn output",
+        schema: z.object({ x: z.string() }),
+        outputSchema: z.object({ id: z.string(), count: z.number() }),
+        run: async () => bad,
+      });
+      const out = await action.run({ x: "hi" });
+      // Unchanged result — behavior is never altered under "warn".
+      expect(out).toBe(bad);
+    } finally {
+      console.warn = original;
+    }
+    expect(warnings.length).toBe(1);
+    expect(String(warnings[0][0])).toMatch(/did not match outputSchema/);
+    expect(String(warnings[0][0])).toContain("count");
+  });
+
+  it('throws a clear error on mismatch under the "strict" strategy', async () => {
+    const action = defineAction({
+      description: "strict output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string() }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ wrong: true }),
+    });
+    await expect(action.run({ x: "hi" })).rejects.toThrow(
+      /did not match outputSchema/,
+    );
+    expect(action.outputErrorStrategy).toBe("strict");
+  });
+
+  it('returns the configured fallback on mismatch under the "fallback" strategy', async () => {
+    const fallback = { id: "fallback", count: 0 };
+    const action = defineAction({
+      description: "fallback output",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      outputErrorStrategy: "fallback",
+      outputFallback: fallback,
+      run: async () => ({ id: "abc", count: "nope" }),
+    });
+    const out = await action.run({ x: "hi" });
+    expect(out).toBe(fallback);
+    expect(action.outputErrorStrategy).toBe("fallback");
+    expect(action.outputFallback).toBe(fallback);
+  });
+
+  it("validates INPUT before run() and OUTPUT after — both compose", async () => {
+    let ran = false;
+    const action = defineAction({
+      description: "compose input + output validation",
+      schema: z.object({ title: z.string() }),
+      outputSchema: z.object({ ok: z.boolean() }),
+      outputErrorStrategy: "strict",
+      run: async (args: { title: string }) => {
+        ran = true;
+        return { ok: args.title.length > 0 };
+      },
+    });
+
+    // Bad input is rejected before run() ever executes (input path unchanged).
+    await expect(action.run({} as any)).rejects.toThrow(
+      /Invalid action parameters/,
+    );
+    expect(ran).toBe(false);
+
+    // Valid input → run() executes → valid output passes through.
+    const out = await action.run({ title: "Hi" });
+    expect(ran).toBe(true);
+    expect(out).toEqual({ ok: true });
+  });
+
+  it("works in legacy parameters mode (no input schema, output validated)", async () => {
+    const action = defineAction({
+      description: "legacy params with output schema",
+      parameters: { id: { type: "string" } },
+      outputSchema: z.object({ count: z.number() }),
+      outputErrorStrategy: "strict",
+      run: async () => ({ count: 5 }),
+    });
+    const out = await action.run({ id: "x" });
+    expect(out).toEqual({ count: 5 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AgentActionStopError — the stop-the-turn signal used by actions.
 // ---------------------------------------------------------------------------
 describe("AgentActionStopError", () => {
@@ -379,5 +688,75 @@ describe("AgentActionStopError", () => {
     expect(isAgentActionStopError({ agentNativeStop: false })).toBe(false);
     expect(isAgentActionStopError(null)).toBe(false);
     expect(isAgentActionStopError("agentNativeStop")).toBe(false);
+  });
+});
+
+describe("gateway-stringified tool-arg coercion", () => {
+  // Some model gateways (Builder's Gemini-backed one) hand back structured
+  // tool-call args as JSON strings — arrays as "[...]", booleans as "true".
+  // Zod validate doesn't coerce, so the agent thrashed. We coerce against the
+  // schema's declared types before validation.
+  function makeAction() {
+    let received: any = null;
+    const action = defineAction({
+      description: "dashboard-like action",
+      schema: z.object({
+        dashboardId: z.string(),
+        forceNew: z.boolean().optional(),
+        limit: z.number().optional(),
+        ops: z
+          .array(z.object({ op: z.string(), value: z.unknown().optional() }))
+          .optional(),
+      }),
+      http: false,
+      run: async (args: any) => {
+        received = args;
+        return "ok";
+      },
+    });
+    return { action, get: () => received };
+  }
+
+  it("coerces a stringified array, boolean, and number to native types", async () => {
+    const { action, get } = makeAction();
+    await action.run({
+      dashboardId: "d1",
+      forceNew: "true",
+      limit: "20",
+      ops: '[{"op":"insert","value":{"id":"p1"}}]',
+    } as any);
+    expect(get()).toEqual({
+      dashboardId: "d1",
+      forceNew: true,
+      limit: 20,
+      ops: [{ op: "insert", value: { id: "p1" } }],
+    });
+  });
+
+  it("leaves genuine string fields untouched even when they look like JSON", async () => {
+    const { action, get } = makeAction();
+    await action.run({ dashboardId: "[1,2,3]" } as any);
+    expect(get().dashboardId).toBe("[1,2,3]");
+  });
+
+  it("does not swallow a truly invalid stringified array — validation still errors", async () => {
+    const { action } = makeAction();
+    await expect(
+      action.run({ dashboardId: "d1", ops: "[not json" } as any),
+    ).rejects.toThrow(/Invalid action parameters/);
+  });
+
+  it("passes native (already-typed) args through unchanged", async () => {
+    const { action, get } = makeAction();
+    await action.run({
+      dashboardId: "d1",
+      forceNew: false,
+      ops: [{ op: "remove" }],
+    } as any);
+    expect(get()).toEqual({
+      dashboardId: "d1",
+      forceNew: false,
+      ops: [{ op: "remove" }],
+    });
   });
 });

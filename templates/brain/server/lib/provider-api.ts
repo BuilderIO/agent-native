@@ -2,13 +2,16 @@ import {
   PROVIDER_API_IDS,
   createProviderApiRuntime,
   type ProviderApiCredentialResolver,
+  type ProviderApiDocsOptions,
   type ProviderApiId,
   type ProviderApiMethod,
   type ProviderApiRequestArgs,
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
+
 import { resolveSourceCredential } from "./source-credentials.js";
 
+export const BRAIN_APP_ID = "brain";
 export const BRAIN_PROVIDER_API_IDS = PROVIDER_API_IDS;
 export type BrainProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };
@@ -38,7 +41,7 @@ const resolveBrainCredential: ProviderApiCredentialResolver = async ({
 };
 
 const runtime = createProviderApiRuntime({
-  appId: "brain",
+  appId: BRAIN_APP_ID,
   localCredentialSource: "brain_local",
   getCredentialContext: () => {
     const ctx = getCredentialContext();
@@ -56,14 +59,16 @@ export function listProviderApiCatalog(provider?: BrainProviderApiId) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: BrainProviderApiId;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: BrainProviderApiId },
+) {
   return runtime.fetchDocs(options);
 }
 
 export function executeProviderApiRequest(args: ProviderApiRequestArgs) {
   return runtime.executeRequest(args);
+}
+
+export function getBrainProviderApiRuntime() {
+  return runtime;
 }

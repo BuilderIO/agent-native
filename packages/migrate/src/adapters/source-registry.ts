@@ -1,10 +1,10 @@
-import { nextjsSourceAdapter } from "./nextjs.js";
-import { inferMigrationInputKind } from "./agent-introspection.js";
 import type {
   MigrationInputKind,
   MigrationRun,
   SourceAdapter,
 } from "../types.js";
+import { inferMigrationInputKind } from "./agent-introspection.js";
+import { nextjsSourceAdapter } from "./nextjs.js";
 
 export type SourceAdapterRegistry = readonly SourceAdapter[];
 

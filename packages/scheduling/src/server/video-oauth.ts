@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 /**
  * Server-side helper for completing video conferencing OAuth callbacks.
  *
@@ -14,7 +15,7 @@
  * pass in `userEmail` explicitly.
  */
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+
 import { getSchedulingContext } from "./context.js";
 import { getVideoProvider } from "./providers/registry.js";
 

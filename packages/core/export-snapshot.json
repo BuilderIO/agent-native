@@ -1,0 +1,328 @@
+{
+  "exports": {
+    ".": ["dist/index.browser.js", "dist/index.js"],
+    "./a2a": ["dist/a2a/index.js"],
+    "./action": ["dist/action.d.ts", "dist/action.js"],
+    "./action-ui": ["dist/action-ui.d.ts", "dist/action-ui.js"],
+    "./adapters/cli": ["dist/adapters/cli/index.js"],
+    "./agent-native": [
+      "dist/agent-native/index.d.ts",
+      "dist/agent-native/index.js"
+    ],
+    "./agent-web": ["dist/agent-web/index.js"],
+    "./agent/context-xray/actions/context-evict": [
+      "dist/agent/context-xray/actions/context-evict.js"
+    ],
+    "./agent/context-xray/actions/context-manifest-get": [
+      "dist/agent/context-xray/actions/context-manifest-get.js"
+    ],
+    "./agent/context-xray/actions/context-pin": [
+      "dist/agent/context-xray/actions/context-pin.js"
+    ],
+    "./agent/context-xray/actions/context-report": [
+      "dist/agent/context-xray/actions/context-report.js"
+    ],
+    "./agent/context-xray/actions/context-restore": [
+      "dist/agent/context-xray/actions/context-restore.js"
+    ],
+    "./agent/engine": ["dist/agent/engine/index.js"],
+    "./agent/harness": ["dist/agent/harness/index.js"],
+    "./agent/observational-memory": [
+      "dist/agent/observational-memory/index.js"
+    ],
+    "./application-state": ["dist/application-state/index.js"],
+    "./audit": ["dist/audit/index.js"],
+    "./automation": ["dist/automation/index.js"],
+    "./blocks": ["dist/client/blocks/index.js"],
+    "./blocks/server": ["dist/client/blocks/server.js"],
+    "./brand-kit": ["dist/brand-kit/index.js"],
+    "./brand-kit/fig": ["dist/brand-kit/fig/index.js"],
+    "./cli/skills": ["dist/cli/skills.d.ts", "dist/cli/skills.js"],
+    "./client": ["dist/client/index.js"],
+    "./client/agent-chat": ["dist/client/agent-chat/index.js"],
+    "./client/AgentPanel": ["dist/client/AgentPanel.js"],
+    "./client/analytics": ["dist/client/analytics/index.js"],
+    "./client/api-path": ["dist/client/api-path.js"],
+    "./client/application-state": ["dist/client/application-state.js"],
+    "./client/automation": ["dist/client/automation/index.js"],
+    "./client/changelog": ["dist/client/changelog/index.js"],
+    "./client/chat": ["dist/client/chat/index.js"],
+    "./client/collab": ["dist/client/collab/index.js"],
+    "./client/command-navigation": ["dist/client/command-navigation/index.js"],
+    "./client/comments-review": ["dist/client/comments-review/index.js"],
+    "./client/components/ui/dialog": ["dist/client/components/ui/dialog.js"],
+    "./client/components/ui/dropdown-menu": [
+      "dist/client/components/ui/dropdown-menu.js"
+    ],
+    "./client/components/ui/hover-card": [
+      "dist/client/components/ui/hover-card.js"
+    ],
+    "./client/components/ui/popover": ["dist/client/components/ui/popover.js"],
+    "./client/components/ui/sheet": ["dist/client/components/ui/sheet.js"],
+    "./client/components/ui/tooltip": ["dist/client/components/ui/tooltip.js"],
+    "./client/composer": ["dist/client/composer/index.js"],
+    "./client/conversation": ["dist/client/conversation/index.js"],
+    "./client/db-admin": ["dist/client/db-admin/index.js"],
+    "./client/dev-overlay": ["dist/client/dev-overlay/index.js"],
+    "./client/editor": ["dist/client/editor/index.js"],
+    "./client/extensions": ["dist/client/extensions/index.js"],
+    "./client/feature-flags": ["dist/client/feature-flags/index.js"],
+    "./client/history": ["dist/client/history/index.js"],
+    "./client/hooks": ["dist/client/hooks/index.js"],
+    "./client/host": ["dist/client/host/index.js"],
+    "./client/i18n": ["dist/client/i18n.js"],
+    "./client/integrations": ["dist/client/integrations/index.js"],
+    "./client/navigation": ["dist/client/navigation/index.js"],
+    "./client/notifications": ["dist/client/notifications/index.js"],
+    "./client/observability": ["dist/client/observability/index.js"],
+    "./client/onboarding": ["dist/client/onboarding/index.js"],
+    "./client/org": ["dist/client/org/index.js"],
+    "./client/org-team": ["dist/client/org-team/index.js"],
+    "./client/progress": ["dist/client/progress/index.js"],
+    "./client/resources": ["dist/client/resources/index.js"],
+    "./client/review": ["dist/client/review/index.js"],
+    "./client/rich-markdown-editor": [
+      "dist/client/rich-markdown-editor/index.js"
+    ],
+    "./client/route-chunk-recovery": [
+      "dist/client/route-chunk-recovery/index.js"
+    ],
+    "./client/route-state": ["dist/client/route-state.js"],
+    "./client/settings": ["dist/client/settings/index.js"],
+    "./client/settings/useBuilderStatus": [
+      "dist/client/settings/useBuilderStatus.js"
+    ],
+    "./client/setup-connections": ["dist/client/setup-connections/index.js"],
+    "./client/sharing": ["dist/client/sharing/index.js"],
+    "./client/tools": ["dist/client/extensions/index.js"],
+    "./client/transcription/BuilderTranscriptionCta": [
+      "dist/client/transcription/BuilderTranscriptionCta.js"
+    ],
+    "./client/transcription/use-live-transcription": [
+      "dist/client/transcription/use-live-transcription.js"
+    ],
+    "./client/ui": ["dist/client/ui/index.js"],
+    "./client/uploads": ["dist/client/uploads/index.js"],
+    "./client/widgets": ["dist/client/widgets/index.js"],
+    "./code-agents": ["dist/code-agents/index.js"],
+    "./code-agents/transcript-normalizer": [
+      "dist/code-agents/transcript-normalizer.js"
+    ],
+    "./collab": ["dist/collab/index.js"],
+    "./command-navigation": ["dist/command-navigation/index.js"],
+    "./comments-review": ["dist/comments-review/index.js"],
+    "./comments-review/actions/consume-review-feedback": [
+      "dist/review/actions/consume-review-feedback.js"
+    ],
+    "./comments-review/actions/create-review-comment": [
+      "dist/review/actions/create-review-comment.js"
+    ],
+    "./comments-review/actions/delete-review-comment": [
+      "dist/review/actions/delete-review-comment.js"
+    ],
+    "./comments-review/actions/get-review-feedback": [
+      "dist/review/actions/get-review-feedback.js"
+    ],
+    "./comments-review/actions/list-review-comments": [
+      "dist/review/actions/list-review-comments.js"
+    ],
+    "./comments-review/actions/reply-review-comment": [
+      "dist/review/actions/reply-review-comment.js"
+    ],
+    "./comments-review/actions/resolve-review-thread": [
+      "dist/review/actions/resolve-review-thread.js"
+    ],
+    "./comments-review/actions/send-review-thread-to-agent": [
+      "dist/review/actions/send-review-thread-to-agent.js"
+    ],
+    "./comments-review/actions/set-review-status": [
+      "dist/review/actions/set-review-status.js"
+    ],
+    "./connections": ["dist/connections/index.js"],
+    "./credentials": ["dist/credentials/index.js"],
+    "./data-programs": [
+      "dist/data-programs/index.d.ts",
+      "dist/data-programs/index.js"
+    ],
+    "./dashboard-storage": [
+      "dist/dashboard-storage/index.d.ts",
+      "dist/dashboard-storage/index.js"
+    ],
+    "./data-widgets": ["dist/data-widgets/index.js"],
+    "./db": ["dist/db/index.js"],
+    "./db-admin": ["dist/db-admin/index.js"],
+    "./db/drizzle-config": ["dist/db/drizzle-config.js"],
+    "./db/schema": ["dist/db/schema.js"],
+    "./embedding": ["dist/embedding/index.js"],
+    "./embedding/agent": ["dist/embedding/agent.js"],
+    "./embedding/bridge": ["dist/embedding/bridge.js"],
+    "./embedding/protocol": ["dist/embedding/protocol.js"],
+    "./embedding/react": ["dist/embedding/react.js"],
+    "./eval": ["dist/eval/index.js"],
+    "./event-bus": ["dist/event-bus/index.js"],
+    "./extensions/url-safety": ["dist/extensions/url-safety.js"],
+    "./feature-flags": ["dist/feature-flags/index.js"],
+    "./feature-flags/actions/get-feature-flags": [
+      "dist/feature-flags/actions/get-feature-flags.js"
+    ],
+    "./feature-flags/actions/list-feature-flags": [
+      "dist/feature-flags/actions/list-feature-flags.js"
+    ],
+    "./feature-flags/actions/set-feature-flag": [
+      "dist/feature-flags/actions/set-feature-flag.js"
+    ],
+    "./fetch-tool": ["dist/extensions/fetch-tool.js"],
+    "./file-upload": ["dist/file-upload/index.js"],
+    "./file-upload/actions/upload-image": [
+      "dist/file-upload/actions/upload-image.js"
+    ],
+    "./guards": ["dist/guards/index.d.ts", "dist/guards/index.js"],
+    "./history": ["dist/history/index.js"],
+    "./history/actions/create-resource-version": [
+      "dist/history/actions/create-resource-version.js"
+    ],
+    "./history/actions/get-resource-version": [
+      "dist/history/actions/get-resource-version.js"
+    ],
+    "./history/actions/list-resource-history": [
+      "dist/history/actions/list-resource-history.js"
+    ],
+    "./history/actions/list-resource-versions": [
+      "dist/history/actions/list-resource-versions.js"
+    ],
+    "./history/actions/restore-resource-version": [
+      "dist/history/actions/restore-resource-version.js"
+    ],
+    "./ingestion": ["dist/ingestion/index.js"],
+    "./integrations": ["dist/integrations/index.js"],
+    "./local-artifacts": [
+      "dist/local-artifacts/index.d.ts",
+      "dist/local-artifacts/index.js"
+    ],
+    "./localization": ["dist/localization/index.js"],
+    "./localization/actions/get-localization-preference": [
+      "dist/localization/actions/get-localization-preference.js"
+    ],
+    "./localization/actions/set-localization-preference": [
+      "dist/localization/actions/set-localization-preference.js"
+    ],
+    "./mcp": ["dist/mcp/index.js"],
+    "./mcp-client": ["dist/mcp-client/index.js"],
+    "./migration-manifest.json": ["migration-manifest.json"],
+    "./navigation": ["dist/navigation/index.js"],
+    "./notifications": ["dist/notifications/index.js"],
+    "./oauth-tokens": ["dist/oauth-tokens/index.js"],
+    "./onboarding": ["dist/onboarding/index.js"],
+    "./org": ["dist/org/index.js"],
+    "./org-team": ["dist/org-team/index.js"],
+    "./package-lifecycle": [
+      "dist/package-lifecycle/index.d.ts",
+      "dist/package-lifecycle/index.js"
+    ],
+    "./private-blob": ["dist/private-blob/index.js"],
+    "./progress": ["dist/progress/index.js"],
+    "./provider-api": ["dist/provider-api/index.js"],
+    "./provider-api/actions/delete-staged-dataset": [
+      "dist/provider-api/actions/delete-staged-dataset.js"
+    ],
+    "./provider-api/actions/github-repo-files": [
+      "dist/provider-api/actions/github-repo-files.js"
+    ],
+    "./provider-api/actions/list-staged-datasets": [
+      "dist/provider-api/actions/list-staged-datasets.js"
+    ],
+    "./provider-api/actions/query-staged-dataset": [
+      "dist/provider-api/actions/query-staged-dataset.js"
+    ],
+    "./provider-api/corpus-jobs": ["dist/provider-api/corpus-jobs.js"],
+    "./provider-api/corpus-jobs-store": [
+      "dist/provider-api/corpus-jobs-store.js"
+    ],
+    "./provider-api/staged-datasets-aggregate": [
+      "dist/provider-api/staged-datasets-aggregate.js"
+    ],
+    "./provider-api/staged-datasets-store": [
+      "dist/provider-api/staged-datasets-store.js"
+    ],
+    "./provider-api/staging": ["dist/provider-api/staging.js"],
+    "./resources": ["dist/resources/index.js"],
+    "./resources/metadata": ["dist/resources/metadata.js"],
+    "./resources/store": ["dist/resources/store.js"],
+    "./review": ["dist/review/index.js"],
+    "./review/actions/consume-review-feedback": [
+      "dist/review/actions/consume-review-feedback.js"
+    ],
+    "./review/actions/create-review-comment": [
+      "dist/review/actions/create-review-comment.js"
+    ],
+    "./review/actions/delete-review-comment": [
+      "dist/review/actions/delete-review-comment.js"
+    ],
+    "./review/actions/get-review-feedback": [
+      "dist/review/actions/get-review-feedback.js"
+    ],
+    "./review/actions/list-review-comments": [
+      "dist/review/actions/list-review-comments.js"
+    ],
+    "./review/actions/reply-review-comment": [
+      "dist/review/actions/reply-review-comment.js"
+    ],
+    "./review/actions/resolve-review-thread": [
+      "dist/review/actions/resolve-review-thread.js"
+    ],
+    "./review/actions/send-review-thread-to-agent": [
+      "dist/review/actions/send-review-thread-to-agent.js"
+    ],
+    "./review/actions/set-review-status": [
+      "dist/review/actions/set-review-status.js"
+    ],
+    "./router": ["dist/router/index.js"],
+    "./scripts": ["dist/scripts/index.js"],
+    "./search-utils": ["dist/search-utils/index.js"],
+    "./secrets": ["dist/secrets/index.js"],
+    "./secrets/crypto": ["dist/secrets/crypto.js"],
+    "./server": ["dist/server/index.js"],
+    "./server/agent-discovery": ["dist/server/agent-discovery.js"],
+    "./server/design-token-utils": ["dist/server/design-token-utils.js"],
+    "./server/edge": ["dist/server/edge.js"],
+    "./server/entry-server": ["dist/server/entry-server.js"],
+    "./server/request-context": ["dist/server/request-context.js"],
+    "./server/ssr-handler": ["dist/server/ssr-handler.js"],
+    "./settings": ["dist/settings/index.js"],
+    "./setup-connections": ["dist/setup-connections/index.js"],
+    "./shared": ["dist/shared/index.js"],
+    "./sharing": ["dist/sharing/index.js"],
+    "./sharing/actions/create-agent-resource-link": [
+      "dist/sharing/actions/create-agent-resource-link.js"
+    ],
+    "./sharing/actions/list-resource-shares": [
+      "dist/sharing/actions/list-resource-shares.js"
+    ],
+    "./sharing/actions/set-resource-visibility": [
+      "dist/sharing/actions/set-resource-visibility.js"
+    ],
+    "./sharing/actions/share-resource": [
+      "dist/sharing/actions/share-resource.js"
+    ],
+    "./sharing/actions/unshare-resource": [
+      "dist/sharing/actions/unshare-resource.js"
+    ],
+    "./styles/agent-conversation.css": ["dist/styles/agent-conversation.css"],
+    "./styles/agent-native.css": ["dist/styles/agent-native.css"],
+    "./styles/chat-history-list.css": ["dist/styles/chat-history-list.css"],
+    "./tailwind": ["dist/tailwind.preset.js"],
+    "./terminal": ["dist/client/terminal/index.js"],
+    "./terminal/server": ["dist/terminal/index.js"],
+    "./testing": ["dist/testing.d.ts", "dist/testing.js"],
+    "./tools/url-safety": ["dist/extensions/url-safety.js"],
+    "./tracking": ["dist/tracking/index.js"],
+    "./transcription/builder": ["dist/transcription/builder-transcription.js"],
+    "./triggers": ["dist/triggers/index.js"],
+    "./tsconfig.base.json": ["tsconfig.base.json"],
+    "./usage": ["dist/usage/store.js"],
+    "./vite": ["dist/vite/index.js"],
+    "./voice": ["dist/voice/index.js"],
+    "./workspace-connections": ["dist/workspace-connections/index.js"],
+    "./workspace-files": ["dist/workspace-files/index.js"]
+  }
+}

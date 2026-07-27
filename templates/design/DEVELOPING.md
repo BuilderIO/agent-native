@@ -4,8 +4,8 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Tech Stack
 
-- **Framework:** @agent-native/core + React Router v7 (framework mode)
-- **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
+- **Framework:** @agent-native/core + React Router v8 (framework mode)
+- **Frontend:** React 19, Vite, TailwindCSS, shadcn/ui
 - **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
 - **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
 - **State:** SQL-backed (SSE for real-time updates)
@@ -15,6 +15,12 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
 - **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
 - **Start:** `node .output/server/index.mjs` (production)
+- **Design local bridge:** `npx @agent-native/core@latest design connect --url http://localhost:5173 --root .`
+  exposes a local manifest for Design's localhost source mode and scaffolds
+  `.agent-native/design-routes.json` without overwriting an existing file.
+- **Visual edit local apps:** `/visual-edit` registers that bridge with
+  `connect-localhost`, adds URL-backed iframe screens with
+  `add-localhost-screens`, and opens the editor in overview mode.
 
 ## Directory Structure
 
@@ -50,7 +56,7 @@ react-router.config.ts # React Router framework config
 
 ## Framework Basics
 
-**SSR-first framework, CSR-by-default content:** This app uses React Router v7 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). Normal app data fetching happens on the client via action hooks. Server-side data fetching is the exception — only used for public pages that need SEO/OG tags.
+**SSR-first framework, CSR-by-default content:** This app uses React Router v8 framework mode with `ssr: true`. But virtually every route renders only an SSR shell (loading spinner + meta tags). Normal app data fetching happens on the client via action hooks. Server-side data fetching is the exception — only used for public pages that need SEO/OG tags.
 
 ## Adding a Page
 
@@ -92,6 +98,47 @@ export default function MyPageRoute() {
 
 Normal app data starts as an action, not a custom route. Add `actions/<verb>-<resource>.ts` with `defineAction`, mark reads with `http: { method: "GET" }`, and call reads/writes from React with `useActionQuery` / `useActionMutation` from `@agent-native/core/client`. This keeps the UI and agent on one contract and lets mutating actions refresh action-backed queries automatically.
 
+## Design Source Modes
+
+The shared source model lives in `shared/source-mode.ts`. Use `inline` for
+SQL-backed prototype files, `localhost` for local dev-server artboards, and
+`fusion` only for future hybrid/hosted sources. Bridge operations are named
+`select`, `resolveNodeToFile`, `readFile`, `applyEdit`, `writeFile`,
+`captureSnapshot`, and `captureState`. Localhost file writes run through the
+token-authenticated bridge and require an explicit, time-boxed human consent
+grant. Deterministic JSX write-back is intentionally limited to exact
+single-instance leaf text and literal class/style edits; ambiguous or semantic
+changes fail closed for coding-agent inspection.
+
+## Editor Model
+
+Design has two editor views:
+
+- **Overview** is the default multi-screen canvas after generation or broad
+  updates. It renders every screen as a static, movable frame on an infinite
+  surface. Users can select screens, move/resize/drop frames and primitives,
+  edit layers in place, and use a frame's Interact button to focus it.
+- **Single screen** renders one file in the iframe editor. Use it for scrolling,
+  interacting with prototype behavior, text/DOM selection, and local visual
+  edits inside that screen.
+
+The layers panel treats screens/files as top-level frames and nests projected
+DOM/code layers under the active screen. Layer display names come from
+`data-agent-native-layer-name` first, then semantic/text fallbacks. Persist user
+renames by editing that attribute in the source; ids such as
+`data-code-layer-id` are for stable selection targets.
+Inline/Alpine HTML should also carry durable `data-agent-native-node-id`
+attributes for any layer the editor can select, reorder, duplicate, or patch.
+Selectors are fallback aliases, not the primary identity. Localhost React mode
+should resolve through build-time source/debug metadata (generated stable id,
+component, file, and line) before using selector fallbacks.
+
+Inline source mode supports code-layer projection and deterministic HTML edits
+through `get-code-layer-projection` and `apply-visual-edit`. Localhost JSX/TSX
+supports diff-first literal leaf text/class/style edits when an exact source
+anchor resolves to one current file; structural, dynamic, repeated, shared, and
+breakpoint edits remain semantic coding-agent work.
+
 ## Adding a Route-Only Endpoint
 
 Use `server/routes/api/` only for protocols that cannot be modeled as JSON actions: multipart uploads, streaming/SSE/WebSocket, webhooks, OAuth callbacks/redirects, public SEO/OG endpoints, or binary/static asset serving. Do not add `/api/*` routes for normal CRUD, data queries, or pass-through wrappers around actions; the action endpoint already exists at `/_agent-native/actions/:name`.
@@ -129,7 +176,7 @@ Create `actions/<verb>-<resource>.ts` with `defineAction`. Run with `pnpm action
 **Sending to agent chat from UI:**
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core";
+import { sendToAgentChat } from "@agent-native/core/client";
 sendToAgentChat({
   message: "Generate something",
   context: "...",

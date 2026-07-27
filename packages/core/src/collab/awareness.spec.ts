@@ -110,6 +110,21 @@ describe("postAwareness handler", () => {
     expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
   });
 
+  it("clears the sender's state when state is null", async () => {
+    const map = getDocAwareness("post-doc");
+    map.set(5, { clientId: 5, state: "old-state", lastSeen: Date.now() });
+    map.set(99, { clientId: 99, state: "other-state", lastSeen: Date.now() });
+
+    mockReadBody.mockResolvedValue({ clientId: 5, state: null });
+    const ev = event({ docId: "post-doc" });
+    const res = (await postAwareness(ev)) as {
+      states: Array<{ clientId: number; state: string }>;
+    };
+
+    expect(map.has(5)).toBe(false);
+    expect(res.states).toEqual([{ clientId: 99, state: "other-state" }]);
+  });
+
   it("evicts expired peers before responding", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

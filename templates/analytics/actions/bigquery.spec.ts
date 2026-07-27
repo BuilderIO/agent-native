@@ -1,10 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
 import { isAgentActionStopError } from "@agent-native/core";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const runQuery = vi.fn();
 
 vi.mock("../server/lib/bigquery", () => ({
-  runQuery: (sql: string) => runQuery(sql),
+  runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
+    runQuery(sql, options),
 }));
 
 // Imported after the mock is registered so the action picks up the stub.
@@ -50,6 +51,23 @@ describe("bigquery action error handling", () => {
     expect(result.recoverable).toBe(true);
   });
 
+  it("treats a query timeout as a cost problem, not a schema problem", async () => {
+    runQuery.mockRejectedValue(
+      new Error("BigQuery query timed out after 60 seconds"),
+    );
+
+    const result = (await bigquery.run({
+      sql: "SELECT * FROM `p.dbt_analytics.events`",
+    })) as Record<string, unknown>;
+
+    expect(result.error).toBe("bigquery_query_timeout");
+    expect(result.recoverable).toBe(true);
+    // The old behaviour sent the model back to search-bigquery-schema, which
+    // produced repeated 60-second reruns of valid-but-slow SQL.
+    expect(String(result.hint)).not.toMatch(/search-bigquery-schema/);
+    expect(String(result.hint)).toMatch(/LIMIT|narrow the date range/i);
+  });
+
   it("still stops the turn (non-recoverable) when BigQuery is not configured", async () => {
     runQuery.mockRejectedValue(
       new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured"),
@@ -66,5 +84,31 @@ describe("bigquery action error handling", () => {
     const result = await bigquery.run({ sql: "SELECT 1" });
 
     expect(result).toEqual([{ week: "2026-05-11", signups: 42 }]);
+  });
+
+  it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {
+    const controller = new AbortController();
+    const aborted = new DOMException("BigQuery query aborted", "AbortError");
+    controller.abort();
+    runQuery.mockRejectedValue(aborted);
+
+    await expect(
+      bigquery.run(
+        { sql: "SELECT 1" },
+        { caller: "tool", signal: controller.signal },
+      ),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!isAgentActionStopError(err)) return false;
+      expect(err.errorCode).toBe("run_cancelled");
+      expect(err.message).toBe(
+        "The BigQuery query was cancelled because the agent run ended before it could finish.",
+      );
+      expect(err.toolResult).toContain('"recoverable": false');
+      return true;
+    });
+
+    expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
+      signal: controller.signal,
+    });
   });
 });

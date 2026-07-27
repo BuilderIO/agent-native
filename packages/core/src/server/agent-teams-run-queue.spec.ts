@@ -130,6 +130,7 @@ const mockDb = {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => "INTEGER",
+  isPostgres: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 

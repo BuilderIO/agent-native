@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -51,7 +52,7 @@ const tsxCli = resolveTsxCli();
 const tsxIsBinShim = !tsxCli.endsWith(".mjs") && !tsxCli.endsWith(".js");
 const tsxCommand = tsxIsBinShim ? tsxCli : process.execPath;
 const tsxLeadingArgs = tsxIsBinShim ? [] : [tsxCli];
-const spawnTimeoutMs = 15_000;
+const spawnTimeoutMs = 30_000;
 
 describe("runScript package actions", () => {
   let tmpDir: string;
@@ -106,7 +107,7 @@ describe("runScript package actions", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("Fixture package actions:");
     expect(result.stdout).toContain("package-action");
-  }, 20_000);
+  }, 40_000);
 
   it("runs a package action when no local action exists", () => {
     const result = spawnSync(
@@ -147,5 +148,125 @@ describe("runScript package actions", () => {
       sourceIds: ["mail", "calendar"],
       limit: "8",
     });
-  }, 20_000);
+  }, 40_000);
+
+  it("runs a package action with a positional JSON object", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [
+        ...tsxLeadingArgs,
+        "actions/run.ts",
+        "package-action",
+        JSON.stringify({
+          enabled: true,
+          limit: 8,
+          cursors: { slack: "next-page" },
+          sourceIds: ["mail", "calendar"],
+        }),
+      ],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("package-ok");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({
+      enabled: true,
+      limit: 8,
+      cursors: { slack: "next-page" },
+      sourceIds: ["mail", "calendar"],
+    });
+  }, 40_000);
+
+  it("lets explicit flags override positional JSON object keys", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [
+        ...tsxLeadingArgs,
+        "actions/run.ts",
+        "package-action",
+        JSON.stringify({
+          enabled: true,
+          limit: 8,
+          cursors: { slack: "next-page" },
+        }),
+        "--enabled=false",
+        "--limit",
+        "12",
+      ],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({
+      enabled: false,
+      limit: "12",
+      cursors: { slack: "next-page" },
+    });
+  }, 40_000);
+
+  it("reports invalid positional JSON object input", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-action", "{bad-json"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid positional JSON argument");
+  }, 40_000);
+
+  it("preserves empty package action arguments", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-action", "--label", ""],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-output.json"), "utf8"),
+      ),
+    ).toEqual({ label: "" });
+  }, 40_000);
 });

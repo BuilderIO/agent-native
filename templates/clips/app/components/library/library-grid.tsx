@@ -1,41 +1,46 @@
-import { useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import {
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconAlertTriangle,
+  IconChevronLeft,
+  IconChevronRight,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+
+import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
+import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  useFolders,
   useRecordings,
+  useRecordingsCount,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
-  useRenameRecording,
+  useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
 } from "@/hooks/use-library";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
-import { sendToAgentChat, useSession } from "@agent-native/core/client";
-import { RecordingCard } from "./recording-card";
+import { cn } from "@/lib/utils";
+
+import { BulkActionToolbar, type BulkMoveTarget } from "./bulk-action-toolbar";
 import { EmptyState } from "./empty-state";
-import { SortMenu, type SortKey } from "./sort-menu";
 import { FilterChips, type FilterChip } from "./filter-chips";
-import { BulkActionToolbar } from "./bulk-action-toolbar";
 import { PageHeader } from "./page-header";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { IconChecks } from "@tabler/icons-react";
-import { ShareRecordingDialog } from "@/components/player/share-dialog";
+import { RecordingCard } from "./recording-card";
+import { SearchBar } from "./search-bar";
+import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view: "library" | "space" | "archive" | "trash" | "all";
+  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   /** What empty-state illustration to render. Defaults from `view`. */
-  emptyKind?: "library" | "folder" | "space" | "archive" | "trash";
+  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   tagFilter?: string | null;
   onClearTag?: () => void;
@@ -54,6 +59,46 @@ function Skeleton() {
   );
 }
 
+const PAGE_SIZE = 100;
+
+interface FolderTargetRow {
+  id: string;
+  parentId: string | null;
+  name: string;
+}
+
+type CreateFolderTarget =
+  | { kind: "single"; recording: RecordingSummary }
+  | { kind: "bulk"; recordingIds: string[] };
+
+function buildMoveTargets(
+  folders: FolderTargetRow[],
+  currentFolderId: string | null,
+  rootLabel: string,
+): BulkMoveTarget[] {
+  const byParent = new Map<string | null, FolderTargetRow[]>();
+  for (const folder of folders) {
+    const parentId = folder.parentId ?? null;
+    byParent.set(parentId, [...(byParent.get(parentId) ?? []), folder]);
+  }
+
+  const targets: BulkMoveTarget[] = [{ id: null, name: rootLabel }];
+  const walk = (parentId: string | null, depth: number) => {
+    for (const folder of byParent.get(parentId) ?? []) {
+      targets.push({
+        id: folder.id,
+        name: folder.name,
+        depth,
+        disabled: folder.id === currentFolderId,
+      });
+      walk(folder.id, depth + 1);
+    }
+  };
+
+  walk(null, 0);
+  return targets;
+}
+
 export function LibraryGrid({
   view,
   folderId = null,
@@ -64,14 +109,40 @@ export function LibraryGrid({
   onClearTag,
   extraActions,
 }: LibraryGridProps) {
+  const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const selectionMode = selected.size > 0;
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  const [createFolderTarget, setCreateFolderTarget] =
+    useState<CreateFolderTarget | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
+  const [page, setPage] = useState(1);
+  const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
+
+  useEffect(() => {
+    setPage(1);
+    setSelected(new Set());
+    setLastSelectedId(null);
+  }, [view, folderId, spaceId, tagFilter, sort]);
+
+  const countArgs = useMemo(
+    () => ({
+      view,
+      folderId: folderId ?? null,
+      spaceId: spaceId ?? null,
+      tag: tagFilter ?? null,
+    }),
+    [view, folderId, spaceId, tagFilter],
+  );
+  const { data: totalCount } = useRecordingsCount(countArgs);
+  const total = totalCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const args: ListRecordingsArgs = useMemo(
     () => ({
@@ -80,58 +151,163 @@ export function LibraryGrid({
       spaceId: spaceId ?? null,
       tag: tagFilter ?? null,
       sort,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
     }),
-    [view, folderId, spaceId, tagFilter, sort],
+    [view, folderId, spaceId, tagFilter, sort, page],
   );
 
-  const { data, isLoading } = useRecordings(args);
+  const { data, isLoading, isError, refetch, isRefetching } =
+    useRecordings(args);
   const recordings = data?.recordings ?? [];
-  const { session } = useSession();
-  const currentUserEmail = session?.email?.toLowerCase();
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
-  const renameRecording = useRenameRecording();
+  const moveRecording = useMoveRecording();
+  const canManageRecordings = view !== "shared";
+  const canMoveSelection = view === "library" || view === "space";
+  const { data: scopedFolders } = useFolders(
+    {
+      spaceId: view === "space" ? (spaceId ?? null) : null,
+    },
+    {
+      enabled: canMoveSelection && (view !== "space" || Boolean(spaceId)),
+    },
+  );
+  const selectedIds = useMemo(() => Array.from(selected), [selected]);
+  const moveTargets = useMemo(
+    () =>
+      canMoveSelection
+        ? buildMoveTargets(
+            ((scopedFolders?.folders ?? []) as FolderTargetRow[]).map(
+              (folder) => ({
+                id: folder.id,
+                parentId: folder.parentId ?? null,
+                name: folder.name,
+              }),
+            ),
+            folderId ?? null,
+            view === "space"
+              ? t("libraryGrid.spaceRoot")
+              : t("libraryGrid.libraryRoot"),
+          )
+        : [],
+    [canMoveSelection, folderId, scopedFolders, t, view],
+  );
 
-  const toggleSelect = (id: string) => {
+  useEffect(() => {
+    const state =
+      selectedIds.length > 0
+        ? {
+            type: "recordings",
+            recordingIds: selectedIds,
+            view,
+            folderId: folderId ?? null,
+            spaceId: spaceId ?? null,
+          }
+        : null;
+
+    void setClientAppState(selectionStateKey, state, {
+      keepalive: true,
+      requestSource: "clips-library-selection",
+    }).catch(() => {});
+  }, [folderId, selectedIds, selectionStateKey, spaceId, view]);
+
+  useEffect(() => {
+    return () => {
+      void setClientAppState(selectionStateKey, null, {
+        keepalive: true,
+        requestSource: "clips-library-selection",
+      }).catch(() => {});
+    };
+  }, [selectionStateKey]);
+
+  const handleToggleSelect = useCallback(
+    (id: string, shiftKey = false) => {
+      setSelected((prev) => {
+        if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+          const ids = recordings.map((r) => r.id);
+          const fromIndex = ids.indexOf(lastSelectedId);
+          const toIndex = ids.indexOf(id);
+          if (fromIndex !== -1 && toIndex !== -1) {
+            const [start, end] =
+              fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+            const next = new Set(prev);
+            for (let i = start; i <= end; i++) next.add(ids[i]);
+            return next;
+          }
+        }
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+      setLastSelectedId(id);
+    },
+    [lastSelectedId, recordings],
+  );
+
+  const allSelected =
+    recordings.length > 0 && recordings.every(({ id }) => selected.has(id));
+
+  const toggleSelectAll = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const visibleIds = recordings.map(({ id }) => id);
+      const allVisibleSelected = visibleIds.every((id) => prev.has(id));
+
+      for (const id of visibleIds) {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      }
+
       return next;
     });
-  };
+    setLastSelectedId(null);
+  }, [recordings]);
 
   const clearSelection = () => {
     setSelected(new Set());
-    setSelectionMode(false);
+    setLastSelectedId(null);
   };
 
-  const openRenameDialog = (rec: RecordingSummary) => {
-    setRenamingRec(rec);
-    setRenameValue(isDefaultTitle(rec.title) ? "" : (rec.title ?? ""));
-    // Focus the input after dialog opens
-    setTimeout(() => renameInputRef.current?.select(), 50);
-  };
-
-  const submitRename = () => {
-    if (!renamingRec) return;
-    const trimmed = renameValue.trim();
-    if (!trimmed) {
-      toast.error("Title cannot be empty");
-      return;
+  const moveRecordings = async (
+    ids: string[],
+    targetFolderId: string | null,
+  ) => {
+    if (ids.length === 0) return;
+    setIsBulkPending(true);
+    try {
+      await moveRecording.mutateAsync({
+        ids,
+        folderId: targetFolderId,
+      });
+      toast.success(t("libraryGrid.clipsMoved", { count: ids.length }));
+      clearSelection();
+    } catch (err: any) {
+      toast.error(err?.message ?? t("libraryGrid.moveFailed"));
+    } finally {
+      setIsBulkPending(false);
     }
-    renameRecording.mutate(
-      { id: renamingRec.id, title: trimmed },
-      {
-        onSuccess: () => {
-          toast.success("Clip renamed");
-          setRenamingRec(null);
-        },
-        onError: () => toast.error("Failed to rename clip"),
-      },
-    );
+  };
+
+  const moveSelected = (targetFolderId: string | null) =>
+    moveRecordings(selectedIds, targetFolderId);
+
+  const moveSingle = async (
+    rec: RecordingSummary,
+    targetFolderId: string | null,
+  ) => {
+    try {
+      await moveRecording.mutateAsync({
+        id: rec.id,
+        folderId: targetFolderId,
+      });
+      toast.success(t("libraryGrid.clipsMoved", { count: 1 }));
+    } catch (err: any) {
+      toast.error(err?.message ?? t("libraryGrid.moveFailed"));
+    }
   };
 
   const chips: FilterChip[] = [];
@@ -150,11 +326,13 @@ export function LibraryGrid({
       ? "archive"
       : view === "trash"
         ? "trash"
-        : view === "space"
-          ? "space"
-          : folderId
-            ? "folder"
-            : "library");
+        : view === "shared"
+          ? "shared"
+          : view === "space"
+            ? "space"
+            : folderId
+              ? "folder"
+              : "library");
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -163,80 +341,45 @@ export function LibraryGrid({
         <ShareRecordingDialog
           recordingId={sharingRec.id}
           recordingTitle={sharingRec.title}
+          initialVisibility={sharingRec.visibility}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);
           }}
         />
       )}
-
-      {/* Rename dialog */}
-      <Dialog
-        open={!!renamingRec}
+      <CreateFolderDialog
+        open={Boolean(createFolderTarget)}
         onOpenChange={(open) => {
-          if (!open) setRenamingRec(null);
+          if (!open) setCreateFolderTarget(null);
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename clip</DialogTitle>
-          </DialogHeader>
-          <Input
-            ref={renameInputRef}
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
-            }}
-            placeholder="Clip title"
-            className="mt-1"
-            autoFocus
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenamingRec(null)}
-              disabled={renameRecording.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={submitRename}
-              disabled={renameRecording.isPending || !renameValue.trim()}
-            >
-              {renameRecording.isPending ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        spaceId={view === "space" ? spaceId : null}
+        parentId={folderId}
+        onCreated={(folder) => {
+          if (!createFolderTarget) return;
+          if (createFolderTarget.kind === "single") {
+            void moveSingle(createFolderTarget.recording, folder.id);
+          } else {
+            void moveRecordings(createFolderTarget.recordingIds, folder.id);
+          }
+        }}
+      />
 
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 shrink-0">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
               {title}
             </h1>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <SearchBar
+          side="bottom"
+          className="hidden min-w-52 max-w-xl flex-1 md:block"
+        />
+        <div className="ms-auto flex shrink-0 items-center gap-2">
           {extraActions}
-          <Button
-            variant={selectionMode ? "default" : "outline"}
-            size="sm"
-            className={cn(
-              "h-8 gap-1.5",
-              selectionMode &&
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-            )}
-            onClick={() => {
-              setSelectionMode((v) => !v);
-              if (selectionMode) setSelected(new Set());
-            }}
-          >
-            <IconChecks className="h-3.5 w-3.5" />
-            Select
-          </Button>
           <SortMenu value={sort} onChange={setSort} />
         </div>
       </PageHeader>
@@ -248,84 +391,157 @@ export function LibraryGrid({
       )}
 
       {/* Grid body */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-5">
-          {isLoading ? (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <Skeleton key={i} />
-              ))}
-            </div>
-          ) : recordings.length === 0 ? (
-            <EmptyState
-              kind={resolvedEmptyKind}
-              spaceId={spaceId}
-              folderId={folderId}
-            />
-          ) : (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
-              {recordings.map((r: RecordingSummary) => (
-                <RecordingCard
-                  key={r.id}
-                  recording={r}
-                  selected={selected.has(r.id)}
-                  selectionMode={selectionMode}
-                  onToggleSelect={toggleSelect}
-                  onShare={(rec) => setSharingRec(rec)}
-                  canRenameTitle={
-                    !!currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
-                  }
-                  onRename={
-                    currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
-                      ? openRenameDialog
-                      : undefined
-                  }
-                  onMove={(rec) => {
-                    sendToAgentChat({
-                      message: `Move the clip "${rec.title}" (id: ${rec.id}) to a folder. Ask me which folder to move it to, or list available folders.`,
-                      background: false,
-                    });
-                  }}
-                  onTrash={(rec) => {
-                    trashRecording.mutate(
-                      { id: rec.id },
-                      {
-                        onSuccess: () => toast.success("Moved to trash"),
-                      },
-                    );
-                  }}
-                  onArchive={(rec) => {
-                    if (rec.archivedAt) {
-                      restoreRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () =>
-                            toast.success("Restored from archive"),
-                        },
-                      );
-                    } else {
-                      archiveRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () => toast.success("Archived"),
-                        },
-                      );
-                    }
-                  }}
-                />
-              ))}
-            </div>
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          className={cn(
+            "min-h-0 flex-1 overflow-y-auto",
+            selected.size > 0 && "pb-20",
           )}
+        >
+          <div className="p-5">
+            {isLoading ? (
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} />
+                ))}
+              </div>
+            ) : isError && recordings.length === 0 ? (
+              <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+                <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                  <IconAlertTriangle className="h-10 w-10 text-destructive" />
+                </div>
+                <h2 className="text-base font-semibold text-foreground mb-1">
+                  {t("libraryGrid.loadFailedTitle")}
+                </h2>
+                <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                  {t("libraryGrid.loadFailedBody")}
+                </p>
+                <Button
+                  onClick={() => refetch()}
+                  disabled={isRefetching}
+                  size="sm"
+                >
+                  {t("libraryGrid.retry")}
+                </Button>
+              </div>
+            ) : recordings.length === 0 ? (
+              <EmptyState
+                kind={resolvedEmptyKind}
+                spaceId={spaceId}
+                folderId={folderId}
+              />
+            ) : (
+              <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(300px,1fr))]">
+                {recordings.map((r: RecordingSummary) => (
+                  <RecordingCard
+                    key={r.id}
+                    recording={r}
+                    selected={
+                      canManageRecordings ? selected.has(r.id) : undefined
+                    }
+                    selectionMode={canManageRecordings && selectionMode}
+                    onToggleSelect={
+                      canManageRecordings ? handleToggleSelect : undefined
+                    }
+                    onShare={(rec) => setSharingRec(rec)}
+                    moveTargets={moveTargets}
+                    onMove={canMoveSelection ? moveSingle : undefined}
+                    isMovePending={moveRecording.isPending}
+                    onCreateFolder={() => {
+                      setCreateFolderTarget({ kind: "single", recording: r });
+                    }}
+                    onTrash={
+                      canManageRecordings
+                        ? (rec) => {
+                            trashRecording.mutate(
+                              { id: rec.id },
+                              {
+                                onSuccess: () =>
+                                  toast.success(t("libraryGrid.movedToTrash")),
+                              },
+                            );
+                          }
+                        : undefined
+                    }
+                    onArchive={
+                      canManageRecordings
+                        ? (rec) => {
+                            if (rec.archivedAt) {
+                              restoreRecording.mutate(
+                                { id: rec.id },
+                                {
+                                  onSuccess: () =>
+                                    toast.success(
+                                      t("libraryGrid.restoredFromArchive"),
+                                    ),
+                                },
+                              );
+                            } else {
+                              archiveRecording.mutate(
+                                { id: rec.id },
+                                {
+                                  onSuccess: () =>
+                                    toast.success(t("libraryGrid.archived")),
+                                },
+                              );
+                            }
+                          }
+                        : undefined
+                    }
+                    readOnly={!canManageRecordings}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Sticky bulk-action toolbar */}
-        {selected.size > 0 && (
-          <div className="pointer-events-none sticky bottom-0 flex justify-center pb-4">
-            <div className="pointer-events-auto">
+        {!isLoading && recordings.length > 0 && totalPages > 1 && (
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-2.5">
+            <span className="text-xs text-muted-foreground">
+              {t("libraryGrid.paginationRange", {
+                start: (page - 1) * PAGE_SIZE + 1,
+                end: (page - 1) * PAGE_SIZE + recordings.length,
+                total,
+              })}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                <IconChevronLeft className="h-3.5 w-3.5" />
+                {t("libraryGrid.paginationPrevious")}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t("libraryGrid.paginationPage", { page, totalPages })}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                {t("libraryGrid.paginationNext")}
+                <IconChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Keep selected-library actions visible while the recording list scrolls. */}
+        {canManageRecordings && selected.size > 0 && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4">
+            <div className="pointer-events-auto max-w-full overflow-x-auto">
               <BulkActionToolbar
                 count={selected.size}
+                allSelected={allSelected}
+                onSelectAll={toggleSelectAll}
+                moveTargets={moveTargets}
                 onArchive={async () => {
                   setIsBulkPending(true);
                   try {
@@ -339,7 +555,9 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} archived`,
+                        t("libraryGrid.clipsArchived", {
+                          count: succeededIds.length,
+                        }),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -349,7 +567,7 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        `${failed} clip${failed === 1 ? "" : "s"} could not be archived`,
+                        t("libraryGrid.clipsArchiveFailed", { count: failed }),
                       );
                     }
                   } finally {
@@ -369,7 +587,9 @@ export function LibraryGrid({
                     const failed = ids.length - succeededIds.length;
                     if (succeededIds.length > 0) {
                       toast.success(
-                        `${succeededIds.length} clip${succeededIds.length === 1 ? "" : "s"} moved to trash`,
+                        t("libraryGrid.clipsMovedToTrash", {
+                          count: succeededIds.length,
+                        }),
                       );
                       setSelected((prev) => {
                         const next = new Set(prev);
@@ -379,15 +599,22 @@ export function LibraryGrid({
                     }
                     if (failed > 0) {
                       toast.error(
-                        `${failed} clip${failed === 1 ? "" : "s"} could not be moved to trash`,
+                        t("libraryGrid.clipsTrashFailed", { count: failed }),
                       );
                     }
                   } finally {
                     setIsBulkPending(false);
                   }
                 }}
+                onMove={canMoveSelection ? moveSelected : undefined}
+                onCreateFolder={() => {
+                  setCreateFolderTarget({
+                    kind: "bulk",
+                    recordingIds: selectedIds,
+                  });
+                }}
                 onClear={clearSelection}
-                isPending={isBulkPending}
+                isPending={isBulkPending || moveRecording.isPending}
               />
             </div>
           </div>

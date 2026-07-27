@@ -1,18 +1,27 @@
-import { useMemo, useState } from "react";
-import { IconPlus, IconPalette } from "@tabler/icons-react";
-import { useDesignSystems } from "@/hooks/use-design-systems";
-import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
-import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
-import { Button } from "@/components/ui/button";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { callAction } from "@agent-native/core/client";
+} from "@agent-native/toolkit/app-shell";
+import {
+  IconAlertTriangle,
+  IconPalette,
+  IconPlus,
+  IconRefresh,
+} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+
+import { DesignSystemCard } from "@/components/design-system/DesignSystemCard";
+import { DesignSystemSetup } from "@/components/design-system/DesignSystemSetup";
+import { Button } from "@/components/ui/button";
+import { useDesignSystems } from "@/hooks/use-design-systems";
+
 import type { DesignSystemData } from "../../shared/api";
 
 export default function DesignSystems() {
-  const { designSystems, isLoading, refetch } = useDesignSystems();
+  const t = useT();
+  const { designSystems, isLoading, error, refetch } = useDesignSystems();
   const [showSetup, setShowSetup] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -49,7 +58,7 @@ export default function DesignSystems() {
     }
   };
 
-  useSetPageTitle("Design Systems");
+  useSetPageTitle(t("header.designSystems"));
 
   useSetHeaderActions(
     useMemo(
@@ -63,7 +72,7 @@ export default function DesignSystems() {
           className="cursor-pointer"
         >
           <IconPlus className="w-3.5 h-3.5" />
-          New Design System
+          {t("designSystems.new")}
         </Button>
       ),
       [],
@@ -94,6 +103,22 @@ export default function DesignSystems() {
               ))}
             </div>
           </>
+        ) : error ? (
+          <div className="flex min-h-[360px] items-center justify-center">
+            <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+              <IconAlertTriangle className="size-7 text-destructive/70" />
+              <div>
+                <h2 className="font-medium">{t("home.loadFailed")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("home.loadFailedDescription")}
+                </p>
+              </div>
+              <Button variant="outline" onClick={() => void refetch()}>
+                <IconRefresh className="size-4" />
+                {t("home.retry")}
+              </Button>
+            </div>
+          </div>
         ) : designSystems.length === 0 ? (
           <EmptyState
             onCreateNew={() => {
@@ -119,10 +144,10 @@ export default function DesignSystems() {
                 </div>
                 <div className="p-4">
                   <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                    New Design System
+                    {t("designSystems.new")}
                   </h3>
                   <div className="text-xs text-muted-foreground/70 mt-1">
-                    Set up your brand
+                    {t("designSystems.setupBrand")}
                   </div>
                 </div>
               </button>
@@ -161,21 +186,21 @@ export default function DesignSystems() {
 }
 
 function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <IconPalette className="w-7 h-7 text-[#609FF8]" />
       </div>
       <h2 className="text-xl font-semibold text-foreground mb-2">
-        Set up your brand identity
+        {t("designSystems.emptyTitle")}
       </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-8 leading-relaxed">
-        Create a design system with your brand colors, typography, and logos.
-        Every new deck will follow your visual identity.
+        {t("designSystems.emptyDescription")}
       </p>
       <Button onClick={onCreateNew} className="cursor-pointer">
         <IconPlus className="w-4 h-4" />
-        New Design System
+        {t("designSystems.new")}
       </Button>
     </div>
   );

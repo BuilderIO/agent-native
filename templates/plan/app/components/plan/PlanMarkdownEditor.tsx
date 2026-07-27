@@ -1,15 +1,19 @@
-import { useCallback, useEffect, useRef } from "react";
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
-  RichMarkdownEditor,
   useCollaborativeDoc,
-  generateTabId,
-  uploadEditorImage,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
+  RichMarkdownEditor,
   type RichMarkdownCollabUser,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
+import { useCallback, useEffect, useRef } from "react";
+
 import { cn } from "@/lib/utils";
+
 import { PlanImageNode } from "./PlanImageNode";
 
 // Plans get the shared block-level image node: the `/image` slash command, plus
@@ -85,7 +89,11 @@ export function PlanMarkdownEditor({
       : null;
   const collabEnabled = !!(editable && planId && blockId && collabUser);
   const docId = collabEnabled ? `plan:${planId}:${blockId}` : null;
-  const { ydoc, awareness } = useCollaborativeDoc({
+  const {
+    ydoc,
+    awareness,
+    isSynced: collabSynced,
+  } = useCollaborativeDoc({
     docId,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
@@ -171,6 +179,7 @@ export function PlanMarkdownEditor({
       ariaLabel={ariaLabel}
       interactive={editable}
       ydoc={collabEnabled ? ydoc : null}
+      collabSynced={collabEnabled ? collabSynced : true}
       awareness={collabEnabled ? awareness : null}
       user={collabEnabled ? collabUser : null}
     />

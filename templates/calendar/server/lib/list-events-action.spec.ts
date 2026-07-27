@@ -4,6 +4,7 @@ const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const isConnectedMock = vi.hoisted(() => vi.fn());
+const getOwnedAccountEmailsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestTimezone: getRequestTimezoneMock,
@@ -16,6 +17,7 @@ vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: vi.fn(() => ({})),
 }));
 vi.mock("./google-calendar.js", () => ({
+  getOwnedAccountEmails: getOwnedAccountEmailsMock,
   isConnected: isConnectedMock,
 }));
 vi.mock("./ical-fetcher.js", () => ({
@@ -48,6 +50,7 @@ describe("calendar event ranges", () => {
       .mockResolvedValueOnce({ timezone: "Europe/Warsaw" })
       .mockResolvedValue([]);
     isConnectedMock.mockResolvedValue(false);
+    getOwnedAccountEmailsMock.mockResolvedValue([]);
   });
 
   it("uses Calendar settings for date-only list ranges", async () => {

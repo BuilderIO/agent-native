@@ -1,15 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { TemplateCard, templates } from "../app/components/TemplateCard";
+import { describe, expect, it } from "vitest";
+
 import { getTemplateDocsPath } from "../app/components/template-docs";
+import { TemplateCard, templates } from "../app/components/TemplateCard";
+import { docsI18nCatalog } from "../app/i18n";
 
 describe("TemplateCard", () => {
   it("renders View Docs links to template docs pages", () => {
     for (const template of templates) {
       const html = renderToStaticMarkup(
         <MemoryRouter>
-          <TemplateCard template={template} />
+          <AgentNativeI18nProvider
+            catalog={docsI18nCatalog}
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <TemplateCard template={template} />
+          </AgentNativeI18nProvider>
         </MemoryRouter>,
       );
 
@@ -17,6 +27,11 @@ describe("TemplateCard", () => {
       expect(html).not.toContain(
         `href="/templates/${template.slug}">View Docs`,
       );
+      if (template.screenshot) {
+        expect(html).toContain('loading="lazy"');
+        expect(html).toContain('decoding="async"');
+        expect(html).not.toContain(`rel="preload" as="image"`);
+      }
     }
   });
 });

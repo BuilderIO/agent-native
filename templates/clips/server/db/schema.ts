@@ -6,6 +6,7 @@ import {
   now,
   ownableColumns,
   createSharesTable,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 // -----------------------------------------------------------------------------
@@ -36,7 +37,7 @@ export const organizationSettings = table("organization_settings", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -51,7 +52,7 @@ export const workspaces = table("workspaces", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -164,7 +165,12 @@ export const recordings = table("recordings", {
     .notNull()
     .default("uploading"),
   uploadProgress: integer("upload_progress").notNull().default(0),
+  // Authoritative liveness for an in-flight upload: renewed by every chunk
+  // POST, and the only thing the upload reaper is allowed to consult.
+  uploadLeaseExpiresAt: text("upload_lease_expires_at"),
   failureReason: text("failure_reason"),
+  loomImportClaimId: text("loom_import_claim_id"),
+  loomImportClaimedAt: text("loom_import_claimed_at"),
 
   // Non-destructive edits: JSON `{ trims: [{startMs,endMs,excluded}], blurs: [...], speed: [...] }`
   editsJson: text("edits_json").notNull().default("{}"),
@@ -216,13 +222,71 @@ export const recordingTranscripts = table("recording_transcripts", {
   recordingId: text("recording_id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   language: text("language").notNull().default("en"),
-  // JSON array of { startMs, endMs, text }
+  // JSON array of { startMs, endMs, text, source }
   segmentsJson: text("segments_json").notNull().default("[]"),
   fullText: text("full_text").notNull().default(""),
   status: text("status", { enum: ["pending", "streaming", "ready", "failed"] })
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
+  // Count of automatic retries already attempted after a transient failure
+  // (ffmpeg timeout, transient provider/network error). Bounds the
+  // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly
+  // failing clip doesn't retry forever. Manual retries (force=true) don't
+  // consume this budget.
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const recordingBrowserDiagnostics = table(
+  "recording_browser_diagnostics",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    organizationId: text("workspace_id").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    source: text("source", {
+      enum: ["browser-recorder", "desktop", "extension"],
+    })
+      .notNull()
+      .default("browser-recorder"),
+    phase: text("phase").notNull().default("recording"),
+    pageUrl: text("page_url"),
+    userAgent: text("user_agent"),
+    startedAt: text("started_at").notNull(),
+    endedAt: text("ended_at").notNull(),
+    consoleLogsJson: text("console_logs_json").notNull().default("[]"),
+    networkRequestsJson: text("network_requests_json").notNull().default("[]"),
+    redactionVersion: integer("redaction_version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const recordingBugReports = table("recording_bug_reports", {
+  recordingId: text("recording_id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  organizationId: text("workspace_id").notNull(),
+  orgId: text("org_id"),
+  projectId: text("project_id"),
+  title: text("title"),
+  description: text("description").notNull().default(""),
+  severity: text("severity", {
+    enum: ["low", "normal", "high", "urgent"],
+  })
+    .notNull()
+    .default("normal"),
+  sourceUrl: text("source_url"),
+  pageTitle: text("page_title"),
+  appVersion: text("app_version"),
+  environment: text("environment"),
+  reporterEmail: text("reporter_email"),
+  reporterName: text("reporter_name"),
+  reporterId: text("reporter_id"),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  submittedAt: text("submitted_at").notNull().default(now()),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -274,23 +338,79 @@ export const recordingReactions = table("recording_reactions", {
 // Analytics: viewers + granular events
 // -----------------------------------------------------------------------------
 
-export const recordingViewers = table("recording_viewers", {
+export const recordingViewers = table(
+  "recording_viewers",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // Stable canonical identity for new viewers. Nullable so existing rows can
+    // be migrated additively and claimed on their next event.
+    viewerKey: text("viewer_key"),
+    viewerEmail: text("viewer_email"), // null = anonymous
+    viewerName: text("viewer_name"),
+    firstViewedAt: text("first_viewed_at").notNull().default(now()),
+    lastViewedAt: text("last_viewed_at").notNull().default(now()),
+    totalWatchMs: integer("total_watch_ms").notNull().default(0),
+    completedPct: integer("completed_pct").notNull().default(0),
+    // True once they meet the 5s / 75% / end-scrub rule.
+    countedView: integer("counted_view", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    ctaClicked: integer("cta_clicked", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (viewer) => ({
+    recordingViewerKeyUnique: uniqueIndex(
+      "recording_viewers_recording_viewer_key_unique_idx",
+    ).on(viewer.recordingId, viewer.viewerKey),
+  }),
+);
+
+// Per-view records — one row per distinct counted view, so the owner can see
+// *who viewed and when* (not just an aggregate count or a single
+// first/last-seen row per viewer). Additive on top of `recording_viewers`:
+// that table still drives dedup/aggregation for the counting rule, this table
+// is an append-only log of the moments a view was actually counted.
+export const recordingViews = table("recording_views", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),
+  // FK to recording_viewers.id — the viewer/session this view belongs to.
+  viewerId: text("viewer_id").notNull(),
+  // Stable key for this viewer (email or anonymous session key), used to
+  // collapse duplicate threshold posts for a single player-open session.
+  viewerKey: text("viewer_key"),
+  viewSessionId: text("view_session_id"),
+  // Denormalized for cheap reads without joining recording_viewers.
   viewerEmail: text("viewer_email"), // null = anonymous
   viewerName: text("viewer_name"),
-  firstViewedAt: text("first_viewed_at").notNull().default(now()),
-  lastViewedAt: text("last_viewed_at").notNull().default(now()),
-  totalWatchMs: integer("total_watch_ms").notNull().default(0),
-  completedPct: integer("completed_pct").notNull().default(0),
-  // True once they meet the 5s / 75% / end-scrub rule.
-  countedView: integer("counted_view", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  ctaClicked: integer("cta_clicked", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  viewedAt: text("viewed_at").notNull().default(now()),
 });
+
+// Agent views — one row per (clip, agent, time bucket). Deliberately separate
+// from `recording_viewers` / `recording_views` so no human-view count can ever
+// pick agents up by forgetting a filter: the human tables stay agent-free.
+export const recordingAgentViews = table(
+  "recording_agent_views",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // sha256 of user-agent + request IP. Never stores the raw IP.
+    agentKey: text("agent_key").notNull(),
+    agentLabel: text("agent_label"),
+    // Time bucket that collapses one agent's burst of context/transcript/frame
+    // polls into a single view.
+    viewSessionId: text("view_session_id").notNull(),
+    firstSeenAt: text("first_seen_at").notNull().default(now()),
+    lastSeenAt: text("last_seen_at").notNull().default(now()),
+    requestCount: integer("request_count").notNull().default(1),
+  },
+  (view) => ({
+    recordingAgentViewSessionUnique: uniqueIndex(
+      "recording_agent_views_session_unique_idx",
+    ).on(view.recordingId, view.agentKey, view.viewSessionId),
+  }),
+);
 
 // -----------------------------------------------------------------------------
 // Meetings (Granola-style) — recording + transcript + AI notes anchored to
@@ -335,6 +455,9 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  shareTranscript: integer("share_transcript", { mode: "boolean" })
+    .notNull()
+    .default(false),
   summaryMd: text("summary_md").notNull().default(""),
   // JSON array of `{ text }` bullets.
   bulletsJson: text("bullets_json").notNull().default("[]"),
@@ -445,6 +568,41 @@ export const calendarEvents = table("calendar_events", {
 });
 
 // -----------------------------------------------------------------------------
+// Slack app installs — team-level OAuth grants for Clips app unfurls.
+//
+// Slack webhooks arrive without a Clips user session, so this table is not a
+// framework-shareable resource. It stores only provider metadata and secret
+// references; bot tokens live encrypted in app_secrets.
+// -----------------------------------------------------------------------------
+
+export const slackInstallations = table("slack_installations", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull(),
+  teamName: text("team_name"),
+  enterpriseId: text("enterprise_id"),
+  enterpriseName: text("enterprise_name"),
+  apiAppId: text("api_app_id"),
+  botUserId: text("bot_user_id"),
+  botTokenSecretRef: text("bot_token_secret_ref").notNull(),
+  secretScope: text("secret_scope", {
+    enum: ["user", "org", "workspace"],
+  }).notNull(),
+  secretScopeId: text("secret_scope_id").notNull(),
+  scope: text("scope"),
+  installedBySlackUserId: text("installed_by_slack_user_id"),
+  ownerEmail: text("owner_email").notNull(),
+  orgId: text("org_id"),
+  status: text("status", {
+    enum: ["connected", "disconnected", "revoked", "error"],
+  })
+    .notNull()
+    .default("connected"),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
+// -----------------------------------------------------------------------------
 // Dictations — press-and-hold dictation history. Each row is
 // one full press-and-hold session. Lives separately from `recording_*` so
 // the dictations tab can render fast without scanning the recordings table.
@@ -461,7 +619,15 @@ export const dictations = table("clips_dictations", {
   // are text-only since native recognition runs on-device.
   audioUrl: text("audio_url"),
   source: text("source", {
-    enum: ["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"],
+    enum: [
+      "fn-hold",
+      "cmd-shift-space",
+      "manual",
+      "mobile",
+      "other",
+      "fn",
+      "custom",
+    ],
   })
     .notNull()
     .default("fn-hold"),

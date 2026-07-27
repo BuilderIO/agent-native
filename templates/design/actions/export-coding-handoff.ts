@@ -7,9 +7,11 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
+
 import { schema } from "../server/db/index.js";
 import {
   buildCodingHandoffPrompt,
+  buildHandoffZipUrl,
   buildRawHandoffUrl,
   normalizeHandoffFormat,
 } from "../server/lib/coding-handoff.js";
@@ -29,9 +31,9 @@ function designDeepLink(designId: string): string {
 
 export default defineAction({
   description:
-    "Turn a design into code: create a coding-tool handoff for a design " +
-    "project. Returns a tokenized raw-code URL external agents can fetch, " +
-    "plus a ready-to-copy prompt. The bundle reflects the design's CURRENT " +
+    "Turn a design into code: create an agent handoff for a design project. " +
+    "Returns tokenized raw and ZIP URLs external agents can fetch, plus a " +
+    "ready-to-copy prompt. The bundle reflects the design's CURRENT " +
     "state — live editor (collab) content plus the user's applied visual " +
     "tweaks resolved into the HTML :root — so the generated code matches the " +
     "tuned design, not the original generated tokens. This is the canonical " +
@@ -55,7 +57,7 @@ export default defineAction({
   mcpApp: {
     compactCatalog: true,
     resource: embedApp({
-      title: "Design coding handoff",
+      title: "Design agent handoff",
       description: "Open the design in the real Design editor.",
       iframeTitle: "Agent-Native Design",
       openLabel: "Open design",
@@ -96,8 +98,14 @@ export default defineAction({
       origin: resolvedOrigin,
       format: handoffFormat,
     });
+    const zipUrl = buildHandoffZipUrl({
+      id,
+      token,
+      origin: resolvedOrigin,
+    });
     const prompt = buildCodingHandoffPrompt({
       rawUrl,
+      zipUrl,
       title: design.title,
       fileCount: snapshot.files.length,
     });
@@ -105,6 +113,7 @@ export default defineAction({
     return {
       designId: id,
       rawUrl,
+      zipUrl,
       prompt,
       clipboardText: prompt,
       format: handoffFormat,

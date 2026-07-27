@@ -9,6 +9,7 @@
  * and a page refresh see the same state.
  */
 import { useState, useCallback } from "react";
+
 import type { Slot } from "../../shared/index.js";
 
 export type BookerStage =

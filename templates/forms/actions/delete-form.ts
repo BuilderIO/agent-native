@@ -2,7 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 
 export default defineAction({
   description:
@@ -36,6 +38,7 @@ export default defineAction({
         .delete(schema.responses)
         .where(eq(schema.responses.formId, args.id));
       await db.delete(schema.forms).where(eq(schema.forms.id, args.id));
+      invalidatePublicFormCache(existing);
       return { success: true, purged: true };
     }
 
@@ -44,6 +47,8 @@ export default defineAction({
       .update(schema.forms)
       .set({ deletedAt: now, updatedAt: now })
       .where(eq(schema.forms.id, args.id));
+
+    invalidatePublicFormCache(existing);
 
     return { success: true, purged: false, deletedAt: now };
   },

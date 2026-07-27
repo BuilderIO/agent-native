@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, createElement } from "react";
+
 import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
-import { useAgentChatGenerating } from "./use-agent-chat.js";
-import { isInFrame, isTrustedFrameMessage } from "./frame.js";
 import { isInBuilderFrame, isTrustedBuilderMessage } from "./builder-frame.js";
 import { CodeRequiredDialog } from "./components/CodeRequiredDialog.js";
+import { isInFrame, isTrustedFrameMessage } from "./frame.js";
+import { useAgentChatGenerating } from "./use-agent-chat.js";
 
 /**
  * Wraps sendToAgentChat with code-request gating.

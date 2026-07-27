@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
   BlockRegistry,
   serializeSpecBlock,
@@ -7,6 +6,8 @@ import {
   tabsSchema,
   tabsMdx,
 } from "@agent-native/core/blocks/server";
+import { describe, expect, it } from "vitest";
+
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {

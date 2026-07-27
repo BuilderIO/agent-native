@@ -1,3 +1,12 @@
+import { appPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+import {
+  IconArrowLeft,
+  IconArrowUpRight,
+  IconClockHour4,
+} from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
 import {
   Link,
@@ -7,21 +16,17 @@ import {
   type ClientLoaderFunctionArgs,
   type LoaderFunctionArgs,
 } from "react-router";
-import { useActionQuery, appPath } from "@agent-native/core/client";
-import {
-  IconArrowLeft,
-  IconArrowUpRight,
-  IconClockHour4,
-} from "@tabler/icons-react";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Spinner } from "@/components/ui/spinner";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { resolveServerCatchAllTarget } from "@/lib/catch-all-target";
+
+import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Spinner } from "../../components/ui/spinner";
+import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
@@ -93,12 +98,12 @@ export async function clientLoader({
 }
 
 export default function WorkspaceAppCatchAllRoute() {
+  const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    { refetchInterval: 2_000 },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const { data: apps = [], isLoading } = appsQuery;
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
@@ -117,6 +122,20 @@ export default function WorkspaceAppCatchAllRoute() {
     return <Navigate to={appPath("/overview")} replace />;
   }
 
+  if (appsQuery.isError) {
+    return (
+      <DispatchShell
+        title={t("dispatch.pages.dataLoadFailed")}
+        description={t("dispatch.pages.pageNotFoundDescription")}
+      >
+        <ActionQueryError
+          error={appsQuery.error}
+          onRetry={() => void appsQuery.refetch()}
+        />
+      </DispatchShell>
+    );
+  }
+
   if ((isLoading && !app) || (app && app.status !== "pending" && href)) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
@@ -127,14 +146,14 @@ export default function WorkspaceAppCatchAllRoute() {
 
   return (
     <DispatchShell
-      title={app?.name || "Page not found"}
-      description="This route is not in the workspace app list yet."
+      title={app?.name || t("dispatch.pages.pageNotFound")}
+      description={t("dispatch.pages.pageNotFoundDescription")}
     >
-      <div className="max-w-2xl rounded-lg border bg-card p-5">
+      <div className="max-w-2xl rounded-lg bg-card p-5">
         <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
           <Link to={appPath("/overview")}>
             <IconArrowLeft size={15} className="mr-1.5" />
-            Overview
+            {t("dispatch.nav.overview")}
           </Link>
         </Button>
 
@@ -149,23 +168,30 @@ export default function WorkspaceAppCatchAllRoute() {
                 className="gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
               >
                 <IconClockHour4 size={12} />
-                Building
+                {t("dispatch.pages.building")}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              This app is being created. It will be available at{" "}
+              {t("dispatch.pages.appBuildingPrefix")}{" "}
               <span className="font-mono text-foreground">{app.path}</span>{" "}
-              after its branch is merged and the workspace deploy finishes.
+              {t("dispatch.pages.appBuildingSuffix")}
             </p>
             {app.branchName ? (
               <p className="text-xs text-muted-foreground">
-                Branch: {app.branchName}
+                {t("dispatch.pages.branch", { branch: app.branchName })}
               </p>
             ) : null}
             {app.builderUrl ? (
               <Button asChild>
-                <a href={app.builderUrl} target="_blank" rel="noreferrer">
-                  Open Builder branch
+                <a
+                  href={withBuilderUtmTrackingParams(app.builderUrl, {
+                    campaign: "product",
+                    content: "dispatch_branch",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("dispatch.pages.openBuilderBranch")}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>
               </Button>
@@ -174,14 +200,16 @@ export default function WorkspaceAppCatchAllRoute() {
         ) : (
           <div className="space-y-3">
             <h2 className="text-base font-semibold text-foreground">
-              Page not found
+              {t("dispatch.pages.pageNotFound")}
             </h2>
             <p className="text-sm text-muted-foreground">
               <span className="font-mono text-foreground">/{appId}</span> isn't
-              a Dispatch tab or a workspace app in this workspace.
+              {t("dispatch.pages.notDispatchOrWorkspaceApp")}
             </p>
             <Button asChild>
-              <Link to={appPath("/apps")}>Browse apps</Link>
+              <Link to={appPath("/apps")}>
+                {t("dispatch.pages.browseApps")}
+              </Link>
             </Button>
           </div>
         )}

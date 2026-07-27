@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+
 import { getDbExec, isPostgres } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
-import { accessFilter, assertAccess } from "../../sharing/access.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "../../server/request-context.js";
+import { accessFilter, assertAccess } from "../../sharing/access.js";
+import { getLocalExtension, listLocalExtensions } from "../local.js";
 import { extensions, extensionShares } from "../schema.js";
 import {
   extensionSlots,
@@ -87,6 +90,11 @@ export async function addExtensionSlotTarget(
   slotId: string,
   config?: string,
 ): Promise<ExtensionSlotRow> {
+  if (await getLocalExtension(extensionId)) {
+    throw new Error(
+      "Local file extension slot targets are declared in extension.json.",
+    );
+  }
   await ensureSlotTables();
   await assertAccess("extension", extensionId, "editor");
   const db = getDb();
@@ -128,6 +136,11 @@ export async function removeExtensionSlotTarget(
   extensionId: string,
   slotId: string,
 ): Promise<boolean> {
+  if (await getLocalExtension(extensionId)) {
+    throw new Error(
+      "Local file extension slot targets are declared in extension.json.",
+    );
+  }
   await ensureSlotTables();
   await assertAccess("extension", extensionId, "editor");
   const db = getDb();
@@ -145,6 +158,17 @@ export async function removeExtensionSlotTarget(
 export async function listSlotsForExtension(
   extensionId: string,
 ): Promise<ExtensionSlotRow[]> {
+  const localExtension = await getLocalExtension(extensionId);
+  if (localExtension) {
+    return localExtension.source.slots.map((slotId) => ({
+      id: localSlotDeclarationId(localExtension.id, slotId),
+      extensionId: localExtension.id,
+      slotId,
+      config: null,
+      createdAt: localExtension.createdAt,
+    }));
+  }
+
   await ensureSlotTables();
   await assertAccess("extension", extensionId, "viewer");
   const db = getDb();
@@ -179,8 +203,23 @@ export async function listExtensionsForSlot(slotId: string): Promise<
       icon: extensions.icon,
     })
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares));
-  if (accessible.length === 0) return [];
+    .where(
+      and(
+        accessFilter(extensions, extensionShares),
+        isNull(extensions.archivedAt),
+      ),
+    );
+  const localRows = (await listLocalExtensions())
+    .filter((extension) => extension.source.slots.includes(slotId))
+    .map((extension) => ({
+      extensionId: extension.id,
+      name: extension.name,
+      description: extension.description,
+      icon: extension.icon,
+      config: null,
+    }));
+
+  if (accessible.length === 0) return localRows;
   const ids = accessible.map((t: any) => t.id);
   const declarations = await db
     .select()
@@ -192,7 +231,7 @@ export async function listExtensionsForSlot(slotId: string): Promise<
       ),
     );
   const byId = new Map(accessible.map((t: any) => [t.id, t]));
-  return (declarations as ExtensionSlotRow[]).map((d) => {
+  const sqlRows = (declarations as ExtensionSlotRow[]).map((d) => {
     const t = byId.get(d.extensionId)!;
     return {
       extensionId: d.extensionId,
@@ -202,6 +241,7 @@ export async function listExtensionsForSlot(slotId: string): Promise<
       config: d.config,
     };
   });
+  return [...sqlRows, ...localRows];
 }
 
 /**
@@ -214,6 +254,28 @@ export async function installExtensionSlot(
   slotId: string,
   opts?: { position?: number; config?: string },
 ): Promise<ExtensionSlotInstallRow> {
+  const localExtension = await getLocalExtension(extensionId);
+  if (localExtension) {
+    if (!localExtension.source.slots.includes(slotId)) {
+      throw new Error(
+        `Local file extension "${extensionId}" does not declare slot "${slotId}" in extension.json.`,
+      );
+    }
+    const userEmail = requireUserEmail();
+    const now = new Date().toISOString();
+    return {
+      id: localSlotInstallId(localExtension.id, slotId),
+      extensionId: localExtension.id,
+      slotId,
+      ownerEmail: userEmail,
+      orgId: getRequestOrgId() ?? null,
+      position: opts?.position ?? 0,
+      config: opts?.config ?? null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
   await ensureSlotTables();
   await assertAccess("extension", extensionId, "viewer");
   const userEmail = requireUserEmail();
@@ -266,6 +328,11 @@ export async function uninstallExtensionSlot(
   extensionId: string,
   slotId: string,
 ): Promise<boolean> {
+  if (await getLocalExtension(extensionId)) {
+    throw new Error(
+      "Local file extension slot installs are controlled by extension.json.",
+    );
+  }
   await ensureSlotTables();
   const userEmail = requireUserEmail();
   const db = getDb();
@@ -302,6 +369,18 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
   await ensureSlotTables();
   const userEmail = requireUserEmail();
   const db = getDb();
+  const localInstalls = (await listLocalExtensions())
+    .filter((extension) => extension.source.slots.includes(slotId))
+    .map((extension, index) => ({
+      installId: localSlotInstallId(extension.id, slotId),
+      extensionId: extension.id,
+      name: extension.name,
+      description: extension.description,
+      icon: extension.icon,
+      updatedAt: extension.updatedAt,
+      position: -1000 + index,
+      config: null,
+    }));
 
   const installs = await db
     .select()
@@ -312,7 +391,7 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
         eq(extensionSlotInstalls.slotId, slotId),
       ),
     );
-  if (installs.length === 0) return [];
+  if (installs.length === 0) return localInstalls;
 
   const accessible = await db
     .select({
@@ -323,10 +402,15 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
       updatedAt: extensions.updatedAt,
     })
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares));
+    .where(
+      and(
+        accessFilter(extensions, extensionShares),
+        isNull(extensions.archivedAt),
+      ),
+    );
   const byId = new Map(accessible.map((t: any) => [t.id, t]));
 
-  return (installs as ExtensionSlotInstallRow[])
+  const sqlInstalls = (installs as ExtensionSlotInstallRow[])
     .filter((i) => byId.has(i.extensionId))
     .sort((a, b) => a.position - b.position)
     .map((i) => {
@@ -342,9 +426,10 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
         config: i.config,
       };
     });
+  return [...localInstalls, ...sqlInstalls];
 }
 
-/** Delete every slot/install row referencing a extension. Called from deleteExtension. */
+/** Delete every slot/install row referencing an extension for maintenance. */
 export async function cascadeDeleteExtensionSlots(
   extensionId: string,
 ): Promise<void> {
@@ -364,4 +449,12 @@ function requireUserEmail(): string {
     throw new Error("Slot operations require an authenticated user.");
   }
   return email;
+}
+
+function localSlotDeclarationId(extensionId: string, slotId: string): string {
+  return `local:${extensionId}:${slotId}:declaration`;
+}
+
+function localSlotInstallId(extensionId: string, slotId: string): string {
+  return `local:${extensionId}:${slotId}:install`;
 }

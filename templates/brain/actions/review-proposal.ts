@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { assertAccess } from "@agent-native/core/sharing";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertDerivedAudienceAccess,
   nowIso,
   parseJson,
   serializeProposal,
@@ -30,6 +32,7 @@ export default defineAction({
   run: async ({ id, decision, reviewerNotes, publishCanonical }) => {
     const access = await assertAccess("brain-proposal", id, "editor");
     const proposal = access.resource;
+    await assertDerivedAudienceAccess(proposal);
     if (proposal.status !== "pending") {
       throw new Error(`Proposal ${id} is already ${proposal.status}`);
     }

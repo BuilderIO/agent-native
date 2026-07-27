@@ -1,9 +1,9 @@
 ---
 name: visual-recap
 description: >-
-  Use Agent-Native Plans to turn a code change, PR diff, or git diff into a
-  visual recap plan for high-altitude review — schema, API, file, and
-  before/after changes as grounded structured blocks instead of a wall of diff.
+  Turn a PR, branch, commit, or git diff into an interactive visual recap with
+  diagrams, file maps, API/schema summaries, annotated diffs, and focused review
+  notes.
 metadata:
   visibility: exported
 ---
@@ -19,64 +19,33 @@ schema, API, file, and architecture changes become the same `data-model`,
 now they summarize work that exists. A reviewer scans the shape of the change
 before spending attention on the literal lines.
 
-## Local-Files Privacy Mode Exception
+## Publish As An Agent-Native Plan — Never Inline
 
-Use local-files privacy mode when the user explicitly asks for no DB writes,
-no hosted Plan app, no Plan MCP publish, fully local files, offline/private
-recaps, or when `AGENT_NATIVE_PLANS_MODE=local-files` is set. This is the only
-exception to the hosted publish rule below.
+The deliverable is ALWAYS a published Agent-Native Plan, created with
+`create-visual-recap` on the Plan MCP connector — NEVER inline chat content (not
+Markdown prose, an ASCII sketch, a table, a fenced "wireframe", or a "here's the
+recap" summary). A recap's entire value is the hosted, interactive, annotatable
+plan; an inline summary is not a degraded recap, it is the thing a recap
+replaces. If the `plan` (or legacy `agent-native-plans`) tools are not visible,
+discover them through the host's `tool_search` first; if they are still missing,
+STOP and give the user the client-specific reconnect step rather than improvising
+an inline recap. Before publishing, or whenever a connector or auth error
+appears, READ `references/connection.md` in this skill directory — it is the
+single source of truth for the never-inline rule, connector discovery, and the
+per-client reconnect steps. Local-files privacy mode (below) is the one
+exception.
 
-In local-files mode:
+## Local-Files Privacy Mode — read `references/local-files.md`
 
-- Read the diff/stat/source context from local files and shell commands only.
-  The existing `npx @agent-native/core@latest recap collect-diff`, `scan`, and
-  `build-prompt --local-files` helpers are safe to use because they operate on
-  local files and do not write to the Plan database.
-- Write the recap as a local MDX folder under `plans/<slug>/`: `plan.mdx`,
-  optional `canvas.mdx`, optional `prototype.mdx`, and optional
-  `.plan-state.json`. Set `kind: "recap"` and `localOnly: true` in
-  frontmatter/state when authoring the source.
-- Run `npx @agent-native/core@latest plan local preview --dir plans/<slug> --kind recap` after
-  writing or updating the folder. Report the returned local URL or the
-  `/local-plans/<slug>` route if the local Plan app is running with the same
-  `PLAN_LOCAL_DIR`.
-- Do **not** call `create-visual-recap`, `create-visual-plan`,
-  `import-visual-plan-source`, `update-visual-plan`,
-  `patch-visual-plan-source`, `get-plan-feedback`, `export-visual-plan`,
-  `set-resource-visibility`, or any hosted Plan tool for that recap.
-- Treat review feedback as file or chat feedback: update the MDX files directly,
-  rerun the local preview command, and summarize the new local URL/path.
-  Hosted comments, sharing, screenshots, usage attachment, and PR sticky comment
-  publishing are unavailable until the user explicitly opts into publishing.
-
-Local-files mode prevents recap content from going to the Agent-Native Plan
-database. It does not by itself make the coding agent's language model local;
-for that stronger privacy boundary, the host agent/model must also be local or
-otherwise approved by the user.
-
-## Always Publish As An Agent-Native Plan — Never Inline
-
-The deliverable is ALWAYS a published Agent-Native Plan, created with the
-`create-visual-recap` tool on the Plan MCP connector. The connector is usually
-exposed as the `plan` server, but older installed agents may expose the same
-hosted connector as `agent-native-plans`; both names are valid. NEVER hand the
-recap to the user as inline chat content — not Markdown prose, not an ASCII
-sketch, not a table, not a fenced "wireframe", not a "here's the recap" summary.
-A recap's entire value is the hosted, interactive, annotatable plan; an inline
-summary is not a recap, it is the thing a recap replaces. The only supported
-output is to publish the plan and return its absolute URL.
-
-Except for the explicit local-files privacy mode above, if neither the `plan`
-nor legacy `agent-native-plans` Plan MCP tools are available, do NOT improvise an
-inline recap as a fallback. Do not report the connector as disconnected just
-because it is named `agent-native-plans` instead of `plan`. The usual cause is a
-connector that did not finish connecting this session (it registers zero tools),
-NOT necessarily an auth problem — so do not assume the user must authenticate.
-Stop and tell the user how to restore it: reconnect the Plan MCP connector (in
-Claude Code, run `/mcp` and reconnect, or restart the session); only if it is
-genuinely unauthenticated, run `npx @agent-native/core@latest connect <plan-app-url>` or
-re-authenticate via `/mcp`. Then publish once the tool is reachable. Falling
-back to inline content is a defect, not a degraded mode.
+When the user wants no hosted Plan database writes — no DB writes, no Plan MCP
+publish, fully local/offline/private recaps, or `AGENT_NATIVE_PLANS_MODE=local-files`
+— do not call any hosted Plan tool except the schema-only `get-plan-blocks`
+catalog lookup. Read the diff with the local `recap collect-diff` / `scan` /
+`build-prompt --local-files` helpers, author a local MDX folder (set
+`kind: "recap"` and `localOnly: true`), and preview it with `plan local check`,
+`plan local serve --kind recap`, and `plan local verify --kind recap`. Before
+using local-files mode, READ `references/local-files.md` in this skill directory
+— it is the single source of truth for the full contract.
 
 ## When To Use
 
@@ -164,6 +133,10 @@ Budgets that keep the recap reviewable:
   tab; summarize or link the rest of a long file instead of dumping it.
 - Title at most ~70 characters; brief 1-3 sentences.
 
+These budgets are also the cost ceiling: do not exceed them in the name of
+thoroughness, and do not re-read the full diff after the initial sequential
+pass — work from the notes taken during that pass.
+
 **GOOD.** A 25-file auth change: Before/After wireframes of the login surface,
 a two-paragraph narrative, a diff-aware `data-model` of the sessions table, an
 `api-endpoint` for the new refresh route, a `file-tree` with change flags, and
@@ -244,16 +217,35 @@ sketchy rough overlay.
 When a browser tool is available, render a UI-impact recap in the Plan viewer
 and visually inspect it at the current theme before sharing. If any label,
 annotation, toolbar, or wireframe content overlaps another element, fix the MDX
-and re-import before reporting the link. A text-match screenshot is not enough;
+and re-import before reporting the link. Limit this to one render-and-inspect
+pass plus at most one fix-and-re-render; do not keep iterating beyond that
+unless the user explicitly asks. A text-match screenshot is not enough;
 visually inspect the captured image. When no browser is available (for example
 a headless CI agent), state that in the recap handoff instead.
 
+## Top Canvas Recaps — read `../visual-plan/references/canvas.md`
+
+When a recap includes a top canvas, storyboard, or flow view, READ
+`../visual-plan/references/canvas.md` before authoring `canvas.mdx`. Recap
+canvas artboards must use the same HTML wireframe path as good document-body
+wireframes: `<Screen surface="..." html={...} />` with a semantic HTML fragment.
+Do not author fresh kit-tree children such as `<FrameScreen>`, `<Card>`,
+`<Row>`, `<Title>`, or `<Btn>` inside canvas `<Screen>` tags. Those components
+are legacy compatibility markup for old plans; in new canvas storyboards they
+can produce cramped or overlapping layouts even when the inline body wireframe
+looks good. If a canvas mockup looks worse than the same screen below the fold,
+assume it used the legacy kit path and replace it with an HTML screen.
+
 ## Open And Report The Recap
 
-In local-files privacy mode, report the local preview URL/path from
-`npx @agent-native/core@latest plan local preview` or the `/local-plans/<slug>` route for a local
-Plan app using the same `PLAN_LOCAL_DIR`. Do not invent a hosted URL and do not
-publish just to get an absolute Plan link.
+In local-files privacy mode, run `plan local check` first, then report the local
+bridge URL from
+`npx @agent-native/core@latest plan local serve --dir <plan-dir> --kind recap --open`
+or from `<plan-dir>/.plan-url`. It opens the hosted Plan UI but reads from the
+localhost bridge on this machine, so it is not shareable across machines. If the
+Plan app itself is running locally with the same `PLAN_LOCAL_DIR`, the
+`/local-plans/<slug>` route is also valid. Do not invent a hosted database URL
+and do not publish just to get an absolute Plan link.
 
 After creating the recap, link the reviewer to the rendered plan with an
 **absolute URL on the origin whose database actually holds the plan**. That
@@ -261,6 +253,13 @@ origin is the Plan MCP server you just created the recap through — NOT whateve
 dev server you happen to know is running. The create tool returns the correct
 link; report THAT. Never make the primary link a local `plan.mdx` file, a local
 mirror folder, or a relative path such as `/plans/<id>`.
+
+When the recap is posted to a PR for a private repo, the plan link is not a
+public URL. Make the PR comment/handoff copy explicit: reviewers may need to
+sign in to Agent-Native Plans with an account that has access to the owning
+organization before the link loads. Use wording like: "Private repo recap:
+sign in with access to this org if the plan does not open." Do not imply the
+link is broken or public when access is gated by repo/org visibility.
 
 A recap lives only in the database of the MCP that created it. A separately
 running local dev server (e.g. `http://localhost:8081`) has its OWN database and
@@ -277,7 +276,7 @@ Resolve the URL in this order:
    the plan.
 2. Use a `localhost`/dev origin ONLY when the recap was created through a Plan
    MCP bound to that same origin — i.e. that MCP's url is
-   `http://localhost:<port>/_agent-native/mcp`. Creating through the hosted MCP
+   `http://localhost:<port>/mcp`. Creating through the hosted MCP
    and linking to localhost is the exact mismatch that 404s.
 3. If only a plan id is available, build the MCP origin's absolute URL
    (hosted: `https://plan.agent-native.com/plans/<id>`) and say it was inferred.
@@ -285,7 +284,7 @@ Resolve the URL in this order:
 If the user wants to review on localhost but the recap was created through the
 hosted MCP, say so plainly: the local dev server cannot see it. To view a recap
 on localhost (e.g. to exercise un-deployed local renderer changes), they must
-connect a LOCAL Plan MCP (`http://localhost:<port>/_agent-native/mcp`) and
+connect a LOCAL Plan MCP (`http://localhost:<port>/mcp`) and
 re-create the recap through it so it lands in the local database; offer to do
 that rather than handing over a localhost URL that will not resolve.
 
@@ -347,6 +346,11 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   full document width. Let that heading label the section — do NOT also set a
   `title` on the `tabs` block. Keep each tab label to the file path or a short
   basename plus directory hint.
+  The renderer's wide document layout is intentionally allowlisted: `diff`,
+  `annotated-code`, vertical `tabs`, and `tabs` containing diff-like children
+  break out wider than prose. Do not put API endpoints, OpenAPI specs, data
+  models, JSON explorers, wireframes, question forms, or custom HTML into tabs
+  merely to make them wide.
   If the recap ends with more than one supporting diff, that trailing diff
   appendix should be one horizontal `tabs` block under its own `## Key changes`
   heading, not a stack of separate `diff` blocks.
@@ -379,7 +383,10 @@ tags — resolve every conceptual name to its exact tag + prop schema with the
   Author diagram HTML/CSS with the renderer-owned `.diagram-*` primitives
   (`.diagram-panel`, `.diagram-node`, `.diagram-pill`, `[data-rough]`, …) and
   the same `--wf-*` theme tokens `references/wireframe.md` defines — never
-  `font-family`, hex, rgb/hsl literals, or one-off dark/light palettes.
+  `font-family`, hex, rgb/hsl literals, or one-off dark/light palettes. Choose
+  the outer `frame` intentionally: recap diagrams usually benefit from
+  `frame: "show"` when they stand alone, but use `frame: "hide"` when columns,
+  tabs, a card, or the diagram's own panels already provide the boundary.
 - **Outcome-first narrative** → `rich-text` for the "what changed and why" prose:
   the objective the diff served, the key decisions visible in it, and the risks a
   reviewer should weigh. This is the only place the model writes freely.
@@ -393,12 +400,22 @@ memorized tags — they drift and silently produce a wrong tag (`ApiEndpoint`
 instead of `Endpoint`, `JsonExplorer` instead of `Json`, `Tabs` instead of
 `TabsBlock`) that errors on import.
 
-**Before writing any structured plan content, call `get-plan-blocks` on the Plan
-MCP connector (`plan` or legacy `agent-native-plans`).** It returns the
-authoritative, always-current block
-vocabulary generated live from the app's own block registry — the same config
-the renderer and MDX round-trip use — so it can never be stale even if this
-SKILL.md is an old installed copy:
+**Before writing any structured plan content, fetch/read the block catalog.** In
+hosted or self-hosted mode, call `get-plan-blocks` on the Plan MCP connector
+(`plan` or legacy `agent-native-plans`). If no Plan tools are visible yet in a
+lazy-loading client, search/load them through the host's tool discovery surface
+first (`tool_search` when available). In local-files mode, or when the skill was
+installed as plain text and no MCP tools are registered after discovery, run
+`npx @agent-native/core@latest plan blocks --out plan-blocks.md` and read that
+file first. The CLI command calls the public no-auth `get-plan-blocks` route and
+sends no plan/recap content. If network access is unavailable, use the bundled
+references and validate with `plan local check`; run `plan local serve` only
+when the hosted Plan UI is reachable or a local Plan app is already running.
+
+The catalog returns the authoritative, always-current block vocabulary generated
+live from the app's own block registry — the same config the renderer and MDX
+round-trip use — so it can never be stale even if this SKILL.md is an old
+installed copy:
 
 - `get-plan-blocks` (default `format: "reference"`) → a compact table of every
   block's runtime `type`, exact MDX `<Tag>`, placement, and key data fields.
@@ -417,10 +434,19 @@ fine — only capitalized component-style block tags are validated.
 
 A few recap-specific authoring rules the registry table cannot encode:
 
-- Every block takes a REQUIRED `id` (unique across the whole plan) plus the
-  shared optional `summary` / `editable` envelope; give a block a heading by
-  placing a `rich-text` block with a Markdown `###` heading directly above it
-  (blocks no longer take a `title`).
+- Every structured block takes a REQUIRED `id` (unique across the whole plan)
+  plus the shared optional `summary` / `editable` envelope. Ordinary top-level
+  Markdown prose imports as rich-text automatically; use `<RichText id="...">`
+  only when prose needs explicit metadata or a preserved referenced block id.
+- Every capitalized block component must be self-closing (`<Diagram ... />`) or
+  explicitly closed around children (`<RichText ...>...</RichText>`). Never
+  leave a bare opening tag like `<RichText ...>` in a paragraph; MDX treats it
+  as unclosed JSX and import fails before the recap can render.
+- Code-bearing blocks (`Code`, `AnnotatedCode`, and `Diff`) are
+  whitespace-sensitive. Prefer the exact MDX form from the `get-plan-blocks`
+  examples / source exporter, where multiline code is encoded as JSON string
+  attributes such as `code={"const x =\n  y"}`. Static template literals are
+  accepted only when they are static strings with no `${...}` interpolation.
 - `Endpoint`: prose `description` is the MDX **children** (body between the
   tags), not an attribute; for a WebSocket upgrade use `method="GET"`. Each
   request/response `example` is a JSON **string** (the renderer parses it into
@@ -485,7 +511,9 @@ inferred (not extracted) as inferred in prose.
 - **Gate visibility.** Recaps of a private repo are org/login-gated — set the
   plan's visibility to the owning org or login, never auto-public. A recap can
   expose unreleased schema, internal endpoints, and architecture; treat it like
-  the source it summarizes.
+  the source it summarizes. Any PR comment or handoff that links to the recap
+  must say that private-repo recaps require signing in with access to the owning
+  org if the link does not load.
 - **Never transcribe secrets.** A diff can contain API keys, tokens, webhook
   URLs, signing secrets, `.env` values, or credential-looking literals. Do not
   copy any of these into a `diff`, `file-tree` snippet, `api-endpoint`, or prose
@@ -495,14 +523,17 @@ inferred (not extracted) as inferred in prose.
 
 ## Bidirectional Loop
 
-Because a recap is a real, editable plan, the same review loop as forward plans
-applies: a reviewer can annotate any block, and the coding agent reads
-`get-plan-feedback` to drive fixes back into the code — annotation → agent →
-diff, the same close-the-loop flow forward plans use. After a reviewer annotates
-a block, call `get-plan-feedback` to read the structured feedback, then either
-update the recap with `create-visual-recap` (passing the existing `planId` to
-replace it in place) or apply targeted changes with `update-visual-plan`. The
-loop is live and wired. The one thing not yet automatic is PR-comment-triggered
+In hosted mode, because a recap is a real, editable plan, the same review loop
+as forward plans applies: a reviewer can annotate any block, and the coding
+agent reads `get-plan-feedback` to drive fixes back into the code — annotation →
+agent → diff, the same close-the-loop flow forward plans use. After a reviewer
+annotates a block, call `get-plan-feedback` to read the structured feedback,
+then either update the recap with `create-visual-recap` (passing the existing
+`planId` to replace it in place) or apply targeted changes with
+`update-visual-plan`. The loop is live and wired. In local-files privacy mode,
+do not call those hosted tools; read review notes from chat or local files, edit
+`<plan-dir>/*.mdx` directly, and rerun `plan local check`, `serve`, or `verify`
+for `<plan-dir>`. The one thing not yet automatic is PR-comment-triggered
 re-runs: the GitHub Action creates an initial recap per PR, but it does not yet
 re-run automatically when new review feedback is posted in GitHub — that
 auto-re-run is the remaining fast-follow.

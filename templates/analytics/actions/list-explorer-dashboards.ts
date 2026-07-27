@@ -4,8 +4,9 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import {
-  listDashboards,
+  listDashboardSummaries,
   type DashboardArchiveFilter,
   type DashboardHiddenFilter,
 } from "../server/lib/dashboards-store";
@@ -47,7 +48,7 @@ export default defineAction({
     const ctx = { email, orgId };
     const archived = parseArchivedFilter(args.archived);
     const hidden = parseHiddenFilter(args.hidden);
-    const rows = await listDashboards(ctx, {
+    const rows = await listDashboardSummaries(ctx, {
       kind: "explorer",
       archived,
       hidden,
@@ -55,7 +56,7 @@ export default defineAction({
     return {
       dashboards: rows.map((d) => ({
         id: d.id,
-        ...(d.config as Record<string, unknown>),
+        name: d.name,
         ownerEmail: d.ownerEmail,
         orgId: d.orgId,
         visibility: d.visibility,

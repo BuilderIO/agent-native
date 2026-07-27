@@ -1,59 +1,171 @@
-import { useAuth } from "@/components/auth/AuthProvider";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
+import {
+  AccountSettingsCard,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  type SettingsTabItem,
+} from "@agent-native/core/client/settings";
+import { IconBell } from "@tabler/icons-react";
+import { useMemo } from "react";
 import { Link } from "react-router";
 
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+
+import changelog from "../../CHANGELOG.md?raw";
+import { useReplayStorageStatus } from "../hooks/use-replay-storage-status";
+import { ReplayStorageHint } from "./sessions/SessionsPage";
+import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
+import { buildAnalyticsGeneralSettingsSearchEntries } from "./settings/settings-search";
+
 export default function Settings() {
-  const { auth } = useAuth();
+  const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const replayStorageStatus = useReplayStorageStatus();
+
+  const extraTabs = useMemo<SettingsTabItem[]>(
+    () => [
+      {
+        id: "alerts",
+        label: t("settings.alertsTitle"),
+        icon: IconBell,
+        keywords: "alerts rules notifications thresholds triggers monitoring",
+        content: (
+          <div className="mx-auto w-full max-w-5xl">
+            <AlertRulesSettingsCard />
+          </div>
+        ),
+      },
+      ...agentSettingsTabs,
+    ],
+    [agentSettingsTabs, t],
+  );
+
+  const generalSearchEntries = useMemo(
+    () =>
+      buildAnalyticsGeneralSettingsSearchEntries(
+        t,
+        !!replayStorageStatus.data?.configured,
+      ),
+    [replayStorageStatus.data?.configured, t],
+  );
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <Card className="bg-card border-border/50">
-        <CardHeader>
-          <CardTitle className="text-base">Account</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {auth && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                Signed in as
-              </span>
-              <span className="text-sm font-medium">{auth.email}</span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <SettingsTabsPage
+      account={<AccountSettingsCard />}
+      teamLabel={t("navigation.team")}
+      whatsNewLabel={t("root.whatsNew")}
+      extraTabs={extraTabs}
+      generalSearchEntries={generalSearchEntries}
+      general={
+        <div className="mx-auto w-full max-w-2xl space-y-6">
+          <Card
+            id="credentials"
+            className="bg-card border-border/50 scroll-mt-16"
+          >
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.credentials")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-3">
+                {t("settings.credentialsDescription")}
+              </p>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/data-sources">
+                  {t("settings.manageDataSources")}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
 
-      <Card className="bg-card border-border/50">
-        <CardHeader>
-          <CardTitle className="text-base">Data Source Credentials</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-3">
-            API keys and credentials are managed on the Data Sources page.
-          </p>
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/data-sources">Manage Data Sources</Link>
-          </Button>
-        </CardContent>
-      </Card>
+          <Card
+            id="dashboard-templates"
+            className="bg-card border-border/50 scroll-mt-16"
+          >
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.dashboardTemplates")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.dashboardTemplatesDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/catalog">
+                  {t("settings.openDashboardTemplates")}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
 
-      <Card className="bg-card border-border/50">
-        <CardHeader>
-          <CardTitle className="text-base">About</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            Analytics is a tool for connecting data sources and building custom
-            dashboards. Connect Google Analytics, BigQuery, Stripe, and more —
-            then ask the agent to create dashboards.
-          </p>
-          <p>
-            Use the Data Sources page to manage connections. Use the Query
-            Explorer for ad-hoc BigQuery SQL.
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          {replayStorageStatus.data?.configured ? (
+            <Card
+              id="replay-storage"
+              className="bg-card border-border/50 scroll-mt-16"
+            >
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("sessions.storageSetupTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("sessions.storageSetupDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ReplayStorageHint embedded />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          <Card id="language" className="bg-card border-border/50 scroll-mt-16">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.languageTitle")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="max-w-xs space-y-1.5">
+              <Label>{t("settings.languageLabel")}</Label>
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </CardContent>
+          </Card>
+
+          <Card id="about" className="bg-card border-border/50 scroll-mt-16">
+            <CardHeader>
+              <CardTitle className="text-base">{t("settings.about")}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>{t("settings.aboutDescription")}</p>
+              <p>{t("settings.aboutUsage")}</p>
+            </CardContent>
+          </Card>
+        </div>
+      }
+      team={
+        <div className="mx-auto w-full max-w-5xl">
+          <TeamPage
+            showTitle={false}
+            createOrgDescription="Set up a team to share dashboards and data sources with your colleagues."
+            className="max-w-5xl"
+          />
+        </div>
+      }
+      whatsNew={
+        <div className="mx-auto w-full max-w-2xl">
+          <ChangelogSettingsCard markdown={changelog} />
+        </div>
+      }
+    />
   );
 }

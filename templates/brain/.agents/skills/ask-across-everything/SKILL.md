@@ -25,7 +25,12 @@ metadata, not retrieved evidence.
    user asks a direct cited-memory question and wants an answer immediately.
 2. Read the Brain results and `federatedCoverage.scopeNote`.
 3. Inspect `federatedCoverage.delegationHints` and
-   `federatedCoverage.discoveredAgents.agents`.
+   `federatedCoverage.discoveredAgents.agents`. `delegationHints[].target` is
+   typed to exactly three values today: `"analytics"`, `"mail"`, `"dispatch"`
+   (`FederatedDelegationTarget` in `server/lib/search.ts`) — there is no
+   delegation hint for other templates yet, even if one is installed in the
+   workspace. Each hint also carries `matchedSignals` (which words in the
+   question triggered it) and a human-readable `reason`.
 4. If the user asked for live/app-owned data and a hint matches the request,
    call the specialist app agent with `call-agent`. Keep the prompt narrow and
    include the user question plus any Brain context needed for names, dates, or

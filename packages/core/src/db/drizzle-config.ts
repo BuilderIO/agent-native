@@ -45,6 +45,26 @@ function isNeonUrl(url: string): boolean {
   return lower.includes("neon.tech") || lower.includes(".neon.tech");
 }
 
+function isPgliteUrl(url: string): boolean {
+  return url.toLowerCase().startsWith("pglite:");
+}
+
+function pgliteDataDirFromUrl(url: string): string {
+  const raw = url.slice("pglite:".length);
+  const dataDir = raw.startsWith("//") ? raw.slice(2) : raw;
+  if (!dataDir || dataDir === "/") return "./data/pglite";
+  if (
+    dataDir === "memory" ||
+    dataDir === "/memory" ||
+    dataDir === ":memory:" ||
+    dataDir === "/:memory:" ||
+    dataDir === "memory://"
+  ) {
+    return "memory://";
+  }
+  return dataDir;
+}
+
 /**
  * Create a dialect-detecting drizzle-kit config.
  *
@@ -132,6 +152,7 @@ export function createDrizzleConfig(
   const scheme = url.toLowerCase();
   const isPostgres =
     scheme.startsWith("postgres://") || scheme.startsWith("postgresql://");
+  const isPglite = isPgliteUrl(url);
   // Only `libsql://` matches Turso. Plain `https://` is too broad — Turso's
   // HTTP endpoint is reachable via libsql:// in drizzle-kit, and a generic
   // https:// URL is far more likely to be a custom Postgres endpoint.
@@ -155,11 +176,15 @@ export function createDrizzleConfig(
   return defineConfig({
     schema,
     out,
-    dialect: isPostgres ? "postgresql" : isTurso ? "turso" : "sqlite",
-    dbCredentials: isPostgres
-      ? { url }
-      : isTurso
-        ? { url, authToken: envAuthToken as string }
-        : { url: sqlitePath },
+    dialect:
+      isPostgres || isPglite ? "postgresql" : isTurso ? "turso" : "sqlite",
+    ...(isPglite ? { driver: "pglite" as const } : {}),
+    dbCredentials: isPglite
+      ? { url: pgliteDataDirFromUrl(url) }
+      : isPostgres
+        ? { url }
+        : isTurso
+          ? { url, authToken: envAuthToken as string }
+          : { url: sqlitePath },
   });
 }

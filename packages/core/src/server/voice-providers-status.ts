@@ -18,14 +18,15 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import {
-  resolveHasBuilderPrivateKey,
+  resolveHasCompleteBuilderConnection,
   resolveSecret,
 } from "./credential-provider.js";
-import { getOrgContext } from "../org/context.js";
-import { runWithRequestContext } from "./request-context.js";
 import { resolveGoogleRealtimeCredentials } from "./google-realtime-session.js";
+import { runWithRequestContext } from "./request-context.js";
 
 export interface VoiceProvidersStatus {
   builder: boolean;
@@ -89,8 +90,9 @@ export function createVoiceProvidersStatusHandler() {
     let builder = false;
     try {
       builder =
-        (await withRequestContext(() => resolveHasBuilderPrivateKey())) ===
-        true;
+        (await withRequestContext(() =>
+          resolveHasCompleteBuilderConnection(),
+        )) === true;
     } catch {
       builder = false;
     }

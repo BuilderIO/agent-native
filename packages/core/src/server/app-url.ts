@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
  * Resolve the canonical URL of this app — used in transactional emails,
  * invite links, and anywhere we need an absolute URL that remains valid
@@ -24,8 +27,7 @@
  * production base URL.
  */
 import { getRequestURL, type H3Event } from "h3";
-import path from "node:path";
-import fs from "node:fs";
+
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { isLocalDatabase } from "../db/client.js";
 
@@ -65,6 +67,18 @@ function firstConfiguredUrl(keys: readonly string[]): string | undefined {
   return undefined;
 }
 
+function firstConfiguredPublicUrl(keys: readonly string[]): string | undefined {
+  const allowLoopback = !isHostedRuntime();
+  for (const key of keys) {
+    const value = process.env[key];
+    if (!value) continue;
+    const url = stripTrailingSlash(value);
+    if (!allowLoopback && isLoopbackUrl(url)) continue;
+    return url;
+  }
+  return undefined;
+}
+
 function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
@@ -75,6 +89,18 @@ function isLoopbackUrl(value: string | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+function isHostedRuntime(): boolean {
+  return Boolean(
+    process.env.NODE_ENV === "production" ||
+    process.env.NETLIFY ||
+    process.env.URL ||
+    process.env.DEPLOY_URL ||
+    process.env.VERCEL ||
+    process.env.VERCEL_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL,
+  );
 }
 
 function workspaceGatewayUrl(options: {
@@ -102,7 +128,7 @@ export function getFirstPartyProdUrl(): string | undefined {
 }
 
 export function getAppProductionUrl(event?: H3Event): string {
-  const envUrl = firstConfiguredUrl([
+  const envUrl = firstConfiguredPublicUrl([
     "APP_URL",
     "WORKSPACE_OAUTH_ORIGIN",
     "VITE_WORKSPACE_OAUTH_ORIGIN",

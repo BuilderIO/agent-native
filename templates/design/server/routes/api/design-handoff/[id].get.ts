@@ -1,3 +1,5 @@
+import { verifyShortLivedToken } from "@agent-native/core/server";
+import { eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getQuery,
@@ -6,8 +8,7 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
-import { verifyShortLivedToken } from "@agent-native/core/server";
+
 import { getDb, schema } from "../../../db/index.js";
 import {
   buildDesignHandoffMarkdown,

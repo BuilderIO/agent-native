@@ -5,15 +5,15 @@ import {
   listWorkspaceConnectionGrants,
   summarizeWorkspaceConnectionProviderReadiness,
 } from "@agent-native/core/workspace-connections";
+import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
-const SUGGESTED_GRANT_APPS = [
-  { id: "dispatch", label: "Dispatch" },
-  { id: "brain", label: "Brain" },
-  { id: "assets", label: "Assets" },
-  { id: "analytics", label: "Analytics" },
-  { id: "mail", label: "Mail" },
-] as const;
+type WorkspaceApp = {
+  id: string;
+  name?: string;
+  status?: "ready" | "pending";
+  archived?: boolean;
+};
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(
@@ -27,6 +27,29 @@ function humanizeAppId(appId: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+async function listGrantApps() {
+  const listWorkspaceApps = dispatchActions["list-workspace-apps"];
+  if (!listWorkspaceApps) return [{ id: "dispatch", label: "Dispatch" }];
+
+  try {
+    const apps = (await listWorkspaceApps.run({
+      includeAgentCards: false,
+      audience: "all",
+    } as any)) as WorkspaceApp[];
+    const grantApps = apps
+      .filter((app) => !app.archived && app.status !== "pending")
+      .map((app) => ({
+        id: app.id,
+        label: app.name || humanizeAppId(app.id),
+      }));
+    return grantApps.length > 0
+      ? grantApps
+      : [{ id: "dispatch", label: "Dispatch" }];
+  } catch {
+    return [{ id: "dispatch", label: "Dispatch" }];
+  }
 }
 
 export default defineAction({
@@ -76,15 +99,10 @@ export default defineAction({
       "dispatch",
       ...provider.recommendedTemplateUses,
     ]);
-    const suggestedApps = uniqueStrings([
-      ...SUGGESTED_GRANT_APPS.map((app) => app.id),
-      ...recommendedAppIds,
-    ]).map((appId) => ({
-      id: appId,
-      label:
-        SUGGESTED_GRANT_APPS.find((app) => app.id === appId)?.label ??
-        humanizeAppId(appId),
-      recommended: recommendedAppIds.includes(appId),
+    const grantApps = await listGrantApps();
+    const suggestedApps = grantApps.map((app) => ({
+      ...app,
+      recommended: recommendedAppIds.includes(app.id),
     }));
     const explicitGrants = connection
       ? await listWorkspaceConnectionGrants({ connectionId: connection.id })

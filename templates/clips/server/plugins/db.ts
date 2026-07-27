@@ -1,12 +1,38 @@
-import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
+import {
+  runMigrations,
+  getDbExec,
+  isPostgres,
+  ensureAdditiveColumns,
+} from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
+
 // Side-effect import — registers `recording` as a shareable resource with the
 // framework before any HTTP request runs. The framework's auto-mounted
 // share-resource / set-resource-visibility / list-resource-shares actions
 // are loaded in a separate Vite SSR bundle from user actions, so we trigger
 // the registration eagerly from the always-loaded db plugin.
 import "../db/index.js";
+import * as schema from "../db/schema.js";
+import { uploadLeaseExpiry } from "../lib/upload-lease.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 /**
  * Post-migration fixup for Postgres: retype boolean-mode columns from bigint
@@ -39,6 +65,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
     ["meeting_participants", "is_organizer", false],
+    ["clips_meetings", "share_transcript", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -62,6 +89,10 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
   }
 }
 
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the v41 incident documented on v41 below.
 const migrations = runMigrations(
   [
     // ---------------------------------------------------------------------------
@@ -75,7 +106,7 @@ const migrations = runMigrations(
       slug TEXT NOT NULL,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -319,7 +350,7 @@ const migrations = runMigrations(
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -647,9 +678,19 @@ const migrations = runMigrations(
     // and `dictation_shares` (v25) are NOT on any access path — the schema and
     // every `accessFilter` callsite use the `clips_*` prefixed tables — so they
     // are intentionally skipped.
+    //
+    // v41 was recorded as applied in `clips_migrations` on the shared Neon
+    // database, but none of its 8 indexes actually existed live (confirmed via
+    // `pg_indexes` — the exact "recorded but never ran" collision class
+    // `runMigrations` name-based tracking exists to fix; see
+    // packages/core/src/db/migrations.ts). All statements here are
+    // `CREATE INDEX IF NOT EXISTS` (unchanged, still idempotent), so it is
+    // named to re-apply by name regardless of this database's recorded
+    // MAX(version).
     // -------------------------------------------------------------------------
     {
       version: 41,
+      name: "recordings-comments-shares-hot-path-indexes",
       sql: [
         // recordings list: library view filters owner_email + workspace_id and
         // sorts by created_at; the accessFilter owner branch also scopes by
@@ -665,6 +706,197 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS clips_meeting_shares_resource_principal_idx ON clips_meeting_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS clips_dictation_shares_resource_principal_idx ON clips_dictation_shares (resource_id, principal_type, principal_id)`,
         `CREATE INDEX IF NOT EXISTS calendar_account_shares_resource_principal_idx ON calendar_account_shares (resource_id, principal_type, principal_id)`,
+      ].join("; "),
+    },
+    {
+      version: 42,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_browser_diagnostics (
+          recording_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          workspace_id TEXT NOT NULL,
+          org_id TEXT,
+          session_id TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT 'browser-recorder',
+          phase TEXT NOT NULL DEFAULT 'recording',
+          page_url TEXT,
+          user_agent TEXT,
+          started_at TEXT NOT NULL,
+          ended_at TEXT NOT NULL,
+          console_logs_json TEXT NOT NULL DEFAULT '[]',
+          network_requests_json TEXT NOT NULL DEFAULT '[]',
+          redaction_version INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_browser_diagnostics_owner_idx ON recording_browser_diagnostics (owner_email, updated_at)`,
+      ].join("; "),
+    },
+    {
+      version: 43,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS slack_installations (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL,
+          team_name TEXT,
+          enterprise_id TEXT,
+          enterprise_name TEXT,
+          api_app_id TEXT,
+          bot_user_id TEXT,
+          bot_token_secret_ref TEXT NOT NULL,
+          secret_scope TEXT NOT NULL,
+          secret_scope_id TEXT NOT NULL,
+          scope TEXT,
+          installed_by_slack_user_id TEXT,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          status TEXT NOT NULL DEFAULT 'connected',
+          last_error TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS slack_installations_team_status_idx ON slack_installations (team_id, status)`,
+        `CREATE INDEX IF NOT EXISTS slack_installations_team_app_status_idx ON slack_installations (team_id, api_app_id, status)`,
+        `CREATE INDEX IF NOT EXISTS slack_installations_owner_idx ON slack_installations (owner_email, created_at)`,
+        `CREATE INDEX IF NOT EXISTS slack_installations_org_idx ON slack_installations (org_id, created_at)`,
+      ].join("; "),
+    },
+    {
+      version: 44,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_bug_reports (
+          recording_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          workspace_id TEXT NOT NULL,
+          org_id TEXT,
+          project_id TEXT,
+          title TEXT,
+          description TEXT NOT NULL DEFAULT '',
+          severity TEXT NOT NULL DEFAULT 'normal',
+          source_url TEXT,
+          page_title TEXT,
+          app_version TEXT,
+          environment TEXT,
+          reporter_email TEXT,
+          reporter_name TEXT,
+          reporter_id TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
+      ].join("; "),
+    },
+    {
+      version: 45,
+      name: "recording-transcripts-retry-count",
+      sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    // ---------------------------------------------------------------------------
+    // Per-view records — append-only log of counted views (who viewed a clip
+    // and when), backing the owner-facing "Viewed by" popover and the
+    // `list-clip-views` action. Newer rows include a per-player-open
+    // view_session_id so returning viewers can appear again while duplicate
+    // threshold posts for the same open are idempotent.
+    // ---------------------------------------------------------------------------
+    {
+      version: 46,
+      name: "recording-views-per-view-log",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          viewer_id TEXT NOT NULL,
+          viewer_key TEXT,
+          view_session_id TEXT,
+          viewer_email TEXT,
+          viewer_name TEXT,
+          viewed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_views_recording_idx ON recording_views (recording_id, viewed_at)`,
+      ].join("; "),
+    },
+    {
+      version: 47,
+      name: "recording-views-session-idempotency",
+      sql: [
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `ALTER TABLE recording_views ADD COLUMN IF NOT EXISTS view_session_id TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
+      ].join("; "),
+    },
+    {
+      version: 48,
+      name: "recording-viewers-canonical-viewer-key",
+      sql: [
+        `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
+      ].join("; "),
+    },
+    {
+      version: 49,
+      name: "clips-meetings-share-transcript",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 50,
+      name: "clips-public-organization-default",
+      // Earlier releases persisted the old private default into org rows.
+      // Normalize that state once; the org setting remains an explicit override.
+      // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
+      sql: [
+        `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+        `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+      ].join("; "),
+    },
+    // -------------------------------------------------------------------------
+    // Agent views — external agents polling a public clip's agent context,
+    // transcript, or frame APIs. Kept in its own table so human view counts
+    // cannot accidentally include agents.
+    // -------------------------------------------------------------------------
+    {
+      version: 51,
+      name: "recording-agent-views",
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_agent_views (
+          id TEXT PRIMARY KEY,
+          recording_id TEXT NOT NULL,
+          agent_key TEXT NOT NULL,
+          agent_label TEXT,
+          view_session_id TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+          request_count INTEGER NOT NULL DEFAULT 1
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_agent_views_session_unique_idx ON recording_agent_views (recording_id, agent_key, view_session_id)`,
+        `CREATE INDEX IF NOT EXISTS recording_agent_views_recording_idx ON recording_agent_views (recording_id, last_seen_at)`,
+      ].join("; "),
+    },
+    {
+      version: 52,
+      name: "recording-loom-import-claim-lease",
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claim_id TEXT`,
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS loom_import_claimed_at TEXT`,
+      ].join("; "),
+    },
+    {
+      version: 53,
+      name: "recording-upload-lease",
+      // Grant every pre-lease in-progress recording one full lease horizon so
+      // the reaper can reach rows the old session-keyed sweeps could never
+      // select. Backfilling `updated_at` instead would hand a live upload an
+      // already-expired lease and reap it before its next chunk lands, so
+      // pre-lease rows get the same horizon any other row gets. Long-stranded
+      // rows are terminated one horizon after this runs.
+      // Idempotent: the UPDATE only touches NULL leases.
+      // guard:allow-unscoped — startup migration backfills every owner's rows.
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS upload_lease_expires_at TEXT`,
+        `CREATE INDEX IF NOT EXISTS recordings_upload_lease_idx ON recordings (status, upload_lease_expires_at)`,
+        `UPDATE recordings SET upload_lease_expires_at = '${uploadLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status IN ('uploading', 'processing')`,
       ].join("; "),
     },
   ],
@@ -951,133 +1183,6 @@ async function syncWorkspacesToOrganizations(): Promise<void> {
   }
 }
 
-/**
- * Sweep orphaned recording-chunk scratch rows out of `application_state`.
- *
- * Why: `/api/uploads/:id/chunk` base64-encodes each MediaRecorder chunk and
- * stores it in `application_state` keyed `recording-chunks-<recordingId>-<idx>`.
- * `finalize-recording` is responsible for deleting those rows after assembling
- * the final blob — but before this sweep existed, a finalize that threw
- * mid-way (uploadFile failure, DB hiccup, dev-server restart between chunk
- * arrival and finalize) left every chunk in place forever. Each chunk is ~1 MB
- * of base64; a 30-minute recording is ~1.5 GB of orphaned scratch space, and
- * those rows are resident in memory as soon as the server fetches them. This
- * was the server-side half of the 70 GB memory leak Steve reported.
- *
- * Safe rules: we only delete chunks whose matching `recordings` row is either
- * (a) absent (the recording was deleted but chunks remained), or
- * (b) in status=`ready` or `failed` (finalize ran and should have cleaned, or
- *     bailed), AND last updated more than 1 hour ago (don't race a finalize
- *     that's CURRENTLY running).
- *
- * Runs once on server startup. Best-effort — any individual delete or probe
- * failure is logged and ignored; the rest of the sweep continues.
- */
-async function sweepOrphanedRecordingChunks(): Promise<void> {
-  const exec = getDbExec();
-  const pg = isPostgres();
-
-  let chunkRows: Array<{ key: string }> = [];
-  try {
-    const probe = await exec.execute({
-      sql: `SELECT key FROM application_state WHERE key LIKE 'recording-chunks-%'`,
-      args: [],
-    });
-    chunkRows = (probe.rows as Array<{ key: string }>) ?? [];
-  } catch (err) {
-    // application_state may not exist on a fresh dev DB — bail quietly.
-    const message = (err as Error)?.message ?? String(err);
-    if (
-      /no such table:\s*application_state/i.test(message) ||
-      /relation ["']?application_state["']? does not exist/i.test(message)
-    ) {
-      return;
-    }
-    console.warn("[db] chunk sweep: application_state probe failed", message);
-    return;
-  }
-
-  if (chunkRows.length === 0) return;
-
-  // Group by recordingId so one probe per recording, not per chunk.
-  const keysByRecording = new Map<string, string[]>();
-  for (const row of chunkRows) {
-    // Key shape: recording-chunks-<recordingId>-<paddedIdx>. `recordingId` may
-    // contain hyphens, so we peel off the trailing `-<idx>` first and then
-    // the `recording-chunks-` prefix.
-    const stripped = row.key.replace(/^recording-chunks-/, "");
-    const lastDash = stripped.lastIndexOf("-");
-    if (lastDash < 0) continue;
-    const recordingId = stripped.slice(0, lastDash);
-    const list = keysByRecording.get(recordingId) ?? [];
-    list.push(row.key);
-    keysByRecording.set(recordingId, list);
-  }
-
-  const oneHourAgoIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  let totalDeleted = 0;
-  let recordingsCleaned = 0;
-
-  for (const [recordingId, keys] of keysByRecording) {
-    let shouldSweep = false;
-    // guard:allow-unscoped — orphaned-chunk GC sweep — system-level by design
-    try {
-      const probe = await exec.execute({
-        sql: pg
-          ? `SELECT status, updated_at FROM recordings WHERE id = $1 LIMIT 1`
-          : `SELECT status, updated_at FROM recordings WHERE id = ? LIMIT 1`,
-        args: [recordingId],
-      });
-      const row = (
-        probe.rows as Array<{ status?: string; updated_at?: string }>
-      )[0];
-      if (!row) {
-        // Recording row gone — chunks are orphaned.
-        shouldSweep = true;
-      } else if (
-        (row.status === "ready" || row.status === "failed") &&
-        (row.updated_at ?? "") < oneHourAgoIso
-      ) {
-        // Finalize ran (ready) or bailed (failed) and it's been >1h — safe.
-        shouldSweep = true;
-      }
-    } catch (err) {
-      console.warn("[db] chunk sweep: recording probe failed", {
-        recordingId,
-        err: (err as Error)?.message ?? err,
-      });
-      continue;
-    }
-
-    if (!shouldSweep) continue;
-
-    for (const key of keys) {
-      try {
-        await exec.execute({
-          sql: pg
-            ? `DELETE FROM application_state WHERE key = $1`
-            : `DELETE FROM application_state WHERE key = ?`,
-          args: [key],
-        });
-        totalDeleted += 1;
-      } catch (err) {
-        console.warn("[db] chunk sweep: delete failed", {
-          key,
-          err: (err as Error)?.message ?? err,
-        });
-      }
-    }
-    recordingsCleaned += 1;
-  }
-
-  if (totalDeleted > 0) {
-    console.log("[db] swept orphaned recording chunks", {
-      totalDeleted,
-      recordingsCleaned,
-    });
-  }
-}
-
 async function backfillRecordingOrgId(): Promise<void> {
   const exec = getDbExec();
   try {
@@ -1320,16 +1425,40 @@ async function backfillLegacyClipsTables(): Promise<void> {
   }
 }
 
+/**
+ * The migration list above is the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after it (and after the
+ * other startup backfills) as a belt-and-braces safety net: a column added to
+ * schema.ts without a matching hand-written ALTER migration silently 500s
+ * every query touching a pre-existing production table. It only ever adds
+ * missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
 export default async (nitroApp: any): Promise<void> => {
   await migrations(nitroApp);
   await retypeBooleanColumnsOnPostgres();
   await backfillLegacyClipsTables();
   await syncWorkspacesToOrganizations();
   await backfillRecordingOrgId();
-  // Best-effort chunk sweep — don't block startup on failures.
-  sweepOrphanedRecordingChunks().catch((err) => {
-    console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
-  });
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   // ---------------------------------------------------------------------------
   // Register Clips template events for the automations system.

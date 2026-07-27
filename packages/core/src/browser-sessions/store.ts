@@ -5,6 +5,7 @@ import {
   retryOnDdlRace,
   safeJsonParse,
 } from "../db/client.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type {
   AgentNativeBrowserSession,
   AgentNativeBrowserSessionAction,
@@ -38,8 +39,7 @@ async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSessionsSql = `
           CREATE TABLE IF NOT EXISTS ${SESSION_TABLE} (
             owner_email TEXT NOT NULL,
             session_id TEXT NOT NULL,
@@ -53,16 +53,8 @@ async function ensureTables(): Promise<void> {
             expires_at ${intType()} NOT NULL,
             PRIMARY KEY (owner_email, session_id)
           )
-        `),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE INDEX IF NOT EXISTS agent_native_browser_sessions_owner_seen_idx
-          ON ${SESSION_TABLE} (owner_email, last_seen_at)
-        `),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(`
+        `;
+      const createRequestsSql = `
           CREATE TABLE IF NOT EXISTS ${REQUEST_TABLE} (
             owner_email TEXT NOT NULL,
             session_id TEXT NOT NULL,
@@ -80,8 +72,35 @@ async function ensureTables(): Promise<void> {
             error TEXT,
             PRIMARY KEY (owner_email, request_id)
           )
+        `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes first (no lock) and
+        // only issue DDL when the table/index is actually missing, wrapped in
+        // a transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists(SESSION_TABLE, createSessionsSql);
+        await ensureIndexExists(
+          "agent_native_browser_sessions_owner_seen_idx",
+          `CREATE INDEX IF NOT EXISTS agent_native_browser_sessions_owner_seen_idx ON ${SESSION_TABLE} (owner_email, last_seen_at)`,
+        );
+        await ensureTableExists(REQUEST_TABLE, createRequestsSql);
+        await ensureIndexExists(
+          "agent_native_browser_session_requests_pending_idx",
+          `CREATE INDEX IF NOT EXISTS agent_native_browser_session_requests_pending_idx ON ${REQUEST_TABLE} (owner_email, session_id, status, created_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // retryOnDdlRace behaviour.
+      await retryOnDdlRace(() => client.execute(createSessionsSql));
+      await retryOnDdlRace(() =>
+        client.execute(`
+          CREATE INDEX IF NOT EXISTS agent_native_browser_sessions_owner_seen_idx
+          ON ${SESSION_TABLE} (owner_email, last_seen_at)
         `),
       );
+      await retryOnDdlRace(() => client.execute(createRequestsSql));
       await retryOnDdlRace(() =>
         client.execute(`
           CREATE INDEX IF NOT EXISTS agent_native_browser_session_requests_pending_idx

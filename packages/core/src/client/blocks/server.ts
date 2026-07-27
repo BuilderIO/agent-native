@@ -36,6 +36,8 @@ export {
   jsonExpression,
   attributeValue,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   serializeSpecBlock,
   parseSpecBlock,
   type MdxJsxNode,

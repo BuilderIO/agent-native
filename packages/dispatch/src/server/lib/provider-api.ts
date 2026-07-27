@@ -1,6 +1,7 @@
 import {
   PROVIDER_API_IDS,
   createProviderApiRuntime,
+  type ProviderApiDocsOptions,
   listCustomProviders,
   type ProviderApiId,
   type ProviderApiMethod,
@@ -8,6 +9,7 @@ import {
 } from "@agent-native/core/provider-api";
 import { getCredentialContext } from "@agent-native/core/server";
 
+export const DISPATCH_APP_ID = "dispatch";
 export const DISPATCH_PROVIDER_API_IDS = PROVIDER_API_IDS;
 export type DispatchProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };
@@ -23,7 +25,7 @@ function requireCtx(action: string) {
 }
 
 const runtime = createProviderApiRuntime({
-  appId: "dispatch",
+  appId: DISPATCH_APP_ID,
   localCredentialSource: "dispatch_local",
   getCredentialContext: () => requireCtx("requests"),
   getCustomProviders: async () => {
@@ -56,11 +58,9 @@ export function listProviderApiCatalog(provider?: string) {
   return runtime.listCatalog(provider);
 }
 
-export function fetchProviderApiDocs(options: {
-  provider: string;
-  url?: string;
-  maxBytes?: number;
-}) {
+export function fetchProviderApiDocs(
+  options: ProviderApiDocsOptions & { provider: string },
+) {
   return runtime.fetchDocs(options);
 }
 

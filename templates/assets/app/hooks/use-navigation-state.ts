@@ -1,5 +1,5 @@
-import { useAgentRouteState } from "@agent-native/core/client";
-
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 function optionalParam(params: URLSearchParams, key: string) {
   const value = params.get(key)?.trim();
   return value ? value : undefined;
@@ -7,7 +7,8 @@ function optionalParam(params: URLSearchParams, key: string) {
 
 function optionalLibraryTab(params: URLSearchParams) {
   const tab = params.get("tab");
-  return tab === "references" ||
+  return tab === "drafts" ||
+    tab === "references" ||
     tab === "generated" ||
     tab === "runs" ||
     tab === "settings"
@@ -15,15 +16,48 @@ function optionalLibraryTab(params: URLSearchParams) {
     : undefined;
 }
 
+function isPickerRequest(params: URLSearchParams) {
+  return (
+    params.get("__an_picker") === "1" ||
+    params.get("__an_mcp_chat_bridge") === "1"
+  );
+}
+
 function navigationFromPath(pathname: string, search = "") {
-  // The "library" view is the brand-kit detail page (route /brand-kits/:id).
-  // Keep the internal view key stable for the agent/MCP contract.
-  const library = pathname.match(/^\/brand-kits\/([^/]+)/);
-  if (library) {
-    const params = new URLSearchParams(search);
+  const params = new URLSearchParams(search);
+  const chat = pathname.match(/^\/chat\/([^/]+)/);
+  if (chat) {
+    return {
+      view: "create",
+      threadId: decodePathParam(chat[1]),
+    };
+  }
+  const preset = pathname.match(/^\/brand-kits\/([^/]+)\/presets\/([^/]+)/);
+  if (preset) {
+    return {
+      view: "preset",
+      libraryId: decodePathParam(preset[1]),
+      presetId: decodePathParam(preset[2]),
+    };
+  }
+  const brandKitSettings = pathname.match(/^\/brand-kits\/([^/]+)\/settings/);
+  if (brandKitSettings) {
     return {
       view: "library",
-      libraryId: library[1],
+      selection: decodePathParam(brandKitSettings[1]),
+      libraryId: decodePathParam(brandKitSettings[1]),
+      activeTab: "settings",
+    };
+  }
+  // The "library" view is the unified Library workspace. Keep the internal
+  // detail key stable for agent/MCP callers that already navigate by brand-kit
+  // id, while the URL is now /library/:id.
+  const library = pathname.match(/^\/(?:library|brand-kits)\/([^/]+)/);
+  if (library) {
+    return {
+      view: "library",
+      selection: decodePathParam(library[1]),
+      libraryId: decodePathParam(library[1]),
       activeTab: optionalLibraryTab(params),
     };
   }
@@ -31,26 +65,46 @@ function navigationFromPath(pathname: string, search = "") {
   if (asset) return { view: "asset", assetId: asset[1] };
   const image = pathname.match(/^\/image\/([^/]+)/);
   if (image) return { view: "asset", assetId: image[1] };
-  if (pathname === "/") return { view: "create" };
-  // The "picker" view is the image Library browser (route /library).
-  if (pathname === "/library") {
-    const params = new URLSearchParams(search);
+  if (pathname === "/") {
     return {
-      view: "picker",
-      mediaType:
-        params.get("mediaType") === "video"
-          ? "video"
-          : params.get("mediaType") === "image"
-            ? "image"
-            : undefined,
-      libraryId: optionalParam(params, "libraryId"),
-      query: optionalParam(params, "q"),
-      prompt: optionalParam(params, "prompt"),
-      aspectRatio: optionalParam(params, "aspectRatio"),
+      view: "create",
     };
   }
-  // The "libraries" view is the Brand Kits list (route /brand-kits).
-  if (pathname === "/brand-kits") return { view: "libraries" };
+  if (pathname === "/library") {
+    if (isPickerRequest(params)) {
+      return {
+        view: "picker",
+        mediaType:
+          params.get("mediaType") === "video"
+            ? "video"
+            : params.get("mediaType") === "image"
+              ? "image"
+              : undefined,
+        libraryId: optionalParam(params, "libraryId"),
+        query: optionalParam(params, "q"),
+        prompt: optionalParam(params, "prompt"),
+        aspectRatio: optionalParam(params, "aspectRatio"),
+        layout: params.get("layout") === "vertical" ? "vertical" : undefined,
+      };
+    }
+    const queryLibraryId = optionalParam(params, "libraryId");
+    if (queryLibraryId) {
+      return {
+        view: "library",
+        selection: queryLibraryId,
+        libraryId: queryLibraryId,
+        activeTab: optionalLibraryTab(params),
+      };
+    }
+    return {
+      view: "library",
+      selection: "all",
+      tab: optionalParam(params, "tab"),
+      scope: optionalParam(params, "scope"),
+      search: optionalParam(params, "q"),
+    };
+  }
+  if (pathname === "/brand-kits") return { view: "library", selection: "all" };
   if (pathname === "/extensions") return { view: "extensions" };
   const extension = pathname.match(/^\/extensions\/([^/]+)/);
   if (extension) return { view: "extensions", extensionId: extension[1] };
@@ -63,12 +117,18 @@ function pathFromCommand(command: any): string | null {
   if (!command) return null;
   if (typeof command.path === "string") return command.path;
   if (command.view === "library" && command.libraryId) {
+    if (command.activeTab === "settings") {
+      return `/brand-kits/${encodeURIComponent(command.libraryId)}/settings`;
+    }
     const params = new URLSearchParams();
     if (typeof command.activeTab === "string") {
       params.set("tab", command.activeTab);
     }
     const query = params.toString();
-    return `/brand-kits/${command.libraryId}${query ? `?${query}` : ""}`;
+    return `/library/${command.libraryId}${query ? `?${query}` : ""}`;
+  }
+  if (command.view === "preset" && command.libraryId && command.presetId) {
+    return `/brand-kits/${encodeURIComponent(command.libraryId)}/presets/${encodeURIComponent(command.presetId)}`;
   }
   if (
     (command.view === "asset" || command.view === "image") &&
@@ -83,13 +143,19 @@ function pathFromCommand(command: any): string | null {
   ) {
     const tab =
       typeof command.activeTab === "string" ? command.activeTab : "runs";
-    return `/brand-kits/${command.libraryId}?tab=${encodeURIComponent(tab)}`;
+    return `/library/${command.libraryId}?tab=${encodeURIComponent(tab)}`;
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
-  if (command.view === "create") return "/";
+  if (command.view === "create") {
+    if (typeof command.threadId === "string" && command.threadId.trim()) {
+      return `/chat/${encodeURIComponent(command.threadId.trim())}`;
+    }
+    return "/";
+  }
   if (command.view === "picker") {
     const params = new URLSearchParams();
+    params.set("__an_picker", "1");
     if (command.mediaType === "image" || command.mediaType === "video") {
       params.set("mediaType", command.mediaType);
     }
@@ -105,10 +171,13 @@ function pathFromCommand(command: any): string | null {
     if (typeof command.aspectRatio === "string" && command.aspectRatio.trim()) {
       params.set("aspectRatio", command.aspectRatio.trim());
     }
+    if (command.layout === "vertical") {
+      params.set("layout", "vertical");
+    }
     const query = params.toString();
     return query ? `/library?${query}` : "/library";
   }
-  if (command.view === "libraries") return "/brand-kits";
+  if (command.view === "libraries") return "/library";
   if (command.view === "extensions" && command.extensionId) {
     return `/extensions/${command.extensionId}`;
   }
@@ -118,9 +187,18 @@ function pathFromCommand(command: any): string | null {
 
 export function useNavigationState() {
   useAgentRouteState({
-    requestSource: "assets-ui",
+    browserTabId: getBrowserTabId(),
+    requestSource: getBrowserTabId(),
     getNavigationState: ({ pathname, search }) =>
       navigationFromPath(pathname, search),
     getCommandPath: (command) => pathFromCommand(command),
   });
+}
+
+function decodePathParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

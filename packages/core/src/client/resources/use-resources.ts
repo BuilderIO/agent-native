@@ -1,16 +1,17 @@
-import { agentNativePath } from "../api-path.js";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import type {
   CustomAgentProfile,
   RemoteAgentManifest,
   ResourceKind as StoredResourceKind,
   SkillMetadata,
 } from "../../resources/metadata.js";
-import type { McpServer } from "./use-mcp-servers.js";
+import { agentNativePath } from "../api-path.js";
 import {
   mcpBuiltinVirtualId,
   type BuiltinCapability,
 } from "./use-builtin-capabilities.js";
+import type { McpServer } from "./use-mcp-servers.js";
 
 /**
  * Extended resource kind that includes virtual entries injected into the
@@ -219,7 +220,7 @@ export function withMcpServersFolder(
 }
 
 /**
- * Group top-level `scripts/` and `tasks/` folders into a virtual
+ * Group top-level `scratch/`, `scripts/`, and `tasks/` folders into a virtual
  * `agent-scratch/` folder.
  *
  * The agent occasionally writes scratch scripts and task notes to the
@@ -233,7 +234,9 @@ function isTopLevelAgentScratchNode(node: TreeNode): boolean {
   return (
     node.resource?.visibility === "agent_scratch" ||
     (node.type === "folder" &&
-      (node.name === "scripts" || node.name === "tasks"))
+      (node.name === "scratch" ||
+        node.name === "scripts" ||
+        node.name === "tasks"))
   );
 }
 
@@ -391,26 +394,6 @@ export function useDeleteResource() {
         },
       );
       if (!res.ok) throw new Error(`Delete failed: ${res.statusText}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["resources"] });
-    },
-  });
-}
-
-export function useUploadResource() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (formData: FormData) => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/resources/upload"),
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-      if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
-      return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["resources"] });

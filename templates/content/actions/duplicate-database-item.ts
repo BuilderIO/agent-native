@@ -2,15 +2,18 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Duplicate a page row in a content database, including stored property values.",
+    "Duplicate exactly one page row in a content database, including stored property values. For two or more rows, use duplicate-database-items once instead of looping this action.",
   schema: z.object({
     itemId: z.string().optional().describe("Database item ID"),
     documentId: z.string().optional().describe("Database row document ID"),
@@ -38,15 +41,30 @@ export default defineAction({
         eq(schema.documents.id, schema.contentDatabaseItems.documentId),
       )
       .where(
-        itemId
-          ? eq(schema.contentDatabaseItems.id, itemId)
-          : eq(schema.contentDatabaseItems.documentId, documentId!),
+        and(
+          itemId
+            ? eq(schema.contentDatabaseItems.id, itemId)
+            : eq(schema.contentDatabaseItems.documentId, documentId!),
+          isNull(schema.contentDatabases.deletedAt),
+          isNull(schema.documents.trashedAt),
+        ),
       );
 
     if (!row) throw new Error("Database row not found.");
+    if (!row.database.spaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
+    if (row.document.spaceId !== row.database.spaceId) {
+      throw new Error("Cannot duplicate a database row across Content spaces.");
+    }
 
     await assertAccess("document", row.database.documentId, "editor");
     await assertAccess("document", row.document.id, "viewer");
+    await assertNotWorkspaceCatalogDocuments(
+      db,
+      [row.document.id],
+      "duplicated",
+    );
 
     const now = new Date().toISOString();
     const nextDocumentId = nanoid();
@@ -99,6 +117,7 @@ export default defineAction({
 
       await tx.insert(schema.documents).values({
         id: nextDocumentId,
+        spaceId: row.database.spaceId,
         ownerEmail: row.document.ownerEmail,
         orgId: row.document.orgId,
         parentId: row.database.documentId,
@@ -151,6 +170,8 @@ export default defineAction({
           })),
         );
       }
+
+      await ensureDocumentFilesMembership(tx, nextDocumentId, now);
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });

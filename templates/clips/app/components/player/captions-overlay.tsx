@@ -1,5 +1,5 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef, useState } from "react";
-import { agentNativePath } from "@agent-native/core/client";
 
 export interface CaptionsOverlayProps {
   text: string;

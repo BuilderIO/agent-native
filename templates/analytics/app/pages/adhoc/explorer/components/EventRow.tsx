@@ -1,9 +1,11 @@
 import { IconGripVertical, IconX } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
+
+import type { ExplorerEvent } from "../types";
 import { EventCombobox } from "./EventCombobox";
 import { FilterBuilder } from "./FilterBuilder";
 import { GroupByPicker } from "./GroupByPicker";
-import type { ExplorerEvent } from "../types";
 
 interface EventRowProps {
   event: ExplorerEvent;
@@ -13,7 +15,7 @@ interface EventRowProps {
 
 export function EventRow({ event, onChange, onRemove }: EventRowProps) {
   return (
-    <div className="border rounded-lg p-3 space-y-2 bg-card">
+    <div className="space-y-2 rounded-lg bg-card p-3">
       <div className="flex items-center gap-2">
         <IconGripVertical className="h-4 w-4 text-muted-foreground shrink-0 cursor-grab" />
         <div className="flex-1 min-w-0">

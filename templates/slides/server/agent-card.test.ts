@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
 import { generateAgentCard } from "@agent-native/core/a2a";
 import { loadActionsFromStaticRegistry } from "@agent-native/core/server";
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
@@ -17,6 +18,17 @@ const REQUIRED_SLIDES_ACTIONS = [
   "list-decks",
   "update-slide",
   "navigate",
+  "search-images",
+  "search-logos",
+  "generate-image-api",
+];
+
+const RETIRED_SLIDES_ACTIONS = [
+  "fetch-logos",
+  "image-search",
+  "import-github",
+  "logo-config",
+  "logo-lookup",
 ];
 
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;
@@ -36,11 +48,13 @@ describe("slides agent card", () => {
         {
           name: "Slides",
           description: "Agent-native slides agent",
-          skills: Object.entries(actions).map(([name, entry]) => ({
-            id: name,
-            name,
-            description: entry.tool.description,
-          })),
+          skills: Object.entries(actions)
+            .filter(([, entry]) => entry.agentTool !== false)
+            .map(([name, entry]) => ({
+              id: name,
+              name,
+              description: entry.tool.description,
+            })),
           streaming: true,
         },
         "https://slides.agent-native.com",
@@ -48,9 +62,11 @@ describe("slides agent card", () => {
 
       expect(card.name).toBe("Slides");
       expect(card.description).toBe("Agent-native slides agent");
-      expect(card.skills.map((skill) => skill.id)).toEqual(
-        expect.arrayContaining(REQUIRED_SLIDES_ACTIONS),
-      );
+      const skillIds = card.skills.map((skill) => skill.id);
+      expect(skillIds).toEqual(expect.arrayContaining(REQUIRED_SLIDES_ACTIONS));
+      for (const retiredAction of RETIRED_SLIDES_ACTIONS) {
+        expect(skillIds).not.toContain(retiredAction);
+      }
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );

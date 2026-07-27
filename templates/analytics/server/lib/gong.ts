@@ -11,6 +11,7 @@ import {
   limitGongCalls,
   normalizeGongCallLimit,
 } from "./gong-limits";
+import { resolveAnalyticsGongCredentials } from "./provider-credentials";
 
 const DEFAULT_API_BASE = "https://api.gong.io/v2";
 
@@ -20,11 +21,12 @@ const MAX_CACHE = 120;
 
 async function getAuthHeader(): Promise<string> {
   const ctx = requireRequestCredentialContext("GONG_ACCESS_KEY");
-  const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
-  const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
-  if (!accessKey || !secret)
+  const credentials = await resolveAnalyticsGongCredentials({ ctx });
+  if (!credentials)
     throw new Error("GONG_ACCESS_KEY and GONG_ACCESS_SECRET not configured");
-  return `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
+  return `Basic ${Buffer.from(
+    `${credentials.accessKey}:${credentials.accessSecret}`,
+  ).toString("base64")}`;
 }
 
 async function getApiBase(): Promise<string> {
@@ -226,9 +228,21 @@ export async function getCallDetail(
   };
 }
 
+export async function getCallTranscripts(callIds: string[]): Promise<unknown> {
+  const ids = Array.from(
+    new Set(
+      callIds
+        .map((id) => (typeof id === "string" ? id.trim() : ""))
+        .filter(Boolean),
+    ),
+  );
+  if (!ids.length) return { callTranscripts: [] };
+  const body = { filter: { callIds: ids } };
+  return apiPost("/calls/transcript", body, `transcripts:${ids.join(",")}`);
+}
+
 export async function getCallTranscript(callId: string): Promise<unknown> {
-  const body = { filter: { callIds: [callId] } };
-  return apiPost("/calls/transcript", body, `transcript:${callId}`);
+  return getCallTranscripts([callId]);
 }
 
 export async function getEnrichedTranscript(
@@ -390,7 +404,7 @@ export function matchesGongCallQuery(call: GongCall, query: string): boolean {
 
 function isExternalCall(call: GongCall): boolean {
   const scope = (call as Record<string, unknown>).scope;
-  return typeof scope !== "string" || scope === "External";
+  return typeof scope !== "string" || scope.toLowerCase() === "external";
 }
 
 function partyMatchesQuery(
@@ -423,11 +437,6 @@ function partyMatchesQuery(
   );
 }
 
-const extensivePartyCache = new Map<
-  string,
-  { name: string; emailAddress?: string; affiliation?: string }[]
->();
-
 export interface GongCallSearchResult {
   calls: Array<GongCall & { matchedQueries?: string[] }>;
   limit: number;
@@ -436,6 +445,12 @@ export interface GongCallSearchResult {
   matchedCallCount: number;
   queryCount: number;
   coverageTruncated: boolean;
+}
+
+export interface GongCallSearchOptions {
+  fromDateTime?: string;
+  toDateTime?: string;
+  exhaustive?: boolean;
 }
 
 function normalizedSearchQueries(queries: string[]): string[] {
@@ -467,14 +482,47 @@ function addMatchedQuery(
   });
 }
 
+function normalizeExtensiveCall(value: unknown): GongCall | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const metadata =
+    record.metaData && typeof record.metaData === "object"
+      ? (record.metaData as Record<string, unknown>)
+      : record;
+  const id = typeof metadata.id === "string" ? metadata.id : "";
+  const started = typeof metadata.started === "string" ? metadata.started : "";
+  if (!id || !started) return null;
+  const parties = Array.isArray(record.parties)
+    ? record.parties.map((party) => {
+        const item = party as Record<string, unknown>;
+        return {
+          name: typeof item.name === "string" ? item.name : "",
+          ...(typeof item.emailAddress === "string"
+            ? { emailAddress: item.emailAddress }
+            : {}),
+          ...(typeof item.affiliation === "string"
+            ? { affiliation: item.affiliation }
+            : {}),
+        };
+      })
+    : [];
+  return {
+    ...metadata,
+    id,
+    started,
+    parties,
+  };
+}
+
 export async function searchCallsForQueries(
   queries: string[],
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<GongCallSearchResult> {
-  const fromDateTime = new Date(
-    Date.now() - days * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const fromDateTime =
+    options.fromDateTime ??
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const normalizedLimit = normalizeGongCallLimit(limit);
   const normalizedQueries = normalizedSearchQueries(queries);
 
@@ -494,86 +542,90 @@ export async function searchCallsForQueries(
   let searchedCallCount = 0;
   let cursor: string | undefined;
   do {
-    const params = new URLSearchParams({ fromDateTime });
-    if (cursor) params.set("cursor", cursor);
-    const data = await apiGet<{
-      calls?: GongCall[];
+    const data = await apiPost<{
+      calls?: unknown[];
       records?: { cursor?: string; totalRecords?: number };
-    }>(`/calls?${params.toString()}`);
-    const calls = (data.calls ?? []).filter(isExternalCall);
+    }>("/calls/extensive", {
+      filter: {
+        fromDateTime,
+        ...(options.toDateTime ? { toDateTime: options.toDateTime } : {}),
+      },
+      contentSelector: { exposedFields: { parties: true } },
+      ...(cursor ? { cursor } : {}),
+    });
+    const calls = (data.calls ?? [])
+      .map(normalizeExtensiveCall)
+      .filter((call): call is GongCall => Boolean(call))
+      .filter(isExternalCall);
     searchedCallCount += calls.length;
     cursor = data.records?.cursor;
 
-    const remainingForExtensive: GongCall[] = [];
     for (const call of calls) {
-      let matched = false;
+      const parties = call.parties ?? [];
       for (const query of normalizedQueries) {
-        if (matchesGongCallQuery(call, query)) {
-          addMatchedQuery(matches, call, query, call.parties);
-          matched = true;
+        const titleMatches = matchesGongCallQuery(
+          { ...call, parties: [] },
+          query,
+        );
+        if (titleMatches || partyMatchesQuery(parties, query)) {
+          addMatchedQuery(matches, call, query, parties);
         }
       }
-      if (!matched) {
-        remainingForExtensive.push(call);
-      }
+      if (!options.exhaustive && matches.size >= normalizedLimit) break;
     }
-
-    for (let i = 0; i < remainingForExtensive.length; i += 100) {
-      if (matches.size >= normalizedLimit) break;
-      const batch = remainingForExtensive.slice(i, i + 100);
-      const uncached = batch.filter(
-        (call) => !extensivePartyCache.has(call.id),
-      );
-      if (uncached.length) {
-        try {
-          const data = await apiPost<{ calls?: any[] }>(
-            "/calls/extensive",
-            {
-              filter: { callIds: uncached.map((call) => call.id) },
-              contentSelector: { exposedFields: { parties: true } },
-            },
-            `extensive-parties-batch:${uncached.map((call) => call.id).join(",")}`,
-          );
-          for (const call of data.calls ?? []) {
-            const id = call.metaData?.id;
-            if (!id) continue;
-            extensivePartyCache.set(
-              id,
-              (call.parties ?? []).map((party: any) => ({
-                name: party.name ?? "",
-                emailAddress: party.emailAddress ?? undefined,
-                affiliation: party.affiliation ?? undefined,
-              })),
-            );
-          }
-        } catch {
-          // Title matches already cover the obvious path. If extensive lookup
-          // fails, return those instead of failing the entire account search.
-        }
-      }
-
-      for (const call of batch) {
-        if (matches.size >= normalizedLimit) break;
-        const parties = extensivePartyCache.get(call.id) ?? [];
-        if (!parties.length) continue;
-        for (const query of normalizedQueries) {
-          if (partyMatchesQuery(parties, query)) {
-            addMatchedQuery(matches, call, query, parties);
-          }
-        }
-      }
-    }
-  } while (cursor && matches.size < normalizedLimit);
+  } while (cursor && (options.exhaustive || matches.size < normalizedLimit));
 
   const matchedCalls = Array.from(matches.values());
+  return buildGongSearchResult(matchedCalls, normalizedLimit, {
+    searchedCallCount,
+    queryCount: normalizedQueries.length,
+    cursor,
+    exhaustive: Boolean(options.exhaustive),
+  });
+}
+
+/**
+ * Assemble the final search result from the matched calls. In `exhaustive` mode
+ * EVERY match is returned (newest-first, untruncated) — the caller has already
+ * bounded the set with a date window / cohort queries, so re-capping here would
+ * silently drop matches and reintroduce the "only captured a subset" failure.
+ * Otherwise the newest `normalizedLimit` are returned and truncation reflects
+ * the cap or a remaining cursor. Exported for unit testing.
+ */
+export function buildGongSearchResult(
+  matchedCalls: (GongCall & { matchedQueries?: string[] })[],
+  normalizedLimit: number,
+  meta: {
+    searchedCallCount: number;
+    queryCount: number;
+    cursor: string | undefined;
+    exhaustive: boolean;
+  },
+): GongCallSearchResult {
+  if (meta.exhaustive) {
+    const sorted = [...matchedCalls].sort(
+      (a, b) =>
+        (b.started ? Date.parse(b.started) : 0) -
+        (a.started ? Date.parse(a.started) : 0),
+    );
+    return {
+      calls: sorted,
+      limit: sorted.length,
+      truncated: false,
+      searchedCallCount: meta.searchedCallCount,
+      matchedCallCount: matchedCalls.length,
+      queryCount: meta.queryCount,
+      coverageTruncated: false,
+    };
+  }
   const limited = limitGongCalls(matchedCalls, normalizedLimit);
   return {
     ...limited,
-    truncated: limited.truncated || Boolean(cursor),
-    searchedCallCount,
+    truncated: limited.truncated || Boolean(meta.cursor),
+    searchedCallCount: meta.searchedCallCount,
     matchedCallCount: matchedCalls.length,
-    queryCount: normalizedQueries.length,
-    coverageTruncated: Boolean(cursor),
+    queryCount: meta.queryCount,
+    coverageTruncated: Boolean(meta.cursor),
   };
 }
 
@@ -581,6 +633,7 @@ export async function searchCalls(
   query: string,
   days = 90,
   limit = DEFAULT_GONG_CALL_LIMIT,
+  options: GongCallSearchOptions = {},
 ): Promise<{ calls: GongCall[]; limit: number; truncated: boolean }> {
-  return searchCallsForQueries([query], days, limit);
+  return searchCallsForQueries([query], days, limit, options);
 }

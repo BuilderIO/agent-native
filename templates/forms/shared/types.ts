@@ -1,3 +1,11 @@
+import type {
+  DataChartWidget,
+  DataInsightsWidgetResult,
+  DataTableColumn,
+  DataTableWidget,
+  DataWidgetDisplay,
+} from "@agent-native/core/data-widgets";
+
 // ---------------------------------------------------------------------------
 // Form field types
 // ---------------------------------------------------------------------------
@@ -64,6 +72,13 @@ export interface FormSettings {
   successMessage?: string;
   redirectUrl?: string;
   showProgressBar?: boolean;
+  /** Send new response summaries to the form owner's account email. */
+  emailOnNewResponses?: boolean;
+  /**
+   * Strict response privacy mode. When enabled, submissions do not retain the
+   * request IP, submitter identity, chat/run ids, page URL, or client surface.
+   */
+  anonymous?: boolean;
   integrations?: FormIntegration[];
   /**
    * Origins permitted to POST submissions cross-origin (e.g. from embedded
@@ -137,6 +152,95 @@ export interface FormResponse {
   formId: string;
   data: Record<string, unknown>;
   submittedAt: string;
-  /** Email of the submitter when known (claimed by the client; not verified). */
+  /** Real submitter email when known; synthetic anonymous-owner ids are hidden. */
   submitterEmail?: string | null;
+  /**
+   * URL of the page the respondent was on, forwarded by trusted embeds (e.g.
+   * the framework FeedbackButton) as a hidden pass-through field. Null when the
+   * submission carried no page context (e.g. a direct fill on the public page).
+   */
+  pageUrl?: string | null;
+  /**
+   * Runtime shell the feedback was sent from — "web", "electron", or "tauri" —
+   * forwarded by trusted embeds as a hidden pass-through field. Null when
+   * unknown (e.g. a direct fill on the public page).
+   */
+  clientSurface?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Response insight widgets
+// ---------------------------------------------------------------------------
+
+export type ResponseInsightsTableColumn = DataTableColumn;
+
+export type ResponseInsightsTable = Omit<
+  DataTableWidget,
+  "title" | "columns" | "rows" | "totalRows" | "sampledRows" | "truncated"
+> & {
+  title: string;
+  columns: ResponseInsightsTableColumn[];
+  rows: Array<Record<string, string | number | boolean | null>>;
+  totalRows: number;
+  sampledRows: number;
+  truncated: boolean;
+};
+
+export type ResponseInsightsChartSeries = Omit<
+  DataChartWidget,
+  "type" | "title" | "xKey" | "series" | "data" | "sampled"
+> & {
+  type: "bar";
+  title: string;
+  xKey: "date";
+  series: Array<{ key: "submissions"; label: string }>;
+  data: Array<{ date: string; submissions: number }>;
+  sampled: boolean;
+};
+
+export type ResponseInsightsDisplay = DataWidgetDisplay & {
+  title: string;
+  route: string;
+  primaryAction: { label: string; href: string };
+};
+
+type ResponseInsightsWidgetResultBase = DataInsightsWidgetResult<{
+  widgetId: "forms.responseInsights.v1";
+  scope: {
+    formId?: string;
+    title: string;
+    days: number;
+    sampledLimit: number;
+    formLimit: number;
+  };
+  summary: {
+    forms: number;
+    responses: number;
+    sampledResponses: number;
+    truncated: boolean;
+    rangeStart: string;
+    rangeEnd: string;
+    scopeCapped: boolean;
+  };
+  forms: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    status: string;
+    responseCount: number;
+    url: string;
+  }>;
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: ResponseInsightsDisplay;
+}>;
+
+export type ResponseInsightsWidgetResult = Omit<
+  ResponseInsightsWidgetResultBase,
+  "widgetId" | "chartSeries" | "table" | "display"
+> & {
+  widgetId: "forms.responseInsights.v1";
+  chartSeries: ResponseInsightsChartSeries;
+  table: ResponseInsightsTable;
+  display: ResponseInsightsDisplay;
+};

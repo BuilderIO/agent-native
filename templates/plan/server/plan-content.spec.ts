@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+
 import {
   applyPlanContentPatches,
+  migratePlanContent,
   planContentSchema,
   type PlanContent,
   type PlanWireframeNode,
@@ -20,6 +22,111 @@ import {
 } from "./plan-content.js";
 
 describe("structured plan content", () => {
+  it("backfills missing column/child ids so attribute-form columns validate", () => {
+    // Mirrors the recap failure mode: a `columns` block authored as an
+    // attribute array (no `<Column>` markup) leaves column `id`s and child
+    // block `id`s unset. migrate must backfill them so the block validates
+    // instead of failing the whole document at parse time.
+    const raw = {
+      title: "Recap",
+      brief: "b",
+      blocks: [
+        { id: "b1", type: "rich-text", data: { markdown: "# Recap" } },
+        {
+          id: "b2",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                label: "Before",
+                blocks: [{ type: "rich-text", data: { markdown: "old" } }],
+              },
+              {
+                label: "After",
+                blocks: [{ type: "rich-text", data: { markdown: "new" } }],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const parsed = planContentSchema.parse(migratePlanContent(raw));
+    const cols = (
+      parsed.blocks[1] as Extract<
+        PlanContent["blocks"][number],
+        { type: "columns" }
+      >
+    ).data.columns;
+    expect(typeof cols[0].id).toBe("string");
+    expect(cols[0].id.length).toBeGreaterThan(0);
+    expect(cols[1].id).not.toBe(cols[0].id);
+    expect(typeof cols[0].blocks[0].id).toBe("string");
+    expect(cols[0].blocks[0].data).toMatchObject({ markdown: "old" });
+  });
+
+  it("coerces a full-document wireframe nested in columns to a fragment instead of dropping the whole block", () => {
+    // The exact recap failure mode from the field report: a `columns`
+    // before/after whose wireframe `html` was authored as a full HTML document.
+    // The pre-validation sanitizer must recurse into `columns` (it only handled
+    // `tabs`) AND strip the document scaffold so the block validates and renders
+    // — rather than degrading every column to an "Unsupported block" card with
+    // "Wireframe html must be a bounded fragment...".
+    const result = parsePlanContent({
+      version: 2,
+      title: "Recap",
+      blocks: [
+        {
+          id: "cols",
+          type: "columns",
+          data: {
+            columns: [
+              {
+                id: "before",
+                label: "Before",
+                blocks: [
+                  {
+                    id: "before-wf",
+                    type: "wireframe",
+                    data: {
+                      surface: "panel",
+                      html: '<!doctype html><html><head><style>.x{color:red}</style></head><body><div class="x">Old screen</div></body></html>',
+                    },
+                  },
+                ],
+              },
+              {
+                id: "after",
+                label: "After",
+                blocks: [
+                  {
+                    id: "after-wf",
+                    type: "wireframe",
+                    data: { surface: "panel", html: "<div>New screen</div>" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(result).not.toBeNull();
+    const block = result?.blocks[0];
+    // The block survives as real `columns` (not a salvaged callout placeholder).
+    expect(block?.type).toBe("columns");
+    if (block?.type !== "columns") throw new Error("expected columns");
+    const wf = block.data.columns[0]?.blocks[0];
+    if (wf?.type !== "wireframe") throw new Error("expected wireframe");
+    expect(wf.data.html).toContain("Old screen");
+    const lower = wf.data.html?.toLowerCase() ?? "";
+    expect(lower).not.toContain("<html");
+    expect(lower).not.toContain("<head");
+    expect(lower).not.toContain("<body");
+    expect(lower).not.toContain("<style");
+    expect(lower).not.toContain("doctype");
+  });
+
   it("builds UI plans as native content with a canvas and kit-tree wireframes", () => {
     const content = createUiPlanContent({
       title: "Checkout flow",
@@ -83,6 +190,45 @@ describe("structured plan content", () => {
     expect(html).toContain("canvas-export");
     expect(html).toContain("Checkout flow");
     expect(html).toContain("Implementation Map");
+  });
+
+  it("renders kit-tree wireframe captions in standalone HTML", () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Captioned wireframe",
+      blocks: [
+        {
+          id: "wf-1",
+          type: "wireframe",
+          data: {
+            surface: "desktop",
+            caption: "Calendar availability view",
+            screen: [
+              {
+                id: "screen-root",
+                el: "screen",
+                children: [
+                  {
+                    id: "title-1",
+                    el: "title",
+                    text: "Weekly calendar",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const html = buildPlanContentHtml({
+      content,
+      title: "Captioned wireframe",
+      brief: "Render a captioned wireframe in standalone HTML.",
+    });
+
+    expect(html).toContain("kit-wireframe");
+    expect(html).toContain('<p class="caption">Calendar availability view</p>');
   });
 
   it("anchors component context sidebar actions after a flexible content stack", () => {
@@ -500,6 +646,68 @@ describe("custom-html safety", () => {
     expect(
       sanitizeCustomHtml('<iframe srcdoc="<script>x</script>"></iframe>'),
     ).toBe("");
+  });
+
+  it("strips theme-breaking Tailwind classes from stored wireframes except design mode", () => {
+    const serialized = serializePlanContent({
+      version: 2,
+      title: "Theme-safe wireframes",
+      blocks: [
+        {
+          id: "normal",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            html: '<section class="bg-white text-zinc-950 shadow-xl flex gap-3 wf-card hover:bg-slate-800"><p class="text-sm text-slate-400">copy</p></section>',
+          },
+        },
+        {
+          id: "design",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            renderMode: "design",
+            html: '<section class="bg-white text-zinc-950 shadow-xl">Design</section>',
+          },
+        },
+      ],
+    });
+    const stored = JSON.parse(serialized) as PlanContent;
+    const normal = stored.blocks[0];
+    const design = stored.blocks[1];
+    if (normal.type !== "wireframe" || design.type !== "wireframe") {
+      throw new Error("expected wireframe blocks");
+    }
+
+    expect(normal.data.html).not.toContain("bg-white");
+    expect(normal.data.html).not.toContain("text-zinc-950");
+    expect(normal.data.html).not.toContain("shadow-xl");
+    expect(normal.data.html).not.toContain("hover:bg-slate-800");
+    expect(normal.data.html).not.toContain("text-slate-400");
+    expect(normal.data.html).toContain("flex");
+    expect(normal.data.html).toContain("gap-3");
+    expect(normal.data.html).toContain("wf-card");
+    expect(normal.data.html).toContain("text-sm");
+    expect(design.data.html).toContain("bg-white");
+    expect(design.data.html).toContain("text-zinc-950");
+    expect(design.data.html).toContain("shadow-xl");
+  });
+
+  it("coerces a full HTML document down to a bounded fragment", () => {
+    // Wireframe / custom-html / diagram blocks must be bounded fragments; the
+    // renderer owns the surrounding document and styling. When an agent authors
+    // one as a full standalone page, drop the scaffold (doctype/html/head/body)
+    // and keep the body content instead of rejecting the whole block.
+    const out = sanitizeCustomHtml(
+      '<!doctype html><html><head><title>t</title><style>.x{color:red}</style></head><body><div class="x">hi</div></body></html>',
+    );
+    expect(out).toContain("hi");
+    const lower = out.toLowerCase();
+    expect(lower).not.toContain("<html");
+    expect(lower).not.toContain("<head");
+    expect(lower).not.toContain("<body");
+    expect(lower).not.toContain("<style");
+    expect(lower).not.toContain("doctype");
   });
 
   it("sanitizes custom html when normalizing content for storage", () => {

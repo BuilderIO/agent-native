@@ -1,0 +1,329 @@
+---
+title: "Programmes de données"
+description: "Scripts JS stockés et rédigés par l'agent qui récupèrent, joignent et agrègent des données côté serveur, mis en cache dans SQL et rendus par des panneaux de dashboard — le juste milieu entre une requête run-code ponctuelle et une action de fournisseur codée en dur."
+search: "data program emit rows schema providerFetch dashboard panel program source refresh TTL viewer-scoped cache save-data-program run-data-program"
+---
+
+# Programmes de données
+
+Un **programme de données** est un script JS nommé, stocké et rédigé par l'agent qui récupère, joint, filtre ou agrège des données — des API de fournisseurs via `providerFetch` / `providerFetchAll` / `providerSearchAll`, des données d'app via `appAction`, ou des fichiers de workspace adossés à Resources — et appelle `emit(rows, schema)` exactement une fois avec le résultat. Le résultat est mis en cache dans SQL et n'importe quel composant graphique/tableau peut le rendre, actualisé selon une politique que vous choisissez au lieu de chaque vue de page.
+
+Il est disponible automatiquement partout où [`run-code`](/docs/actions) est disponible — il n'y a rien à monter ni à configurer par app. Si votre app a déjà run-code activé, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` et `delete-data-program` sont déjà des actions enregistrées.
+
+<Diagram id="doc-block-dp-overview" title={"D'une requête ponctuelle à un panneau en direct"} summary={"Un script run-code devient un programme stocké dès qu'il appelle emit(); n'importe quel panneau de dashboard peut s'y lier et la politique de cache/actualisation prend le relais à partir de là."}>
+
+```html
+<div class="dp-flow">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">run-code script</span
+    ><small class="diagram-muted">providerFetch, joins, aggregation</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">emit(rows, schema)</span
+    ><small class="diagram-muted"
+      >save-data-program dry-runs, then persists</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    data_program_runs<br /><small class="diagram-muted"
+      >cached per (program, params, viewer)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Panneau de dashboard</span
+    ><small class="diagram-muted"><code>source: "program"</code></small>
+  </div>
+</div>
+```
+
+```css
+.dp-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dp-flow .diagram-card,
+.dp-flow .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.dp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Pourquoi cela existe {#why}
+
+Sans programme de données stocké, « construire une vue en direct de X » finit souvent dans l'un de ces deux mauvais scénarios :
+
+- **Une action codée en dur par fournisseur/forme de requête.** Fragile, et elle ne peut pas anticiper les propriétés personnalisées de chaque client, une jointure entre fournisseurs, ou un filtre arbitraire auquel vous n'avez pas pensé.
+- **Relancer la même logique de récupération/jointure à zéro à chaque vue de page.** Lent, et cela redépense le même quota d'API du fournisseur à chaque fois que quelqu'un regarde un graphique.
+
+Un programme de données est le juste milieu : écrivez la logique de récupération/jointure/agrégation une fois comme du `run-code` ordinaire, enregistrez-la, et laissez le cache et la politique d'actualisation décider de la fréquence réelle de réexécution.
+
+## Quand en utiliser un {#when-to-use-one}
+
+| Situation                                                                                                                                                                                                           | Utilisez                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Un rollup standard a déjà une action de premier ordre (un filtre `hubspot-deals` prédéfini, une métrique intégrée)                                                                                                  | L'action existante — ne l'enveloppez pas dans un programme                              |
+| Une question de chat ponctuelle que vous ne regarderez plus jamais                                                                                                                                                  | `run-code` simple ou `provider-api-request` — répondez-y directement, ne persistez rien |
+| Une extension a besoin d'un petit widget interactif par utilisateur avec sa propre UI                                                                                                                               | [Extensions](/docs/extensions) — un programme de données n'a pas d'UI propre            |
+| Une cohorte a besoin d'un filtre de propriété arbitraire, d'une recherche IN sur des valeurs personnalisées, ou d'une jointure entre deux fournisseurs, **et** quelqu'un voudra la revoir avec des données fraîches | Un programme de données                                                                 |
+| Un panneau de dashboard doit afficher ce résultat joint/agrégé et s'actualiser selon la politique de cache                                                                                                          | Un programme de données lié à un panneau `"program"`                                    |
+
+Une comparaison avec les autres options de forme run-code :
+
+|                                            | `run-code` ponctuel           | Action de fournisseur codée en dur                            | Programme de données                                           |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Persiste entre les appels**              | Non                           | N/A (c'est du code source)                                    | Oui — ligne stockée + cache de résultat                        |
+| **Le résultat est mis en cache/actualisé** | Non, se relance à chaque fois | Pas de mise en cache intégrée                                 | Oui — `refreshMode`/`refreshTtlMs`                             |
+| **Gère les filtres/jointures arbitraires** | Oui, mais jeté après          | Non — limité à ce que le schéma de l'action expose            | Oui — c'est toujours du code ordinaire                         |
+| **Liable à un panneau de dashboard**       | Non                           | Seulement si une source de panneau a été construite pour cela | Oui — la source générique `"program"`                          |
+| **Nécessite un déploiement**               | Non                           | Oui (nouvelle action = changement de code)                    | Non — créé par l'agent à l'exécution                           |
+| **Identifiants utilisés à la lecture**     | Ceux de l'appelant            | Ceux de l'appelant                                            | **Ceux du visualiseur**, résolus par lecture (voir ci-dessous) |
+
+## Flux de travail de rédaction {#authoring-workflow}
+
+1. **Prototypez d'abord dans le chat.** Écrivez la logique de récupération/jointure/agrégation comme un script `run-code` normal et confirmez qu'il renvoie les lignes attendues.
+2. **Modifiez-le pour qu'il appelle `emit(rows, schema?)` exactement une fois** à la fin, au lieu de renvoyer ou d'imprimer le résultat.
+3. **Enregistrez-le** avec `save-data-program`. Cela **exécute un dry-run du code avec `defaultParams` avant de le persister** et rejette l'enregistrement avec une erreur structurée en cas d'échec, afin qu'un programme cassé ne soit jamais stocké. En cas de succès, il renvoie `{ programId, rowCount, columns, sampleRows }` — considérez cela comme une preuve que le programme produit les lignes attendues avant de dire à l'utilisateur que c'est prêt.
+4. **Liez un panneau de dashboard à celui-ci**, ou appelez `run-data-program` directement depuis votre propre chemin de lecture. Il n'y a pas de câblage spécifique au dashboard intégré dans la primitive elle-même — la source de panneau `"program"` du template analytics (ci-dessous) est une adoption, pas un modèle obligatoire.
+5. **Itérez sans persister** via `preview-data-program({ code, params? })` — le même chemin de dry-run, sans ligne stockée.
+
+### Un exemple réaliste
+
+Supposons qu'une app veuille un tableau en direct des « tickets de support récents à forte valeur » provenant d'un fournisseur de support, filtré selon un seuil qu'aucune action intégrée n'expose :
+
+```ts
+// The program's stored `code` — ordinary run-code, with one emit() call.
+const minValue = Number(params.minValue || 5000);
+
+const tickets = await providerFetchAll("acme-support", "/v1/tickets", {
+  query: { status: "open" },
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "next_cursor",
+    maxPages: 10,
+  },
+});
+
+const rows = (tickets.items || [])
+  .filter((t) => Number(t.contract_value || 0) >= minValue)
+  .map((t) => ({
+    ticket_id: t.id,
+    subject: t.subject,
+    account: t.account_name,
+    contract_value: Number(t.contract_value || 0),
+    opened_at: t.created_at,
+  }));
+
+emit(rows, [
+  { name: "ticket_id", type: "string" },
+  { name: "subject", type: "string" },
+  { name: "account", type: "string" },
+  { name: "contract_value", type: "number" },
+  { name: "opened_at", type: "string" },
+]);
+```
+
+En l'enregistrant :
+
+```ts
+await appAction("save-data-program", {
+  name: "high-value-open-tickets",
+  title: "High-Value Open Tickets",
+  description:
+    "Open support tickets above a configurable contract-value threshold.",
+  code: "/* the script above */",
+  defaultParams: { minValue: 5000 },
+  refreshMode: "ttl",
+  refreshTtlMs: 300_000,
+});
+```
+
+La réponse contient `{ programId, rowCount, columns, sampleRows }` — la preuve d'achèvement du dry-run. À partir de là, `run-data-program({ programId, params: { minValue: 10000 } })` le relance (ou sert le cache) pour un seuil différent, et un panneau de dashboard peut se lier à `programId` de la même manière.
+
+## La surface du bac à sable {#sandbox-surface}
+
+Un programme de données s'exécute exactement dans le même bac à sable `executeSandboxCode` que `run-code` — aucun nouveau code de bac à sable, d'identifiants, de SSRF ou de quota n'existe pour cette primitive. Il obtient les mêmes globals (`providerFetch`, `providerFetchAll`, `providerSearchAll`, `appAction`, `webFetch`, helpers Resources `workspace*`) plus deux ajouts issus d'un petit préambule injecté par le framework :
+
+- **`params`** — un objet global **gelé** contenant les params de cette exécution (`defaultParams` fusionné avec ce qui a été passé à `run-data-program` ou au descripteur du panneau). Le lire est acceptable ; le muter lève une erreur.
+- **`emit(rows, schema?)`** — appelez ceci **exactement une fois**, à la fin. Un deuxième appel lève une erreur. `rows` doit être un tableau d'objets simples. `schema`, s'il est fourni, est `{ name: string, type: string }[]` ; s'il est omis, il est déduit des 50 premières lignes (une colonne est `"json"` si les lignes de l'échantillon ne s'accordent pas sur un type primitif, sinon `"number"` / `"string"` / `"boolean"`). `console.log` reste totalement libre pour le débogage — le runner capture stdout/stderr combinés et ne retire que la ligne sentinelle que `emit()` écrit lors de l'analyse du résultat.
+
+Plafonds appliqués à chaque exécution (non configurables par programme) :
+
+| Limite                                                             | Valeur                                                                                                                                                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Max de lignes émises                                               | 10 000 — les lignes au-delà sont supprimées, `truncated: true`                                                                                                              |
+| Taille max du résultat émis                                        | 4 Mio — les lignes sont supprimées depuis la fin pour tenir ; une seule ligne dépassant le plafond est un échec dur `result_too_large`, car il n'y a rien de sûr à tronquer |
+| Max de programmes actifs (non archivés) par app                    | 200 — archivez les inutilisés pour libérer de la place                                                                                                                      |
+| TTL d'actualisation minimum                                        | 60 000 ms                                                                                                                                                                   |
+| Lignes d'exécution conservées par (programme, params, visualiseur) | 5 plus récentes — les plus anciennes sont automatiquement purgées à chaque écriture                                                                                         |
+
+La troncature est toujours explicite (`truncated: true` dans le résultat) — jamais une perte silencieuse.
+
+## Params et liaison de panneau de dashboard {#params-and-panel-binding}
+
+Les programmes déclarent un `paramsSchema` optionnel (JSON Schema décrivant les params acceptés) et des `defaultParams`. Un dashboard adopte la source de panneau `"program"` en plaçant un petit descripteur JSON dans le champ de requête du panneau au lieu d'une chaîne de requête :
+
+```json
+{ "programId": "dp_a1b2c3d4e5f6", "params": { "minValue": 10000 } }
+```
+
+Le panneau se rend exactement à travers les mêmes composants graphique/tableau que n'importe quelle autre source de panneau — il ne reçoit jamais que `{ rows, schema }` en retour. Lier un panneau à un programme, c'est simplement « quel programme stocké, avec quelles surcharges de params » ; il n'existe aucun chemin d'exécution spécifique au dashboard dupliqué ailleurs.
+
+## Sémantique d'actualisation, de TTL et de mise en cache {#refresh-and-caching}
+
+Chaque paire `(programId, paramsHash)` a son propre historique d'exécution dans `data_program_runs`, et `paramsHash` intègre **le visualiseur**, pas seulement les params (voir la section sécurité pour comprendre pourquoi). Ce qui se passe à chaque lecture :
+
+| Situation                                                                                         | Comportement                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Cache frais (plus récent que `refreshTtlMs`, ou `refreshMode: "manual"` avec un succès préalable) | Renvoie instantanément les lignes en cache, `cacheHit: true`                                                                                                                                                                    |
+| Le cache est plus ancien que le TTL                                                               | Se réexécute de manière synchrone — un budget de 25s pour les lectures déclenchées par vue de panneau, 120s pour les appels agent/manuels — et remplace le cache en cas de succès                                               |
+| `refreshMode: "manual"`                                                                           | Ne s'actualise jamais automatiquement ; seul un `forceRefresh: true` explicite (ou une action d'actualisation manuelle de l'UI) le relance                                                                                      |
+| Pas encore de cache                                                                               | S'exécute de manière synchrone comme une première récupération normale                                                                                                                                                          |
+| Programme `background: true`, pas de cache frais                                                  | Sert immédiatement la dernière bonne exécution avec `stale: true` et met en file d'attente une exécution en arrière-plan durable (budget de 10 minutes) ; un appel ultérieur finalise le résultat une fois l'exécution terminée |
+| Programme en arrière-plan encore en cours, pas de succès préalable                                | Échec `background_pending` — affichez un état explicite « encore en calcul », jamais un résultat vide                                                                                                                           |
+| L'exécution échoue (timeout, erreur de bac à sable, forme de `emit()` incorrecte)                 | Un échec structuré `{ code, message }` ; si un succès précédent existe, il est attaché comme `lastGoodRun` afin qu'un panneau puisse servir des données obsolètes plutôt que de rester vide                                     |
+| Le programme a été archivé (suppression douce via `delete-data-program`)                          | Échec explicite `archived` — jamais un panneau vide silencieux                                                                                                                                                                  |
+
+Ne recourez à `background: true` que pour les programmes qui dépassent régulièrement le timeout de premier plan — grandes jointures multi-fournisseurs, pagination profonde. Tout le reste devrait rester en premier plan : c'est plus simple à raisonner et cela sert des données fraîches plus rapidement.
+
+### Pourquoi le cache est délimité par visualiseur {#per-viewer-cache}
+
+`providerFetch` à l'intérieur d'un programme résout l'authentification en utilisant **le propre contexte de requête du visualiseur appelant** — jamais celui de l'auteur du programme. C'est vrai que l'appel provienne de l'agent, d'un appel `run-data-program`, ou d'un panneau de dashboard consulté par un coéquipier. Deux visualiseurs différents exécutant le même programme avec les mêmes params peuvent légitimement obtenir deux résultats différents : l'un a une clé HubSpot configurée et l'autre non, ou les permissions du fournisseur au niveau des lignes diffèrent selon la personne.
+
+Pour cette raison, `hashDataProgramParams` intègre l'identité de l'appelant dans la clé de cache en plus des params canonicalisés. Cela compte le plus pour les **dashboards partagés** : si le cache était indexé uniquement par params, la première personne à consulter un panneau déterminerait silencieusement ce que voit chaque autre visualiseur, y compris un visualiseur sans les identifiants ayant produit ce résultat mis en cache. La délimitation par visualiseur signifie qu'un coéquipier sans identifiant voit sa propre erreur d'authentification sur ce panneau, pas les données de quelqu'un d'autre.
+
+## Modèle de sécurité {#security}
+
+<Callout id="doc-block-dp-security" tone="success">
+
+**Les jetons de fournisseur bruts n'atteignent jamais le modèle ni le navigateur.** La seule chose qui quitte jamais le bac à sable est le `{ rows, schema }` qu'un appel `emit()` produit — la même frontière de confiance que toute autre exécution run-code et toute autre source de panneau de dashboard.
+
+</Callout>
+
+- **Uniquement côté serveur.** Le code d'un programme de données s'exécute exclusivement à l'intérieur de `executeSandboxCode` sur le serveur. Ni le code source stocké ni aucun identifiant qu'il touche n'est envoyé au navigateur ou au modèle — seuls les lignes/schéma émis et les métadonnées d'exécution compactes (nombre de lignes, colonnes, lignes d'exemple) le sont.
+- **Les identifiants sont toujours ceux du visualiseur appelant, jamais ceux de l'auteur original du programme.** Voir [Sémantique d'actualisation, de TTL et de mise en cache](#per-viewer-cache) ci-dessus pour comprendre pourquoi cela détermine aussi la clé de cache.
+- **`allowPublic: false` est un invariant strict, pas une valeur par défaut.** Les programmes de données s'enregistrent auprès du registre de sharing de la même manière que les [Extensions](/docs/extensions#security), avec le sharing public désactivé. Un programme public permettrait à tout utilisateur authentifié d'exécuter du code arbitraire stocké sous son propre jeton — partager un programme est limité à votre organisation, et ne signifie jamais que « les coéquipiers peuvent voir son résultat mis en cache et déclencher de nouvelles exécutions », jamais que « l'internet général peut exécuter ceci ».
+- **Les actions mutantes et exécutantes ne sont pas invocables comme outil depuis le pont extension/iframe en bac à sable.** `save-data-program`, `preview-data-program`, `run-data-program` et `delete-data-program` sont `toolCallable: false` — seul l'agent ou un chemin de lecture côté serveur peut les invoquer, jamais un iframe d'extension sous la session de l'ouvreur. `list-data-programs` et `get-data-program` sont en lecture seule et délimités par accès via les mêmes helpers de sharing que toute autre ressource ownable.
+- **Les programmes sont limités à l'app qui les a créés.** Passer `appId` à une recherche signifie qu'un programme créé dans une app n'est pas exécutable depuis le chat agent d'une autre app dans un déploiement à base de données partagée, même pour un appelant qui aurait par ailleurs un accès au niveau des lignes (owner/org/share) à celui-ci.
+- **Ne vous liez qu'à un programme, ou ne le consultez que si vous lui faites confiance.** Puisque l'exécution utilise toujours les propres identifiants du visualiseur, consulter le résultat d'un programme partagé est exactement comme ouvrir l'extension de quelqu'un d'autre — faites confiance au code, pas seulement à l'autorisation d'accès.
+
+## L'exemple travaillé de Risk Meeting {#risk-meeting-example}
+
+Le template analytics fournit une étude de cas concrète et exécutable : l'action `ensure-risk-meeting-dashboard` installe de manière idempotente deux programmes de données plus un dashboard « Risk Meeting » à deux panneaux, démontrant trois choses qu'une action codée en dur ne peut pas anticiper pour chaque client.
+
+<FileTree
+  id="doc-block-dp-risk-meeting-files"
+  title={"Installateur Risk Meeting"}
+  entries={[
+    {
+      path: "templates/analytics/actions/ensure-risk-meeting-dashboard.ts",
+      note: "action idempotente : met à jour les deux programmes par nom stable, puis le dashboard par id",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-cohort.js",
+      note: "charge utile de programme stocké — texte JS brut, pas un fichier source de build",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-pylon-early-warning.js",
+      note: "le programme d'alerte précoce complémentaire",
+    },
+  ]}
+/>
+
+**`risk-meeting-cohort.js`** — recherche une cohorte configurable de deals CRM par une propriété `risk_status` arbitraire (une recherche IN sur des valeurs personnalisées qu'une action prédéfinie ne peut pas anticiper), résout l'entreprise de chaque deal via une recherche d'association par lots, résout le domaine de chaque entreprise, récupère le sentiment de compte d'un second fournisseur non lié, et joint les deux par domaine :
+
+```js
+// params: { riskStatuses?: string[], enterpriseOnly?: boolean }
+const riskStatuses = params.riskStatuses?.length
+  ? params.riskStatuses
+  : ["On the Radar", "Churn Risk", "Confirmed Churn", "No Save Attempted"];
+
+// 1. Arbitrary property IN-search — not expressible through a canned filter.
+const dealSearch = await providerFetchAll("crm-provider", "/deals/search", {
+  method: "POST",
+  body: {
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: "risk_status", operator: "IN", values: riskStatuses },
+        ],
+      },
+    ],
+  },
+  itemsPath: "results",
+  pagination: {
+    cursorBodyPath: "after",
+    nextCursorPath: "paging.next.after",
+    maxPages: 20,
+  },
+});
+
+// 2-3. Batched deal -> company -> domain resolution (elided here; see the
+// real seed file for the full batching helper).
+
+// 4. A second, unrelated provider — zero bespoke glue action required.
+const accounts = await providerFetchAll("support-provider", "/accounts", {
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "pagination.cursor",
+    maxPages: 20,
+  },
+});
+
+// 5. Join + emit.
+const rows = dealSearch.items.map((deal) => ({
+  deal_id: deal.id,
+  risk_status: deal.properties.risk_status,
+  arr: Number(deal.properties.total_contract_value || 0),
+  // ...domain lookup + sentiment join...
+}));
+
+emit(rows, [
+  { name: "deal_id", type: "string" },
+  { name: "risk_status", type: "string" },
+  { name: "arr", type: "number" },
+]);
+```
+
+**`risk-meeting-pylon-early-warning.js`** — la vue complémentaire : des comptes déjà signalés à risque par le sentiment de support qui **n'ont pas encore** apparu dans la cohorte CRM ci-dessus. Cet écart — un signal de support en avance sur le signal CRM — nécessite d'exclure la cohorte d'un fournisseur de celle d'un autre, exactement le type de logique d'ensemble entre fournisseurs qu'aucune action mono-fournisseur ne peut exprimer.
+
+Les deux programmes sont installés et maintenus à jour par `ensure-risk-meeting-dashboard`, qui :
+
+- Met à jour chaque programme par son `name` stable, de sorte que relancer l'installateur met à jour les mêmes lignes au lieu de les dupliquer.
+- Ne nécessite aucun identifiant CRM/support au moment de l'installation — l'authentification du fournisseur se résout par visualiseur uniquement lorsqu'un panneau est réellement rendu ou que `run-data-program` est appelé, cohérent avec la délimitation de cache par visualiseur ci-dessus.
+- Construit un dashboard à deux panneaux dont les panneaux utilisent `source: "program"`, liés à l'id de chaque programme.
+
+Voir la skill `data-programs` pour la source entièrement annotée.
+
+## Comment d'autres apps adoptent la source de panneau {#adopting-the-panel-source}
+
+La source de panneau de dashboard `"program"` est une adoption de la primitive, entièrement implémentée dans la propre couche de requête de panneau de l'app hôte — rien de spécifique au dashboard n'est intégré dans `@agent-native/core/data-programs` lui-même. L'implémentation du template analytics est une référence utile pour câbler la vôtre :
+
+- La colonne `sql` du panneau porte un petit descripteur JSON — `{ programId, params? }` — au lieu d'une chaîne de requête.
+- Rendre un panneau appelle `runDataProgram` avec `triggeredBy: "panel_view"` et l'identité du visualiseur actuel, de sorte que le cache par visualiseur et la résolution des identifiants s'appliquent automatiquement.
+- En cas de succès, le panneau obtient `{ rows, schema }` — la même forme que renvoie toute autre source de panneau, de sorte qu'elle circule sans modification à travers les composants graphique/tableau existants.
+- En cas d'échec, un `lastGoodRun` est préféré à un panneau cassé chaque fois qu'il en existe un ; ce n'est que lorsqu'il n'y a pas de succès préalable que le panneau affiche une erreur structurée (avec un texte plus convivial pour les codes courants comme `access_denied`, `archived` et `background_pending`).
+
+Toute app peut implémenter la même adoption pour ses propres dashboards/tableaux : appelez `run-data-program` (ou `runDataProgram` directement si vous êtes dans le même processus serveur) depuis votre propre chemin de lecture, et transmettez les `rows`/`schema` renvoyées à vos propres composants de rendu.
+
+## Docs associées {#related}
+
+- [Extensions](/docs/extensions) — la primitive de mini-app en bac à sable avec laquelle les programmes de données partagent une posture de sécurité et un modèle de sharing, mais avec une UI propre.
+- [Actions](/docs/actions) — les conventions `run-code` et les globals du bac à sable (`providerFetch`, `appAction`, etc.) sur lesquels les programmes de données sont construits.
+- [Sharing & confidentialité](/docs/sharing) — le modèle de sharing interne à l'organisation, jamais public, qu'utilisent les programmes de données.
+- [Sécurité](/docs/security) — les invariants de gestion des identifiants et de délimitation d'accès du framework.

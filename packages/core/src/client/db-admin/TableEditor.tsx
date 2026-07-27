@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconPlus,
   IconFilter,
@@ -9,6 +7,8 @@ import {
   IconCode,
   IconArrowBackUp,
   IconDeviceFloppy,
+  IconDots,
+  IconDownload,
   IconChevronLeft,
   IconChevronRight,
   IconChevronsLeft,
@@ -17,18 +17,9 @@ import {
   IconCheck,
   IconKeyOff,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import { useTableSchema, useTableRows, mutateTable } from "./useDbAdmin.js";
-import { loadGridState, saveGridState } from "./storage.js";
-import { useChangeset, pkStringFor } from "./changeset.js";
-import { DataGrid, type GridRow, type ActiveCell } from "./DataGrid.js";
-import { FilterBar } from "./FilterBar.js";
-import { RowSidePanel, type RowSidePanelMode } from "./RowSidePanel.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+
 import type {
   DbAdminDialect,
   DbAdminFilter,
@@ -36,10 +27,35 @@ import type {
   DbAdminSort,
   DbAdminMutationResult,
 } from "../../db-admin/types.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { cn } from "../utils.js";
+import { useChangeset, pkStringFor } from "./changeset.js";
+import { DataGrid, type GridRow, type ActiveCell } from "./DataGrid.js";
+import { downloadFile, toCSVTable } from "./export-utils.js";
+import { FilterBar } from "./FilterBar.js";
+import { RowSidePanel, type RowSidePanelMode } from "./RowSidePanel.js";
+import { loadGridState, saveGridState } from "./storage.js";
+import {
+  useTableSchema,
+  useTableRows,
+  mutateTable,
+  type DbAdminRequestConfig,
+} from "./useDbAdmin.js";
 
 export interface TableEditorProps {
   table: string;
   dialect: DbAdminDialect;
+  requestConfig?: DbAdminRequestConfig;
   initialFilters?: DbAdminFilter[];
   onNavigateToRow: (table: string, filters: DbAdminFilter[]) => void;
 }
@@ -47,9 +63,19 @@ export interface TableEditorProps {
 const DEFAULT_PAGE_SIZE = 100;
 const PAGE_SIZES = [25, 50, 100, 250, 500];
 
+function slugifyFilenamePart(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "table";
+}
+
 export function TableEditor({
   table,
   dialect: _dialect,
+  requestConfig,
   initialFilters,
   onNavigateToRow,
 }: TableEditorProps) {
@@ -89,12 +115,12 @@ export function TableEditor({
   }, [table, columnWidths, sort, filters, pageSize]);
 
   // ─── Data ────────────────────────────────────────────────────────────────
-  const schemaState = useTableSchema(table);
+  const schemaState = useTableSchema(table, requestConfig);
   const rowsReq = useMemo(
     () => ({ page, pageSize, sort, filters }),
     [page, pageSize, sort, filters],
   );
-  const rowsState = useTableRows(table, rowsReq);
+  const rowsState = useTableRows(table, rowsReq, requestConfig);
 
   const schema = schemaState.data;
   const changeset = useChangeset(schema);
@@ -200,9 +226,9 @@ export function TableEditor({
       if (!mutation.inserts && !mutation.updates && !mutation.deletes) {
         return null;
       }
-      return mutateTable(table, mutation);
+      return mutateTable(table, mutation, requestConfig);
     },
-    [changeset, originalRows, table],
+    [changeset, originalRows, requestConfig, table],
   );
 
   const handlePreview = useCallback(async () => {
@@ -292,6 +318,20 @@ export function TableEditor({
   }
 
   const noPk = schema.primaryKey.length === 0;
+  const exportCurrentPageCsv = () => {
+    const columns = schema.columns.map((column) => column.name);
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadFile(
+      `${slugifyFilenamePart(table)}-${stamp}.csv`,
+      "text/csv;charset=utf-8",
+      toCSVTable(
+        columns,
+        gridRows
+          .filter((row) => !row.isDeleted)
+          .map((row) => columns.map((column) => row.values[column])),
+      ),
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -329,6 +369,23 @@ export function TableEditor({
                 primary
               />
             )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Table options"
+                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <IconDots className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={exportCurrentPageCsv}>
+                  <IconDownload className="mr-2 h-3.5 w-3.5" />
+                  Download CSV
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 

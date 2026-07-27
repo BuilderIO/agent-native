@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- h3 + helper mocks (mirror sibling specs) ---
 vi.mock("h3", () => ({
@@ -175,7 +175,13 @@ describe("handleMcpConnect", () => {
       const res = await handleMcpConnect(ev({}), "/");
       const body = await res.text();
       expect(res.status).toBe(200);
-      expect(body).toContain("Connect an external agent");
+      expect(body).not.toContain("Connect an external agent");
+      expect(body).not.toContain(">Agent Native<");
+      expect(body).not.toContain("app-pill");
+      expect(body).not.toContain('connectionsStateEl.textContent = "None"');
+      expect(body).toContain(
+        'connectionsStateEl.textContent = activeCount ? String(activeCount) : "";',
+      );
       expect(body).toContain("u@example.com");
       expect(body).not.toContain("Allow Claude Code, Codex, or Cowork");
       expect(body).toContain('<details id="connections" class="connections">');
@@ -186,7 +192,7 @@ describe("handleMcpConnect", () => {
       // (Claude / ChatGPT / Cursor / Claude Code / Codex / Other) so users can
       // connect without copying a token. Display the live host MCP URL rather
       // than a hardcoded one.
-      expect(body).toContain("https://mail.agent-native.com/_agent-native/mcp");
+      expect(body).toContain("https://mail.agent-native.com/mcp");
       expect(body).toContain('data-tab="claude"');
       expect(body).toContain('data-tab="chatgpt"');
       expect(body).toContain('data-tab="claude-code"');
@@ -196,7 +202,7 @@ describe("handleMcpConnect", () => {
         "claude mcp add --transport http agent-native-mail",
       );
       expect(body).toContain(
-        "npx @agent-native/core connect https://mail.agent-native.com",
+        "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
       expect(body).toContain('<details id="assistantSetup" class="hosts">');
       expect(body).not.toContain(
@@ -213,6 +219,19 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
       expect(body).toContain("Authorize this device");
+      expect(body).not.toContain("From your terminal");
+      expect(body).not.toContain("Connect an external agent");
+      expect(body).not.toContain(">None<");
+      expect(body).toContain("Authorizing device...");
+      expect(body).toContain(
+        'showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized")',
+      );
+      expect(body).toContain(
+        'showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected")',
+      );
+      expect(body).toContain(".msg-title");
+      expect(body).toContain(".msg-copy");
+      expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
       expect(body).not.toContain("Your MCP URL");
       expect(body).not.toContain("Advanced options");
@@ -237,20 +256,17 @@ describe("handleMcpConnect", () => {
       );
       expect(res.status).toBe(200);
       const data = await res.json();
-      expect(data.mcpUrl).toBe(
-        "https://mail.agent-native.com/_agent-native/mcp",
-      );
+      expect(data.mcpUrl).toBe("https://mail.agent-native.com/mcp");
       expect(data.serverName).toBe("agent-native-mail");
       expect(data.mcpServerEntry).toEqual({
         type: "http",
-        url: "https://mail.agent-native.com/_agent-native/mcp",
+        url: "https://mail.agent-native.com/mcp",
         headers: {
           Authorization: `Bearer ${data.token}`,
-          "X-Agent-Native-MCP-Full-Catalog": "1",
         },
       });
       expect(data.cli).toBe(
-        "agent-native connect https://mail.agent-native.com",
+        "npx @agent-native/core@latest connect https://mail.agent-native.com",
       );
 
       const { payload } = await jose.jwtVerify(
@@ -315,12 +331,14 @@ describe("handleMcpConnect", () => {
       expect(verified).toMatchObject({
         userEmail: "u@example.com",
         clientId: "agent-native-connect",
-        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+        scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
+      expect(data.mcpServerEntry.headers).not.toHaveProperty(
+        "X-Agent-Native-MCP-Full-Catalog",
+      );
       expect(Math.round(lifetimeDays)).toBe(365);
       expect(tokenRows[0]).toMatchObject({
         jti: verified?.jti,
@@ -342,10 +360,9 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry).toEqual({
         type: "http",
-        url: "http://localhost:4321/_agent-native/mcp",
+        url: "http://localhost:4321/mcp",
         headers: {
           "X-Agent-Native-Owner-Email": "u@example.com",
-          "X-Agent-Native-MCP-Full-Catalog": "1",
         },
       });
     });
@@ -417,7 +434,7 @@ describe("handleMcpConnect", () => {
       expect(data.device_code).toBeTruthy();
       expect(data.user_code).toMatch(/^[A-Z2-7]{4}-[A-Z2-7]{4}$/);
       expect(data.verification_uri).toBe(
-        "https://mail.agent-native.com/_agent-native/mcp/connect",
+        "https://mail.agent-native.com/mcp/connect",
       );
       expect(data.verification_uri_complete).toContain(
         "?user_code=" + data.user_code,
@@ -442,11 +459,9 @@ describe("handleMcpConnect", () => {
           "/device/poll",
         );
         const data = await res.json();
-        expect(data.mcpUrl).toBe(
-          "https://mail.agent-native.com/mail/_agent-native/mcp",
-        );
+        expect(data.mcpUrl).toBe("https://mail.agent-native.com/mail/mcp");
         expect(data.cli).toBe(
-          "agent-native connect https://mail.agent-native.com/mail",
+          "npx @agent-native/core@latest connect https://mail.agent-native.com/mail",
         );
       } finally {
         delete process.env.APP_BASE_PATH;
@@ -570,7 +585,6 @@ describe("handleMcpConnect", () => {
       expect(data.token).toBe("");
       expect(data.mcpServerEntry.headers).toEqual({
         "X-Agent-Native-Owner-Email": "u@example.com",
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
     });
 
@@ -608,12 +622,14 @@ describe("handleMcpConnect", () => {
         orgId: "org-7",
         orgDomain: "builder.io",
         clientId: "agent-native-connect",
-        scopes: ["mcp:read", "mcp:write", "mcp:apps"],
+        scopes: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
       });
       expect(data.mcpServerEntry.headers).toMatchObject({
         Authorization: `Bearer ${data.token}`,
-        "X-Agent-Native-MCP-Full-Catalog": "1",
       });
+      expect(data.mcpServerEntry.headers).not.toHaveProperty(
+        "X-Agent-Native-MCP-Full-Catalog",
+      );
       expect(Math.round(lifetimeDays)).toBe(365);
       expect(verified?.jti).toBeTruthy();
       expect(tokenRows[0]).toMatchObject({

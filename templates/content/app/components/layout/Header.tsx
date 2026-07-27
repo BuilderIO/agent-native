@@ -1,14 +1,13 @@
-import { useLocation } from "react-router";
-import type { ReactNode } from "react";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import {
-  AgentToggleButton,
-  NotificationsBell,
-} from "@agent-native/core/client";
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
+import type { ReactNode } from "react";
+import { useLocation } from "react-router";
 
 const pageTitles: Record<string, string> = {
   "/": "Content",
-  "/team": "Team",
 };
 
 function resolveTitle(pathname: string): string {
@@ -41,7 +40,6 @@ export function Header({ sidebarTrigger }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <NotificationsBell />
         <AgentToggleButton />
       </div>
     </header>

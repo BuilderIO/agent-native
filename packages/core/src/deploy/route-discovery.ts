@@ -140,7 +140,7 @@ function isRuntimeSourceFile(filename: string): boolean {
 
 /**
  * Default plugins that auto-mount when not provided by the template.
- * Key = filename stem, value = export name from @agent-native/core/server.
+ * Key = filename stem, value = export name from @agent-native/core/server/edge.
  */
 export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "agent-chat": "defaultAgentChatPlugin",
@@ -148,6 +148,7 @@ export const DEFAULT_PLUGIN_REGISTRY: Record<string, string> = {
   "context-xray": "defaultContextXrayPlugin",
   "core-routes": "defaultCoreRoutesPlugin",
   integrations: "defaultIntegrationsPlugin",
+  "observational-memory": "defaultObservationalMemoryPlugin",
   onboarding: "defaultOnboardingPlugin",
   org: "defaultOrgPlugin",
   resources: "defaultResourcesPlugin",

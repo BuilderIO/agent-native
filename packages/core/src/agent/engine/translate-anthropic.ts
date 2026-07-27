@@ -14,6 +14,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+
 import type {
   EngineTool,
   EngineMessage,
@@ -25,11 +26,75 @@ import type {
 // EngineTool → Anthropic.Tool
 // ---------------------------------------------------------------------------
 
+const ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS = [
+  "oneOf",
+  "anyOf",
+  "allOf",
+] as const;
+
+type JsonSchemaRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is JsonSchemaRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeDbExecAnthropicInputSchema(
+  schema: EngineTool["inputSchema"],
+): Anthropic.Tool["input_schema"] {
+  const sourceProperties = isRecord(schema.properties) ? schema.properties : {};
+  const statements = isRecord(sourceProperties.statements)
+    ? { ...sourceProperties.statements }
+    : {
+        type: "string",
+        description: "JSON array of write statements to execute.",
+      };
+  const description =
+    typeof statements.description === "string" &&
+    statements.description.trim().length > 0
+      ? `${statements.description} For a single write, pass a one-item JSON array.`
+      : "JSON array of write statements to execute. For a single write, pass a one-item JSON array.";
+  statements.description = description;
+
+  const properties: JsonSchemaRecord = { statements };
+  if (isRecord(sourceProperties.format)) {
+    properties.format = sourceProperties.format;
+  }
+
+  return {
+    type: "object",
+    properties,
+    required: ["statements"],
+    additionalProperties: false,
+  };
+}
+
+function normalizeAnthropicInputSchema(
+  toolName: string,
+  schema: EngineTool["inputSchema"],
+): Anthropic.Tool["input_schema"] {
+  if (toolName === "db-exec") {
+    return normalizeDbExecAnthropicInputSchema(schema);
+  }
+
+  if (
+    !ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS.some((key) => key in schema)
+  ) {
+    return schema as Anthropic.Tool["input_schema"];
+  }
+
+  const normalized: Record<string, unknown> = { ...schema };
+  for (const key of ANTHROPIC_UNSUPPORTED_TOP_LEVEL_SCHEMA_KEYS) {
+    delete normalized[key];
+  }
+  normalized.type = "object";
+  return normalized as Anthropic.Tool["input_schema"];
+}
+
 export function engineToolToAnthropic(tool: EngineTool): Anthropic.Tool {
   return {
     name: tool.name,
     description: tool.description,
-    input_schema: tool.inputSchema as Anthropic.Tool["input_schema"],
+    input_schema: normalizeAnthropicInputSchema(tool.name, tool.inputSchema),
   };
 }
 
@@ -215,6 +280,9 @@ export function backfillEngineMessagesToolResults(
         toolInput,
         content: part.content,
         ...(part.isError ? { isError: true } : {}),
+        ...(part.images && part.images.length > 0
+          ? { images: part.images }
+          : {}),
       };
       if (pendingLookup) {
         matchedPendingToolResults.set(part.toolCallId, filled);
@@ -334,6 +402,11 @@ function enginePartToAnthropic(
       if (builderGateway) {
         const tool_name = part.toolName.trim();
         const tool_input = part.toolInput;
+        // Gateway degrade: the Builder gateway multiplexes to non-Anthropic
+        // models whose tool_result handling is string-only, so images are
+        // dropped here. The content string already carries a `[image: …]`
+        // note per image (appended by runToolCall), so the model still knows
+        // an image existed and any https URL survives.
         return {
           type: "tool_result",
           tool_use_id: part.toolCallId,
@@ -346,7 +419,7 @@ function enginePartToAnthropic(
       return {
         type: "tool_result",
         tool_use_id: part.toolCallId,
-        content: part.content,
+        content: toolResultContentToAnthropic(part),
         ...(part.isError ? { is_error: true } : {}),
       } as any;
     }
@@ -359,6 +432,40 @@ function enginePartToAnthropic(
         signature: part.signature ?? "",
       } as any;
   }
+}
+
+/**
+ * tool_result `content` for the native Anthropic API: a plain string normally,
+ * or a text + image block array when the result carries vision images
+ * (https://platform.claude.com/docs — "Example of tool result with images").
+ * Error results stay string-only; malformed image entries are skipped.
+ */
+function toolResultContentToAnthropic(
+  part: Extract<EngineContentPart, { type: "tool-result" }>,
+): string | Anthropic.ContentBlockParam[] {
+  if (part.isError || !part.images || part.images.length === 0) {
+    return part.content;
+  }
+  const imageBlocks: Anthropic.ImageBlockParam[] = [];
+  for (const image of part.images) {
+    if (image.url) {
+      imageBlocks.push({
+        type: "image",
+        source: { type: "url", url: image.url },
+      });
+    } else if (image.data && image.mediaType) {
+      imageBlocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: image.mediaType,
+          data: image.data,
+        },
+      });
+    }
+  }
+  if (imageBlocks.length === 0) return part.content;
+  return [{ type: "text", text: part.content }, ...imageBlocks];
 }
 
 // ---------------------------------------------------------------------------
@@ -480,6 +587,105 @@ export function anthropicChunkToEngineEvents(
   }
 
   return events;
+}
+
+// ---------------------------------------------------------------------------
+// Streamed tool-input reconciliation (shared by every engine adapter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool arguments arrive split across an arbitrary number of deltas. Every
+ * engine announces a tool call the moment the first delta lands, so a stream
+ * that dies mid-arguments leaves the turn advertising a call it never
+ * delivered. Accumulating the delta text is the only way to tell "assembled
+ * fine" from "cut off", instead of dropping the call and reporting success.
+ */
+export interface StreamedToolInputState {
+  byId: Map<string, { name: string; text: string; delivered: boolean }>;
+}
+
+export function createStreamedToolInputState(): StreamedToolInputState {
+  return { byId: new Map() };
+}
+
+/**
+ * Feed an engine's own outgoing event into the accumulator. Works for every
+ * adapter because they all emit the same normalized progress events.
+ */
+export function observeStreamedToolInput(
+  state: StreamedToolInputState,
+  event: EngineEvent,
+): void {
+  if (event.type === "tool-input-start" || event.type === "tool-input-delta") {
+    const id = event.id;
+    if (!id) return;
+    const existing = state.byId.get(id);
+    const text = (event.type === "tool-input-delta" && event.text) || "";
+    if (existing) {
+      if (!existing.name && event.name) existing.name = event.name;
+      existing.text += text;
+      return;
+    }
+    state.byId.set(id, { name: event.name ?? "", text, delivered: false });
+    return;
+  }
+  if (event.type === "tool-call" || event.type === "tool-call-error") {
+    markStreamedToolInputDelivered(state, event.id);
+  }
+}
+
+export function markStreamedToolInputDelivered(
+  state: StreamedToolInputState,
+  id: string,
+): void {
+  const existing = state.byId.get(id);
+  if (existing) existing.delivered = true;
+  else state.byId.set(id, { name: "", text: "", delivered: true });
+}
+
+const TRUNCATED_TOOL_INPUT_ERROR =
+  "The arguments never finished streaming, so this call was not executed and nothing changed. Call the tool again with complete arguments.";
+
+/**
+ * Reconcile what the stream announced against what it actually delivered.
+ * Announced calls whose accumulated arguments parse are handed back as real
+ * tool calls; the rest become in-band tool-call errors the model can read and
+ * retry from. Nothing is dropped.
+ */
+export function finalizeStreamedToolInputs(
+  state: StreamedToolInputState,
+  deliveredIds: Iterable<string> = [],
+): EngineEvent[] {
+  for (const id of deliveredIds) markStreamedToolInputDelivered(state, id);
+  const events: EngineEvent[] = [];
+  for (const [id, entry] of state.byId) {
+    if (entry.delivered) continue;
+    const input = parseStreamedToolInput(entry.text);
+    if (input !== undefined) {
+      events.push({ type: "tool-call", id, name: entry.name, input });
+    } else {
+      events.push({
+        type: "tool-call-error",
+        id,
+        name: entry.name || "unknown-tool",
+        input: entry.text,
+        error: TRUNCATED_TOOL_INPUT_ERROR,
+      });
+    }
+  }
+  return events;
+}
+
+function parseStreamedToolInput(
+  text: string,
+): Record<string, unknown> | undefined {
+  if (!text.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------

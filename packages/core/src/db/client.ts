@@ -10,6 +10,11 @@
  */
 import path from "path";
 
+import {
+  beginDatabaseOperation,
+  recordDatabaseRetry,
+} from "./request-telemetry.js";
+
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
@@ -19,11 +24,29 @@ const loggedNeonPools = new WeakSet<object>();
 
 export type Dialect = "sqlite" | "postgres" | "d1";
 
+export interface DbExecQuery {
+  sql: string;
+  args?: unknown[];
+  /**
+   * Client-side wall-clock budget for this statement. Use only for idempotent
+   * reads unless the caller can safely tolerate a late write completing.
+   */
+  timeoutMs?: number;
+  /** Maximum connection-level attempts for this statement, including the first. */
+  maxAttempts?: number;
+}
+
+export type DbExecStatement = string | DbExecQuery;
+
 export interface DbExec {
-  execute(
-    sql: string | { sql: string; args?: unknown[] },
-  ): Promise<{ rows: any[]; rowsAffected: number }>;
+  execute(sql: DbExecStatement): Promise<{
+    rows: any[];
+    rowsAffected: number;
+  }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  atomicBatch?(
+    statements: readonly DbExecStatement[],
+  ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
    * Only non-singleton execs created via `createDbExec()` (e.g. the migration
@@ -39,6 +62,16 @@ export interface DbExecConfig {
   d1Binding?: any;
 }
 
+/** Read the request-scoped Cloudflare binding without requiring every
+ * consuming app's TypeScript program to include core's ambient Worker globals. */
+export function getCloudflareD1Binding(): unknown {
+  return (
+    globalThis as typeof globalThis & {
+      __cf_env?: { DB?: unknown };
+    }
+  ).__cf_env?.DB;
+}
+
 // ---------------------------------------------------------------------------
 // Per-app DATABASE_URL resolution
 // ---------------------------------------------------------------------------
@@ -47,8 +80,10 @@ export interface DbExecConfig {
  * Resolve the database URL for the current app.
  *
  * Checks for `<APP_NAME>_DATABASE_URL` first (e.g. `MAIL_DATABASE_URL`),
- * then falls back to `DATABASE_URL`. This allows multiple apps to run in the
- * same process group (e.g. eager repo dev or builder.io) with separate databases.
+ * then falls back to `DATABASE_URL`, then Netlify's managed database env. This
+ * allows multiple apps to run in the same process group (e.g. eager repo dev or
+ * builder.io) with separate databases while still using the persistent Netlify
+ * runtime database when `DATABASE_URL` was only exported for the build command.
  *
  * Set `APP_NAME=mail` in the child process env and
  * `MAIL_DATABASE_URL=postgres://...` in the shared env.
@@ -59,7 +94,9 @@ export function getDatabaseUrl(fallback = ""): string {
     const prefixed = process.env[`${appName}_DATABASE_URL`];
     if (prefixed) return prefixed;
   }
-  return process.env.DATABASE_URL || fallback;
+  return (
+    process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || fallback
+  );
 }
 
 /** Same per-app resolution for DATABASE_AUTH_TOKEN (used by Turso/libsql). */
@@ -69,7 +106,13 @@ export function getDatabaseAuthToken(): string | undefined {
     const prefixed = process.env[`${appName}_DATABASE_AUTH_TOKEN`];
     if (prefixed) return prefixed;
   }
-  return process.env.DATABASE_AUTH_TOKEN;
+  return (
+    process.env.DATABASE_AUTH_TOKEN || process.env.NETLIFY_DATABASE_AUTH_TOKEN
+  );
+}
+
+function getAppEnvPrefix(): string | undefined {
+  return process.env.APP_NAME?.toUpperCase().replace(/-/g, "_") || undefined;
 }
 
 /**
@@ -83,7 +126,15 @@ export function getDatabaseAuthToken(): string | undefined {
  * Non-Neon URLs and already-direct Neon URLs are returned unchanged.
  */
 export function getMigrationDatabaseUrl(): string {
-  const url = getDatabaseUrl();
+  const appName = getAppEnvPrefix();
+  const appUnpooled = appName
+    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
+    : undefined;
+  const url =
+    appUnpooled ||
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    getDatabaseUrl();
   // Neon pooler hostname: ep-<id>-pooler.<region>.<cloud>.neon.tech
   // Direct hostname:      ep-<id>.<region>.<cloud>.neon.tech
   // The region between `-pooler.` and `.neon.tech` can contain multiple
@@ -95,6 +146,134 @@ export function getMigrationDatabaseUrl(): string {
 
 export function isLocalSqliteUrl(url: string): boolean {
   return url === "" || url.startsWith("file:") || !url.includes("://");
+}
+
+export function isPgliteUrl(url: string): boolean {
+  return url.toLowerCase().startsWith("pglite:");
+}
+
+export function pgliteDataDirFromUrl(url: string): string {
+  const raw = url.slice("pglite:".length);
+  const dataDir = raw.startsWith("//") ? raw.slice(2) : raw;
+  if (!dataDir || dataDir === "/") return "./data/pglite";
+  if (
+    dataDir === "memory" ||
+    dataDir === "/memory" ||
+    dataDir === ":memory:" ||
+    dataDir === "/:memory:" ||
+    dataDir === "memory://"
+  ) {
+    return "memory://";
+  }
+  return dataDir;
+}
+
+export function pgliteRuntimeDataDir(dataDir: string): string {
+  if (dataDir === "memory://") return dataDir;
+  if (!isServerlessRuntime() || path.isAbsolute(dataDir)) return dataDir;
+
+  const safeParts = dataDir
+    .split(/[\\/]+/)
+    .filter((part) => part && part !== "." && part !== "..");
+  const safeRelative =
+    safeParts.length > 0
+      ? path.join(...safeParts)
+      : path.join("data", "pglite");
+  return path.join("/tmp", safeRelative);
+}
+
+async function preparePgliteDataDir(dataDir: string): Promise<string> {
+  const runtimeDataDir = pgliteRuntimeDataDir(dataDir);
+  if (runtimeDataDir === "memory://") return runtimeDataDir;
+
+  try {
+    const fs = await import("fs");
+    fs.mkdirSync(runtimeDataDir, { recursive: true });
+  } catch {
+    // Edge runtimes may not expose fs. PGlite will surface any real open error.
+  }
+  return runtimeDataDir;
+}
+
+async function importOptionalModule(specifier: string): Promise<any> {
+  return import(/* @vite-ignore */ specifier);
+}
+
+function isMissingPackageError(err: unknown, packageName: string): boolean {
+  const anyErr = err as any;
+  const message = String(anyErr?.message ?? anyErr ?? "");
+  return (
+    (anyErr?.code === "ERR_MODULE_NOT_FOUND" &&
+      message.includes(packageName)) ||
+    message.includes(`Cannot find package '${packageName}'`) ||
+    message.includes(`Cannot find module '${packageName}'`)
+  );
+}
+
+export async function loadPglitePackage(): Promise<{ PGlite: any }> {
+  const packageName = "@electric-sql/pglite";
+  try {
+    return (await importOptionalModule(packageName)) as { PGlite: any };
+  } catch (err) {
+    if (isMissingPackageError(err, packageName)) {
+      throw new Error(
+        "PGlite database support requires the optional @electric-sql/pglite package. " +
+          "Install it with `pnpm add @electric-sql/pglite@^0.5.3`, then set " +
+          "`DATABASE_URL=pglite:./data/pglite`.",
+      );
+    }
+    throw err;
+  }
+}
+
+export async function loadPgliteDrizzle(): Promise<{
+  PGlite: any;
+  drizzle: any;
+}> {
+  const drizzlePackage = "drizzle-orm/pglite";
+  const { PGlite } = await loadPglitePackage();
+  const drizzleMod = await importOptionalModule(drizzlePackage);
+  return {
+    PGlite,
+    drizzle: drizzleMod.drizzle,
+  };
+}
+
+const _pgliteClients = new Map<string, Promise<any>>();
+
+export async function getPgliteClient(url: string): Promise<any> {
+  const dataDir = await preparePgliteDataDir(pgliteDataDirFromUrl(url));
+  let ready = _pgliteClients.get(dataDir);
+  if (!ready) {
+    ready = loadPglitePackage().then(({ PGlite }) => PGlite.create(dataDir));
+    _pgliteClients.set(dataDir, ready);
+  }
+  return ready;
+}
+
+export async function closePgliteClients(): Promise<void> {
+  const clients = await Promise.allSettled(_pgliteClients.values());
+  _pgliteClients.clear();
+  for (const result of clients) {
+    if (result.status === "fulfilled") {
+      await result.value.close().catch(() => {});
+    }
+  }
+}
+
+export async function closePgliteClient(url: string): Promise<void> {
+  const dataDir = pgliteRuntimeDataDir(pgliteDataDirFromUrl(url));
+  const ready = _pgliteClients.get(dataDir);
+  _pgliteClients.delete(dataDir);
+  if (!ready) return;
+
+  const result = await Promise.resolve(ready).then(
+    (client) => ({ status: "fulfilled" as const, client }),
+    () => ({ status: "rejected" as const }),
+  );
+  if (result.status === "fulfilled") {
+    await result.client.close().catch(() => {});
+  }
 }
 
 export async function prepareLocalSqliteUrl(url: string): Promise<string> {
@@ -186,9 +365,9 @@ export async function retrySqliteBusy<T>(
  * Postgres's `IF NOT EXISTS` check is NOT atomic with the `pg_type` /
  * `pg_class` catalog insert. When multiple processes boot concurrently and
  * issue the same CREATE, both can pass the existence check and one fails
- * with code 23505 on `pg_type_typname_nsp_index` or similar. The table does
- * end up created by the winner, so rerunning the same `IF NOT EXISTS`
- * statement is a safe no-op.
+ * with code 23505 on `pg_type_typname_nsp_index`, 42710 from `TypeCreate`,
+ * or similar. The table does end up created by the winner, so rerunning the
+ * same `IF NOT EXISTS` statement is a safe no-op.
  */
 export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -200,11 +379,15 @@ export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function isPgCatalogRace(e: any): boolean {
+  const msg = String(e?.message ?? "");
   if (e?.code === "42P07") return true;
+  if (e?.code === "42710") {
+    const routine = String(e?.routine ?? "");
+    return routine === "TypeCreate" || /type .* already exists/i.test(msg);
+  }
   if (e?.code !== "23505") return false;
   const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
   const detail = String(e?.detail ?? "");
-  const msg = String(e?.message ?? "");
   return (
     constraint.startsWith("pg_type") ||
     constraint.startsWith("pg_class") ||
@@ -248,7 +431,11 @@ export function getDialect(): Dialect {
 
   // DATABASE_URL takes priority over D1 when set.
   const url = getDatabaseUrl();
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+  if (
+    url.startsWith("postgres://") ||
+    url.startsWith("postgresql://") ||
+    isPgliteUrl(url)
+  ) {
     _dialect = "postgres";
     return _dialect;
   }
@@ -258,7 +445,7 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  const d1 = globalThis.__cf_env?.DB;
+  const d1 = getCloudflareD1Binding();
   if (d1) {
     _dialect = "d1";
     return _dialect;
@@ -276,7 +463,11 @@ export function isPostgres(): boolean {
 
 function dialectForConfig(config: DbExecConfig): Dialect {
   const url = config.url ?? "";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+  if (
+    url.startsWith("postgres://") ||
+    url.startsWith("postgresql://") ||
+    isPgliteUrl(url)
+  ) {
     return "postgres";
   }
   if (url && !url.startsWith("file:")) {
@@ -298,6 +489,7 @@ function dialectForConfig(config: DbExecConfig): Dialect {
  * would read and write each other's settings, oauth tokens, and app state.
  */
 export function isLocalDatabase(): boolean {
+  if (isPgliteUrl(getDatabaseUrl())) return true;
   if (getDialect() !== "sqlite") return false;
   const url = getDatabaseUrl();
   return url === "" || url.startsWith("file:");
@@ -308,22 +500,162 @@ export function intType(): string {
   return isPostgres() ? "BIGINT" : "INTEGER";
 }
 
+// `widenIntColumnsToBigInt` lives in `./widen-columns.js` (it depends only on
+// `isPostgres`/`getDbExec` from here) so stores can import it without every
+// `vi.mock("./client.js")` test having to stub the export.
+
 // ---------------------------------------------------------------------------
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------
 
-function sqliteToPostgresParams(sql: string): string {
+export function sqliteToPostgresParams(sql: string): string {
+  let out = "";
+  let param = 0;
   let i = 0;
-  return sql.replace(/\?/g, () => `$${++i}`);
+  let mode:
+    | "normal"
+    | "single"
+    | "double"
+    | "line-comment"
+    | "block-comment"
+    | "dollar" = "normal";
+  let dollarTag = "";
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (mode === "line-comment") {
+      out += ch;
+      i++;
+      if (ch === "\n") mode = "normal";
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      out += ch;
+      if (ch === "*" && next === "/") {
+        out += next;
+        i += 2;
+        mode = "normal";
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "single") {
+      out += ch;
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "double") {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "dollar") {
+      if (dollarTag && sql.startsWith(dollarTag, i)) {
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "normal";
+        dollarTag = "";
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      out += ch + next;
+      i += 2;
+      mode = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += ch + next;
+      i += 2;
+      mode = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      out += ch;
+      i++;
+      mode = "single";
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      i++;
+      mode = "double";
+      continue;
+    }
+    if (ch === "$") {
+      const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "dollar";
+        continue;
+      }
+    }
+    if (ch === "?") {
+      out += `$${++param}`;
+      i++;
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
-function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
+function sqlAndArgs(sql: DbExecStatement): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+export function dbExecQueryBudget(statement: DbExecStatement): {
+  timeoutMs: number;
+  maxAttempts: number;
+} {
+  if (typeof statement === "string") {
+    return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
+  }
+  const timeoutMs = Number(statement.timeoutMs);
+  const maxAttempts = Number(statement.maxAttempts);
+  return {
+    timeoutMs:
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.floor(timeoutMs)
+        : dbOpTimeoutMs(),
+    maxAttempts:
+      Number.isFinite(maxAttempts) && maxAttempts > 0
+        ? Math.floor(maxAttempts)
+        : 3,
+  };
 }
 
 function explicitTransaction(
@@ -353,6 +685,8 @@ const CONNECTION_ERROR_CODES = new Set([
   "ETIMEDOUT",
   "EPIPE",
   "ENOTFOUND",
+  "EMAXCONN",
+  "53300",
   "CONNECT_TIMEOUT",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
@@ -376,8 +710,64 @@ export function isConnectionError(err: any): boolean {
     return true;
   }
   const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
+  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
     msg,
+  );
+}
+
+/**
+ * Classify database failures that should temporarily shed request load.
+ * Statement timeouts are not included in isConnectionError() because retrying
+ * every timed-out mutation would not be safe, but request handlers can still
+ * return a retryable service-unavailable response for them.
+ */
+export function isTransientDatabaseError(err: unknown): boolean {
+  const error = err as {
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+    cause?: {
+      code?: unknown;
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+    };
+  };
+  const code = String(error?.code ?? error?.cause?.code ?? "");
+  if (
+    code === "ECHECKOUTTIMEOUT" ||
+    code === "EMAXCONN" ||
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  ) {
+    return true;
+  }
+
+  const message = [error?.message, error?.cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (
+    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
+  ) {
+    return true;
+  }
+
+  const databaseSurface = [
+    error?.name,
+    error?.cause?.name,
+    error?.stack,
+    error?.cause?.stack,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return (
+    isConnectionError(error) &&
+    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+      databaseSurface,
+    )
   );
 }
 
@@ -392,6 +782,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
   }
@@ -447,6 +838,9 @@ export async function withDbTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  const finishTelemetry = beginDatabaseOperation(
+    op === "connect" ? "connect" : "query",
+  );
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -468,12 +862,14 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("success");
       complete(value);
     };
     const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("error");
       reject(err);
     };
 
@@ -482,6 +878,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -522,10 +919,10 @@ export function isServerlessRuntime(): boolean {
 
 /**
  * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
- * so a single slow query or open transaction can't serialize every other
- * query in the same request. Total connections stay bounded to ≈ 2×
- * concurrent-instance count instead of 10×. idle_timeout is shortened on
+ * one request at a time, so a single connection is enough. Keeping the
+ * foreground pool at 1 is important because each instance can also open an
+ * app and Better Auth pool; a max of 2 on each pool still exhausted Neon
+ * under a burst of warm instances. idle_timeout is shortened on
  * serverless so a thawed-but-idle instance releases its connections quickly.
  * Long-lived Node servers keep the normal pool for throughput.
  */
@@ -533,7 +930,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 2 : 10,
+    max: serverless ? 1 : 10,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -545,12 +942,64 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 
 /**
  * Connection cap for the @neondatabase/serverless `Pool`. Same instance
- * accumulation risk as postgres.js — a small pool (2) is enough on serverless
- * and keeps total connections bounded while still letting a second query
- * proceed when one connection is busy.
+ * accumulation risk as postgres.js — one connection is enough for a
+ * foreground serverless invocation and keeps the aggregate app/framework/auth
+ * budget bounded.
  */
 export function neonPoolMax(): number {
-  return isServerlessRuntime() ? 2 : 10;
+  if (!isServerlessRuntime()) return 10;
+  // The durable background-function worker is a SINGLE process per run (unlike
+  // the many warm request-instances the foreground serverless has), so it can
+  // safely hold a larger pool without risking Neon's connection cap. The agent's
+  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
+  // connections that burst exhausts the pool and a single stalled connection
+  // freezes the worker before it can claim — observed on analytics' heavier
+  // action surface, where the worker froze right after `model_done` and never
+  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
+  // ran the identical code in ~2s. Give the bg worker enough connections for the
+  // burst; keep the foreground serverless pool tiny to avoid "Max client
+  // connections reached" across many warm instances.
+  if (isBackgroundFunctionPoolContext()) return 8;
+  return 1;
+}
+
+/**
+ * Inline mirror of `isInBackgroundFunctionRuntime()`
+ * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
+ * import cycle. Keep the signals in sync with that function.
+ */
+export function isBackgroundFunctionPoolContext(): boolean {
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  // NOTE: we deliberately do NOT trust `__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__`
+  // here. That flag is set from the dispatch MARKER (which URL the foreground
+  // targeted), not from proof the request actually LANDED on a background
+  // function. A worker dispatched toward `-background` but routed onto the ~60s
+  // synchronous function would otherwise take the 8-connection background pool
+  // while running as one of MANY warm sync-function instances — multiplying
+  // Neon connections and exhausting the pooled endpoint ("connection
+  // terminated" / statement timeouts / failed heartbeat writes → stale runs).
+  // The genuine `-background` function sets `__AGENT_NATIVE_BACKGROUND_RUNTIME__`
+  // as its first cold-start statement, so a real background worker still gets
+  // the larger pool via the check above. Mirrors the same proof-of-landing
+  // tightening applied to `shouldUseBackgroundFunctionTimeoutForWorker`.
+  const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (
+    typeof lambdaName === "string" &&
+    lambdaName.toLowerCase().endsWith("-background")
+  ) {
+    return true;
+  }
+  const forced = process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME;
+  if (forced != null) {
+    const v = forced.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  }
+  return false;
 }
 
 /**
@@ -650,6 +1099,24 @@ let _neonPool: any;
 let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
+async function executePglite(
+  client: {
+    query: (
+      sql: string,
+      args?: any[],
+    ) => Promise<{ rows?: any[]; affectedRows?: number; rowCount?: number }>;
+  },
+  sql: Parameters<DbExec["execute"]>[0],
+): ReturnType<DbExec["execute"]> {
+  const { rawSql, args } = sqlAndArgs(sql);
+  const pgSql = sqliteToPostgresParams(rawSql);
+  const result = await client.query(pgSql, args as any[]);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
+}
+
 async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
@@ -675,11 +1142,38 @@ async function createDbExecInternal(
     };
     return {
       execute,
-      transaction: explicitTransaction(execute),
+      async atomicBatch(statements) {
+        const prepared = statements.map((statement) => {
+          if (typeof statement === "string") return d1.prepare(statement);
+          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
+        });
+        const results = await d1.batch(prepared);
+        return results.map((result: any) => ({
+          rows: result.results || [],
+          rowsAffected: result.meta?.changes ?? 0,
+        }));
+      },
     };
   }
 
   let url = config.url || "file:./data/app.db";
+
+  if (isPgliteUrl(url)) {
+    const client = await getPgliteClient(url);
+    return {
+      execute: (sql) => executePglite(client, sql),
+      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+        return client.transaction((tx: any) =>
+          fn({
+            execute: (sql) => executePglite(tx, sql),
+          }),
+        );
+      },
+      async close() {
+        await closePgliteClient(url);
+      },
+    };
+  }
 
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
@@ -696,15 +1190,29 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool } = await import("@neondatabase/serverless");
+      const { Pool, neonConfig } = await import("@neondatabase/serverless");
+      // In the durable background-function worker, route pool queries over Neon's
+      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
+      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
+      // queries after the first burst stall on connect()/query() — observed: the
+      // analytics worker stalls right after model resolution and never claims.
+      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
+      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const bgHttp = isBackgroundFunctionPoolContext();
+      if (bgHttp) {
+        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
+          true;
+      }
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
+        timeoutOverrideMs?: number,
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
         const pgSql = sqliteToPostgresParams(rawSql);
         const result = await withDbTimeout(
           "query",
@@ -713,7 +1221,7 @@ async function createDbExecInternal(
               rows: unknown[];
               rowCount?: number;
             }>,
-          dbOpTimeoutMs(),
+          timeoutOverrideMs ?? timeoutMs,
         );
         return {
           rows: result.rows,
@@ -722,10 +1230,23 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
+          if (bgHttp) {
+            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
+            // persistent socket to stall. queryNeonClient calls pool.query(),
+            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            return retryOnConnectionError<{
+              rows: unknown[];
+              rowsAffected: number;
+            }>(() => queryNeonClient(pool, sql), maxAttempts);
+          }
           const result = await retryOnConnectionError<{
             rows: unknown[];
             rowsAffected: number;
           }>(async () => {
+            const attemptStartedAt = Date.now();
+            const remainingAttemptMs = () =>
+              Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
             // Bound the pooled-connection ACQUIRE, not just the query below.
             // Neon's pooler can stall on `connect()` when cold or exhausted,
             // and that happens BEFORE `client.query`, so the query-level
@@ -743,7 +1264,7 @@ async function createDbExecInternal(
                   if (acquireTimedOut) c.release();
                   return c;
                 }),
-              dbOpTimeoutMs(),
+              remainingAttemptMs(),
               () => {
                 acquireTimedOut = true;
               },
@@ -756,14 +1277,18 @@ async function createDbExecInternal(
             };
 
             try {
-              const result = await queryNeonClient(client, sql);
+              const result = await queryNeonClient(
+                client,
+                sql,
+                remainingAttemptMs(),
+              );
               releaseClient();
               return result;
             } catch (err) {
               releaseClient(isConnectionError(err) ? true : undefined);
               throw err;
             }
-          });
+          }, maxAttempts);
           return {
             rows: result.rows,
             rowsAffected: result.rowsAffected,
@@ -831,6 +1356,7 @@ async function createDbExecInternal(
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
+            const { timeoutMs } = dbExecQueryBudget(sql);
             const pgSql = sqliteToPostgresParams(rawSql);
             const result = await withDbTimeout<
               ArrayLike<unknown> & { count?: number }
@@ -840,7 +1366,7 @@ async function createDbExecInternal(
                 conn.unsafe(pgSql, args as any[]) as Promise<
                   ArrayLike<unknown> & { count?: number }
                 >,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => {
                 timedOut = true;
                 disposePostgresPoolEventually(conn, "timed-out worker query");
@@ -872,6 +1398,7 @@ async function createDbExecInternal(
               const tx: DbExec = {
                 async execute(sql) {
                   const { rawSql, args } = sqlAndArgs(sql);
+                  const { timeoutMs } = dbExecQueryBudget(sql);
                   const pgSql = sqliteToPostgresParams(rawSql);
                   const result = await withDbTimeout<
                     ArrayLike<unknown> & { count?: number }
@@ -881,7 +1408,7 @@ async function createDbExecInternal(
                       txSql.unsafe(pgSql, args as any[]) as Promise<
                         ArrayLike<unknown> & { count?: number }
                       >,
-                    dbOpTimeoutMs(),
+                    timeoutMs,
                   );
                   return {
                     rows: Array.from(result),
@@ -923,6 +1450,7 @@ async function createDbExecInternal(
       return {
         async execute(sql) {
           const { rawSql, args } = sqlAndArgs(sql);
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
@@ -932,10 +1460,10 @@ async function createDbExecInternal(
             return withDbTimeout(
               "query",
               () => query,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => recyclePool(queryPool),
             );
-          });
+          }, maxAttempts);
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -946,6 +1474,7 @@ async function createDbExecInternal(
             const tx: DbExec = {
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
+                const { timeoutMs } = dbExecQueryBudget(sql);
                 const pgSql = sqliteToPostgresParams(rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
@@ -955,7 +1484,7 @@ async function createDbExecInternal(
                     txSql.unsafe(pgSql, args as any[]) as Promise<
                       ArrayLike<unknown> & { count?: number }
                     >,
-                  dbOpTimeoutMs(),
+                  timeoutMs,
                 );
                 return {
                   rows: Array.from(result),
@@ -1055,7 +1584,7 @@ async function initClient(): Promise<void> {
     {
       url,
       authToken: getDatabaseAuthToken(),
-      d1Binding: dialect === "d1" ? globalThis.__cf_env?.DB : undefined,
+      d1Binding: dialect === "d1" ? getCloudflareD1Binding() : undefined,
     },
     true,
   );
@@ -1095,6 +1624,10 @@ export function getDbExec(): DbExec {
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
@@ -1119,6 +1652,10 @@ export function getDbExec(): DbExec {
       }
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
@@ -1138,7 +1675,29 @@ export function getDbExec(): DbExec {
           }),
         );
       }
+      if (_exec!.atomicBatch) {
+        throw new Error(
+          "This database supports atomic batches, not interactive transactions.",
+        );
+      }
       return explicitTransaction(wrapper.execute)(fn);
+    },
+    async atomicBatch(statements) {
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      if (!_exec!.atomicBatch) {
+        throw new Error("This database does not support atomic batches.");
+      }
+      const batch = (items: typeof statements) =>
+        _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      Object.assign(proxy, { atomicBatch: batch });
+      return batch(statements);
     },
   };
   return proxy;
@@ -1158,6 +1717,7 @@ export async function closeDbExec(): Promise<void> {
     _sqlite.close();
     _sqlite = undefined;
   }
+  await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;
 }

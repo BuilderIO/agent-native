@@ -14,7 +14,7 @@ export interface DashboardCatalogMetadata {
   description: string;
   category: DashboardTemplateCategory;
   defaultDashboardId: string;
-  dataSources: Array<"first-party" | "ga4" | "prometheus">;
+  dataSources: Array<"demo" | "first-party" | "ga4" | "prometheus">;
   tags: string[];
   panelCount: number;
   version: string;
@@ -31,6 +31,7 @@ export type CatalogDashboardConfig = SqlDashboardConfig & {
 
 export type DashboardCatalogEntry = DashboardCatalogMetadata & {
   buildConfig: () => SqlDashboardConfig;
+  visibleInCatalog?: boolean;
 };
 
 export type InstalledDashboardSummary = {
@@ -205,6 +206,19 @@ function prometheusTablePanel({
 
 function buildNodeExporterFull(): SqlDashboardConfig {
   return seedConfig("node-exporter-full");
+}
+
+function buildDemoNodeExporterFull(): SqlDashboardConfig {
+  const config = buildNodeExporterFull();
+  return {
+    ...config,
+    name: "Demo Node Exporter Full",
+    description:
+      "The full Node Exporter dashboard wired to the built-in demo Prometheus endpoint.",
+    panels: config.panels.map((panel) =>
+      panel.source === "prometheus" ? { ...panel, source: "demo" } : panel,
+    ),
+  };
 }
 
 function buildNodeExporterMacos(): SqlDashboardConfig {
@@ -878,7 +892,7 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
         id: "instance",
         type: "text",
         label: "Instance",
-        default: "localhost:9100",
+        default: "127.0.0.1:9100",
       },
     ],
     variables: {
@@ -890,24 +904,66 @@ function buildNodeExporterMacos(): SqlDashboardConfig {
 
 export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
   {
+    id: "demo-node-exporter",
+    name: "Demo Node Exporter Full",
+    description:
+      "Explore CPU, memory, disk, network, filesystem, and load metrics using built-in sample Prometheus data, with no data source setup required.",
+    category: "Observability",
+    defaultDashboardId: "demo-node-exporter",
+    dataSources: ["demo"],
+    tags: ["demo", "prometheus", "node_exporter", "observability"],
+    panelCount: 135,
+    version: CATALOG_VERSION,
+    recommended: true,
+    buildConfig: buildDemoNodeExporterFull,
+  },
+  {
     id: "first-party-template-traffic",
     name: "First-party Template Traffic",
     description:
-      "Template clicks, demo starts, CLI copies, and first-party session activity.",
+      "Template signups, clicks, demo starts, CLI copies, activity, top URLs, top clips, retention by template, and active users over time.",
     category: "Product",
     defaultDashboardId: "agent-native-templates-first-party",
     dataSources: ["first-party"],
-    tags: ["templates", "traffic", "sessions"],
+    tags: [
+      "templates",
+      "traffic",
+      "signups",
+      "sessions",
+      "retention",
+      "active users",
+      "pageviews",
+      "urls",
+      "clips",
+      "referrals",
+      "virality",
+    ],
+    panelCount: 38,
+    version: CATALOG_VERSION,
+    recommended: true,
+    visibleInCatalog: false,
+    buildConfig: () => seedConfig("agent-native-templates-first-party"),
+  },
+  {
+    id: "skills-cli-funnel",
+    name: "Skills CLI Funnel",
+    description:
+      "Install funnel for the `npx @agent-native/skills@latest` and `npx @agent-native/core@latest skills` CLIs: starts, step-by-step dropoff, skill/client popularity, scope, and platform splits.",
+    category: "Product",
+    defaultDashboardId: "skills-cli-funnel",
+    dataSources: ["first-party"],
+    tags: ["skills", "cli", "funnel", "install", "first-party"],
     panelCount: 12,
     version: CATALOG_VERSION,
     recommended: true,
-    buildConfig: () => seedConfig("agent-native-templates-first-party"),
+    visibleInCatalog: false,
+    buildConfig: () => seedConfig("skills-cli-funnel"),
   },
   {
     id: "google-analytics-web",
     name: "Google Analytics Website",
     description:
-      "GA4 traffic, engagement, acquisition, top pages, and geography.",
+      "Track GA4 website traffic, engagement, acquisition channels, top pages, geography, and browser/device mix.",
     category: "Acquisition",
     defaultDashboardId: "google-analytics",
     dataSources: ["ga4"],
@@ -920,7 +976,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "node-exporter-macos",
     name: "Node Exporter macOS",
     description:
-      "A comprehensive Darwin/macOS Prometheus host dashboard for Homebrew node_exporter metrics.",
+      "Monitor macOS host CPU, memory, disk, filesystem, network, load, and Homebrew node_exporter health from Prometheus.",
     category: "Observability",
     defaultDashboardId: "node-exporter-macos",
     dataSources: ["prometheus"],
@@ -934,12 +990,12 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
     id: "node-exporter-full",
     name: "Node Exporter Full",
     description:
-      "The Linux-focused Grafana Node Exporter Full dashboard converted for Agent Native Analytics.",
+      "Monitor Linux host CPU, memory, disk, filesystem, network, and load, plus Prometheus demo-app traffic and latency panels.",
     category: "Observability",
     defaultDashboardId: "node-exporter-full",
     dataSources: ["prometheus"],
     tags: ["prometheus", "node_exporter", "grafana", "capacity"],
-    panelCount: 124,
+    panelCount: 135,
     version: CATALOG_VERSION,
     buildConfig: buildNodeExporterFull,
   },
@@ -966,12 +1022,26 @@ function templateIdFromConfig(config: Record<string, unknown>): string | null {
   return typeof templateId === "string" && templateId ? templateId : null;
 }
 
+function demoIdFromConfig(config: Record<string, unknown>): string | null {
+  const demo = config.demo;
+  if (!demo || typeof demo !== "object" || Array.isArray(demo)) {
+    return null;
+  }
+  const demoId = (demo as Record<string, unknown>).id;
+  return typeof demoId === "string" && demoId ? demoId : null;
+}
+
 function installedDashboardForTemplate(
   row: DashboardRecord,
   entry: DashboardCatalogEntry,
 ): boolean {
   const templateId = templateIdFromConfig(row.config);
-  return templateId === entry.id || row.id === entry.defaultDashboardId;
+  const demoId = demoIdFromConfig(row.config);
+  return (
+    templateId === entry.id ||
+    demoId === entry.id ||
+    row.id === entry.defaultDashboardId
+  );
 }
 
 export async function listDashboardCatalog(
@@ -983,31 +1053,37 @@ export async function listDashboardCatalog(
     hidden: "all",
   });
 
-  return dashboardCatalogEntries.map((entry) => {
-    const installedDashboards = dashboards
-      .filter((row) => installedDashboardForTemplate(row, entry))
-      .map((row) => ({
-        id: row.id,
-        name:
-          typeof row.config.name === "string" && row.config.name.trim()
-            ? row.config.name
-            : row.title,
-        visibility: row.visibility,
-        updatedAt: row.updatedAt,
-        archivedAt: row.archivedAt,
-      }))
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
+  return dashboardCatalogEntries
+    .filter((entry) => entry.visibleInCatalog !== false)
+    .map((entry) => {
+      const installedDashboards = dashboards
+        .filter((row) => installedDashboardForTemplate(row, entry))
+        .map((row) => ({
+          id: row.id,
+          name:
+            typeof row.config.name === "string" && row.config.name.trim()
+              ? row.config.name
+              : row.title,
+          visibility: row.visibility,
+          updatedAt: row.updatedAt,
+          archivedAt: row.archivedAt,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        );
 
-    const { buildConfig: _buildConfig, ...metadata } = entry;
-    return {
-      ...metadata,
-      installedDashboards,
-      installed: installedDashboards.length > 0,
-    };
-  });
+      const {
+        buildConfig: _buildConfig,
+        visibleInCatalog: _visibleInCatalog,
+        ...metadata
+      } = entry;
+      return {
+        ...metadata,
+        installedDashboards,
+        installed: installedDashboards.length > 0,
+      };
+    });
 }
 
 export function applyCatalogMetadata(

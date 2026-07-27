@@ -2,17 +2,20 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
 import {
   LIBERATION_SANS_BOLD_BASE64,
   LIBERATION_SANS_REGULAR_BASE64,
+  NOTO_NASKH_ARABIC_BASE64,
 } from "./og-fonts-data.js";
 
 /**
  * Liberation Sans is the metric-compatible libre replacement for
- * Arial/Helvetica that the OG image SVG asks for. It ships embedded as base64
+ * Arial/Helvetica that the OG image SVG asks for. Noto Naskh Arabic fills the
+ * Arabic script gap for localized docs titles. They ship embedded as base64
  * (see {@link ./og-fonts-data.ts}) so the renderer never depends on the host's
- * system fonts — Linux serverless runtimes (Netlify/Lambda) have neither Arial
- * nor Inter, which previously left every `<text>` element rendering nothing.
+ * system fonts — Linux serverless runtimes (Netlify/Lambda) have neither Arial,
+ * Inter, nor Arabic fallback fonts.
  */
 const OG_FONT_FILES = [
   {
@@ -20,9 +23,14 @@ const OG_FONT_FILES = [
     base64: LIBERATION_SANS_REGULAR_BASE64,
   },
   { filename: "LiberationSans-Bold.ttf", base64: LIBERATION_SANS_BOLD_BASE64 },
+  {
+    filename: "NotoNaskhArabic-Variable.ttf",
+    base64: NOTO_NASKH_ARABIC_BASE64,
+  },
 ] as const;
 
 export const OG_FONT_FAMILY = "Liberation Sans";
+export const OG_ARABIC_FONT_FAMILY = "Noto Naskh Arabic";
 
 let cachedFontFiles: string[] | null | undefined;
 

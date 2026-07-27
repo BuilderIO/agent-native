@@ -53,6 +53,28 @@ Optional: `--duration` (minimum slot length in minutes, default 30).
 
 Booking links are stored in SQL via Drizzle ORM. Each link has a slug, duration, and associated availability.
 
+Booking links can also have required co-hosts. The owner is always included;
+`hosts` stores additional required co-hosts:
+
+```bash
+pnpm action create-booking-link \
+  --title "Steve + Brent" \
+  --slug "steve-brent-30" \
+  --duration 30 \
+  --hosts "brent@example.com"
+```
+
+Use `update-booking-link` to add or remove co-hosts on an existing link. Group
+booking links only show slots when the owner and every co-host can be checked as
+free. When a booking is confirmed, the app creates the Google Calendar event on
+the owner's connected account and adds co-hosts as invited attendees.
+
+Management sharing is separate from public booking access:
+
+- Use framework sharing actions / the share dialog to grant management access to
+  people or the organization.
+- The public booking URL and `isActive` decide whether visitors can book.
+
 The UI manages booking links at `/booking-links`. The public booking URL pattern is:
 
 ```

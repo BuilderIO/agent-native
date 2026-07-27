@@ -1,3 +1,21 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { Layout as AppLayout } from "@agent-native/dispatch/components";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Links,
   Meta,
@@ -6,25 +24,16 @@ import {
   ScrollRestoration,
   useNavigate,
 } from "react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { Toaster } from "sonner";
-import {
-  AppProviders,
-  CommandMenu,
-  configureTracking,
-  createAgentNativeQueryClient,
-  getThemeInitScript,
-  useCommandMenuShortcut,
-  useDbSync,
-  appPath,
-} from "@agent-native/core/client";
-import { useQueryClient } from "@tanstack/react-query";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-import { Layout as AppLayout } from "@agent-native/dispatch/components";
 import type { LinksFunction } from "react-router";
+import { Toaster } from "sonner";
+
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+
+import changelog from "../CHANGELOG.md?raw";
 import { dispatchExtensions } from "./dispatch-extensions";
+import { i18nCatalog } from "./i18n";
+
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -39,6 +48,7 @@ export const links: LinksFunction = () => [
 ];
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
+const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -52,6 +62,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#0f172a" />
@@ -148,6 +163,7 @@ function useThreadDeepLink() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -155,26 +171,39 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
   );
 }
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
       <DbSyncSetup />
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="dispatch"
+      >
+        <CommandMenu.Group heading={t("root.commandActions")}>
+          <CommandMenu.Item onSelect={() => navigate("/agent")}>
+            <IconHierarchy2 size={16} />
+            {t("root.openAgent")}
+          </CommandMenu.Item>
+          <CommandMenu.Item onSelect={() => {}}>
+            {t("root.commandSearch")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
-      <AppLayout extensions={dispatchExtensions}>
+      <AppLayout extensions={dispatchExtensions} agentPageHref="/agent">
         <Outlet />
       </AppLayout>
     </>
@@ -184,13 +213,16 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders
-      queryClient={queryClient}
-      toaster={<Toaster richColors position="bottom-left" closeButton />}
-    >
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        toaster={<Toaster richColors position="bottom-left" closeButton />}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

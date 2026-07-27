@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { parseMergedKey } from "./remote-store.js";
 
 const mocks = vi.hoisted(() => ({
@@ -155,6 +156,7 @@ describe("loadWorkspaceMcpServers", () => {
     expect(mocks.execute).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
+        sql: expect.stringContaining("CAST(? AS TEXT) IS NOT NULL"),
         args: [
           "mcp-server",
           "all",

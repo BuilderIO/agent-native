@@ -9,10 +9,13 @@ const repoRoot = path.resolve(
 
 const npmPublishAllowlist = new Set([
   "@agent-native/core",
+  "@agent-native/creative-context",
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
+  "@agent-native/recap-cli",
   "@agent-native/scheduling",
   "@agent-native/skills",
+  "@agent-native/toolkit",
 ]);
 
 // Packages that are NOT published to npm and therefore exempt from the
@@ -20,6 +23,7 @@ const npmPublishAllowlist = new Set([
 // consumed through `workspace:` and must stay ignored by changesets until npm
 // trusted publishing is configured for them.
 const workspaceOnlyPackageAllowlist = new Set([
+  "@agent-native/agent-chrome-extension",
   "@agent-native/desktop-app",
   "@agent-native/docs",
   "@agent-native/frame",
@@ -44,6 +48,7 @@ type PackageJson = {
   exports?: unknown;
   scripts?: Record<string, string>;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
 };
@@ -62,9 +67,27 @@ function readIgnoredPackages(): Set<string> {
   return new Set(Array.isArray(config.ignore) ? config.ignore : []);
 }
 
-const packagesDir = path.join(repoRoot, "packages");
 const ignoredPackages = readIgnoredPackages();
+const packagesDir = path.join(repoRoot, "packages");
 const failures: string[] = [];
+
+function readWorkspacePackageNames(): Set<string> {
+  const names = new Set<string>();
+  for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+
+    const packageJsonPath = path.join(packagesDir, entry.name, "package.json");
+    if (!fs.existsSync(packageJsonPath)) continue;
+
+    const pkg = readJson<PackageJson>(packageJsonPath);
+    if (pkg.name?.startsWith("@agent-native/")) {
+      names.add(pkg.name);
+    }
+  }
+  return names;
+}
+
+const workspacePackageNames = readWorkspacePackageNames();
 
 function collectStringValues(value: unknown): string[] {
   if (typeof value === "string") return [value];
@@ -84,10 +107,42 @@ function dependencyProtocolFailures(
 ): string[] {
   if (!dependencies) return [];
   return Object.entries(dependencies)
-    .filter(([, version]) => /^(catalog|workspace):/.test(version))
+    .filter(([dep, version]) => {
+      // pnpm rewrites catalog references to their publishable semver ranges
+      // during pack and publish, just like workspace protocol references.
+      if (/^catalog:/.test(version)) return false;
+      if (/^workspace:/.test(version)) {
+        return !npmPublishAllowlist.has(dep);
+      }
+      return false;
+    })
     .map(
       ([dep, version]) =>
-        `${pkgName} ${field}.${dep} must use a publishable semver range, not ${version}`,
+        `${pkgName} ${field}.${dep} must use a publishable semver range or published workspace package, not ${version}`,
+    );
+}
+
+function localWorkspaceDependencyFailures(
+  pkgName: string,
+  field: string,
+  dependencies: Record<string, string> | undefined,
+): string[] {
+  if (!dependencies) return [];
+  return Object.entries(dependencies)
+    .filter(([dep, version]) => {
+      if (!workspacePackageNames.has(dep)) return false;
+      if (version === "workspace:*") return false;
+      // Published deps may use workspace:^ so pnpm pack rewrites it to a
+      // caret range (e.g. ^0.4.3), letting consumers dedupe against a
+      // compatible version instead of an exact pin.
+      if (version === "workspace:^" && npmPublishAllowlist.has(dep)) {
+        return false;
+      }
+      return true;
+    })
+    .map(
+      ([dep, version]) =>
+        `${pkgName} ${field}.${dep} must stay workspace:* (or workspace:^ for published deps) in source, not ${version}; pnpm pack rewrites it for npm publishing`,
     );
 }
 
@@ -99,6 +154,25 @@ for (const entry of fs.readdirSync(packagesDir, { withFileTypes: true })) {
 
   const pkg = readJson<PackageJson>(packageJsonPath);
   if (!pkg.name?.startsWith("@agent-native/")) continue;
+
+  failures.push(
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "dependencies",
+      pkg.dependencies,
+    ),
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "devDependencies",
+      pkg.devDependencies,
+    ),
+    ...localWorkspaceDependencyFailures(
+      pkg.name,
+      "optionalDependencies",
+      pkg.optionalDependencies,
+    ),
+  );
+
   if (workspaceOnlyPackageAllowlist.has(pkg.name)) {
     if (pkg.private !== true && !ignoredPackages.has(pkg.name)) {
       failures.push(

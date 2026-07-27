@@ -224,8 +224,10 @@ export const DESIGN_SYSTEM_PRESETS: DesignSystemPreset[] = [
   },
 ];
 
-export function getPreset(id: string): DesignSystemPreset {
-  return (
-    DESIGN_SYSTEM_PRESETS.find((p) => p.id === id) || DESIGN_SYSTEM_PRESETS[0]
-  );
+export function getPreset(id: string): DesignSystemPreset | undefined {
+  return DESIGN_SYSTEM_PRESETS.find((p) => p.id === id);
+}
+
+export function getPresetOrDefault(id: string): DesignSystemPreset {
+  return getPreset(id) ?? DESIGN_SYSTEM_PRESETS[0];
 }

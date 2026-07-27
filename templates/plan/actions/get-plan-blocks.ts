@@ -1,5 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
+import { renderPlanBlockAuthoringExamples } from "../server/plan-block-examples.js";
 import {
   describePlanBlocksForAgent,
   renderPlanBlockVocabulary,
@@ -31,7 +33,15 @@ const AUTHORING_RULES_NOTE = `
 
 **Wireframes**: set \`data.html\` to a semantic HTML fragment; pick a surface (desktop/mobile/popover/panel/browser). The renderer owns theme, footprint/aspect, Excalifont, and rough.js sketch overlay. Use \`--wf-*\` CSS tokens for any custom color (never hex). Prototype screens use semantic HTML with \`data-goto\` attributes for navigation.
 
-**Before/After columns**: for UI state comparisons, put one \`wireframe\` block in each side of a \`columns\` block and set the column labels to \`Before\` and \`After\`; the renderer draws labels as headings and lays narrow surfaces side by side. Never bake Before/After labels inside the wireframe HTML or hand-stack the pair.
+**Visual frames**: \`wireframe\` and \`diagram\` data accept \`frame: "auto" | "show" | "hide"\`. Leave it unset/\`auto\` when the host context should decide: Plan and recap surfaces default to framed; docs default to unframed. Use \`frame: "show"\` for standalone product screens, before/after recap comparisons, screenshot-like artifacts, and visuals that need containment from surrounding prose. Use \`frame: "hide"\` when a docs page, tab, column, card, canvas artboard, or the visual's own internal chrome already supplies the boundary. Hiding the outer frame must not remove inner padding, meaningful card/field/button borders, or the visual's readable structure.
+
+**Canvas storyboards**: if the user asks for a canvas, storyboard, wireframe, light storyboard, UI flow, screen flow, product flow, mockup, or visual comparison, the primary artifact must be \`content.canvas\` / \`canvas.mdx\` with \`DesignBoard\` artboards containing \`Screen\` HTML wireframes. Each canvas \`Screen\` must carry \`html\` / \`data.html\`; never author fresh nested kit-tree children such as \`<FrameScreen>\`, \`<Card>\`, \`<Row>\`, or \`<Btn>\` inside canvas \`<Screen>\` tags. Kit trees are old-plan compatibility only and often render worse on the pan/zoom canvas than HTML wireframes. Do not use document-body \`diagram\` blocks for the primary UI story. Use \`diagram\` only for architecture, data flow, or implementation mechanics below the canvas, and only after the UI storyboard exists.
+
+**Before/After columns**: compose a \`columns\` block from \`<Column>\` CHILDREN — never a \`columns=\` attribute or inline JSON array. Author it as \`<Columns><Column label="Before">…child block(s)…</Column><Column label="After">…child block(s)…</Column></Columns>\`. Each \`<Column>\` wraps real nested blocks (e.g. a \`Wireframe\`); the parser fills in column ids and child-block \`data\` from that markup, whereas a \`columns=\` attribute array leaves them missing and FAILS schema validation. For UI state comparisons put one \`wireframe\` block in each side and label the columns \`Before\` and \`After\`; the renderer draws labels as headings and lays narrow surfaces side by side. Never bake Before/After labels inside the wireframe HTML or hand-stack the pair.
+
+**MDX prose and component syntax**: write ordinary top-level prose as normal Markdown; it imports as rich-text automatically. Use \`<RichText id="...">…</RichText>\` only when prose needs explicit metadata such as \`title\`, \`summary\`, or \`editable\`, or when preserving a referenced block id. Every capitalized block component must be self-closing (\`<Diagram id="..." data={{ ... }} />\`) or have a matching closing tag around children (\`<RichText id="...">…</RichText>\`). Never write a bare opening tag like \`<RichText ...>\` as a paragraph; the MDX parser treats it as unclosed JSX and import fails before the plan can render.
+
+**Code-bearing blocks**: \`code\`, \`annotated-code\`, and \`diff\` are whitespace-sensitive. Prefer the exact MDX form emitted by the authoring examples / source exporter, where multiline code is encoded as JSON string attributes such as \`code={\"const x =\\\\n  y\"}\`. Static template literals are accepted and preserve indentation, but they must be static strings with no \`\${...}\` interpolation.
 
 **File maps**: prefer \`annotated-code\` blocks (real code + line-anchored notes) grouped in a vertical \`tabs\` block, one tab per key file. Drop to a plain \`code\` block only for throwaway snippets with nothing to call out.
 
@@ -39,7 +49,7 @@ const AUTHORING_RULES_NOTE = `
 
 **API endpoints**: keep \`api-endpoint\` and \`openapi-spec\` blocks in normal single-column document flow. Use \`columns\` only for an explicit before/after contract comparison.
 
-**renderMode**: leave unset or set to \`wireframe\` unless a design-only editable mock is required.\``;
+**Visual fidelity and renderMode**: leave \`renderMode\` unset or set it to \`wireframe\` for normal wireframes. “Higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,” “real design,” or “not a sketch/wireframe” requires \`renderMode: "design"\`, substantial branded HTML/CSS grounded in the real app, and stable \`data-design-id\` targets. Put scoped styles in the wireframe/prototype \`css\` field — never in a \`<style>\` tag. On an existing plan, update the same plan id with \`set-visual-render-mode\` plus the upgraded HTML/CSS; do not create a duplicate. The viewer-local Clean toggle is not a fidelity upgrade.\``;
 
 /**
  * Expose the live plan block vocabulary to the agent. The list is generated from
@@ -61,6 +71,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  requiresAuth: false,
   readOnly: true,
   publicAgent: {
     expose: true,
@@ -75,9 +86,16 @@ export default defineAction({
   },
   run: async (args) => {
     const blocks = describePlanBlocksForAgent();
+    // The authoring examples are generated at runtime from canonical blocks via
+    // the real source serializer, so the copy-able MDX can never drift from the
+    // schema (see plan-block-examples.ts + block-authoring-examples.spec.ts).
+    const authoringExamples = await renderPlanBlockAuthoringExamples();
     return {
       reference:
-        renderPlanBlockVocabulary() + BLOCK_HEADING_NOTE + AUTHORING_RULES_NOTE,
+        renderPlanBlockVocabulary() +
+        BLOCK_HEADING_NOTE +
+        AUTHORING_RULES_NOTE +
+        authoringExamples,
       ...(args.format === "schema" ? { blocks } : {}),
       count: blocks.length,
     };

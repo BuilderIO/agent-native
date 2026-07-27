@@ -4,7 +4,17 @@ import {
   isPostgres,
   retryOnDdlRace,
 } from "../db/client.js";
-import type { PublicRemoteDevice, RemoteDevice } from "./remote-types.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
+import type {
+  PublicRemoteDevice,
+  RemoteComputerCapabilities,
+  RemoteDevice,
+  RemoteDeviceMetadata,
+} from "./remote-types.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -12,26 +22,65 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_remote_devices (
-            id TEXT PRIMARY KEY,
-            owner_email TEXT NOT NULL,
-            org_id TEXT,
-            label TEXT NOT NULL,
-            platform TEXT,
-            app_version TEXT,
-            host_name TEXT,
-            metadata_json TEXT,
-            device_token_hash TEXT NOT NULL,
-            last_seen_at ${intType()},
-            status TEXT NOT NULL,
-            revoked_at ${intType()},
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
-          )
-        `),
-      );
+      const createSql = `
+        CREATE TABLE IF NOT EXISTS integration_remote_devices (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          label TEXT NOT NULL,
+          platform TEXT,
+          app_version TEXT,
+          host_name TEXT,
+          metadata_json TEXT,
+          device_token_hash TEXT NOT NULL,
+          last_seen_at ${intType()},
+          status TEXT NOT NULL,
+          revoked_at ${intType()},
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `;
+
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_remote_devices", createSql);
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "platform",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "app_version",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "host_name",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "metadata_json",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "revoked_at",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_token_hash",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior verbatim
+      await retryOnDdlRace(() => client.execute(createSql));
       await addColumnIfMissing("platform", "TEXT");
       await addColumnIfMissing("app_version", "TEXT");
       await addColumnIfMissing("host_name", "TEXT");
@@ -92,10 +141,7 @@ function rowToDevice(row: Record<string, unknown>): RemoteDevice {
     platform: (row.platform as string | null) ?? null,
     appVersion: (row.app_version as string | null) ?? null,
     hostName: (row.host_name as string | null) ?? null,
-    metadata: parseJson(row.metadata_json, null) as Record<
-      string,
-      unknown
-    > | null,
+    metadata: parseJson(row.metadata_json, null) as RemoteDeviceMetadata | null,
     deviceTokenHash: row.device_token_hash as string,
     lastSeenAt:
       row.last_seen_at == null ? null : Number(row.last_seen_at as number),
@@ -124,6 +170,14 @@ export function toPublicRemoteDevice(device: RemoteDevice): PublicRemoteDevice {
   };
 }
 
+export function getRemoteComputerCapabilities(
+  device: Pick<RemoteDevice, "metadata">,
+): RemoteComputerCapabilities | null {
+  const value = device.metadata?.computerCapabilities;
+  if (!value || typeof value !== "object") return null;
+  return normalizeComputerCapabilities(value);
+}
+
 export async function createRemoteDevice(input: {
   ownerEmail: string;
   orgId?: string | null;
@@ -131,7 +185,7 @@ export async function createRemoteDevice(input: {
   platform?: string | null;
   appVersion?: string | null;
   hostName?: string | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: RemoteDeviceMetadata | null;
 }): Promise<{ device: RemoteDevice; token: string }> {
   await ensureTable();
   const client = getDbExec();
@@ -153,7 +207,7 @@ export async function createRemoteDevice(input: {
       sanitizeOptionalString(input.platform, 80),
       sanitizeOptionalString(input.appVersion, 120),
       sanitizeOptionalString(input.hostName, 200),
-      input.metadata ? JSON.stringify(input.metadata) : null,
+      serializeRemoteDeviceMetadata(input.metadata),
       tokenHash,
       now,
       "active",
@@ -189,7 +243,7 @@ export async function getRemoteDeviceForOwner(input: {
     sql: `SELECT * FROM integration_remote_devices
           WHERE id = ?
             AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           LIMIT 1`,
     args: [
       input.id,
@@ -233,7 +287,7 @@ export async function listRemoteDevicesForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_devices
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)${statusClause}
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)${statusClause}
           ORDER BY COALESCE(last_seen_at, updated_at) DESC
           LIMIT ?`,
     args,
@@ -272,7 +326,7 @@ export async function updateRemoteDeviceDetails(input: {
   platform?: string | null;
   appVersion?: string | null;
   hostName?: string | null;
-  metadata?: Record<string, unknown> | null;
+  metadata?: RemoteDeviceMetadata | null;
 }): Promise<RemoteDevice | null> {
   await ensureTable();
   const now = Date.now();
@@ -296,7 +350,7 @@ export async function updateRemoteDeviceDetails(input: {
   }
   if (input.metadata !== undefined) {
     updates.push("metadata_json = ?");
-    args.push(input.metadata ? JSON.stringify(input.metadata) : null);
+    args.push(serializeRemoteDeviceMetadata(input.metadata));
   }
   if (updates.length === 0) return getRemoteDevice(input.id);
 
@@ -325,7 +379,7 @@ export async function revokeRemoteDeviceForOwner(input: {
               updated_at = ?
           WHERE id = ?
             AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)`,
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)`,
     args: [
       now,
       now,
@@ -374,6 +428,55 @@ function parseJson(value: unknown, fallback: unknown): unknown {
   } catch {
     return fallback;
   }
+}
+
+function serializeRemoteDeviceMetadata(
+  metadata: RemoteDeviceMetadata | null | undefined,
+): string | null {
+  if (!metadata) return null;
+  const normalized: RemoteDeviceMetadata = { ...metadata };
+  if (metadata.computerCapabilities !== undefined) {
+    normalized.computerCapabilities = normalizeComputerCapabilities(
+      metadata.computerCapabilities,
+    );
+  }
+  const json = JSON.stringify(normalized);
+  if (new TextEncoder().encode(json).byteLength > 32_768) {
+    throw new Error("Remote device metadata exceeds 32 KiB");
+  }
+  if (/"data:[^"]*"/i.test(json) || looksLikeLargeBase64(json)) {
+    throw new Error("Remote device metadata cannot contain binary payloads");
+  }
+  return json;
+}
+
+function normalizeComputerCapabilities(
+  value: RemoteComputerCapabilities,
+): RemoteComputerCapabilities {
+  const result: RemoteComputerCapabilities = {};
+  if (value.browser && typeof value.browser === "object") {
+    result.browser = {
+      observe: value.browser.observe === true,
+      control: value.browser.control === true,
+      provider: sanitizeOptionalString(value.browser.provider, 120),
+      version: sanitizeOptionalString(value.browser.version, 120),
+    };
+  }
+  if (value.desktop && typeof value.desktop === "object") {
+    result.desktop = {
+      observe: value.desktop.observe === true,
+      control: value.desktop.control === true,
+      accessibility: value.desktop.accessibility === true,
+      screenCapture: value.desktop.screenCapture === true,
+      provider: sanitizeOptionalString(value.desktop.provider, 120),
+      version: sanitizeOptionalString(value.desktop.version, 120),
+    };
+  }
+  return result;
+}
+
+function looksLikeLargeBase64(value: string): boolean {
+  return value.length > 4_096 && /[A-Za-z0-9+/]{4_096,}={0,2}/.test(value);
 }
 
 function randomHex(byteLength: number): string {

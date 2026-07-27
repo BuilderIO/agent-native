@@ -1,23 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import type { PlanBlock, PlanContent } from "@shared/plan-content";
+import type { PlanAnnotation } from "@shared/plan-content";
 import {
   IconClick,
   IconLayoutBoard,
   IconPalette,
   IconX,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { PlanBlock, PlanContent } from "@shared/plan-content";
+
 import {
   CanvasArea,
   type CanvasMarkupMode,
   type CanvasMarkupCreateContext,
+  type CanvasViewport,
   type DesignElementSelection,
 } from "./CanvasArea";
 import { PrototypeViewer } from "./PrototypeViewer";
-import type { PlanAnnotation } from "@shared/plan-content";
 
 type CanvasMarkupAnnotationInput = Omit<PlanAnnotation, "id">;
 export type PlanVisualSurfaceMode = "prototype" | "wireframes" | "none";
@@ -31,6 +35,8 @@ type PlanVisualSurfaceProps = {
     annotation: CanvasMarkupAnnotationInput,
     context: CanvasMarkupCreateContext,
   ) => Promise<void> | void;
+  onCanvasViewportChange?: (view: CanvasViewport) => void;
+  onCanvasCommentShortcut?: () => void;
   prototypeOnly?: boolean;
   visualMode?: PlanVisualSurfaceMode;
   onVisualModeChange?: (mode: PlanVisualSurfaceMode) => void;
@@ -46,19 +52,22 @@ export function PlanVisualSurface({
   blockLookup,
   canvasMarkupMode = "none",
   onCanvasMarkupCreate,
+  onCanvasViewportChange,
+  onCanvasCommentShortcut,
   prototypeOnly = false,
   visualMode: requestedVisualMode,
   onVisualModeChange,
   onDesignElementStyleChange,
 }: PlanVisualSurfaceProps) {
-  const designCanvas = isDesignCanvas(canvas);
+  const t = useT();
+  const designCanvas = isDesignCanvas(canvas, blockLookup);
   const [selectedDesignElement, setSelectedDesignElement] =
     useState<DesignElementSelection | null>(null);
   const selectedDesignElementKey = selectedDesignElement
     ? `${selectedDesignElement.frameId ?? ""}::${selectedDesignElement.blockId ?? ""}::${selectedDesignElement.elementId}`
     : null;
   const [tabValue, setTabValue] = useState<"prototype" | "wireframes">(
-    designCanvas ? "wireframes" : prototype ? "prototype" : "wireframes",
+    "wireframes",
   );
   const requestedTabValue =
     requestedVisualMode === "prototype" || requestedVisualMode === "wireframes"
@@ -123,7 +132,7 @@ export function PlanVisualSurface({
         <div
           className="absolute left-4 top-4 z-40"
           data-plan-interactive
-          aria-label="Visual review mode"
+          aria-label={t("raw.visual.visualReviewMode")}
         >
           <TabsList className="h-9 rounded-lg border border-plan-line bg-plan-chrome/90 p-1 shadow-xl backdrop-blur">
             <TabsTrigger
@@ -131,7 +140,7 @@ export function PlanVisualSurface({
               className="h-7 gap-1.5 px-2.5 text-xs"
             >
               <IconClick className="size-3.5" aria-hidden="true" />
-              Prototype
+              {t("raw.visual.prototype")}
             </TabsTrigger>
             <TabsTrigger
               value="wireframes"
@@ -142,7 +151,9 @@ export function PlanVisualSurface({
               ) : (
                 <IconLayoutBoard className="size-3.5" aria-hidden="true" />
               )}
-              {designCanvas ? "Design" : "Wireframes"}
+              {designCanvas
+                ? t("raw.visual.design")
+                : t("raw.visual.wireframes")}
             </TabsTrigger>
           </TabsList>
         </div>
@@ -165,6 +176,8 @@ export function PlanVisualSurface({
             blockLookup={blockLookup}
             markupMode={canvasMarkupMode}
             onCanvasMarkupCreate={onCanvasMarkupCreate}
+            onViewportChange={onCanvasViewportChange}
+            onCommentShortcut={onCanvasCommentShortcut}
             selectedDesignElementKey={selectedDesignElementKey}
             onDesignElementSelect={
               designCanvas ? setSelectedDesignElement : undefined
@@ -192,6 +205,8 @@ export function PlanVisualSurface({
           blockLookup={blockLookup}
           markupMode={canvasMarkupMode}
           onCanvasMarkupCreate={onCanvasMarkupCreate}
+          onViewportChange={onCanvasViewportChange}
+          onCommentShortcut={onCanvasCommentShortcut}
           selectedDesignElementKey={selectedDesignElementKey}
           onDesignElementSelect={
             designCanvas ? setSelectedDesignElement : undefined
@@ -211,10 +226,17 @@ export function PlanVisualSurface({
   return null;
 }
 
-function isDesignCanvas(canvas: PlanContent["canvas"] | undefined) {
+function isDesignCanvas(
+  canvas: PlanContent["canvas"] | undefined,
+  blockLookup: Map<string, PlanBlock>,
+) {
   return Boolean(
     canvas?.mode === "design" ||
-    canvas?.frames.some((frame) => frame.wireframe?.renderMode === "design"),
+    canvas?.frames.some((frame) => {
+      if (frame.wireframe) return frame.wireframe.renderMode === "design";
+      const block = frame.blockId ? blockLookup.get(frame.blockId) : undefined;
+      return block?.type === "wireframe" && block.data.renderMode === "design";
+    }),
   );
 }
 
@@ -230,6 +252,7 @@ function DesignStyleInspector({
     styles: Record<string, string | null>,
   ) => Promise<void> | void;
 }) {
+  const t = useT();
   if (!selection) return null;
   const canEdit = Boolean(onStyleChange);
   const apply = (property: string, value: string) => {
@@ -245,7 +268,7 @@ function DesignStyleInspector({
       <div className="mb-3 flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-plan-muted">
-            Design element
+            {t("raw.visual.designElement")}
           </p>
           <p className="mt-0.5 truncate text-sm font-semibold text-plan-text">
             {selection.elementId}
@@ -261,7 +284,7 @@ function DesignStyleInspector({
           size="icon"
           className="size-7"
           onClick={onClear}
-          aria-label="Clear design selection"
+          aria-label={t("raw.visual.clearDesignSelection")}
         >
           <IconX className="size-4" />
         </Button>

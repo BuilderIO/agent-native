@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -291,7 +292,7 @@ describe("app skill packaging", () => {
           path.join(outDir, "adapters", "vercel-skills", "README.md"),
           "utf-8",
         )
-        .includes("npx skills add . --skill assets -a codex"),
+        .includes("npx skills@latest add . --skill assets -a codex"),
     ).toBe(true);
     expect(
       JSON.parse(
@@ -348,7 +349,7 @@ describe("app skill packaging", () => {
     expect(first).not.toBe(second);
   });
 
-  it("packs and installs MCP server aliases for compatibility", async () => {
+  it("pack still includes alias names in the output .mcp.json for backward compat", async () => {
     const root = tmpDir();
     const manifestFile = writeFixture(root);
     const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
@@ -362,10 +363,22 @@ describe("app skill packaging", () => {
     const packedMcp = JSON.parse(
       fs.readFileSync(path.join(outDir, ".mcp.json"), "utf-8"),
     );
+    // Pack output still includes both names for backward compat with older
+    // plugin consumers that may have installed only the alias name.
     expect(Object.keys(packedMcp.mcpServers).sort()).toEqual([
       "agent-native-assets",
       "assets",
     ]);
+  });
+
+  it("ensure writes ONLY the canonical serverName (no alias duplicates)", async () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.mcp.aliases = ["assets"];
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    const loaded = loadAppSkillManifest(manifestFile);
 
     await ensureAppSkill(loaded, {
       clients: ["claude-code"],
@@ -375,10 +388,66 @@ describe("app skill packaging", () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
     );
+    // Only the canonical name; no alias duplicate.
+    expect(Object.keys(config.mcpServers)).toEqual(["agent-native-assets"]);
+    expect(config.mcpServers["agent-native-assets"]).toEqual({
+      type: "http",
+      url: "https://assets.agent-native.com/_agent-native/mcp",
+    });
+  });
+
+  it("ensure removes pre-existing alias entries that point at the same URL", async () => {
+    const root = tmpDir();
+    const manifestFile = writeFixture(root);
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf-8"));
+    manifest.mcp.aliases = ["assets"];
+    fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2), "utf-8");
+
+    // Pre-seed with both the canonical and alias entry (simulates old install).
+    fs.writeFileSync(
+      path.join(root, ".mcp.json"),
+      JSON.stringify(
+        {
+          mcpServers: {
+            "agent-native-assets": {
+              type: "http",
+              url: "https://assets.agent-native.com/_agent-native/mcp",
+            },
+            assets: {
+              type: "http",
+              url: "https://assets.agent-native.com/_agent-native/mcp",
+            },
+            "other-server": {
+              type: "http",
+              url: "https://other.example.com/_agent-native/mcp",
+            },
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+
+    const logged: string[] = [];
+    const loaded = loadAppSkillManifest(manifestFile);
+    await ensureAppSkill(loaded, {
+      clients: ["claude-code"],
+      scope: "project",
+      baseDir: root,
+      log: (msg) => logged.push(msg),
+    });
+
+    const config = JSON.parse(
+      fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+    );
+    // Canonical entry updated, alias removed, unrelated entry untouched.
     expect(Object.keys(config.mcpServers).sort()).toEqual([
       "agent-native-assets",
-      "assets",
+      "other-server",
     ]);
+    // Log message mentions the removed entry.
+    expect(logged.join(" ")).toContain("assets");
   });
 
   it("rejects pack paths that escape the manifest or output root", () => {
@@ -491,5 +560,46 @@ describe("app skill launch and ensure", () => {
       type: "http",
       url: "https://assets.agent-native.com/_agent-native/mcp",
     });
+  });
+
+  it("does not write URL-only hosted auth config for Codex through ensure", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+    const logged: string[] = [];
+    const loaded = loadAppSkillManifest(writeFixture(root));
+
+    try {
+      const result = await ensureAppSkill(loaded, {
+        clients: ["codex", "claude-code"],
+        scope: "project",
+        baseDir: root,
+        log: (message) => logged.push(message),
+      });
+
+      expect(result.written.map((entry) => entry.client)).toEqual([
+        "claude-code",
+      ]);
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(root, ".mcp.json"), "utf-8"),
+      );
+      expect(config.mcpServers["agent-native-assets"]).toEqual({
+        type: "http",
+        url: "https://assets.agent-native.com/_agent-native/mcp",
+      });
+      expect(logged.join("\n")).toContain(
+        "Skipped URL-only hosted MCP config for codex",
+      );
+      expect(logged.join("\n")).toContain(
+        "agent-native connect https://assets.agent-native.com --client codex --scope project",
+      );
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
   });
 });

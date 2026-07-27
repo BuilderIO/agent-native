@@ -15,20 +15,34 @@ export interface BookingOgAssetStorage {
   getItemRaw?(id: string): Promise<unknown>;
 }
 
+function resolveSourceFontPath(relativePath: string): string {
+  try {
+    const metaUrl = import.meta.url;
+    if (!metaUrl.startsWith("file:")) return "";
+    return fileURLToPath(new URL(relativePath, metaUrl));
+  } catch {
+    return "";
+  }
+}
+
 export const BOOKING_OG_FONT_ASSETS: BookingOgFontAsset[] = [
   {
     asset: "server/fonts/LiberationSans-Regular.ttf",
     filename: "LiberationSans-Regular.ttf",
-    sourcePath: fileURLToPath(
-      new URL("../../assets/fonts/LiberationSans-Regular.ttf", import.meta.url),
-    ),
+    get sourcePath() {
+      return resolveSourceFontPath(
+        "../../assets/fonts/LiberationSans-Regular.ttf",
+      );
+    },
   },
   {
     asset: "server/fonts/LiberationSans-Bold.ttf",
     filename: "LiberationSans-Bold.ttf",
-    sourcePath: fileURLToPath(
-      new URL("../../assets/fonts/LiberationSans-Bold.ttf", import.meta.url),
-    ),
+    get sourcePath() {
+      return resolveSourceFontPath(
+        "../../assets/fonts/LiberationSans-Bold.ttf",
+      );
+    },
   },
 ];
 
@@ -43,8 +57,12 @@ export function bytesFromStorageValue(value: unknown): Buffer | undefined {
 }
 
 function sourceFontFiles(): string[] | undefined {
-  const files = BOOKING_OG_FONT_ASSETS.map((font) => font.sourcePath);
-  return files.every((fontFile) => existsSync(fontFile)) ? files : undefined;
+  try {
+    const files = BOOKING_OG_FONT_ASSETS.map((font) => font.sourcePath);
+    return files.every((fontFile) => existsSync(fontFile)) ? files : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function readFontBytes(
@@ -59,7 +77,7 @@ async function readFontBytes(
 }
 
 export async function loadBundledOgFontFiles(
-  storage: BookingOgAssetStorage,
+  storage?: BookingOgAssetStorage,
   options: {
     preferSourceFiles?: boolean;
     tmpRoot?: string;
@@ -70,6 +88,8 @@ export async function loadBundledOgFontFiles(
     const sourceFiles = sourceFontFiles();
     if (sourceFiles) return sourceFiles;
   }
+
+  if (!storage) return undefined;
 
   try {
     const fonts = [];

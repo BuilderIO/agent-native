@@ -1,20 +1,41 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
-import { useCallback, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useDbSync,
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
+  setClientAppState,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
   useCommandMenuShortcut,
-  getThemeInitScript,
-  configureTracking,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useState } from "react";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
+
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { useNavigationState } from "@/hooks/use-navigation-state";
+import { formsRoutePath } from "@/lib/form-builder-tabs";
+import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
+import { i18nCatalog } from "./i18n";
+
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -28,7 +49,31 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -40,8 +85,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -65,8 +116,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-const TAB_ID = Math.random().toString(36).slice(2, 10);
-
 function DbSyncSetup() {
   const qc = useQueryClient();
   useDbSync({
@@ -82,8 +131,87 @@ function NavigationStateSync() {
   return null;
 }
 
+function UrlStateSync() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const searchParams: Record<string, string> = {};
+    for (const [key, value] of new URLSearchParams(location.search).entries()) {
+      searchParams[key] = value;
+    }
+
+    const value = {
+      pathname: location.pathname,
+      search: location.search,
+      hash: location.hash,
+      searchParams,
+    };
+    const options = { keepalive: true, requestSource: TAB_ID };
+
+    setClientAppState(`__url__:${TAB_ID}`, value, options).catch(() => {});
+    setClientAppState("__url__", value, options).catch(() => {});
+  }, [location.hash, location.pathname, location.search]);
+
+  return null;
+}
+
+function safeLocalPath(value: string | null): string | null {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function formsOpenPath(url: URL): string | null {
+  if (url.origin !== window.location.origin) return null;
+  if (!url.pathname.endsWith("/_agent-native/open")) return null;
+
+  const explicitPath = safeLocalPath(url.searchParams.get("to"));
+  if (explicitPath) return explicitPath;
+
+  const view = url.searchParams.get("view");
+  const formId = url.searchParams.get("formId") ?? url.searchParams.get("id");
+  return formsRoutePath({
+    view,
+    formId,
+    tab: url.searchParams.get("tab") ?? url.searchParams.get("activeTab"),
+  });
+}
+
+function OpenLinkInterceptor() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    function handleClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const path = formsOpenPath(new URL(anchor.href));
+      if (!path) return;
+
+      event.preventDefault();
+      navigateWithAgentChatViewTransition(navigate, path);
+    }
+
+    document.addEventListener("click", handleClick, true);
+    return () => document.removeEventListener("click", handleClick, true);
+  }, [location.pathname, navigate]);
+
+  return null;
+}
+
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -91,30 +219,85 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
+      {t("root.toggleTheme")}
     </CommandMenu.Item>
+  );
+}
+
+function FormsCommandMenu({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  return (
+    <CommandMenu
+      open={open}
+      onOpenChange={onOpenChange}
+      changelog={changelog}
+      changelogKey="forms"
+    >
+      <CommandMenu.Group heading={t("root.commandForms")}>
+        <CommandMenu.Item onSelect={() => {}}>
+          {t("root.searchForms")}
+        </CommandMenu.Item>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+      <CommandMenu.Group heading={t("root.appearance")}>
+        <ThemeToggleItem />
+      </CommandMenu.Group>
+    </CommandMenu>
+  );
+}
+
+function PrivateAppContent() {
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  return (
+    <>
+      <DbSyncSetup />
+      <NavigationStateSync />
+      <UrlStateSync />
+      <OpenLinkInterceptor />
+      <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <Outlet />
+    </>
   );
 }
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
-  const [cmdkOpen, setCmdkOpen] = useState(false);
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  const location = useLocation();
+  const isPublicPath =
+    location.pathname === "/f" || location.pathname.startsWith("/f/");
+
+  if (isPublicPath) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
   return (
-    <AppProviders queryClient={queryClient}>
-      <DbSyncSetup />
-      <NavigationStateSync />
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Forms">
-          <CommandMenu.Item onSelect={() => {}}>Search forms</CommandMenu.Item>
-        </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
-          <ThemeToggleItem />
-        </CommandMenu.Group>
-      </CommandMenu>
-      <Outlet />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <PrivateAppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

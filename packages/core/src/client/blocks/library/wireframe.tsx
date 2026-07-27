@@ -1,3 +1,4 @@
+import { IconPencil } from "@tabler/icons-react";
 import {
   useEffect,
   useId,
@@ -6,32 +7,37 @@ import {
   useState,
   type ReactNode,
 } from "react";
+
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
   BlockReadProps,
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
-  wireframeSchema,
-  wireframeMdx,
-  type WireframeData,
-  type WireframeSurface,
-} from "./wireframe.config.js";
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import { renderWireframeIconHtml } from "./wireframe-icons.js";
 import {
   HTML_ROUGH_SELECTOR,
   KitConfigContext,
   RoughOverlay,
   Screen,
   renderNodes,
+  toggleWireframeStyle,
   useIsDark,
   useWireframeStyle,
 } from "./wireframe-kit.js";
 import {
-  sanitizeWireframeCss,
-  sanitizeWireframeHtml,
-  scopeDesignCss,
-} from "./sanitize-html.js";
+  wireframeSchema,
+  wireframeMdx,
+  type WireframeData,
+  type WireframeSurface,
+} from "./wireframe.config.js";
 
 /**
  * Shared `wireframe` block — a hand-drawn low-fi mockup of one screen, rendered
@@ -50,8 +56,8 @@ import {
  * - The plan-only prototype runtime, design-element selection, and legacy region
  *   fallback are intentionally NOT ported; those are plan-canvas features, not
  *   part of the document-block render. The kit element vocabulary, the `--wf-*`
- *   token contract, and the `.plan-wf` / `[data-rough]` classes the overlay
- *   measures are preserved exactly.
+ *   token contract, and the `.plan-wf` / `.wf-*` / `[data-rough]` classes the
+ *   overlay measures are preserved exactly.
  *
  * The section carries the app-neutral `an-block` class plus the legacy
  * `plan-block` class so plan renders byte-identically while any other app gets
@@ -107,6 +113,7 @@ function ArtboardFrame({
   skeleton,
   renderMode,
   roughOverlay = true,
+  showFrame = true,
   selector,
   caption,
   render,
@@ -123,6 +130,7 @@ function ArtboardFrame({
   skeleton?: boolean;
   renderMode?: "wireframe" | "design";
   roughOverlay?: boolean;
+  showFrame?: boolean;
   selector: string;
   caption?: string;
   render: (ctx: {
@@ -134,7 +142,7 @@ function ArtboardFrame({
   const fitRef = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
   const theme: "light" | "dark" = isDark ? "dark" : "light";
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
   const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
   const width = canvasWidth ?? preset.width;
   // AUTO-HEIGHT: with no explicit `canvasSize` the artboard height is driven by
@@ -156,11 +164,9 @@ function ArtboardFrame({
     fixedHeight ?? null,
   );
   const designMode = renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
-  const paper = designMode
-    ? "hsl(var(--background))"
-    : "var(--plan-document, hsl(var(--background)))";
   const frameBorder = skeleton
     ? "var(--plan-placeholder-line, var(--plan-line, hsl(var(--border))))"
     : "var(--plan-line, hsl(var(--border)))";
@@ -207,6 +213,7 @@ function ArtboardFrame({
   // by the fit factor. Falls back to the surface floor before the first measure
   // so SSR / first paint reserves a sensible box rather than collapsing.
   const reservedHeight = (measuredHeight ?? minHeight) * fitScale;
+  const reserveScaledHeight = fixedHeight != null || fitScale !== 1;
 
   return (
     <div
@@ -218,24 +225,25 @@ function ArtboardFrame({
       }}
     >
       <div
+        className="group/wireframe-artboard relative"
         style={{
           width: "100%",
           maxWidth: maxFrameWidth,
-          height: reservedHeight,
+          ...(reserveScaledHeight ? { height: reservedHeight } : {}),
           marginInline: "auto",
         }}
       >
         <div
           ref={ref}
           className="plan-kit-artboard relative"
+          data-rough-scope="wireframe"
+          data-frame={showFrame ? "show" : "hide"}
           style={{
             width,
             // Auto-height by default (content-driven, floored at `minHeight`);
             // a fixed `canvasSize` locks the height for canvas artboards.
             ...(fixedHeight != null ? { height: fixedHeight } : { minHeight }),
             borderRadius: preset.radius,
-            background: paper,
-            boxShadow: "0 10px 34px hsl(var(--foreground) / 0.10)",
             ...(fitScale !== 1
               ? {
                   transform: `scale(${fitScale})`,
@@ -258,7 +266,7 @@ function ArtboardFrame({
           >
             {render({ theme, style })}
           </div>
-          {!roughEnabled && (
+          {!roughEnabled && showFrame && (
             <div
               className="pointer-events-none absolute inset-0"
               style={{
@@ -270,15 +278,47 @@ function ArtboardFrame({
           <RoughOverlay
             scopeRef={ref}
             enabled={roughEnabled}
+            drawFrame={showFrame}
             frameRadius={preset.radius}
             selector={selector}
           />
         </div>
+        {!designMode && !skeleton && <WireframeStyleToggleButton />}
       </div>
       {caption && (
         <p className="mt-2 text-center text-xs text-plan-muted">{caption}</p>
       )}
     </div>
+  );
+}
+
+function WireframeStyleToggleButton() {
+  const style = useWireframeStyle();
+  const copy = useBlockCopy();
+  const nextStyle = style === "sketchy" ? "clean" : "sketchy";
+  const label = nextStyle === "clean" ? copy.clean : copy.sketchy;
+  const description = copy.switchVisualStyle.replace(
+    "{{style}}",
+    label.toLocaleLowerCase(),
+  );
+
+  return (
+    <button
+      type="button"
+      data-plan-interactive
+      data-rough="none"
+      data-wireframe-style-toggle
+      aria-label={description}
+      title={description}
+      onClick={(event) => {
+        event.stopPropagation();
+        toggleWireframeStyle();
+      }}
+      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
+    >
+      <IconPencil className="size-3.5" aria-hidden="true" />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -289,18 +329,29 @@ function ArtboardFrame({
 function HtmlArtboard({
   data,
   ctx: _ctx,
+  showFrame,
   compact,
 }: {
   data: WireframeData;
   ctx: BlockRenderContext;
+  showFrame: boolean;
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
   // Sanitize author HTML/CSS at the render point (defense-in-depth against stored
   // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
   // browser, regex fallback on the server) so the HTML mockup path renders in any
   // app without the host wiring a sanitizer hook.
-  const safeHtml = useMemo(() => sanitizeWireframeHtml(data.html), [data.html]);
+  const safeHtml = useMemo(
+    () =>
+      renderWireframeIconHtml(
+        sanitizeWireframeHtml(data.html, {
+          preserveThemeClasses: designMode,
+        }),
+      ),
+    [data.html, designMode],
+  );
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {
     const safeCss = sanitizeWireframeCss(data.css);
@@ -317,6 +368,7 @@ function HtmlArtboard({
       compact={compact}
       skeleton={data.skeleton}
       renderMode={renderMode}
+      showFrame={showFrame}
       selector={HTML_ROUGH_SELECTOR}
       caption={data.caption}
       render={({ theme, style }) => (
@@ -324,6 +376,7 @@ function HtmlArtboard({
           className="plan-html-frame"
           data-theme={theme}
           data-style={style}
+          data-frame={showFrame ? "show" : "hide"}
           data-render-mode={renderMode}
           data-plan-design-scope={scopeId}
           data-skeleton={data.skeleton ? "true" : undefined}
@@ -345,9 +398,11 @@ function HtmlArtboard({
 
 function KitArtboard({
   data,
+  showFrame,
   compact,
 }: {
   data: WireframeData;
+  showFrame: boolean;
   compact?: boolean;
 }) {
   return (
@@ -355,11 +410,18 @@ function KitArtboard({
       surface={data.surface}
       compact={compact}
       skeleton={data.skeleton}
+      renderMode={data.renderMode}
+      showFrame={showFrame}
       selector="[data-rough]"
       caption={data.caption}
       render={({ theme, style }) => (
         <KitConfigContext.Provider
-          value={{ skeleton: data.skeleton, theme, style }}
+          value={{
+            skeleton: data.skeleton,
+            flushFrame: !showFrame,
+            theme,
+            style,
+          }}
         >
           {renderKitScreen(data.screen ?? [])}
         </KitConfigContext.Provider>
@@ -397,10 +459,27 @@ function WireframeSurfaceView({
   ctx: BlockRenderContext;
   compact?: boolean;
 }) {
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   if (isHtmlData(data)) {
-    return <HtmlArtboard data={data} ctx={ctx} compact={compact} />;
+    return (
+      <HtmlArtboard
+        data={data}
+        ctx={ctx}
+        showFrame={showFrame}
+        compact={compact}
+      />
+    );
   }
-  return <KitArtboard data={data} compact={compact} />;
+  return <KitArtboard data={data} showFrame={showFrame} compact={compact} />;
+}
+
+function resolveVisualFrame(
+  frame: WireframeData["frame"],
+  ctx: BlockRenderContext,
+): boolean {
+  const resolved =
+    frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
+  return resolved !== "hide";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -414,14 +493,16 @@ export function WireframeBlock({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<WireframeData>) {
   return (
     <section
+      {...ltrCodeBlockProps}
       className="an-block plan-block an-wireframe"
       data-block-id={blockId}
     >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <WireframeSurfaceView data={data} ctx={ctx} />
+      <WireframeSurfaceView data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );

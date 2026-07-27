@@ -3,11 +3,12 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { CodeTabsData } from "./code-tabs.config.js";
 import { codeTabsBlock } from "./code-tabs.js";
 import { DiffRead } from "./DiffBlock.js";
-import { TabsBlockEditor, TabsBlockReader } from "./tabs.js";
-import type { CodeTabsData } from "./code-tabs.config.js";
 import type { TabsData } from "./tabs.config.js";
+import { TabsBlockEditor, TabsBlockReader } from "./tabs.js";
 
 const manyCodeTabs: CodeTabsData = {
   tabs: Array.from({ length: 12 }, (_, index) => ({
@@ -269,9 +270,17 @@ describe("shared block tab rails", () => {
     });
 
     expect(container.querySelector(".border-r.border-border")).toBeTruthy();
-    expect(
-      container.querySelector('[aria-orientation="horizontal"]'),
-    ).toBeTruthy();
+    const tablist = container.querySelector<HTMLElement>(
+      '[aria-orientation="horizontal"]',
+    );
+    const activePane = tablist?.nextElementSibling as HTMLElement | null;
+    const childWrapper = activePane?.firstElementChild as HTMLElement | null;
+
+    expect(tablist).toBeTruthy();
+    expect(activePane?.className).toContain("min-w-0");
+    expect(activePane?.className).toContain("max-w-full");
+    expect(childWrapper?.className).toContain("min-w-0");
+    expect(childWrapper?.className).toContain("max-w-full");
   });
 
   it("edits content tab labels from the settings popover instead of an inline field", () => {
@@ -398,5 +407,8 @@ describe("shared block tab rails", () => {
     expect(
       tablist?.querySelector<HTMLElement>('[role="tab"]')?.className,
     ).toContain("whitespace-nowrap");
+    expect(tablist?.parentElement?.className).toContain("min-w-0");
+    expect(tablist?.nextElementSibling?.className).toContain("min-w-0");
+    expect(tablist?.nextElementSibling?.className).toContain("max-w-full");
   });
 });

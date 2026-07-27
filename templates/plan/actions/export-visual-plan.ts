@@ -1,8 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import {
   buildPlanHtml,
+  loadFullPlanEvents,
   loadPlanBundle,
   planDeepLink,
   planPath,
@@ -25,6 +30,10 @@ export default defineAction({
   },
   run: async (args) => {
     const bundle = await loadPlanBundle(args.planId);
+    // The bundle caps events at the most recent 50 for the hot polled path;
+    // an export is a rare, explicit "durable receipt" so it carries the full
+    // activity history. loadPlanBundle already resolved access above.
+    bundle.events = await loadFullPlanEvents(args.planId);
     const path = planPath(bundle.plan.id, bundle.plan.kind);
     const mdx = await exportPlanContentToMdxFolder({
       content: bundle.plan.content,
@@ -32,6 +41,7 @@ export default defineAction({
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
       url: path,
+      referencedBlockIds: referencedBlockIdsForPlanComments(bundle.comments),
     });
     const sourceMarkdown =
       (bundle.plan.content ? mdx["plan.mdx"] : bundle.plan.markdown) ||

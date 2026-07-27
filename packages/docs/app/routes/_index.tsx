@@ -1,6 +1,10 @@
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useState } from "react";
 import { Link } from "react-router";
-import { useEffect, useRef, useState } from "react";
+
+import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import CodeBlock from "../components/CodeBlock";
+import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
 import {
   featuredTemplates,
@@ -8,18 +12,8 @@ import {
   trackEvent,
 } from "../components/TemplateCard";
 
-const quickStartCode = `# Fork a template and start building
-npx @agent-native/core@latest create my-app --template mail
-cd my-app
-pnpm install
-pnpm dev`;
-
-const skillInstallCode = `# Add agent-native planning to a coding agent you already use
-npx @agent-native/core@latest skills add visual-plan`;
-
-function TerminalCommand() {
+function TerminalCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
-  const command = "npx @agent-native/core@latest create my-app";
 
   function handleCopy() {
     navigator.clipboard.writeText(command);
@@ -71,598 +65,655 @@ function TerminalCommand() {
   );
 }
 
-const bidirectionalTabs = [
+const homepageTemplateSlugs = [
+  "clips",
+  "plan",
+  "design",
+  "content",
+  "slides",
+  "analytics",
+  "chat",
+];
+
+const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
+  featuredTemplates.filter((template) => template.slug === slug),
+);
+
+const featureCloudRows = [
   {
-    title: "The agent sees everything",
-    description:
-      "It can read and update any UI, any data, any state in the application.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa7b4e0fca8154ab6a82414178d3a4521%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a7b4e0fca8154ab6a82414178d3a4521&alt=media&optimized=true",
+    className: "-translate-x-10",
+    words: [
+      {
+        labelKey: "notifications",
+        className: "text-base uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "recurringJobs",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { labelKey: "actions", className: "text-5xl opacity-[0.95]" },
+      {
+        labelKey: "agentTeams",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "monorepos",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+    ],
   },
   {
-    title: "The UI talks to the agent",
-    description:
-      "Buttons, forms, and workflows push structured content to the agent, giving you guided flows that all go through the agent — including skills, rules, and instructions.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F02f0369cc97345aa89311d0909b24611%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=02f0369cc97345aa89311d0909b24611&alt=media&optimized=true",
+    className: "translate-x-12",
+    words: [
+      {
+        labelKey: "permissions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "rbac", className: "text-lg uppercase opacity-[0.18]" },
+      { labelKey: "organizations", className: "text-2xl opacity-[0.24]" },
+      {
+        labelKey: "workspaceSecrets",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { labelKey: "docsSearch", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "sourceSearch",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
   },
   {
-    title: "The agent updates its own code",
-    description:
-      "It can modify the app itself to change features and functionality. Your tools get better over time.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1aade099ff6d4e9ca04f8534d3314383%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=1aade099ff6d4e9ca04f8534d3314383&alt=media&optimized=true",
+    className: "translate-x-8",
+    words: [
+      {
+        labelKey: "contextAwareness",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "observability", className: "text-4xl opacity-[0.86]" },
+      {
+        labelKey: "realtimeSync",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "sqlState", className: "text-4xl opacity-[0.86]" },
+      {
+        labelKey: "multiTenancy",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "dataLoaders",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "liveQueries",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
   },
   {
-    title: "Everything works both ways",
-    description:
-      "Every action available in the UI is also available to the agent. You can click to do something, or ask the agent to do it.",
-    video:
-      "https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2F39c6b297895843708938b097d8e3eb2c?alt=media&token=c5fdf84c-d4fb-45b0-b220-ef7aab01e99f&apiKey=YJIGb4i01jvw0SRdL5Bt",
+    className: "-translate-x-14",
+    words: [
+      {
+        labelKey: "agentInstructions",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "providerGrants",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      { labelKey: "notifications", className: "text-2xl opacity-[0.24]" },
+      { labelKey: "comments", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "reviewLinks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "privacyControls",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "-translate-x-4",
+    words: [
+      {
+        labelKey: "skills",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "security", className: "text-3xl opacity-[0.58]" },
+      { labelKey: "auditLogs", className: "text-3xl opacity-[0.54]" },
+      { labelKey: "workspaces", className: "text-3xl opacity-[0.46]" },
+      {
+        labelKey: "voiceInput",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "mcpApps",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { labelKey: "generativeUi", className: "text-4xl opacity-[0.76]" },
+      { labelKey: "toolCalls", className: "text-2xl opacity-[0.26]" },
+      {
+        labelKey: "agentSidebar",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "feature-cloud-center-row",
+    words: [
+      { labelKey: "sharedActions", className: "text-2xl opacity-[0.30]" },
+      { labelKey: "uiSurfaces", className: "text-xl uppercase opacity-[0.20]" },
+      { labelKey: "i18n", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "mcpAuth", className: "text-2xl opacity-[0.44]" },
+      {
+        labelKey: "battleTestedComponents",
+        className:
+          "feature-cloud-center-card max-w-[260px] whitespace-normal rounded-2xl border border-neutral-300 bg-neutral-100 px-6 py-5 text-center text-2xl text-neutral-950 opacity-100 shadow-[0_18px_70px_rgba(255,255,255,0.92)] dark:border-white/30 dark:bg-[#151515] dark:text-white dark:shadow-[0_18px_70px_rgba(0,0,0,0.96)] sm:max-w-[310px] sm:px-8 sm:py-6 sm:text-3xl",
+      },
+      { labelKey: "mcpA2a", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "externalAgents", className: "text-2xl opacity-[0.32]" },
+      {
+        labelKey: "a2aHandoffs",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-6",
+    words: [
+      {
+        labelKey: "humanHandoff",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "agentContext", className: "text-2xl opacity-[0.26]" },
+      {
+        labelKey: "durableResume",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "extensions", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "sharingPrivacy", className: "text-2xl opacity-[0.34]" },
+      {
+        labelKey: "realTimeCollaboration",
+        className: "text-2xl opacity-[0.30]",
+      },
+      { labelKey: "sso", className: "text-2xl opacity-[0.44]" },
+      {
+        labelKey: "oauth",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "mcpServers", className: "text-2xl opacity-[0.28]" },
+      { labelKey: "agentTeams", className: "text-xl uppercase opacity-[0.18]" },
+    ],
+  },
+  {
+    className: "-translate-x-8",
+    words: [
+      {
+        labelKey: "scopedAccess",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "dbAdapters",
+        className: "text-lg uppercase opacity-[0.22]",
+      },
+      { labelKey: "auth", className: "text-4xl opacity-[0.84]" },
+      { labelKey: "approvals", className: "text-3xl opacity-[0.44]" },
+      { labelKey: "automations", className: "text-3xl opacity-[0.46]" },
+      { labelKey: "governance", className: "text-3xl opacity-[0.48]" },
+      { labelKey: "jobs", className: "text-4xl opacity-[0.84]" },
+      {
+        labelKey: "agUi",
+        className: "text-lg uppercase opacity-[0.20]",
+      },
+      { labelKey: "dispatch", className: "text-2xl opacity-[0.28]" },
+      {
+        labelKey: "backgroundRuns",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-4",
+    words: [
+      { labelKey: "rateLimits", className: "text-lg uppercase opacity-[0.16]" },
+      { labelKey: "queues", className: "text-xl uppercase opacity-[0.18]" },
+      {
+        labelKey: "cronSchedules",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "analytics", className: "text-2xl opacity-[0.28]" },
+      {
+        labelKey: "experiments",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "feedbackLoops",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-12",
+    words: [
+      {
+        labelKey: "fileUploads",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      { labelKey: "evals", className: "text-2xl opacity-[0.46]" },
+      { labelKey: "templates", className: "text-5xl opacity-[0.92]" },
+      { labelKey: "providerApis", className: "text-2xl opacity-[0.36]" },
+      {
+        labelKey: "agentWebSurfaces",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "templateSkills",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "oneClickForks", className: "text-2xl opacity-[0.24]" },
+    ],
+  },
+  {
+    className: "-translate-x-2",
+    words: [
+      {
+        labelKey: "localFileMode",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "memory",
+        className: "text-lg uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "webhooks",
+        className: "text-xl uppercase opacity-[0.22]",
+      },
+      {
+        labelKey: "http",
+        className: "text-xl uppercase opacity-[0.20]",
+      },
+      {
+        labelKey: "selfEditingCode",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "cli",
+        className: "text-xl uppercase opacity-[0.24]",
+      },
+      {
+        labelKey: "crossAppSso",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+    ],
+  },
+  {
+    className: "translate-x-16",
+    words: [
+      {
+        labelKey: "schemaMigrations",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "hostedDeploys",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      {
+        labelKey: "environmentSetup",
+        className: "text-lg uppercase opacity-[0.16]",
+      },
+      {
+        labelKey: "oauthCallbacks",
+        className: "text-xl uppercase opacity-[0.18]",
+      },
+      { labelKey: "exports", className: "text-xl uppercase opacity-[0.18]" },
+      { labelKey: "dashboards", className: "text-2xl opacity-[0.24]" },
+    ],
   },
 ];
 
-function BidirectionalTabs() {
-  const [activeTab, setActiveTab] = useState(0);
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-  const tabButtonRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const tabContainerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    videoRefs.current.forEach((video, i) => {
-      if (!video) return;
-      if (i === activeTab) {
-        video.currentTime = 0;
-        void video.play().catch(() => {
-          // Browsers reject play() if the tab/video unmounts mid-request.
-        });
-      } else {
-        video.pause();
-      }
-    });
-  }, [activeTab]);
-
-  // Scroll only within the tab container (horizontal, mobile only).
-  // Never uses scrollIntoView — that causes full-page vertical jumps.
-  const scrollTabIntoContainerView = (index: number) => {
-    const btn = tabButtonRefs.current[index];
-    const container = tabContainerRef.current;
-    if (!btn || !container) return;
-    // On desktop the container is flex-col with no fixed width overflow,
-    // all tabs are visible — skip entirely if no horizontal overflow.
-    if (container.scrollWidth <= container.clientWidth) return;
-    const btnLeft = btn.offsetLeft;
-    const btnRight = btnLeft + btn.offsetWidth;
-    const { scrollLeft, offsetWidth } = container;
-    if (btnLeft < scrollLeft) {
-      container.scrollTo({ left: btnLeft, behavior: "smooth" });
-    } else if (btnRight > scrollLeft + offsetWidth) {
-      container.scrollTo({ left: btnRight - offsetWidth, behavior: "smooth" });
-    }
-  };
-
-  // Scroll the newly-active tab button into the container's horizontal view
-  // whenever activeTab changes (covers both clicks and auto-advance).
-  useEffect(() => {
-    scrollTabIntoContainerView(activeTab);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
-
-  const handleTabClick = (index: number, btn: HTMLButtonElement | null) => {
-    setActiveTab(index);
-    // Re-focus with preventScroll so keyboard a11y is maintained but the
-    // page doesn't jump. (mousedown preventDefault removed native focus.)
-    btn?.focus({ preventScroll: true });
-  };
-
-  const handleVideoEnded = (i: number) => {
-    setActiveTab((prev) => {
-      if (prev !== i) return prev;
-      return (i + 1) % bidirectionalTabs.length;
-    });
-  };
-
+function FeatureWordCloud({ className = "" }: { className?: string }) {
+  const t = useT();
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 md:flex-row md:items-start md:gap-8">
-      <div
-        ref={tabContainerRef}
-        className="flex shrink-0 flex-row gap-2 overflow-x-auto px-1 py-1 md:w-1/4 md:flex-col md:gap-3 md:overflow-visible md:p-0"
-      >
-        {bidirectionalTabs.map((tab, i) => (
-          <button
-            key={i}
-            ref={(el) => {
-              tabButtonRefs.current[i] = el;
-            }}
-            onMouseDown={(e) => {
-              // Prevent the browser from auto-scrolling the page to the
-              // focused element — we handle container-only scrolling ourselves.
-              e.preventDefault();
-            }}
-            onClick={(e) =>
-              handleTabClick(i, e.currentTarget as HTMLButtonElement)
-            }
-            className={`cursor-pointer rounded-xl border p-4 text-left transition-all md:p-5 ${
-              i === activeTab
-                ? "border-[var(--docs-accent)] bg-[var(--docs-accent)]/12 shadow-[0_0_0_2px_var(--docs-accent)]"
-                : "border-[var(--docs-border)] hover:border-[var(--fg-secondary)]/40 hover:bg-[var(--docs-border)]/30"
-            }`}
+    <div
+      className={`feature-cloud pointer-events-none overflow-hidden bg-white dark:bg-black ${className}`}
+      aria-hidden="true"
+    >
+      <div className="feature-cloud-flow absolute left-1/2 top-1/2 flex w-[860px] -translate-x-1/2 -translate-y-1/2 scale-[0.82] flex-col items-center gap-6 px-8 sm:w-[1080px] sm:scale-[0.78] sm:gap-8 lg:w-[1740px] lg:scale-[0.68] lg:gap-10">
+        {featureCloudRows.map((row, rowIndex) => (
+          <div
+            key={rowIndex}
+            className={`feature-cloud-row flex max-w-none items-center justify-center gap-x-7 gap-y-3 whitespace-nowrap sm:gap-x-9 lg:gap-x-11 ${row.className}`}
           >
-            <div className="mb-1 whitespace-nowrap text-sm font-semibold md:whitespace-normal">
-              {tab.title}
-            </div>
-            <p
-              className={`m-0 text-sm leading-relaxed text-[var(--fg-secondary)] ${
-                i === activeTab ? "hidden md:block" : "hidden"
-              }`}
-            >
-              {tab.description}
-            </p>
-          </button>
-        ))}
-      </div>
-      <div className="relative aspect-[3/2] w-full overflow-hidden rounded-xl border border-[var(--docs-border)] bg-black md:w-3/4">
-        {bidirectionalTabs.map((tab, i) => (
-          <video
-            key={i}
-            ref={(el) => {
-              videoRefs.current[i] = el;
-            }}
-            src={tab.video}
-            muted
-            playsInline
-            preload="auto"
-            onEnded={() => handleVideoEnded(i)}
-            className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ${
-              i === activeTab ? "opacity-100" : "pointer-events-none opacity-0"
-            }`}
-          />
+            {row.words.map((word) => (
+              <span
+                key={word.labelKey}
+                className={`feature-cloud-word font-semibold leading-none text-neutral-950 dark:text-white ${word.className}`}
+              >
+                {t(`home.featureCloud.${word.labelKey}`)}
+              </span>
+            ))}
+          </div>
         ))}
       </div>
     </div>
   );
 }
 
+function BatteriesIncludedCloud({
+  localizedPath,
+}: {
+  localizedPath: (path: string) => string;
+}) {
+  const t = useT();
+  return (
+    <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:flex lg:min-h-[680px] lg:items-center lg:py-36">
+      <FeatureWordCloud className="absolute inset-y-0 left-[-10vw] right-[-26vw] z-0 hidden translate-x-[140px] lg:block" />
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] hidden w-[46%] bg-gradient-to-r from-white/90 via-white/68 via-70% to-transparent dark:from-black/90 dark:via-black/68 lg:block" />
+
+      <div className="relative z-10 mx-auto w-full max-w-[1200px]">
+        <div className="max-w-[410px] text-center lg:text-left">
+          <h2 className="mb-4 text-3xl font-bold tracking-tight text-neutral-950 dark:text-white md:text-4xl">
+            {t("home.batteries.titleLine1")}
+            <span className="block">{t("home.batteries.titleLine2")}</span>
+          </h2>
+          <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
+            {t("home.batteries.body")}
+          </p>
+          <Link
+            data-an-prefetch="render"
+            to={localizedPath("/docs/agent-native-toolkit")}
+            className="inline-flex items-center gap-2 rounded-full border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
+            onClick={() =>
+              trackEvent("click cta", {
+                label: "browse_toolkits",
+                location: "batteries_section",
+              })
+            }
+          >
+            {t("home.batteries.browseToolkits")}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
+        </div>
+
+        <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
+      </div>
+    </section>
+  );
+}
+
+function ActionSurfaceSection({
+  frameworkCode,
+  localizedPath,
+}: {
+  frameworkCode: string;
+  localizedPath: (path: string) => string;
+}) {
+  const t = useT();
+
+  return (
+    <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
+      <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
+        <div className="min-w-0 max-w-[400px]">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+            {t("home.actionSurface.title")}
+          </h2>
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
+            {t("home.actionSurface.body")}
+          </p>
+          <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+            <Link
+              data-an-prefetch="render"
+              to={localizedPath("/docs/getting-started")}
+              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
+              onClick={() =>
+                trackEvent("click cta", {
+                  label: "build_action",
+                  location: "action_surface_section",
+                })
+              }
+            >
+              {t("home.actionSurface.buildAction")}
+            </Link>
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <CodeBlock code={frameworkCode} lang="typescript" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComparisonSection() {
+  return (
+    <section className="relative z-10 px-6 pb-20">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="mx-auto max-w-[900px]">
+          <video
+            className="homepage-comparison-video"
+            src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+            poster="https://cdn.builder.io/api/v1/image/assets%2Fc5b47d20f6a943e485717e5895739988%2F3d99ddf85c9040e38cb7c989fa4a7735"
+            autoPlay
+            controls
+            muted
+            playsInline
+            preload="auto"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AppsSection({
+  localizedPath,
+}: {
+  localizedPath: (path: string) => string;
+}) {
+  const t = useT();
+
+  return (
+    <section
+      id="apps"
+      className="border-t border-[var(--docs-border)] py-20 px-6"
+    >
+      <div className="mb-12 text-center">
+        <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+          {t("home.templates.title")}
+        </h2>
+        <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          {t("templatesPage.eyebrow")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
+        </p>
+      </div>
+
+      <div className="templates-side-scroll -mx-6 flex gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10">
+        {homepageTemplates.map((template) => (
+          <div
+            key={template.name}
+            className="template-rail-card w-[320px] shrink-0 sm:w-[360px]"
+          >
+            <TemplateCard template={template} />
+          </div>
+        ))}
+        <BuildFromScratchCta location="homepage_rail" />
+      </div>
+
+      <div className="mt-10 text-center">
+        <Link
+          data-an-prefetch="render"
+          to={localizedPath("/apps")}
+          className="primary-button"
+          onClick={() =>
+            trackEvent("click cta", {
+              label: "view_all_apps",
+              location: "apps_section_footer",
+            })
+          }
+        >
+          {t("home.templates.cta")}
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="5" y1="12" x2="19" y2="12" />
+            <polyline points="12 5 19 12 12 19" />
+          </svg>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
+  const t = useT();
+  const { locale } = useLocale();
+  const localizedPath = (path: string) => sitePathForLocale(path, locale);
+  const chatCommand = "npx @agent-native/core@latest create my-app";
+  const frameworkCode = `// ${t("home.code.frameworkComment")}
+export default defineAction({
+  description: "${t("home.code.frameworkDescription")}",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  run: async ({ name }) => ({ message: \`Hello, \${name}!\` }),
+});`;
+
   return (
     <>
-      <main>
-        {/* Hero */}
-        <section
-          className="hero-section relative mx-auto flex min-h-[85vh] max-w-[1200px] items-center justify-center px-6"
-          style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
-        >
-          <div
-            className="pointer-events-none absolute bottom-0"
-            style={{
-              left: "50%",
-              transform: "translateX(-50%)",
-              width: "100vw",
-              top: "-65px",
-            }}
-          >
+      <main className="docs-home-page">
+        <div className="relative isolate">
+          <div className="pointer-events-none absolute inset-0 z-0">
             <Seascape className="opacity-30 dark:opacity-70" />
           </div>
-          <div
-            className="pointer-events-none absolute inset-0 z-[5]"
-            style={{
-              background:
-                "radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%)",
-              opacity: 0.5,
-            }}
-          />
-          <div className="relative z-10 hero-content">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-4 py-1.5 text-sm text-[var(--fg-secondary)]">
-              <span className="inline-block h-2 w-2 rounded-full bg-[var(--docs-accent)]" />
-              Open source framework
-            </div>
 
-            <h1 className="mx-auto max-w-3xl">
-              Agentic Applications <br className="hidden md:inline" />
-              <span className="hero-gradient-text">You Own</span>
-            </h1>
+          {/* Hero */}
+          <section
+            className="hero-section relative z-10 mx-auto flex min-h-[80vh] max-w-[1200px] items-center justify-center px-6"
+            style={{ clipPath: "inset(-100vh -100vw 0 -100vw)" }}
+          >
+            <div
+              className="pointer-events-none absolute inset-0 z-[5]"
+              style={{
+                background:
+                  "radial-gradient(ellipse at center, var(--bg) 0%, transparent 70%)",
+                opacity: 0.5,
+              }}
+            />
+            <div className="relative z-10 hero-content">
+              <h1 className="mx-auto max-w-3xl">
+                {t("home.hero.titleLine1")} <br className="hidden md:inline" />
+                <span className="hero-gradient-text">
+                  {t("home.hero.titleAccent")}
+                </span>
+              </h1>
 
-            <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
-              Don't choose between rich user interfaces and autonomous agents.
-              Every Agent-Native app is both.
-            </p>
+              <p className="mx-auto mb-10 max-w-xl text-lg leading-relaxed text-[var(--fg-secondary)]">
+                {t("home.hero.body")}
+              </p>
 
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <a
-                href="#templates"
-                className="primary-button"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "launch_a_template",
-                    location: "hero",
-                  })
-                }
-              >
-                Launch a Template
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+              <div className="flex flex-wrap items-center justify-center gap-4">
+                <Link
+                  data-an-prefetch="render"
+                  to={localizedPath("/apps")}
+                  className="primary-button"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "try_app",
+                      location: "hero",
+                    })
+                  }
                 >
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </a>
-              <Link
-                data-an-prefetch="render"
-                to="/docs"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "view_docs",
-                    location: "hero",
-                  })
-                }
-              >
-                View the Docs
-              </Link>
+                  {t("home.hero.primaryCta")}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </Link>
+                <Link
+                  data-an-prefetch="render"
+                  to={localizedPath("/docs")}
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  onClick={() =>
+                    trackEvent("click cta", {
+                      label: "read_the_docs",
+                      location: "hero",
+                    })
+                  }
+                >
+                  {t("home.hero.secondaryCta")}
+                </Link>
+              </div>
+
+              <TerminalCommand command={chatCommand} />
             </div>
+          </section>
 
-            <TerminalCommand />
-          </div>
-        </section>
+          <ComparisonSection />
+        </div>
 
-        {/* Bidirectional Awareness - above templates */}
-        <section className="py-20 px-6 border-t border-[var(--docs-border)]">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Agents and UIs — fully connected
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              The agent and the UI are equal citizens of the same system. Every
-              action works both ways — click it or ask for it.
-            </p>
-          </div>
+        <AppsSection localizedPath={localizedPath} />
 
-          <div className="mx-auto max-w-[1200px]">
-            <BidirectionalTabs />
-          </div>
-        </section>
+        <ActionSurfaceSection
+          frameworkCode={frameworkCode}
+          localizedPath={localizedPath}
+        />
 
-        {/* Try it with a skill - above templates */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Try it with a skill
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              Not ready to scaffold a whole app? Add agent-native superpowers to
-              a coding agent you already use — Claude Code, Codex, or Cursor —
-              with one command. It installs the skills, registers the hosted MCP
-              connector, and signs you in in one step.
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-2xl">
-            <CodeBlock code={skillInstallCode} lang="bash" />
-          </div>
-
-          <div className="mx-auto mt-8 grid max-w-3xl gap-5 sm:grid-cols-2">
-            <div className="rounded-xl border border-[var(--docs-border)] p-6">
-              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
-                /visual-plan
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                Before the agent writes code, it opens a structured, reviewable
-                plan instead of a wall of text — inline diagrams, UI wireframes
-                and prototypes, file-by-file implementation maps, and
-                annotations you can comment on and approve.
-              </p>
-            </div>
-            <div className="rounded-xl border border-[var(--docs-border)] p-6">
-              <h3 className="mb-2 font-mono text-base font-semibold text-[var(--docs-accent)]">
-                /visual-recap
-              </h3>
-              <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                After changes land, it turns a PR or git diff into a
-                high-altitude visual recap — schema, API, and file changes as
-                grounded before/after blocks with a shareable review link,
-                instead of scrolling a raw diff.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/docs/skills-guide"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "skills_guide",
-                  location: "skills_section",
-                })
-              }
-            >
-              Browse the Skills Guide
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
-          </div>
-        </section>
-
-        {/* Templates - breaks out of max-width on ultra-wide screens */}
-        <section id="templates" className="py-20 px-6">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Start with a full featured template
-            </h2>
-            <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-              100% free and open source
-            </p>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              High-quality, vetted templates that replace tools you're paying
-              for — except you own the code and can customize everything. Try
-              them with example data before connecting your own sources.
-            </p>
-          </div>
-
-          <div className="mx-auto grid max-w-[1200px] grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {featuredTemplates.map((t) => (
-              <TemplateCard key={t.name} template={t} />
-            ))}
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              data-an-prefetch="render"
-              to="/templates"
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "view_all_templates",
-                  location: "templates_section",
-                })
-              }
-            >
-              View all templates
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
-            </Link>
-          </div>
-        </section>
+        <BatteriesIncludedCloud localizedPath={localizedPath} />
 
         <div className="mx-auto max-w-[1200px] px-6">
-          {/* The best of both worlds */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                The best of both worlds
-              </h2>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                SaaS tools are rigid and bolting AI on as an afterthought. Raw
-                AI agents are powerful but have no UI. Agent-native apps combine
-                both.
-              </p>
-            </div>
-
-            <div className="approaches-table-outer">
-              <div className="approaches-table-wrapper">
-                <div className="approaches-table-scroll">
-                  <table className="approaches-table">
-                    <thead>
-                      <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                        <th className="approaches-th approaches-col-dim"></th>
-                        <th className="approaches-th approaches-col-muted">
-                          SaaS Tools
-                        </th>
-                        <th className="approaches-th approaches-col-muted">
-                          Raw AI Agents
-                        </th>
-                        <th className="approaches-th approaches-col-muted">
-                          Internal Tools
-                        </th>
-                        <th className="approaches-th">Agent-Native</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">UI</td>
-                        <td className="approaches-td approaches-td--good">
-                          Polished but rigid
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          None
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Mixed quality
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Full UI, fork &amp; go
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">AI</td>
-                        <td className="approaches-td approaches-td--bad">
-                          Bolted on
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Powerful
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Shallowly connected
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Agent-first, integrated
-                        </td>
-                      </tr>
-                      <tr className="border-b border-[var(--docs-border)]">
-                        <td className="approaches-td approaches-td--dim">
-                          Customization
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          Can't
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Instructions and skills
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Full, but high maintenance
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          Agent modifies the app
-                        </td>
-                      </tr>
-                      <tr>
-                        <td className="approaches-td approaches-td--dim">
-                          Ownership
-                        </td>
-                        <td className="approaches-td approaches-td--bad">
-                          Rented
-                        </td>
-                        <td className="approaches-td approaches-td--warn">
-                          Somewhat yours
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          You own the code
-                        </td>
-                        <td className="approaches-td approaches-td--good">
-                          You own the code
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Value props */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                How it works
-              </h2>
-              <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-                The agent and the UI are equal partners out of the box.
-                Everything the UI can do, the agent can do — and vice versa.
-              </p>
-            </div>
-
-            <div className="mx-auto grid max-w-4xl gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Everything syncs
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Agent and UI share one database and one state. Changes from
-                  either side show up instantly on the other.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">Context-aware</h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  The agent knows what you're looking at. Select text, hit
-                  Cmd+I, and tell it what to do.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Agents call agents
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Tag another agent from any app. They discover each other over
-                  A2A and take action across your stack.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Any database, any host
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Any SQL database Drizzle supports. Any hosting target Nitro
-                  supports. No lock-in.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">Any AI agent</h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Claude Code, Codex, Gemini CLI, OpenCode, or Builder.io. Use
-                  whichever agent you prefer.
-                </p>
-              </div>
-              <div className="rounded-xl border border-[var(--docs-border)] p-6">
-                <h3 className="mb-2 text-base font-semibold">
-                  Apps that improve themselves
-                </h3>
-                <p className="m-0 text-sm leading-relaxed text-[var(--fg-secondary)]">
-                  Your apps get better on their own. The agent can add features,
-                  fix bugs, and refine the UI over time.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* Quick Start */}
-          <section className="border-t border-[var(--docs-border)] py-20">
-            <div className="mb-12 text-center">
-              <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-                Launch in minutes
-              </h2>
-              <p className="mx-auto max-w-xl text-base text-[var(--fg-secondary)]">
-                One command to fork a template and start building locally.
-              </p>
-            </div>
-
-            <div className="mx-auto max-w-2xl">
-              <CodeBlock code={quickStartCode} lang="bash" />
-            </div>
-          </section>
-
           {/* Bottom CTA */}
           <section className="border-t border-[var(--docs-border)] py-20 text-center">
             <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              Software you own, built for the agentic era
+              {t("home.finalCta.title")}
             </h2>
             <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-              Stop renting rigid SaaS. Fork a template, customize it to your
-              exact workflow, and let the agent keep evolving it. Open source.
-              Forkable. Yours.
+              {t("home.finalCta.body")}
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                href="#templates"
+              <Link
+                data-an-prefetch="render"
+                to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "launch_a_template",
+                    label: "try_app",
                     location: "footer",
                   })
                 }
               >
-                Launch a Template
+                {t("home.finalCta.primaryCta")}
                 <svg
                   width="16"
                   height="16"
@@ -676,10 +727,10 @@ export default function Home() {
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
                 </svg>
-              </a>
+              </Link>
               <Link
                 data-an-prefetch="render"
-                to="/docs"
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
@@ -688,22 +739,8 @@ export default function Home() {
                   })
                 }
               >
-                Read the Docs
+                {t("home.finalCta.secondaryCta")}
               </Link>
-              <a
-                href="https://github.com/BuilderIO/agent-native"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-                onClick={() =>
-                  trackEvent("click cta", {
-                    label: "github",
-                    location: "footer",
-                  })
-                }
-              >
-                View on GitHub
-              </a>
             </div>
           </section>
         </div>

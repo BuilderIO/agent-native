@@ -1,9 +1,15 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq, inArray } from "drizzle-orm";
-import { assertAccess } from "@agent-native/core/sharing";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import { eq, inArray } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, stringifyJson } from "../server/lib/json.js";
 import { serializeGenerationSession } from "./_helpers.js";
@@ -22,8 +28,26 @@ export default defineAction({
     runIds: z.array(z.string()).optional(),
     feedback: z.string().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this generation session only without changing the saved preference.",
+      ),
   }),
   run: async (args) => {
+    const creativeContext = await resolveGenerationCreativeContext({
+      query: [args.title, args.brief].filter(Boolean).join("\n"),
+      role: "assets",
+      contextModeOverride: args.contextModeOverride,
+    });
+    const reuseLabels =
+      creativeContext.reuseLabels as CreativeContextReuseLabel[];
+    const creativeContextProvenance = {
+      contextMode: creativeContext.contextMode,
+      contextPackId: creativeContext.contextPackId,
+      reuseLabels,
+    };
     await assertAccess("asset-library", args.libraryId, "editor");
     const db = getDb();
     if (args.collectionId) {
@@ -103,6 +127,7 @@ export default defineAction({
       feedbackSummary: args.feedback ?? "",
       metadata: stringifyJson({
         ...(args.metadata ?? {}),
+        creativeContext: creativeContextProvenance,
         feedbackHistory: args.feedback
           ? [{ at: now, feedback: args.feedback }]
           : [],
@@ -139,6 +164,40 @@ export default defineAction({
       });
       sortOrder += 10;
     }
-    return serializeGenerationSession(session);
+    await recordGenerationCreativeContext(
+      {
+        appId: "assets",
+        artifactType: "generation-session",
+        artifactId: session.id,
+        ...creativeContextProvenance,
+        elementProvenance: reuseLabels.length
+          ? reuseLabels.map((label) => ({
+              elementId: session.id,
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: session.id,
+                influence: "generated",
+                label: "Asset generation session",
+              },
+            ],
+      },
+      {
+        artifactAccess: {
+          resourceType: "asset-library",
+          resourceId: args.libraryId,
+        },
+      },
+    );
+    return {
+      ...serializeGenerationSession(session),
+      ...creativeContextProvenance,
+    };
   },
 });

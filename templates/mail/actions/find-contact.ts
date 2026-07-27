@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { resolveOwnerEmail } from "./helpers.js";
+
 import { loadContactsForEmail } from "../server/handlers/emails.js";
+import { resolveOwnerEmail } from "./helpers.js";
 
 export default defineAction({
   description:

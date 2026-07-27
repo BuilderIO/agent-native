@@ -1,3 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
+import type { EmailMessage } from "@shared/types";
+import { IconLoader2, IconX } from "@tabler/icons-react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
   useState,
   useRef,
@@ -7,14 +11,23 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
-import { IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  useContacts,
+  type Contact,
+  type InfiniteEmails,
+} from "@/hooks/use-emails";
+import { ensureThread } from "@/lib/thread-cache";
+import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
+import { cn } from "@/lib/utils";
+
+const LOCAL_MATCH_LIMIT = 8;
+const MIN_REMOTE_QUERY_LENGTH = 3;
 
 interface SearchBarProps {
   onClose: () => void;
@@ -29,6 +42,7 @@ export function SearchBar({
   autoFocus = true,
   hasActiveSearch = false,
 }: SearchBarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -39,6 +53,7 @@ export function SearchBar({
   const lastSyncedQueryRef = useRef(initialQuery);
 
   const { data: contacts = [] } = useContacts();
+  const queryClient = useQueryClient();
 
   // Sync from URL when it changes externally (e.g. browser back/forward).
   // Track the last prop we absorbed so user typing isn't clobbered when the
@@ -62,12 +77,46 @@ export function SearchBar({
       .slice(0, 6);
   }, [query, contacts]);
 
-  const showDropdown = isFocused && matchedContacts.length > 0;
+  // Instant local matches over already-cached email pages (subject/from/snippet
+  // substring), so something shows up before the debounced remote Gmail search
+  // fires and while it's in flight. Cheap and quota-free — no network call.
+  const localMatches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || q.length < 2) return [];
+    const cached = queryClient.getQueriesData<InfiniteEmails>({
+      queryKey: ["emails"],
+    });
+    const seenThreadIds = new Set<string>();
+    const messages: EmailMessage[] = [];
+    for (const [, data] of cached) {
+      for (const page of data?.pages ?? []) {
+        for (const email of page.emails) {
+          const threadKey = email.threadId || email.id;
+          if (seenThreadIds.has(threadKey)) continue;
+          const haystack =
+            `${email.subject} ${email.from.name} ${email.from.email} ${email.snippet}`.toLowerCase();
+          if (!haystack.includes(q)) continue;
+          seenThreadIds.add(threadKey);
+          messages.push(email);
+        }
+      }
+    }
+    return groupIntoThreads(messages).slice(0, LOCAL_MATCH_LIMIT);
+  }, [query, queryClient]);
+
+  // True while a live Gmail search for the current query is in flight, so we
+  // can show a "searching Gmail" row under the instant local matches.
+  const remoteSearchPending =
+    useIsFetching({ queryKey: ["emails", "all", query.trim()] }) > 0;
+
+  const showLocalResults = isFocused && query.trim().length >= 2;
+  const showDropdown =
+    isFocused && (matchedContacts.length > 0 || showLocalResults);
 
   // Reset selection when matches change
   useEffect(() => {
     setSelectedIndex(-1);
-  }, [matchedContacts.length]);
+  }, [matchedContacts.length, localMatches.length]);
 
   const executeSearch = useCallback(
     (q: string) => {
@@ -91,27 +140,43 @@ export function SearchBar({
     [navigate],
   );
 
-  // Debounced auto-search as you type (only for text queries, not contact selection)
+  const selectThread = useCallback(
+    (thread: ThreadSummary) => {
+      const email = thread.latestMessage;
+      const targetThreadId = email.threadId || email.id;
+      void ensureThread(targetThreadId, email.accountEmail).catch(() => {});
+      navigate(`/all/${targetThreadId}`);
+      inputRef.current?.blur();
+    },
+    [navigate],
+  );
+
+  // Debounced auto-search as you type (only for text queries, not contact
+  // selection). Kept at 400ms and gated to 3+ chars — Gmail's per-user search
+  // quota is tight, so this must not fire a live round trip per keystroke.
+  // Instant local matches (above) cover the gap while this waits/runs.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const q = query.trim();
-    if (q.length >= 3) {
+    if (q.length >= MIN_REMOTE_QUERY_LENGTH) {
       debounceRef.current = setTimeout(() => {
         executeSearch(q);
-      }, 700);
+      }, 400);
     }
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [query, executeSearch]);
 
+  // Combined keyboard-navigable list: contacts first, then instant local
+  // thread matches, matching the visual order of the dropdown.
+  const combinedMatchCount = matchedContacts.length + localMatches.length;
+
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (showDropdown) {
-        setSelectedIndex((prev) =>
-          Math.min(prev + 1, matchedContacts.length - 1),
-        );
+        setSelectedIndex((prev) => Math.min(prev + 1, combinedMatchCount - 1));
       }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -120,11 +185,18 @@ export function SearchBar({
       }
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (selectedIndex >= 0 && matchedContacts[selectedIndex]) {
+      if (selectedIndex >= 0 && selectedIndex < matchedContacts.length) {
         selectContact(matchedContacts[selectedIndex]);
-      } else {
+      } else if (selectedIndex >= matchedContacts.length) {
+        const thread = localMatches[selectedIndex - matchedContacts.length];
+        if (thread) selectThread(thread);
+      } else if (query.trim().length >= MIN_REMOTE_QUERY_LENGTH) {
         executeSearch(query);
         inputRef.current?.blur();
+      } else if (localMatches[0]) {
+        // Below the remote-search minimum: only ever run the local filter,
+        // never a live Gmail round trip for a 1-2 char query.
+        selectThread(localMatches[0]);
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -192,7 +264,7 @@ export function SearchBar({
             if (hasActiveSearch || query.trim()) return;
             setTimeout(onClose, 100);
           }}
-          placeholder="Search..."
+          placeholder={t("mail.search.placeholder")}
           className={cn(
             "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
             hasActiveSearch && "font-medium",
@@ -207,22 +279,22 @@ export function SearchBar({
                   e.preventDefault();
                   handleClear();
                 }}
-                className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <IconX className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Clear search (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.search.clear")}</TooltipContent>
           </Tooltip>
         )}
       </div>
 
-      {/* Contact suggestions dropdown */}
+      {/* Contact + instant local-match suggestions dropdown */}
       {showDropdown && (
         <div
           data-search-dropdown
           ref={listRef}
-          className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
+          className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
           {matchedContacts.map((contact, i) => (
             <button
@@ -236,7 +308,7 @@ export function SearchBar({
               }}
               onMouseEnter={() => setSelectedIndex(i)}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-2 text-left text-[13px]",
+                "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
                 i === selectedIndex && "bg-accent",
               )}
             >
@@ -250,6 +322,57 @@ export function SearchBar({
               )}
             </button>
           ))}
+
+          {showLocalResults && localMatches.length > 0 && (
+            <div
+              className={cn(
+                "border-border/60",
+                matchedContacts.length > 0 && "border-t",
+              )}
+            >
+              <div className="px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                {t("mail.search.localResults")}
+              </div>
+              {localMatches.map((thread, i) => {
+                const combinedIndex = matchedContacts.length + i;
+                const email = thread.latestMessage;
+                return (
+                  <button
+                    key={email.threadId || email.id}
+                    data-contact-item
+                    type="button"
+                    tabIndex={-1}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectThread(thread);
+                    }}
+                    onMouseEnter={() => setSelectedIndex(combinedIndex)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-2 text-start text-[13px]",
+                      combinedIndex === selectedIndex && "bg-accent",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-foreground/90">
+                      {highlight(
+                        email.subject || email.from.name,
+                        query.trim(),
+                      )}
+                    </span>
+                    <span className="shrink-0 truncate max-w-[35%] text-muted-foreground text-xs">
+                      {email.from.name || email.from.email}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {showLocalResults && remoteSearchPending && (
+            <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[12px] text-muted-foreground">
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+              {t("mail.search.searchingGmail")}
+            </div>
+          )}
         </div>
       )}
     </div>

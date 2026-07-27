@@ -44,6 +44,12 @@ export {
 export { BlockView, blockEditSurface } from "./BlockView.js";
 export { AiEditableFieldLabel } from "./AiEditableField.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
+export { RegistryBlockDataProvider } from "./RegistryBlockDataProvider.js";
+export type {
+  RegistryBlockDataChangeMeta,
+  RegistryBlockDataValue,
+  RegistryBlockSideMapBlock,
+} from "@agent-native/toolkit/editor/RegistryBlockContext";
 
 // Schema-form helpers
 export {
@@ -61,6 +67,8 @@ export {
   jsonExpression,
   attributeValue,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   serializeSpecBlock,
   parseSpecBlock,
   type MdxJsxNode,
@@ -215,6 +223,7 @@ export {
   useIsDark,
   type WireframeStyle,
 } from "./library/wireframe-kit.js";
+export { renderWireframeIconHtml } from "./library/wireframe-icons.js";
 
 // Dev-doc block library (React `Read`/`Edit` renderers + their React-free
 // schema/MDX config). Apps register these alongside their own blocks, supplying

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import { EngineError } from "./engine/types.js";
+import type { EngineMessage } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   appendAgentLoopContinuation,
@@ -6,12 +9,14 @@ import {
   continuationReasonForResumableError,
   runAgentLoop,
 } from "./production-agent.js";
-import { EngineError } from "./engine/types.js";
-import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoopDirectWithSoftTimeout,
   MAX_RUN_LOOP_CONTINUATIONS,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+  RUN_BUDGET_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";
+import { getCurrentTurnEventsForThread } from "./run-store.js";
+import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./production-agent.js", async () => {
   const actual = await vi.importActual<typeof import("./production-agent.js")>(
@@ -23,16 +28,32 @@ vi.mock("./production-agent.js", async () => {
   };
 });
 
+// The journal reads the durable run-event ledger. Mock just the read-only
+// helper used on the resume path so tests don't need a live DB; keep the rest
+// of run-store real (run-manager pulls several other exports from it).
+vi.mock("./run-store.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
+  return {
+    ...actual,
+    getCurrentTurnEventsForThread: vi.fn(async () => [] as AgentChatEvent[]),
+  };
+});
+
 const mockRunAgentLoop = vi.mocked(runAgentLoop);
+const mockGetCurrentTurnEventsForThread = vi.mocked(
+  getCurrentTurnEventsForThread,
+);
 
 function makeOpts(
   messages: EngineMessage[],
   signal: AbortSignal,
   send?: (event: import("./types.js").AgentChatEvent) => void,
+  threadId?: string,
 ): Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0] {
   return {
-    // The wrapper only inspects messages, signal, and model. Cast the rest —
-    // the mocked runAgentLoop ignores them.
+    // The wrapper only inspects messages, signal, model, and threadId. Cast the
+    // rest — the mocked runAgentLoop ignores them.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     engine: {} as any,
     model: "test-model",
@@ -43,6 +64,7 @@ function makeOpts(
     actions: {},
     send: send ?? (() => {}),
     signal,
+    ...(threadId ? { threadId } : {}),
   } as Parameters<typeof runAgentLoopDirectWithSoftTimeout>[0];
 }
 
@@ -66,6 +88,17 @@ describe("isResumableEngineError", () => {
       const err = new EngineError("upstream error", { errorCode: code });
       expect(isResumableEngineError(err)).toBe(true);
     }
+  });
+
+  it("recognizes Anthropic bare 'Connection error.' as resumable", () => {
+    expect(isResumableEngineError(new Error("Connection error."))).toBe(true);
+    expect(
+      isResumableEngineError(
+        new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("recognizes raw transport errors by message", () => {
@@ -170,6 +203,8 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
   beforeEach(() => {
     vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "60000");
     mockRunAgentLoop.mockReset();
+    mockGetCurrentTurnEventsForThread.mockReset();
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -178,12 +213,14 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
   it("resumes on builder_gateway_timeout and runs another LLM call", async () => {
     let attempts = 0;
+    const seenRequestTexts: Array<string | undefined> = [];
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },
     ];
 
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      seenRequestTexts.push(opts.finalResponseGuardRequestText);
       if (attempts === 1) {
         throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
@@ -204,6 +241,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
+    expect(seenRequestTexts).toEqual(["go", "go"]);
     expect(usage.inputTokens).toBe(100);
     expect(usage.outputTokens).toBe(50);
 
@@ -218,6 +256,239 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
         ),
     );
     expect(continuationMessages).toHaveLength(1);
+  });
+
+  it("includes unfinished action-preparation guidance on foreground resume", async () => {
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
+        throw new EngineError("Builder gateway timed out after 45s", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain("upstream gateway timeout");
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
+  it("continues internally when runAgentLoop checkpoints for no-progress action preparation", async () => {
+    let attempts = 0;
+    const sentEvents: AgentChatEvent[] = [];
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "text",
+          text: "partial lead-in",
+        });
+        opts.send({
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          id: "tool-1",
+          progressBytes: 0,
+        });
+        opts.send({
+          type: "auto_continue",
+          reason: "no_progress",
+        });
+        return {
+          inputTokens: 7,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      }
+      return {
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 80,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const usage = await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        messages,
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(usage.inputTokens).toBe(107);
+    const autoContinueIndex = sentEvents.findIndex(
+      (event) => event.type === "auto_continue",
+    );
+    const clearIndex = sentEvents.findIndex((event) => event.type === "clear");
+    expect(autoContinueIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeGreaterThan(autoContinueIndex);
+    const continuationText = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationText).toContain(
+      "stopped producing progress events while the connection stayed open",
+    );
+    expect(continuationText).toContain(
+      "preparing the `edit-design` action input",
+    );
+    expect(continuationText).toContain("smaller `edit-design` payload");
+  });
+
+  it("allows direct callers to use the background-function timeout regime", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("NETLIFY", "true");
+      vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "900000");
+      let seenSignal: AbortSignal | null = null;
+      const upstream = new AbortController();
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        seenSignal = opts.signal;
+        return new Promise((resolve) => {
+          opts.signal.addEventListener("abort", () =>
+            resolve({
+              inputTokens: 1,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "test-model",
+            }),
+          );
+        });
+      });
+
+      const usagePromise = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          upstream.signal,
+        ),
+        undefined,
+        { backgroundFunction: true },
+      );
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(seenSignal?.aborted).toBe(false);
+      upstream.abort();
+      const usage = await usagePromise;
+
+      expect(usage.inputTokens).toBe(1);
+      expect(mockRunAgentLoop).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops early instead of gambling a 2nd in-process round past the elapsed budget", async () => {
+    // A hosted A2A/MCP call is one serverless invocation; timeoutMs is sized
+    // to survive ONCE. If round 1 genuinely consumes the whole window, round
+    // 2 must not get a fresh full window on top of it — it must see there's
+    // no safe budget left and give up cleanly instead of risking a platform
+    // hard-kill mid-stream. Round 1 uses the full budget (matches prior
+    // behavior); a would-be round 2 is skipped because 10_000 - 10_000 = 0 <
+    // SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS (8_000).
+    vi.useFakeTimers();
+    try {
+      const sentEvents: AgentChatEvent[] = [];
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        attempts++;
+        return new Promise((resolve) => {
+          opts.signal.addEventListener("abort", () =>
+            resolve({
+              inputTokens: 0,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "test-model",
+            }),
+          );
+        });
+      });
+
+      const usagePromise = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          (event) => sentEvents.push(event),
+        ),
+        10_000,
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      await usagePromise;
+
+      expect(attempts).toBe(1);
+      const terminal = sentEvents.find((e) => e.type === "error");
+      expect(terminal).toMatchObject({
+        type: "error",
+        errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still allows the full MAX_RUN_LOOP_CONTINUATIONS rounds when rounds finish fast (plenty of budget left each time)", async () => {
+    // The common real-world case: most rounds finish well under the soft
+    // timeout, so cumulative elapsed time stays low and every attempt keeps
+    // its full per-round budget — unchanged from before this fix.
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
   });
 
   it("resumes on raw socket-hang-up errors with a network_interrupted nudge", async () => {
@@ -283,7 +554,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     // After MAX iterations the loop returns the accumulated (empty) usage
     // rather than throwing — matches the existing soft-timeout exit shape and
-    // lets the run-manager surface its own terminal state to the client.
+    // lets the run-manager finalize the run.
     const usage = await runAgentLoopDirectWithSoftTimeout(
       makeOpts(
         [{ role: "user", content: [{ type: "text", text: "go" }] }],
@@ -294,6 +565,159 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
     expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
     expect(usage.inputTokens).toBe(0);
+  });
+
+  it("emits a loud give-up terminal error when the continuation budget is exhausted mid-step", async () => {
+    // Every attempt is a resumable interruption, so the loop keeps continuing
+    // and finally hits MAX_RUN_LOOP_CONTINUATIONS without ever finishing. This
+    // is the genuinely-silent cutoff case: the run-manager would otherwise
+    // report a clean `done`, so the wrapper must surface an explicit terminal.
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+    const terminal = sentEvents.find((e) => e.type === "error");
+    expect(terminal).toBeDefined();
+    const err = terminal as Extract<AgentChatEvent, { type: "error" }>;
+    expect(err.errorCode).toBe(RUN_BUDGET_EXHAUSTED_ERROR_CODE);
+    expect(err.error).toBe(RUN_BUDGET_EXHAUSTED_MESSAGE);
+    expect(err.error).toContain("stopped");
+    expect(err.error).toContain("Check any completed tool cards");
+    expect(err.recoverable).toBe(true);
+    // The unfinished partial text must be cleared before the terminal so it
+    // stands alone instead of trailing a half sentence.
+    const clearIndex = sentEvents.findIndex((e) => e.type === "clear");
+    const errorIndex = sentEvents.findIndex((e) => e.type === "error");
+    expect(clearIndex).toBeGreaterThanOrEqual(0);
+    expect(clearIndex).toBeLessThan(errorIndex);
+  });
+
+  it("preserves completed tool cards when the continuation budget is exhausted after a side effect", async () => {
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "tool_start", tool: "generate-design", input: { id: "d1" } },
+      {
+        type: "tool_done",
+        tool: "generate-design",
+        input: { id: "d1" },
+        result: '{"designId":"d1"}',
+        completedSideEffect: true,
+      },
+    ]);
+    mockRunAgentLoop.mockImplementation(async (opts) => {
+      attempts++;
+      if (attempts === 1) {
+        opts.send({
+          type: "tool_start",
+          tool: "generate-design",
+          input: { id: "d1" },
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "generate-design",
+          input: { id: "d1" },
+          result: '{"designId":"d1"}',
+          completedSideEffect: true,
+        });
+      }
+      throw new Error("socket hang up");
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+        "thread-1",
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(MAX_RUN_LOOP_CONTINUATIONS);
+    const terminal = sentEvents.find((e) => e.type === "error");
+    expect(terminal).toMatchObject({
+      type: "error",
+      errorCode: RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+    });
+    expect(sentEvents.some((event) => event.type === "clear")).toBe(false);
+    expect(sentEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool_done",
+          tool: "generate-design",
+          completedSideEffect: true,
+        }),
+      ]),
+    );
+  });
+
+  it("does NOT emit a give-up terminal when the turn finishes cleanly", async () => {
+    // A normal completion (no soft-timeout, no resumable error) must never emit
+    // the give-up terminal — that would falsely tell the user it stopped early.
+    const sentEvents: AgentChatEvent[] = [];
+    mockRunAgentLoop.mockResolvedValue({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+        (event) => sentEvents.push(event),
+      ),
+      60_000,
+    );
+
+    expect(sentEvents.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("does NOT emit a give-up terminal when the user aborts mid-loop", async () => {
+    // User pressed Stop: the loop exits because upstreamSignal aborted, not
+    // because the budget ran out. Staying silent here avoids a spurious
+    // "stopped before finishing" on an intentional cancellation.
+    const upstream = new AbortController();
+    const sentEvents: AgentChatEvent[] = [];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      // First attempt errors with a resumable error but ALSO aborts upstream,
+      // so the continuation branch is skipped and the loop exits via the
+      // while-condition rather than the budget.
+      upstream.abort();
+      throw new Error("socket hang up");
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          upstream.signal,
+          (event) => sentEvents.push(event),
+        ),
+        60_000,
+      ),
+    ).rejects.toThrow("socket hang up");
+
+    expect(attempts).toBe(1);
+    expect(sentEvents.some((e) => e.type === "error")).toBe(false);
   });
 
   it("stops resuming when the upstream signal aborts mid-loop", async () => {
@@ -416,5 +840,220 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(sentEvents.filter((e) => e.type === "clear")).toHaveLength(0);
+  });
+
+  // ─── Per-turn tool-call journal on resume ─────────────────────────────────
+
+  it("injects a structured journal note on resume listing completed and interrupted tool calls", async () => {
+    // Ledger from the interrupted attempt: sendEmail completed, createTicket
+    // started but never recorded a result.
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "tool_start", tool: "sendEmail", input: { to: "a@example.com" } },
+      { type: "tool_done", tool: "sendEmail", result: "Email sent (msg_123)" },
+      { type: "tool_start", tool: "createTicket", input: { title: "Bug" } },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(mockGetCurrentTurnEventsForThread).toHaveBeenCalledWith("thread-1");
+
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toBeDefined();
+    const text = journalNote as string;
+    expect(text).toContain("Already completed");
+    expect(text).toContain("do NOT re-run");
+    expect(text).toContain("sendEmail");
+    expect(text).toContain("Email sent (msg_123)");
+    expect(text).toContain("Interrupted / unknown outcome");
+    expect(text).toContain("createTicket");
+
+    // The standard continuation nudge must still be present (journal is additive).
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
+  });
+
+  it("keeps completed tool nextRequiredAction guidance visible on resume", async () => {
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      {
+        type: "tool_start",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+      },
+      {
+        type: "tool_done",
+        tool: "get-design-snapshot",
+        input: { designId: "design-1", fileId: "file-1" },
+        result: JSON.stringify({
+          files: [{ id: "file-1", content: "x".repeat(2000) }],
+          nextRequiredAction:
+            "Call edit-design exactly once with designId design-1 and fileId file-1. Do not call get-design-snapshot again.",
+        }),
+      },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new EngineError("Builder gateway timed out", {
+          errorCode: "builder_gateway_timeout",
+        });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-1"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toContain("Next required action from result");
+    expect(journalNote).toContain("Call edit-design exactly once");
+    expect(journalNote).toContain("Do not call get-design-snapshot again");
+  });
+
+  it("does not inject a journal note on resume when the turn had no tool calls", async () => {
+    // No tool activity in the ledger → no structured note, so resume behavior is
+    // unchanged from before this feature.
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([
+      { type: "text", text: "partial answer" },
+    ]);
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-2"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const journalNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) =>
+        t.includes("Tool-call journal from the interrupted attempt"),
+      );
+    expect(journalNote).toBeUndefined();
+
+    // Exactly the standard continuation nudge was appended (one extra message).
+    expect(messages).toHaveLength(2);
+  });
+
+  it("does not read the journal when no threadId is provided", async () => {
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        new AbortController().signal,
+      ),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    expect(mockGetCurrentTurnEventsForThread).not.toHaveBeenCalled();
+  });
+
+  it("still resumes when the journal ledger read throws", async () => {
+    mockGetCurrentTurnEventsForThread.mockRejectedValue(
+      new Error("db unavailable"),
+    );
+
+    let attempts = 0;
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("socket hang up");
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    // A failed ledger read must not break the recovery — the resume still runs.
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(messages, new AbortController().signal, undefined, "thread-3"),
+      60_000,
+    );
+
+    expect(attempts).toBe(2);
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
   });
 });

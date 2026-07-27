@@ -1,4 +1,5 @@
 import type { AutomationAction } from "@shared/types.js";
+
 import {
   gmailModifyMessage,
   gmailTrashMessage,

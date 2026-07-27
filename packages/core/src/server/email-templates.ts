@@ -11,8 +11,8 @@
  * site — keeps the transactional look-and-feel consistent.
  */
 
-import { renderEmail, emailStrong } from "./email-template.js";
 import { getAppName } from "./app-name.js";
+import { renderEmail, emailStrong } from "./email-template.js";
 
 export interface RenderedEmailMessage {
   subject: string;
@@ -58,6 +58,7 @@ export function renderInviteEmail(
   const onApp = appName ? ` on ${appName}` : "";
 
   const { html, text } = renderEmail({
+    brandName: appName,
     preheader: `${inviter} invited you to join ${orgName}${onApp}.`,
     heading: `You're invited to join ${orgName}`,
     paragraphs: [
@@ -95,6 +96,7 @@ export function renderVerifySignupEmail(
   const appName = resolveAppName();
 
   const { html, text } = renderEmail({
+    brandName: appName,
     preheader: `Confirm ${email} to finish setting up your ${appName} account.`,
     heading: `Verify your email for ${appName}`,
     paragraphs: [
@@ -130,6 +132,7 @@ export function renderResetPasswordEmail(
   const appName = resolveAppName();
 
   const { html, text } = renderEmail({
+    brandName: appName,
     preheader: `Reset the password for ${email}. This link expires in 1 hour.`,
     heading: `Reset your ${appName} password`,
     paragraphs: [

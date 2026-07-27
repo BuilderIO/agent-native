@@ -1,9 +1,11 @@
-import { defineAction } from "@agent-native/core";
 import fs from "fs";
 import path from "path";
-import { z } from "zod";
-import { resolveAccess } from "@agent-native/core/sharing";
+
+import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import {
   safeGeneratedFilename,

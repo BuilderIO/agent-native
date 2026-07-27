@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
 import {
   buildExtensionHtml,
   EXTENSION_FRAME_ANCESTORS,
@@ -78,6 +80,56 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("method: 'PUT'");
   });
 
+  it("exposes server-side connector helpers without copying credentials into the iframe", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("var mcp = {");
+    expect(html).toContain("appAction('list-mcp-tools', params)");
+    expect(html).toContain("appAction('call-mcp-tool'");
+    expect(html).toContain("var providerApi = {");
+    expect(html).toContain("appAction('provider-api-catalog'");
+    expect(html).not.toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("request: function(params)");
+    expect(html).toContain("mcp: mcp");
+    expect(html).toContain("providerApi: providerApi");
+    expect(html).not.toContain("accessToken");
+    expect(html).not.toContain("clientSecret");
+  });
+
+  it("exposes a chat bridge helper to extension code", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function sendToChat(message, options)");
+    expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("sendToChat: sendToChat");
+    expect(html).toContain("send: sendToChat");
+    expect(html).toContain("window.sendToAgentChat = sendToChat");
+  });
+
+  it("exposes a passive UI output helper keyed by extension id", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain("function inlineUiOutputKey()");
+    expect(html).toContain("'inline-ui:' + safeId + ':output'");
+    expect(html).toContain("function outputToUi(value, options)");
+    expect(html).toContain(
+      "appFetch('/_agent-native/application-state/' + key",
+    );
+    expect(html).toContain("'X-Request-Source': 'inline-ui'");
+    expect(html).toContain("type: 'agent-native-ui-output'");
+    expect(html).toContain("ui: Object.assign");
+    expect(html).toContain("output: outputToUi");
+  });
+
+  it("auto-resizes transient srcdoc inline iframes", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain(
+      "new URLSearchParams(location.search).get('slot') || window.parent !== window",
+    );
+    expect(html).toContain("agent-native-extension-resize");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",
@@ -105,6 +157,8 @@ describe("buildExtensionHtml", () => {
     // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
   });
 
   it("adds default canvas padding with a full-bleed escape hatch", () => {
@@ -122,6 +176,10 @@ describe("buildExtensionHtml", () => {
 
     expect(html).toContain('id="__extension-error-dismiss"');
     expect(html).toContain("agent-native-extension-error-fix");
+    expect(html).toContain("function _renderErrorToast()");
+    expect(html).toMatch(
+      /DOMContentLoaded', function\(\) \{\s+_renderErrorToast\(\);/,
+    );
     expect(
       html.match(/__extension-error-toast'\)\.style\.display = 'none'/g),
     ).toHaveLength(2);
@@ -135,6 +193,7 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
   const HOST_FILES = [
     "ExtensionViewer.tsx",
     "EmbeddedExtension.tsx",
+    "InlineExtensionFrame.tsx",
     "ExtensionEditor.tsx",
   ];
 
@@ -142,7 +201,16 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
     it(`${file} renders the iframe without allow-same-origin`, () => {
       const text = readFileSync(join(CLIENT_DIR, file), "utf8");
       const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
-      expect(sandboxMatches.length).toBeGreaterThan(0);
+      const usesNormalizedSandbox = text.includes(
+        "sandbox={EXTENSION_IFRAME_SANDBOX}",
+      );
+      if (usesNormalizedSandbox) {
+        expect(text).toContain(
+          "normalizeAgentNativeExtensionSandbox(undefined)",
+        );
+      } else {
+        expect(sandboxMatches.length).toBeGreaterThan(0);
+      }
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }

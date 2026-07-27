@@ -1,6 +1,7 @@
+import { trackEvent } from "@agent-native/core/client/analytics";
+import { useT } from "@agent-native/core/client/i18n";
 import { useEffect, useState, useRef } from "react";
 import { codeToHtml } from "shiki";
-import { trackEvent } from "@agent-native/core/client";
 
 interface CodeBlockProps {
   code: string;
@@ -11,6 +12,7 @@ export default function CodeBlock({
   code,
   lang = "typescript",
 }: CodeBlockProps) {
+  const t = useT();
   const [html, setHtml] = useState("");
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,7 +54,7 @@ export default function CodeBlock({
         type="button"
         onClick={handleCopy}
         className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] text-xs text-[var(--fg-secondary)] opacity-0 transition hover:text-[var(--fg)] group-hover:opacity-100"
-        aria-label="Copy code"
+        aria-label={t("common.copyCode")}
       >
         {copied ? (
           <svg

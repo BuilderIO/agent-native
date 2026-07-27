@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import {
   dedupeCollabUsersByEmail,
   reconcileRemoteAwarenessStates,
@@ -6,7 +8,6 @@ import {
   emailToName,
   isReconcileLeadClient,
 } from "./client.js";
-import { AGENT_CLIENT_ID } from "./agent-identity.js";
 
 /** Minimal Awareness stand-in: isReconcileLeadClient only calls getStates(). */
 function fakeAwareness(states: Map<number, unknown>): any {
@@ -67,6 +68,17 @@ describe("dedupeCollabUsersByEmail", () => {
       { name: "Ghost", email: "   ", color: "#fff" },
       { name: "Real", email: "real@example.com", color: "#000" },
     ]);
+    expect(users).toEqual([
+      { name: "Real", email: "real@example.com", color: "#000" },
+    ]);
+  });
+
+  it("ignores malformed awareness user payloads", () => {
+    const users = dedupeCollabUsersByEmail([
+      { name: "Broken", email: undefined as unknown as string, color: "#fff" },
+      { name: "Real", email: "real@example.com", color: "#000" },
+    ]);
+
     expect(users).toEqual([
       { name: "Real", email: "real@example.com", color: "#000" },
     ]);

@@ -1,8 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -12,6 +14,8 @@ export default defineAction({
     id: z.string().describe("Design ID"),
   }),
   readOnly: true,
+  requiresAuth: false,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: false },
   http: { method: "GET" },
   run: async ({ id }) => {
     const access = await resolveAccess("design", id);
@@ -34,10 +38,11 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
-      data: row.data ?? null,
+      data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
+      accessRole: access.role,
       files: files.map((f) => ({
         id: f.id,
         filename: f.filename,

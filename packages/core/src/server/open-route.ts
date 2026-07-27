@@ -23,9 +23,8 @@
  */
 import type { H3Event } from "h3";
 import { defineEventHandler, getHeader, getMethod } from "h3";
-import { getSession, getConfiguredLoginHtml } from "./auth.js";
+
 import { appStatePut, appStateGet } from "../application-state/store.js";
-import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
@@ -35,11 +34,14 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getSession, getConfiguredLoginHtml } from "./auth.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([
@@ -72,6 +74,15 @@ export interface OpenRouteOptions {
     view?: string;
     params: Record<string, string>;
   }) => string | null | undefined;
+  /** Per-template escape hatch for public deep-link targets. Return true only
+   *  when the resolved SPA target is safe to show without a session. The open
+   *  route will redirect without writing application state. */
+  allowUnauthenticatedOpen?: (params: {
+    app?: string;
+    view?: string;
+    params: Record<string, string>;
+    target: string;
+  }) => boolean | Promise<boolean>;
 }
 
 function getRequestUrl(event: H3Event): string {
@@ -98,7 +109,11 @@ function safeRelativePath(raw: string | undefined | null): string | null {
   if (!raw.startsWith("/")) return null;
   if (raw.startsWith("//") || raw.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(raw)) return null;
-  return raw;
+  // Shared validator: adds the WHATWG reparse the prefix checks above miss,
+  // and the auth-entry rejection, so a deep link cannot resolve to a login
+  // form. No base path here — the base is applied later by
+  // `withConfiguredRedirectBasePath`, so this value is still base-relative.
+  return normalizeAppPath(raw);
 }
 
 function addMcpEmbedHeaders(event: H3Event, headers: Headers): Headers {
@@ -179,11 +194,60 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
     const toParam = search.get("to") ?? undefined;
     const compose = search.get("compose") ?? undefined;
 
+    // Build the navigation payload from every non-reserved query param
+    // (record ids + filters: threadId, eventId, dashboardId, f_*, ...).
+    const navParams: Record<string, string> = {};
+    for (const [k, v] of search.entries()) {
+      if (RESERVED.has(k)) continue;
+      navParams[k] = v;
+    }
+    const navPayload: Record<string, unknown> = { ...navParams };
+    if (view) navPayload.view = view;
+
+    // Resolve the SPA path to redirect to.
+    let target =
+      safeRelativePath(toParam) ??
+      safeRelativePath(
+        options.resolveOpenPath?.({ app, view, params: navParams }) ??
+          (view ? `/${view}` : null),
+      ) ??
+      "/";
+
+    // Forward filter params (f_*) onto the redirect so dashboards/lists open
+    // pre-filtered even before the navigate command is drained.
+    const filters = new URLSearchParams();
+    for (const [k, v] of search.entries()) {
+      if (k.startsWith("f_")) filters.set(k, v);
+    }
+    target = appendSearchParams(target, filters);
+    const embedParams = new URLSearchParams();
+    for (const key of [
+      EMBED_MODE_QUERY_PARAM,
+      EMBED_TOKEN_QUERY_PARAM,
+      MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+    ]) {
+      const value = search.get(key);
+      if (value) embedParams.set(key, value);
+    }
+    target = appendSearchParams(target, embedParams);
+    target = withCollapsedAgentSidebarParam(target);
+    target = withConfiguredRedirectBasePath(target);
+
     // Resolve the BROWSER session. When unauthenticated, serve the same login
     // form the guard would — at this URL — so the post-login reload returns
-    // here authenticated.
+    // here authenticated. Public templates may opt specific deep-link targets
+    // into anonymous redirect; no app-state writes happen without a session.
     const session = await getSession(event);
     if (!session?.email) {
+      const allowAnonymous = await options.allowUnauthenticatedOpen?.({
+        app,
+        view,
+        params: navParams,
+        target,
+      });
+      if (allowAnonymous) {
+        return redirect(event, target, requestHasEmbedAuthMarker(event));
+      }
       const html = getConfiguredLoginHtml(event);
       if (html) {
         return new Response(html, {
@@ -194,16 +258,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
       // No auth guard configured (fully open app) — best effort: still send
       // the user to the view; nothing to scope the navigate write to.
     }
-
-    // Build the navigation payload from every non-reserved query param
-    // (record ids + filters: threadId, eventId, dashboardId, f_*, ...).
-    const navParams: Record<string, string> = {};
-    for (const [k, v] of search.entries()) {
-      if (RESERVED.has(k)) continue;
-      navParams[k] = v;
-    }
-    const navPayload: Record<string, unknown> = { ...navParams };
-    if (view) navPayload.view = view;
 
     if (session?.email) {
       try {
@@ -256,35 +310,6 @@ export function createOpenRouteHandler(options: OpenRouteOptions = {}) {
         // below still lands the user on the right view.
       }
     }
-
-    // Resolve the SPA path to redirect to.
-    let target =
-      safeRelativePath(toParam) ??
-      safeRelativePath(
-        options.resolveOpenPath?.({ app, view, params: navParams }) ??
-          (view ? `/${view}` : null),
-      ) ??
-      "/";
-
-    // Forward filter params (f_*) onto the redirect so dashboards/lists open
-    // pre-filtered even before the navigate command is drained.
-    const filters = new URLSearchParams();
-    for (const [k, v] of search.entries()) {
-      if (k.startsWith("f_")) filters.set(k, v);
-    }
-    target = appendSearchParams(target, filters);
-    const embedParams = new URLSearchParams();
-    for (const key of [
-      EMBED_MODE_QUERY_PARAM,
-      EMBED_TOKEN_QUERY_PARAM,
-      MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
-    ]) {
-      const value = search.get(key);
-      if (value) embedParams.set(key, value);
-    }
-    target = appendSearchParams(target, embedParams);
-    target = withCollapsedAgentSidebarParam(target);
-    target = withConfiguredRedirectBasePath(target);
 
     return redirect(event, target, requestHasEmbedAuthMarker(event));
   });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { getAllowedCorsOrigin } from "./cors-origins.js";
 
 describe("getAllowedCorsOrigin", () => {

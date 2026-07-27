@@ -1,3 +1,5 @@
+import { resolveSecret } from "@agent-native/core/server";
+
 import type {
   ImageProvider,
   ImageProviderConfig,
@@ -12,6 +14,10 @@ export class GeminiProvider implements ImageProvider {
     return !!process.env.GEMINI_API_KEY;
   }
 
+  async isConfiguredForRequest(): Promise<boolean> {
+    return !!(await resolveSecret("GEMINI_API_KEY"));
+  }
+
   async generate(
     prompt: string,
     referenceImages: ReferenceImage[] = [],
@@ -19,7 +25,9 @@ export class GeminiProvider implements ImageProvider {
     config?: ImageProviderConfig,
   ): Promise<ImageGenerationResult> {
     const { GoogleGenAI } = await import("@google/genai");
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const apiKey = await resolveSecret("GEMINI_API_KEY");
+    if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+    const client = new GoogleGenAI({ apiKey });
 
     // Randomly select up to 4 reference images for style matching
     const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);
@@ -66,9 +74,12 @@ export class GeminiProvider implements ImageProvider {
       imageConfig.aspectRatio = config.aspectRatio;
     }
 
+    // Google retired the "-preview" aliases (shut down 2026-06-25); the GA
+    // model ids dropped the suffix. Sending the old preview ids 404s every
+    // call before falling through to gemini-2.5-flash-image.
     const geminiModels = [
-      "gemini-3.1-flash-image-preview",
-      "gemini-3-pro-image-preview",
+      "gemini-3.1-flash-image",
+      "gemini-3-pro-image",
       "gemini-2.5-flash-image",
     ];
     let lastError: Error | null = null;

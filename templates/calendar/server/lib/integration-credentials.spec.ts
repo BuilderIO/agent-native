@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 /**
  * Security regression test for the CRM-integration key exposure fix.
  *
@@ -15,7 +16,6 @@
  * scope a value lands under.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { H3Event } from "h3";
 
 // --- In-memory stand-in for the framework credential vault -------------------
 // Keyed by `<scope>::<KEY>` where scope is `u:<email>` (per-user) or
@@ -49,14 +49,14 @@ vi.mock("@agent-native/core/org", () => ({
   getOrgContext: getOrgContextMock,
 }));
 
+import { apolloStatus } from "../handlers/apollo.js";
+import { hubspotStatus } from "../handlers/hubspot.js";
 import {
   getIntegrationKey,
   saveIntegrationKey,
   deleteIntegrationKey,
   getIntegrationContext,
 } from "./integration-credentials.js";
-import { apolloStatus } from "../handlers/apollo.js";
-import { hubspotStatus } from "../handlers/hubspot.js";
 
 const APOLLO_KEY = "apollo-secret-key-abc123";
 const HUBSPOT_KEY = "pat-na1-hubspot-secret-xyz789";
@@ -166,6 +166,34 @@ describe("integration-credentials per-user vault", () => {
     const removed = await deleteIntegrationKey(fakeEvent, "hubspot");
     expect(removed).toBe(true);
     expect(await getIntegrationKey(fakeEvent, "hubspot")).toBeUndefined();
+  });
+
+  it("does not treat a lone Gong access key as connected", async () => {
+    saveCredentialMock.mockImplementation(
+      async (key: string, value: string, ctx: { userEmail: string }) => {
+        const scope = scopeOf(ctx);
+        store.set(`${scope}::${key}`, { scope, key, value });
+      },
+    );
+
+    await saveCredentialMock("GONG_ACCESS_KEY", "gong-access", {
+      userEmail: USER_EMAIL,
+    });
+
+    expect(await getIntegrationKey(fakeEvent, "gong")).toBeUndefined();
+  });
+
+  it("resolves Gong access key and secret as a complete basic-auth key", async () => {
+    await saveCredentialMock("GONG_ACCESS_KEY", "gong-access", {
+      userEmail: USER_EMAIL,
+    });
+    await saveCredentialMock("GONG_ACCESS_SECRET", "gong-secret", {
+      userEmail: USER_EMAIL,
+    });
+
+    expect(await getIntegrationKey(fakeEvent, "gong")).toBe(
+      "gong-access:gong-secret",
+    );
   });
 });
 

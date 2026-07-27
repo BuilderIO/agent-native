@@ -1,0 +1,121 @@
+---
+title: "藍圖安裝程式"
+description: "agent-native add 將精心策劃的 Markdown 整合配方列印到標準輸出 - 將其透過管道傳輸到您的編碼代理，該代理將針對您的即時儲存庫應用更改。"
+---
+
+# 藍圖安裝程式
+
+> **這是誰的：** 新增提供者、管道的主機作者和整合商，
+> 沙箱後端，或透過將配方傳輸到其編碼代理中來對儲存庫進行操作。
+
+`agent-native add` 不是\*\*一個為你編寫檔案的愚蠢的腳手架。它將精心策劃的 Markdown _整合藍圖_ 傳送到標準輸出。您可以將該藍圖傳輸到您自己的編碼代理（Claude 程式碼、Codex 等）中，該代理將針對具有完整脈絡的即時儲存庫應用更改。
+
+這符合代理應用更改、檔案系統優先的風格：框架提供配方（要接觸的規範檔案、要遵守的規則、驗證步驟），編碼代理進行編輯。
+
+```bash
+agent-native add provider stripe | claude
+agent-native add channel discord  | codex
+```
+
+<Diagram id="doc-block-1lzc98y" title={"新增列印配方；您的編碼代理應用它"} summary={"agent-native 向 stdout 發出 Markdown 藍圖（對 stderr 進行診斷）；您可以將其透過管道傳輸到 Claude Code 或 Codex，這將使用完整的脈絡編輯您的即時儲存庫。"}>
+
+```html
+<div class="diagram-bp">
+  <div class="diagram-node" data-rough>
+    agent-native add<br /><small class="diagram-muted"
+      >&lt;kind&gt; &lt;name|URL&gt;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Markdown 藍圖<br /><small class="diagram-muted"
+      >stdout · 要觸碰的檔案 · 規則 · 驗證</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    編碼 Agent<br /><small class="diagram-muted">claude · codex</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">edits your live repo</div>
+</div>
+```
+
+```css
+.diagram-bp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bp .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 用法 {#usage}
+
+```bash
+agent-native add <kind> <name>            # print a curated blueprint
+agent-native add <kind> <https://docs…>   # 從 URL 進行研究和整合
+agent-native add --list                   # list available kinds and blueprints
+```
+
+- 一個赤裸裸的**名字**就能解析出`blueprints/<kind>/<name>.md`精心策劃的藍圖。
+- **URL**（而不是名稱）會發出此類的通用*研究和整合*藍圖，其中嵌入 URL 作為研究起點（URL 是研究種子，而不是已知配方）。
+- 藍圖轉到 **stdout**；診斷會傳送到 stderr，因此 `… | claude` 只會收到藍圖。
+
+## 播種藍圖 {#seeded}
+
+`agent-native add --list` 顯示包裝盒中的物品：
+
+| 種類       | 姓名      | 它設定什麼                                                             |
+| ---------- | --------- | ---------------------------------------------------------------------- |
+| `provider` | `stripe`  | 將提供者連線到 `provider-api` 基板（目錄/檔案/請求三重奏）。           |
+| `channel`  | `discord` | 實現 `PlatformAdapter` 入站 Webhook 通道並註冊它。                     |
+| `sandbox`  | `docker`  | 實現 `SandboxAdapter` 接縫以在 Docker 容器中執行 `run-code`。          |
+| `action`   | `crud`    | 新增具有 Zod 架構的單一多表面 `defineAction`（一個 `update` 超過 N）。 |
+
+每個藍圖都是獨立的：讀取它的編碼代理取得要接觸的檔案、要遵守的框架規則（actions 是單一事實來源、從不硬編碼秘密、範圍可擁有的資料、為 `packages/*` 來源新增變更集）以及具體的 **驗證** 部分。
+
+## URL → 研究藍圖 {#url}
+
+當您傳遞 URL 時，該型別沒有策劃的配方（或想要新的整合），`add` 會發出一個通用的“研究和整合”藍圖，以 URL 作為種子：
+
+```bash
+agent-native add provider https://docs.example.com/api | claude
+```
+
+產生的藍圖告訴編碼代理取得真實端點的 URL（及其連結到的頁面）、驗證模型、有效負載形狀和簽名/驗證要求（而不是從訓練資料中猜測），然後實施和驗證。它還帶有特定型別的指導（例如，`provider` URL 轉向 `provider-api` 基板；`channel` URL 轉向 `PlatformAdapter`）。
+
+## 新增您自己的藍圖 {#authoring}
+
+將 Markdown 檔案拖放到 `packages/core/blueprints/<kind>/<name>.md` 中。 kind 是子目錄；該名稱是不帶 `.md` 的檔名。它是自動拾取的 - `--list`、名稱解析和目錄都在執行時讀取目錄。無需更改程式碼即可註冊。
+
+藍圖 `.md` 檔案透過 `package.json` `files` 中的 `blueprints` 條目傳送到已發布的包中，因此最終使用者可以在 `node_modules/@agent-native/core/blueprints/**` 上進行解析。
+
+將每個藍圖編寫為編碼代理的指令集，沒有其他脈絡。一個好的藍圖具有：
+
+1. **一行目標**和“您是 Agent-Native 應用程式中的編碼代理，將這些作為真正的來源更改應用”框架。
+2. **首先閱讀** - *是*合約的確切檔案。
+3. **要接觸的檔案** - 具體路徑以及每個更改的作用。
+4. **要遵守的框架規則** - actions-first，無硬編碼秘密，範圍可擁有的資料，新增可發布包來源的變更集。
+5. **驗證** — 型別檢查、重點 `*.spec.ts` 和端對端檢查。
+
+> [!TIP]
+> 現有型別下的新策劃藍圖不需要程式碼 - 但如果您建立一個全新的型別目錄，該型別也會自動顯示在 `--list` 中。
+
+## 下一步是什麼
+
+- [**Sandbox Adapters**](/docs/sandbox-adapters) — `add sandbox docker` 藍圖目標的接縫
+- [**Actions**](/docs/actions) - 每個藍圖建置的單一事實來源
+- [**External Agents**](/docs/external-agents) — 連線將藍圖透過管道傳輸到的編碼代理

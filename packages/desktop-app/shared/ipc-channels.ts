@@ -1,5 +1,6 @@
 /** IPC channel names shared between main, preload, and renderer. */
 import type { CodeAgentPermissionMode } from "./code-agents";
+import type { DesktopDesignPreviewRect } from "./design-preview-placement";
 import type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
@@ -30,12 +31,38 @@ export const IPC = {
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
+  APPS_REORDER: "apps:reorder",
   APPS_RESET: "apps:reset",
   APPS_CHOOSE_LOCAL_FOLDER: "apps:choose-local-folder",
+  APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
+  APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
+  APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
+
+  /** Hosted Plan app local-file sync (Plan webview ↔ main) */
+  PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
+  PLAN_FILES_CHOOSE_FOLDER: "plan-files:choose-folder",
+  PLAN_FILES_WRITE: "plan-files:write",
+  PLAN_FILES_READ: "plan-files:read",
+  PLAN_FILES_CLEAR_FOLDER: "plan-files:clear-folder",
+
+  /** Hosted Content app local-file sync (Content webview ↔ main) */
+  CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
+  CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_WRITE: "content-files:write",
+  CONTENT_FILES_WRITE_FILE: "content-files:write-file",
+  CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
+  CONTENT_FILES_READ: "content-files:read",
+  CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
+  CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
   SET_ACTIVE_WEBVIEW: "webview:set-active-webview",
+
+  /** Focused Design native preview (Design guest ↔ main) */
+  DESIGN_PREVIEW_REQUEST: "design-preview:request",
+  DESIGN_PREVIEW_STATE: "design-preview:state",
 
   /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
@@ -63,12 +90,14 @@ export const IPC = {
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
   CODE_AGENTS_RERUN_RUN: "code-agents:rerun-run",
   CODE_AGENTS_GET_HOST_METADATA: "code-agents:get-host-metadata",
+  CODE_AGENTS_COMPUTER_SETUP: "code-agents:computer-setup",
   CODE_AGENTS_LIST_CODE_PACKS: "code-agents:list-code-packs",
   CODE_AGENTS_LIST_PROJECTS: "code-agents:list-projects",
   CODE_AGENTS_SELECT_PROJECT: "code-agents:select-project",
   CODE_AGENTS_CHOOSE_PROJECT: "code-agents:choose-project",
   CODE_AGENTS_LIST_MIGRATION_RUNS: "code-agents:list-migration-runs",
   CODE_AGENTS_OPEN_TERMINAL: "code-agents:open-terminal",
+  CODE_AGENTS_OPEN_CODEX_LOGIN: "code-agents:open-codex-login",
   CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS:
     "code-agents:remote-connector:get-status",
   CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED:
@@ -82,6 +111,8 @@ export const IPC = {
   DEEP_LINK_OPEN: "deep-link:open",
 
   /** Local desktop app-launch shortcuts (renderer ↔ main) */
+  SHORTCUTS_ACTIVATE: "shortcuts:activate",
+  SHORTCUTS_ACTIVATE_ACK: "shortcuts:activate-ack",
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
@@ -107,6 +138,10 @@ export type UpdateStatus =
 export interface ActiveWebviewTarget {
   appId: string;
   webContentsId?: number;
+  /** False releases this exact owner without racing a newly active tab. */
+  active?: boolean;
+  /** App webview bounds in BrowserWindow content coordinates. */
+  hostBounds?: DesktopDesignPreviewRect;
 }
 
 export interface InterAppMessage {
@@ -131,6 +166,150 @@ export interface LocalAppFolderSelectResult {
   folder?: LocalAppFolderInfo;
   error?: string;
 }
+
+export interface DesktopAppCreationSettings {
+  appsRoot: string;
+}
+
+export interface DesktopCreateAppRequest {
+  prompt: string;
+  appsRoot?: string;
+}
+
+export interface DesktopCreateAppResult {
+  ok: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  app?: import("@agent-native/shared-app-config").AppConfig;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export type DesktopAppContextAction =
+  | "edit"
+  | "remove"
+  | "move-up"
+  | "move-down";
+
+export type DesktopAppRuntimeState =
+  | "waiting"
+  | "starting"
+  | "running"
+  | "stopped"
+  | "error";
+
+export interface DesktopAppRuntimeStatus {
+  appId: string;
+  state: DesktopAppRuntimeState;
+  message?: string;
+}
+
+export interface DesktopPlanMdxFolder {
+  "plan.mdx": string;
+  "canvas.mdx"?: string;
+  "prototype.mdx"?: string;
+  ".plan-state.json"?: string;
+  "assets/"?: Record<string, string>;
+}
+
+export interface DesktopPlanFilesFolder {
+  name: string;
+  planId: string;
+  title?: string;
+  updatedAt?: string;
+}
+
+export interface DesktopPlanFilesFolderRequest {
+  planId: string;
+}
+
+export interface DesktopPlanFilesChooseFolderRequest {
+  planId: string;
+  title?: string;
+}
+
+export interface DesktopPlanFilesWriteRequest {
+  planId: string;
+  title?: string;
+  mdx: DesktopPlanMdxFolder;
+}
+
+export interface DesktopPlanFilesReadRequest {
+  planId: string;
+}
+
+export interface DesktopPlanFilesClearFolderRequest {
+  planId: string;
+}
+
+export type DesktopPlanFilesResult =
+  | {
+      ok: true;
+      folder: DesktopPlanFilesFolder;
+      files?: string[];
+      mdx?: DesktopPlanMdxFolder;
+      controlResources?: Record<string, string>;
+    }
+  | {
+      ok: false;
+      error: string;
+      canceled?: boolean;
+      folder?: DesktopPlanFilesFolder;
+    };
+
+export interface DesktopContentFilesFolder {
+  id?: string;
+  name: string;
+  path?: string;
+  sourcePrefix?: string;
+  updatedAt?: string;
+}
+
+export interface DesktopContentFilesWriteRequest {
+  folderId?: string;
+  files: Record<string, string>;
+}
+
+export interface DesktopContentFileWriteRequest {
+  folderId?: string;
+  path: string;
+  content: string;
+}
+
+export interface DesktopContentFileRevealRequest {
+  folderId?: string;
+  path: string;
+}
+
+export interface DesktopContentFileDeleteRequest {
+  folderId?: string;
+  path: string;
+}
+
+export interface DesktopContentFilesFolderRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesClearFolderRequest {
+  folderId?: string;
+}
+
+export type DesktopContentFilesResult =
+  | {
+      ok: true;
+      folder: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
+      files?: string[];
+      sources?: Record<string, string>;
+      controlResources?: Record<string, string>;
+    }
+  | {
+      ok: false;
+      error: string;
+      canceled?: boolean;
+      folder?: DesktopContentFilesFolder;
+      folders?: DesktopContentFilesFolder[];
+    };
 
 export type CodeAgentRunStatus =
   | "queued"
@@ -330,6 +509,13 @@ export interface CodeAgentTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Structured marker for events that need special UI handling beyond
+   * free-text matching. `"credential-gap"` marks the status event reporting
+   * that no LLM provider key (or Codex CLI login) is available. Optional so
+   * older persisted transcripts without the field keep parsing unchanged.
+   */
+  signal?: "credential-gap";
 }
 
 export interface CodeAgentTranscriptRequest {
@@ -459,7 +645,12 @@ export interface CodeAgentRemoteConnectorPairResult {
   error?: string;
 }
 
-export type CodeAgentProviderId = "builder" | "anthropic" | "openai" | "google";
+export type CodeAgentProviderId =
+  | "builder"
+  | "anthropic"
+  | "openai"
+  | "google"
+  | "codex";
 
 export type CodeAgentProviderCredentialKey =
   | "ANTHROPIC_API_KEY"
@@ -475,7 +666,7 @@ export interface CodeAgentProviderStatus {
   configuredKeys: CodeAgentProviderCredentialKey[];
   missingKeys: CodeAgentProviderCredentialKey[];
   savedKeys: CodeAgentProviderCredentialKey[];
-  source?: "desktop-settings" | "environment" | "mixed";
+  source?: "desktop-settings" | "environment" | "mixed" | "local-codex";
 }
 
 export interface CodeAgentProviderSettings {
@@ -575,6 +766,18 @@ export interface CodeAgentHostMetadata {
     configuredProviders?: string[];
     missingEnvVars?: string[];
   };
+  computerControl?: {
+    available: boolean;
+    desktop: {
+      accessibility: boolean;
+      screenRecording: string;
+    };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;
@@ -588,12 +791,32 @@ export interface CodeAgentHostMetadata {
   error?: string;
 }
 
+export type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+export interface CodeAgentComputerSetupResult {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
+  error?: string;
+}
+
 export interface DesktopOpenRequest {
   app?: string;
   goalId?: string;
   path?: string;
   softOpen?: boolean;
   runId?: string;
+}
+
+export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
+  requestId: string;
 }
 
 export type {

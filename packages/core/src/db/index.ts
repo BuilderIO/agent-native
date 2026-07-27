@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
 
 export type DbConfig =
   | { driver: "sqlite"; filename: string }
@@ -31,16 +31,29 @@ export async function createDb(config: DbConfig) {
 export type DrizzleDb = Awaited<ReturnType<typeof createDb>>;
 
 export { createGetDb } from "./create-get-db.js";
-export { runMigrations } from "./migrations.js";
+export {
+  runMigrations,
+  type MigrationEntry,
+  type MigrationSql,
+} from "./migrations.js";
 export {
   getDbExec,
   createDbExec,
   getDialect,
+  isLocalDatabase,
   isPostgres,
   intType,
   closeDbExec,
   type DbExec,
   type DbExecConfig,
+  type DbExecQuery,
+  type DbExecStatement,
   type Dialect,
 } from "./client.js";
 export { table, text, integer, now } from "./schema.js";
+export {
+  ensureAdditiveColumns,
+  type EnsureAdditiveColumnsOptions,
+  type EnsureAdditiveColumnsResult,
+  type EnsureAdditiveColumnsLogger,
+} from "./ensure-additive-columns.js";

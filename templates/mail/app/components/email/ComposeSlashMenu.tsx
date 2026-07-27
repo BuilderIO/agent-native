@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-} from "react";
-import type { Editor } from "@tiptap/react";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconTypography,
   IconH1,
@@ -18,106 +11,154 @@ import {
   IconMinus,
   IconPencil,
   IconPhoto,
+  IconMessage2,
 } from "@tabler/icons-react";
+import type { Editor } from "@tiptap/react";
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useRef,
+} from "react";
+
+import { useSnippets, type Snippet } from "@/hooks/use-snippets";
+import { openFilePicker } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 interface ComposeSlashMenuProps {
   editor: Editor;
   onGenerate: () => void;
+  onUploadImage: (file: File) => Promise<string>;
 }
 
 interface CommandItem {
-  title: string;
-  description: string;
+  // Either a translation key or a literal string may be supplied — literal
+  // strings win, so dynamic (non-translatable) content like a saved snippet's
+  // name can share the same command shape as the built-in i18n-keyed items.
+  titleKey?: string;
+  title?: string;
+  descriptionKey?: string;
+  description?: string;
   icon: React.ElementType;
   action: (editor: Editor) => void;
   category?: string;
 }
 
-function createCommands(onGenerate: () => void): CommandItem[] {
+/**
+ * Case-insensitive subsequence match: every character of `query` must appear
+ * in `text` in order, not necessarily contiguously (e.g. "mtg" matches
+ * "meeting"). Empty query matches everything.
+ */
+function fuzzyMatch(text: string, query: string): boolean {
+  if (!query) return true;
+  const haystack = text.toLowerCase();
+  let position = 0;
+  for (const char of query.toLowerCase()) {
+    position = haystack.indexOf(char, position);
+    if (position === -1) return false;
+    position += 1;
+  }
+  return true;
+}
+
+function createSnippetCommands(snippets: Snippet[]): CommandItem[] {
+  return snippets.map((snippet) => ({
+    title: snippet.name,
+    description: snippet.body,
+    icon: IconMessage2,
+    category: "snippets",
+    action: (editor) => {
+      editor.chain().focus().insertContent(snippet.body).run();
+    },
+  }));
+}
+
+function createCommands(
+  onGenerate: () => void,
+  onInsertImage: (editor: Editor) => void,
+): CommandItem[] {
   return [
     {
-      title: "Text",
-      description: "Plain text block",
+      titleKey: "mail.composeSlash.text",
+      descriptionKey: "mail.composeSlash.plainTextBlock",
       icon: IconTypography,
       category: "basic",
       action: (editor) => (editor.chain().focus() as any).setParagraph().run(),
     },
     {
-      title: "Heading 1",
-      description: "Large heading",
+      titleKey: "mail.composeSlash.heading1",
+      descriptionKey: "mail.composeSlash.largeHeading",
       icon: IconH1,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 1 }).run(),
     },
     {
-      title: "Heading 2",
-      description: "Medium heading",
+      titleKey: "mail.composeSlash.heading2",
+      descriptionKey: "mail.composeSlash.mediumHeading",
       icon: IconH2,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 2 }).run(),
     },
     {
-      title: "Heading 3",
-      description: "Small heading",
+      titleKey: "mail.composeSlash.heading3",
+      descriptionKey: "mail.composeSlash.smallHeading",
       icon: IconH3,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleHeading({ level: 3 }).run(),
     },
     {
-      title: "Bullet List",
-      description: "Unordered list",
+      titleKey: "mail.composeSlash.bulletList",
+      descriptionKey: "mail.composeSlash.unorderedList",
       icon: IconList,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleBulletList().run(),
     },
     {
-      title: "Numbered List",
-      description: "Ordered list",
+      titleKey: "mail.composeSlash.numberedList",
+      descriptionKey: "mail.composeSlash.orderedList",
       icon: IconListNumbers,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleOrderedList().run(),
     },
     {
-      title: "Quote",
-      description: "Block quote",
+      titleKey: "mail.composeSlash.quote",
+      descriptionKey: "mail.composeSlash.blockQuote",
       icon: IconQuote,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleBlockquote().run(),
     },
     {
-      title: "Code Block",
-      description: "Code snippet",
+      titleKey: "mail.composeSlash.codeBlock",
+      descriptionKey: "mail.composeSlash.codeSnippet",
       icon: IconCode,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).toggleCodeBlock().run(),
     },
     {
-      title: "Divider",
-      description: "Horizontal rule",
+      titleKey: "mail.composeSlash.divider",
+      descriptionKey: "mail.composeSlash.horizontalRule",
       icon: IconMinus,
       category: "basic",
       action: (editor) =>
         (editor.chain().focus() as any).setHorizontalRule().run(),
     },
     {
-      title: "Image",
-      description: "Upload an image",
+      titleKey: "mail.composeSlash.image",
+      descriptionKey: "mail.composeSlash.uploadImage",
       icon: IconPhoto,
       category: "media",
-      action: (editor) => {
-        editor.chain().focus().setImage({ src: "" }).run();
-      },
+      action: onInsertImage,
     },
     {
-      title: "Generate",
-      description: "AI-assisted writing",
+      titleKey: "mail.composeSlash.generate",
+      descriptionKey: "mail.composeSlash.aiAssistedWriting",
       icon: IconPencil,
       category: "ai",
       action: (_editor) => {
@@ -130,6 +171,7 @@ function createCommands(onGenerate: () => void): CommandItem[] {
 export function ComposeSlashMenu({
   editor,
   onGenerate,
+  onUploadImage,
 }: ComposeSlashMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -147,14 +189,74 @@ export function ComposeSlashMenu({
   } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number | null>(null);
+  const t = useT();
+  const { data: snippetsData } = useSnippets();
+  const snippets = snippetsData?.snippets ?? [];
 
-  const commands = createCommands(onGenerate);
-
-  const filteredCommands = commands.filter(
-    (cmd) =>
-      cmd.title.toLowerCase().includes(query.toLowerCase()) ||
-      cmd.description.toLowerCase().includes(query.toLowerCase()),
+  const handleInsertImage = useCallback(
+    (targetEditor: Editor) => {
+      void (async () => {
+        const file = await openFilePicker("image/*");
+        if (!file) return;
+        const objectUrl = URL.createObjectURL(file);
+        targetEditor
+          .chain()
+          .focus()
+          .setImage({ src: objectUrl, alt: "" })
+          .run();
+        try {
+          const url = await onUploadImage(file);
+          targetEditor.state.doc.descendants((node, pos) => {
+            if (node.type.name === "image" && node.attrs.src === objectUrl) {
+              targetEditor
+                .chain()
+                .command(({ tr }) => {
+                  tr.setNodeAttribute(pos, "src", url);
+                  return true;
+                })
+                .run();
+              return false;
+            }
+            return true;
+          });
+        } catch {
+          targetEditor.state.doc.descendants((node, pos) => {
+            if (node.type.name === "image" && node.attrs.src === objectUrl) {
+              targetEditor
+                .chain()
+                .deleteRange({ from: pos, to: pos + node.nodeSize })
+                .run();
+              return false;
+            }
+            return true;
+          });
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      })();
+    },
+    [onUploadImage],
   );
+
+  const commands = createCommands(onGenerate, handleInsertImage);
+  const snippetCommands = createSnippetCommands(snippets);
+
+  const filteredCommands = [
+    ...commands.filter(
+      (cmd) =>
+        t(cmd.titleKey ?? "")
+          .toLowerCase()
+          .includes(query.toLowerCase()) ||
+        t(cmd.descriptionKey ?? "")
+          .toLowerCase()
+          .includes(query.toLowerCase()),
+    ),
+    ...snippetCommands.filter(
+      (cmd) =>
+        fuzzyMatch(cmd.title ?? "", query) ||
+        fuzzyMatch(cmd.description ?? "", query),
+    ),
+  ];
 
   const executeCommand = useCallback(
     (cmd: CommandItem) => {
@@ -275,6 +377,9 @@ export function ComposeSlashMenu({
 
   const basicCommands = filteredCommands.filter((c) => c.category === "basic");
   const mediaCommands = filteredCommands.filter((c) => c.category === "media");
+  const snippetGroup = filteredCommands.filter(
+    (c) => c.category === "snippets",
+  );
   const aiCommands = filteredCommands.filter((c) => c.category === "ai");
 
   return (
@@ -293,14 +398,15 @@ export function ComposeSlashMenu({
         {basicCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Blocks
+              {t("mail.composeSlash.blocks")}
             </div>
             {basicCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
-                  key={cmd.title}
+                  key={cmd.titleKey}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -312,14 +418,35 @@ export function ComposeSlashMenu({
         {mediaCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Media
+              {t("mail.composeSlash.media")}
             </div>
             {mediaCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
+                  key={cmd.titleKey}
+                  cmd={cmd}
+                  t={t}
+                  isSelected={globalIndex === selectedIndex}
+                  onExecute={() => executeCommand(cmd)}
+                  onHover={() => setSelectedIndex(globalIndex)}
+                />
+              );
+            })}
+          </>
+        )}
+        {snippetGroup.length > 0 && (
+          <>
+            <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("mail.composeSlash.snippets")}
+            </div>
+            {snippetGroup.map((cmd) => {
+              const globalIndex = filteredCommands.indexOf(cmd);
+              return (
+                <CommandButton
                   key={cmd.title}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -331,14 +458,15 @@ export function ComposeSlashMenu({
         {aiCommands.length > 0 && (
           <>
             <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              AI
+              {t("mail.composeSlash.ai")}
             </div>
             {aiCommands.map((cmd) => {
               const globalIndex = filteredCommands.indexOf(cmd);
               return (
                 <CommandButton
-                  key={cmd.title}
+                  key={cmd.titleKey}
                   cmd={cmd}
+                  t={t}
                   isSelected={globalIndex === selectedIndex}
                   onExecute={() => executeCommand(cmd)}
                   onHover={() => setSelectedIndex(globalIndex)}
@@ -354,11 +482,13 @@ export function ComposeSlashMenu({
 
 function CommandButton({
   cmd,
+  t,
   isSelected,
   onExecute,
   onHover,
 }: {
   cmd: CommandItem;
+  t: ReturnType<typeof useT>;
   isSelected: boolean;
   onExecute: () => void;
   onHover: () => void;
@@ -375,9 +505,13 @@ function CommandButton({
       <div className="flex items-center justify-center w-8 h-8 rounded-md border border-border bg-background text-muted-foreground">
         <cmd.icon size={16} />
       </div>
-      <div>
-        <div className="text-sm font-medium text-foreground">{cmd.title}</div>
-        <div className="text-xs text-muted-foreground">{cmd.description}</div>
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-foreground truncate">
+          {cmd.title ?? t(cmd.titleKey ?? "")}
+        </div>
+        <div className="text-xs text-muted-foreground truncate">
+          {cmd.description ?? t(cmd.descriptionKey ?? "")}
+        </div>
       </div>
     </button>
   );

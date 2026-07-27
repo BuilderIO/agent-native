@@ -1,3 +1,5 @@
+import { emit } from "@agent-native/core/event-bus";
+import { readBody, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getQuery,
@@ -6,16 +8,14 @@ import {
   setResponseHeader,
   type H3Event,
 } from "h3";
+
+import { ensureOrganizerInAttendees } from "../../actions/event-action-helpers.js";
 import type { CalendarEvent } from "../../shared/api.js";
-import { readBody, getSession } from "@agent-native/core/server";
-import { emit } from "@agent-native/core/event-bus";
-import * as googleCalendar from "../lib/google-calendar.js";
-import { prepareZoomMeetingPatch } from "../lib/event-video-conferencing.js";
 import {
-  normalizeGuestNotificationMessage,
-  sendEventGuestNotificationNote,
-} from "../lib/event-guest-notifications.js";
-import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../lib/event-video-conferencing.js";
+import * as googleCalendar from "../lib/google-calendar.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -38,10 +38,17 @@ async function resolveAccountEmail(
   requestAccountEmail: string | undefined,
   ownerEmail: string,
 ): Promise<string> {
-  if (!requestAccountEmail || requestAccountEmail === ownerEmail) {
+  if (requestAccountEmail === ownerEmail) {
     return ownerEmail;
   }
   const status = await googleCalendar.getAuthStatus(ownerEmail);
+  if (!requestAccountEmail) {
+    return (
+      status.accounts.find((account) => account.email === ownerEmail)?.email ??
+      status.accounts[0]?.email ??
+      ownerEmail
+    );
+  }
   const isOwned = status.accounts.some((a) => a.email === requestAccountEmail);
   if (!isOwned) {
     throw new ForbiddenError("Account not owned by current user");
@@ -132,118 +139,6 @@ export const listEvents = defineEventHandler(async (event: H3Event) => {
   }
 });
 
-export const getEvent = defineEventHandler(async (event: H3Event) => {
-  try {
-    const email = await uEmail(event);
-    const id = getRouterParam(event, "id") as string;
-
-    if (!id.startsWith("google-")) {
-      setResponseStatus(event, 404);
-      return { error: "Event not found" };
-    }
-
-    const googleEventId = id.replace(/^google-/, "");
-
-    const clients = await googleCalendar.getClients(email);
-    for (const { email: acctEmail, accessToken } of clients) {
-      try {
-        const { calendarGetEvent } = await import("../lib/google-api.js");
-        const evt = await calendarGetEvent(
-          accessToken,
-          "primary",
-          googleEventId,
-        );
-        const selfAttendee = evt.attendees?.find((a: any) => a.self === true);
-        const calEvent: CalendarEvent = {
-          id: `google-${evt.id}`,
-          title: evt.summary || "Untitled",
-          description: evt.description || "",
-          start: evt.start?.dateTime || evt.start?.date || "",
-          end: evt.end?.dateTime || evt.end?.date || "",
-          startTimeZone: evt.start?.timeZone || undefined,
-          endTimeZone: evt.end?.timeZone || undefined,
-          location: evt.location || "",
-          allDay: !evt.start?.dateTime,
-          source: "google",
-          googleEventId: evt.id || undefined,
-          htmlLink: evt.htmlLink || undefined,
-          accountEmail: acctEmail,
-          responseStatus: selfAttendee?.responseStatus || undefined,
-          transparency: evt.transparency || undefined,
-          colorId: evt.colorId || undefined,
-          color: getGoogleEventColorHex(evt.colorId),
-          eventType: evt.eventType || "default",
-          attendees: evt.attendees?.map((a: any) => ({
-            email: a.email,
-            displayName: a.displayName || undefined,
-            comment: a.comment || undefined,
-            responseStatus: a.responseStatus || undefined,
-            organizer: a.organizer || undefined,
-            self: a.self || undefined,
-          })),
-          remindersUseDefault: evt.reminders?.useDefault ?? true,
-          reminders: evt.reminders?.overrides?.map((r: any) => ({
-            method: r.method,
-            minutes: r.minutes,
-          })),
-          recurrence: evt.recurrence || undefined,
-          recurringEventId: evt.recurringEventId || undefined,
-          hangoutLink: evt.hangoutLink || undefined,
-          conferenceData: evt.conferenceData
-            ? {
-                entryPoints: evt.conferenceData.entryPoints?.map((ep: any) => ({
-                  entryPointType: ep.entryPointType,
-                  uri: ep.uri,
-                  label: ep.label || undefined,
-                  pin: ep.pin || undefined,
-                  passcode: ep.passcode || undefined,
-                })),
-                conferenceSolution: evt.conferenceData.conferenceSolution
-                  ? {
-                      name: evt.conferenceData.conferenceSolution.name,
-                      iconUri:
-                        evt.conferenceData.conferenceSolution.iconUri ||
-                        undefined,
-                    }
-                  : undefined,
-              }
-            : undefined,
-          attachments: evt.attachments?.map((a: any) => ({
-            fileUrl: a.fileUrl,
-            title: a.title || "Untitled",
-            mimeType: a.mimeType || undefined,
-            iconLink: a.iconLink || undefined,
-            fileId: a.fileId || undefined,
-          })),
-          visibility: evt.visibility || undefined,
-          status: evt.status || undefined,
-          outOfOfficeProperties: evt.outOfOfficeProperties || undefined,
-          focusTimeProperties: evt.focusTimeProperties || undefined,
-          workingLocationProperties: evt.workingLocationProperties || undefined,
-          organizer: evt.organizer
-            ? {
-                email: evt.organizer.email,
-                displayName: evt.organizer.displayName || undefined,
-                self: evt.organizer.self || undefined,
-              }
-            : undefined,
-          createdAt: evt.created || new Date().toISOString(),
-          updatedAt: evt.updated || new Date().toISOString(),
-        };
-        return calEvent;
-      } catch {
-        continue;
-      }
-    }
-
-    setResponseStatus(event, 404);
-    return { error: "Event not found" };
-  } catch (error: any) {
-    setResponseStatus(event, 500);
-    return { error: error.message };
-  }
-});
-
 export const createEvent = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
@@ -269,6 +164,9 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
       id: "",
       source: "google",
       accountEmail: acctEmail,
+      // Match Google Calendar UI: when inviting guests, include the
+      // organizer/self email in attendees so they appear in Guests.
+      attendees: ensureOrganizerInAttendees(eventBody.attendees, acctEmail),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -281,7 +179,12 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: addGoogleMeet === true,
+      account: { ownerEmail: email, accountEmail: acctEmail },
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet:
+          typeof addGoogleMeet === "boolean" ? addGoogleMeet : undefined,
+        addZoom: addZoom === true,
+      }),
     });
     if (result.id) {
       calEvent.id = `google-${result.id}`;
@@ -300,7 +203,7 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
           title: calEvent.title || eventBody.title || "",
           startTime: calEvent.start,
           endTime: calEvent.end,
-          attendees: eventBody.attendees ?? [],
+          attendees: calEvent.attendees ?? [],
           createdBy: email,
         },
         { owner: email },
@@ -311,241 +214,6 @@ export const createEvent = defineEventHandler(async (event: H3Event) => {
 
     setResponseStatus(event, 201);
     return calEvent;
-  } catch (error: any) {
-    return handleError(event, error);
-  }
-});
-
-export const updateEvent = defineEventHandler(async (event: H3Event) => {
-  try {
-    const email = await uEmail(event);
-    const id = getRouterParam(event, "id") as string;
-    const body = await readBody(event);
-
-    if (!id.startsWith("google-")) {
-      setResponseStatus(event, 404);
-      return { error: "Event not found" };
-    }
-
-    const googleEventId = id.replace(/^google-/, "");
-
-    if (!(await googleCalendar.isConnected(email))) {
-      setResponseStatus(event, 400);
-      return { error: "Google Calendar not connected" };
-    }
-
-    const acctEmail = await resolveAccountEmail(body.accountEmail, email);
-    const {
-      addGoogleMeet,
-      addZoom,
-      sendUpdates,
-      notificationMessage,
-      scope,
-      ...rawUpdates
-    } = body;
-    const updateScope = scope === "all" ? "all" : "single";
-    const guestNotificationMessage = normalizeGuestNotificationMessage(
-      typeof notificationMessage === "string" ? notificationMessage : undefined,
-    );
-    if (addGoogleMeet === true && addZoom === true) {
-      setResponseStatus(event, 400);
-      return { error: "Choose either Google Meet or Zoom, not both." };
-    }
-
-    const updates: Partial<CalendarEvent> = {
-      ...rawUpdates,
-      accountEmail: acctEmail,
-    };
-
-    let existingEvent: CalendarEvent | undefined;
-    const loadExistingEvent = async () => {
-      existingEvent ??= await googleCalendar.getEvent(googleEventId, acctEmail);
-      return existingEvent;
-    };
-
-    let zoomMeetingLink: string | undefined;
-    let zoomAlreadyPresent = false;
-    if (addZoom === true) {
-      const existingEvent = await loadExistingEvent();
-      const eventForZoom: CalendarEvent = {
-        ...existingEvent,
-        ...updates,
-        title: updates.title ?? existingEvent.title,
-        description: updates.description ?? existingEvent.description,
-        location: updates.location ?? existingEvent.location,
-        start: updates.start ?? existingEvent.start,
-        end: updates.end ?? existingEvent.end,
-      };
-      const zoom = await prepareZoomMeetingPatch(email, eventForZoom);
-      zoomMeetingLink = zoom.meetingLink;
-      zoomAlreadyPresent = zoom.alreadyPresent;
-      Object.assign(updates, zoom.patch);
-    }
-
-    const eventForNotification = guestNotificationMessage
-      ? await loadExistingEvent()
-      : undefined;
-
-    const updatedKeys = Object.keys(updates).filter(
-      (key) => key !== "accountEmail",
-    );
-    if (updatedKeys.length === 0 && zoomAlreadyPresent) {
-      return {
-        success: true,
-        id,
-        googleEventId,
-        accountEmail: acctEmail,
-        meetingLink: zoomMeetingLink,
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    try {
-      const result = await googleCalendar.updateEvent(googleEventId, updates, {
-        sendUpdates:
-          sendUpdates ?? (guestNotificationMessage ? "all" : undefined),
-        addGoogleMeet: addGoogleMeet === true,
-        scope: updateScope,
-      });
-      if (result.htmlLink) updates.htmlLink = result.htmlLink;
-      if (result.meetLink) updates.hangoutLink = result.meetLink;
-      if (result.conferenceData) updates.conferenceData = result.conferenceData;
-      if (zoomMeetingLink) updates.meetingLink = zoomMeetingLink;
-    } catch (error: any) {
-      setResponseStatus(event, 500);
-      return { error: `Failed to update Google event: ${error.message}` };
-    }
-
-    const updated = {
-      ...updates,
-      id,
-      googleEventId,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const guestNotification =
-      guestNotificationMessage && eventForNotification
-        ? await sendEventGuestNotificationNote({
-            event: {
-              ...eventForNotification,
-              ...updated,
-              id,
-              googleEventId,
-              accountEmail: acctEmail,
-            },
-            organizerEmail: email,
-            message: guestNotificationMessage,
-            kind: "update",
-          })
-        : undefined;
-
-    try {
-      emit(
-        "calendar.event.updated",
-        {
-          eventId: id,
-          title: updates.title ?? "",
-          startTime: updates.start ?? "",
-          endTime: updates.end ?? "",
-          attendees: updates.attendees ?? [],
-          updatedBy: email,
-        },
-        { owner: email },
-      );
-    } catch {
-      // best-effort
-    }
-
-    return {
-      ...updated,
-      ...(guestNotification ? { guestNotification } : {}),
-    };
-  } catch (error: any) {
-    return handleError(event, error);
-  }
-});
-
-export const deleteEvent = defineEventHandler(async (event: H3Event) => {
-  try {
-    const email = await uEmail(event);
-    const id = getRouterParam(event, "id") as string;
-
-    if (!id.startsWith("google-")) {
-      setResponseStatus(event, 404);
-      return { error: "Event not found" };
-    }
-
-    const googleEventId = id.replace(/^google-/, "");
-
-    if (!(await googleCalendar.isConnected(email))) {
-      setResponseStatus(event, 400);
-      return { error: "Google Calendar not connected" };
-    }
-
-    const query = getQuery(event);
-    const body = await readBody(event).catch(() => ({}));
-
-    const accountEmail = await resolveAccountEmail(
-      (body?.accountEmail || query.accountEmail) as string | undefined,
-      email,
-    );
-
-    const scope = (body?.scope || query.scope || "single") as
-      | "single"
-      | "all"
-      | "thisAndFollowing";
-    const sendUpdates = (body?.sendUpdates || query.sendUpdates || "none") as
-      | "all"
-      | "none";
-    const guestNotificationMessage = normalizeGuestNotificationMessage(
-      typeof body?.notificationMessage === "string"
-        ? body.notificationMessage
-        : typeof query.notificationMessage === "string"
-          ? query.notificationMessage
-          : undefined,
-    );
-    const removeOnly = body?.removeOnly === true;
-    const shouldNotifyGuests = !!guestNotificationMessage && !removeOnly;
-    const effectiveSendUpdates = removeOnly ? "none" : sendUpdates;
-    const eventForNotification = shouldNotifyGuests
-      ? await googleCalendar.getEvent(googleEventId, accountEmail)
-      : undefined;
-
-    try {
-      if (removeOnly) {
-        // Non-organizer: decline the event to remove from calendar
-        await googleCalendar.removeEventFromCalendar(
-          googleEventId,
-          accountEmail,
-          { scope, sendUpdates: effectiveSendUpdates },
-        );
-      } else {
-        // Organizer: actually delete the event
-        await googleCalendar.deleteEvent(googleEventId, accountEmail, {
-          scope,
-          sendUpdates: effectiveSendUpdates,
-        });
-      }
-    } catch (error: any) {
-      setResponseStatus(event, 500);
-      return { error: `Failed to delete Google event: ${error.message}` };
-    }
-
-    const guestNotification =
-      shouldNotifyGuests && guestNotificationMessage && eventForNotification
-        ? await sendEventGuestNotificationNote({
-            event: eventForNotification,
-            organizerEmail: email,
-            message: guestNotificationMessage,
-            kind: "cancellation",
-            scope,
-          })
-        : undefined;
-
-    return {
-      success: true,
-      ...(guestNotification ? { guestNotification } : {}),
-    };
   } catch (error: any) {
     return handleError(event, error);
   }
@@ -601,7 +269,7 @@ export const rsvpEvent = defineEventHandler(async (event: H3Event) => {
       await googleCalendar.rsvpEvent(
         googleEventId,
         status,
-        acctEmail,
+        { ownerEmail: email, accountEmail: acctEmail },
         scope,
         note,
         sendUpdates,

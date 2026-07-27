@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import type { BlockRegistry } from "./registry.js";
 import type { BlockPlacement } from "./types.js";
 

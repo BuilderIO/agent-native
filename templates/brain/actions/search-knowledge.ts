@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import {
   readBrainAgentGuidance,
   searchKnowledgeRows,
@@ -24,7 +25,7 @@ export default defineAction({
   publicAgent: {
     expose: true,
     readOnly: true,
-    requiresAuth: false,
+    requiresAuth: true,
     isConsequential: false,
   },
   run: async (args) => {

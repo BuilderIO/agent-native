@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -25,6 +26,18 @@ describe("extension iframe bridge", () => {
     expect(
       isAllowedExtensionPath(
         "/_agent-native/actions/list-items",
+        "extension-1",
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedExtensionPath(
+        "/_agent-native/actions/list-mcp-tools",
+        "extension-1",
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedExtensionPath(
+        "/_agent-native/actions/call-mcp-tool",
         "extension-1",
       ),
     ).toBe(true);
@@ -215,5 +228,71 @@ describe("checkBridgePolicy (audit H4)", () => {
     );
     expect(writeRes.ok).toBe(false);
     expect(writeRes.error).toMatch(/appFetch/);
+  });
+
+  it("allows only scoped passive inline output writes for viewers", () => {
+    const outputRes = checkBridgePolicy(
+      "/_agent-native/application-state/inline-ui:extension-1:output",
+      "PUT",
+      { ...viewer, extensionId: "extension-1" },
+    );
+    expect(outputRes.ok).toBe(true);
+
+    const otherExtensionRes = checkBridgePolicy(
+      "/_agent-native/application-state/inline-ui:extension-2:output",
+      "PUT",
+      { ...viewer, extensionId: "extension-1" },
+    );
+    expect(otherExtensionRes.ok).toBe(false);
+
+    const genericRes = checkBridgePolicy(
+      "/_agent-native/application-state/navigation",
+      "PUT",
+      { ...viewer, extensionId: "extension-1" },
+    );
+    expect(genericRes.ok).toBe(false);
+  });
+
+  it("gates local file extensions by manifest permissions", () => {
+    const local = {
+      role: "viewer" as const,
+      isAuthor: false,
+      source: "local-files" as const,
+      permissions: {
+        appActions: ["list-documents", "list-mcp-tools", "call-mcp-tool"],
+        extensionData: true,
+      },
+    };
+
+    expect(
+      checkBridgePolicy("/_agent-native/actions/list-documents", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/list-mcp-tools", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/call-mcp-tool", "POST", local)
+        .ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/delete-document", "POST", local)
+        .ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy(
+        "/_agent-native/extensions/data/doc-status/state",
+        "POST",
+        local,
+      ).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/sql/query", "POST", local)
+        .ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/proxy", "POST", local).ok,
+    ).toBe(false);
   });
 });

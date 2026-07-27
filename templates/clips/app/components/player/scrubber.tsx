@@ -1,5 +1,11 @@
 import { useMemo, useRef, useState } from "react";
+
 import { cn } from "@/lib/utils";
+
+import {
+  scrubberFillPercent,
+  scrubberPositionFromClientX,
+} from "./scrubber-position";
 
 export interface ScrubberProps {
   currentMs: number;
@@ -22,6 +28,7 @@ export function Scrubber(props: ScrubberProps) {
     excludedRanges,
   } = props;
   const barRef = useRef<HTMLDivElement | null>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const [hoverMs, setHoverMs] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number>(0);
   const [dragging, setDragging] = useState(false);
@@ -31,47 +38,70 @@ export function Scrubber(props: ScrubberProps) {
     | null
   >(null);
 
-  const pct = durationMs > 0 ? (currentMs / durationMs) * 100 : 0;
+  const pct = scrubberFillPercent(currentMs, durationMs);
 
   const recentReactions = useMemo(
     () => (reactions ? reactions.slice(-50) : []),
     [reactions],
   );
 
-  function msFromEvent(e: { clientX: number }): number {
+  function positionFromClientX(clientX: number): { ms: number; x: number } {
     const el = barRef.current;
-    if (!el) return 0;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const ratio = rect.width > 0 ? x / rect.width : 0;
-    return Math.floor(ratio * durationMs);
+    if (!el) return { ms: 0, x: 0 };
+    return scrubberPositionFromClientX(
+      clientX,
+      el.getBoundingClientRect(),
+      durationMs,
+    );
   }
 
-  function onMouseDown(e: React.MouseEvent) {
+  function seekFromClientX(clientX: number): void {
+    const next = positionFromClientX(clientX);
+    setHoverX(next.x);
+    setHoverMs(next.ms);
+    onSeek(next.ms);
+  }
+
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
+    e.stopPropagation();
+    activePointerIdRef.current = e.pointerId;
     setDragging(true);
-    const ms = msFromEvent(e);
-    onSeek(ms);
-
-    const onMove = (ev: MouseEvent) => {
-      onSeek(msFromEvent(ev));
-    };
-    const onUp = () => {
-      setDragging(false);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Older test/browser environments may not implement pointer capture.
+    }
+    seekFromClientX(e.clientX);
   }
 
-  function onHover(e: React.MouseEvent) {
-    const el = barRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    setHoverX(x);
-    setHoverMs(msFromEvent(e));
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (activePointerIdRef.current === e.pointerId) {
+      e.preventDefault();
+      seekFromClientX(e.clientX);
+      return;
+    }
+
+    if (e.pointerType === "mouse") {
+      const next = positionFromClientX(e.clientX);
+      setHoverX(next.x);
+      setHoverMs(next.ms);
+    }
+  }
+
+  function endPointerDrag(e: React.PointerEvent<HTMLDivElement>) {
+    if (activePointerIdRef.current !== e.pointerId) return;
+    activePointerIdRef.current = null;
+    setDragging(false);
+    if (e.pointerType !== "mouse") setHoverMs(null);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Older test/browser environments may not implement pointer capture.
+    }
   }
 
   const commentsByMs = useMemo(() => {
@@ -87,7 +117,22 @@ export function Scrubber(props: ScrubberProps) {
   }, [comments]);
 
   return (
-    <div className="relative h-10 flex items-center" data-player-ui>
+    <div
+      className="relative h-10 flex items-center touch-none cursor-pointer"
+      data-player-ui
+      data-player-scrubber
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointerDrag}
+      onPointerCancel={endPointerDrag}
+      onLostPointerCapture={() => {
+        activePointerIdRef.current = null;
+        setDragging(false);
+      }}
+      onPointerLeave={() => {
+        if (activePointerIdRef.current === null) setHoverMs(null);
+      }}
+    >
       {/* Hover bubble */}
       {hoverMs !== null && !tooltip ? (
         <div
@@ -110,14 +155,12 @@ export function Scrubber(props: ScrubberProps) {
 
       <div
         ref={barRef}
-        className="relative w-full h-1.5 bg-white/20 rounded-full cursor-pointer group/bar"
-        onMouseDown={onMouseDown}
-        onMouseMove={onHover}
-        onMouseLeave={() => setHoverMs(null)}
+        data-player-scrubber-bar
+        className="relative w-full h-1.5 bg-white/35 rounded-full cursor-pointer group/bar shadow-[0_0_0_1px_rgba(0,0,0,0.16)]"
       >
         {/* Filled portion */}
         <div
-          className="absolute inset-y-0 left-0 bg-primary rounded-full"
+          className="absolute inset-y-0 left-0 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.45)]"
           style={{ width: pct + "%" }}
         />
 
@@ -157,7 +200,7 @@ export function Scrubber(props: ScrubberProps) {
               e.stopPropagation();
               onSeek(ch.startMs);
             }}
-            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-0.5 bg-white/80 hover:h-4 hover:w-1 transition-all"
+            className="absolute top-1/2 h-3 w-0.5 -translate-x-1/2 -translate-y-1/2 bg-white/80 transition-[transform,opacity] duration-150 ease-out hover:scale-x-[2] hover:scale-y-125 motion-reduce:transition-none motion-reduce:hover:scale-100"
             style={{
               left: (ch.startMs / Math.max(1, durationMs)) * 100 + "%",
             }}
@@ -204,8 +247,10 @@ export function Scrubber(props: ScrubberProps) {
         {/* Thumb */}
         <div
           className={cn(
-            "absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3 w-3 rounded-full bg-white shadow transition-transform",
-            dragging ? "scale-125" : "scale-0 group-hover/bar:scale-100",
+            "absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white opacity-0 shadow transition-[transform,opacity] duration-150 ease-out motion-reduce:scale-100 motion-reduce:transition-none",
+            dragging
+              ? "scale-125 opacity-100"
+              : "scale-95 group-hover/bar:scale-100 group-hover/bar:opacity-100",
           )}
           style={{ left: pct + "%" }}
         />

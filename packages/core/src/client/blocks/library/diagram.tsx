@@ -1,19 +1,27 @@
+import {
+  IconArrowsMaximize,
+  IconScribble,
+  IconShape2,
+  IconX,
+} from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { IconArrowsMaximize, IconX } from "@tabler/icons-react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../../components/ui/tooltip.js";
 import { cn } from "../../utils.js";
+import { AiEditableFieldLabel } from "../AiEditableField.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import { defineBlock } from "../types.js";
 import type {
   BlockReadProps,
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
-import { AiEditableFieldLabel } from "../AiEditableField.js";
-import { RoughOverlay, useIsDark, useWireframeStyle } from "./wireframe-kit.js";
-import {
-  sanitizeDiagramHtml,
-  sanitizeWireframeCss,
-  scopeDesignCss,
-} from "./sanitize-html.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
   diagramMdx,
   diagramSchema,
@@ -21,6 +29,17 @@ import {
   type DiagramEdge,
   type DiagramNode,
 } from "./diagram.config.js";
+import {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import {
+  RoughOverlay,
+  toggleWireframeStyle,
+  useIsDark,
+  useWireframeStyle,
+} from "./wireframe-kit.js";
 
 /**
  * Read + Edit renderers for the shared `diagram` block — a flexible inline
@@ -60,7 +79,7 @@ const DIAGRAM_ROUGH_SELECTOR =
 
 function HtmlDiagram({
   data,
-  ctx: _ctx,
+  ctx,
   compact,
 }: {
   data: DiagramData;
@@ -69,7 +88,10 @@ function HtmlDiagram({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isDark = useIsDark();
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
+  const designMode = data.renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   // Sanitize author HTML/CSS at the render point (defense-in-depth against
   // stored XSS). Self-contained in core via the shared block sanitizer (DOM-based
@@ -92,8 +114,11 @@ function HtmlDiagram({
     >
       <div
         className="plan-diagram-frame"
+        dir={ctx.textDirection}
         data-theme={isDark ? "dark" : "light"}
         data-style={style}
+        data-frame={showFrame ? "show" : "hide"}
+        data-text-direction={ctx.textDirection}
         data-plan-diagram-scope={scopeId}
       >
         {scopedCss && <style>{scopedCss}</style>}
@@ -104,8 +129,8 @@ function HtmlDiagram({
       </div>
       <RoughOverlay
         scopeRef={ref}
-        enabled={style === "sketchy"}
-        drawFrame={false}
+        enabled={!designMode && style === "sketchy"}
+        drawFrame={showFrame}
         selector={DIAGRAM_ROUGH_SELECTOR}
       />
       {data.caption && !compact && (
@@ -115,6 +140,15 @@ function HtmlDiagram({
       )}
     </div>
   );
+}
+
+function resolveVisualFrame(
+  frame: DiagramData["frame"],
+  ctx: BlockRenderContext,
+): boolean {
+  const resolved =
+    frame && frame !== "auto" ? frame : (ctx.visualFrame ?? "show");
+  return resolved !== "hide";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -164,10 +198,14 @@ function PositionedDiagram({
   data,
   compact,
   markerId,
+  direction,
+  showFrame,
 }: {
   data: DiagramData;
   compact?: boolean;
   markerId: string;
+  direction?: BlockRenderContext["textDirection"];
+  showFrame: boolean;
 }) {
   const nodes = (data.nodes ?? []).map((node) => ({
     ...node,
@@ -175,102 +213,137 @@ function PositionedDiagram({
     y: clampDiagramPercent(node.y ?? 50),
   }));
   const edges = data.edges ?? [];
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const arrowId = `${markerId}-diagram-arrow`;
   const nodeWidth = compact ? 150 : 190;
-  const canvasHeight = compact ? 280 : 430;
+  const rows = diagramRows(nodes, compact);
+  const canvasHeight = diagramCanvasHeight(rows.length, compact);
+  const canvasMinWidth = compact ? 560 : 720;
+  const nodeWidthPct = compact ? 20 : 18;
+  const nodeHeightPct = compact ? 14 : 18;
+  const paddedViewBox = diagramViewBox(nodes, nodeWidthPct, nodeHeightPct);
+  const xMargin = compact ? 13 : 14;
+  const yMargin = compact ? 15 : 18;
+  const displayNodes = nodes.map((node) => ({
+    ...node,
+    displayXBase: diagramPointPercent(
+      node.x,
+      paddedViewBox.x,
+      paddedViewBox.width,
+      xMargin,
+    ),
+    displayY: diagramRowPointPercent(node.y, rows, paddedViewBox, yMargin),
+  }));
+  const displayNodesForDirection = displayNodes.map((node) => ({
+    ...node,
+    displayX: direction === "rtl" ? 100 - node.displayXBase : node.displayXBase,
+  }));
+  const nodeByIdForDirection = new Map(
+    displayNodesForDirection.map((node) => [node.id, node]),
+  );
 
   return (
-    <div className="plan-sketch rounded-[16px] border border-border bg-muted p-5">
+    <div
+      className={cn(
+        "plan-sketch",
+        showFrame ? "rounded-[16px] border border-border bg-muted p-5" : "p-0",
+      )}
+      dir={direction}
+      data-text-direction={direction}
+    >
       <div
-        className="relative overflow-hidden rounded-xl border border-border bg-background"
+        className="overflow-auto rounded-xl border border-border bg-background"
         style={{ minHeight: canvasHeight }}
       >
-        <svg
-          className="pointer-events-none absolute inset-0 z-0 h-full w-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
+        <div
+          className="relative"
+          style={{ minHeight: canvasHeight, minWidth: canvasMinWidth }}
         >
-          <defs>
-            <marker
-              id={arrowId}
-              viewBox="0 0 10 10"
-              refX="8"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
-              <path
-                d="M 0 0 L 10 5 L 0 10 z"
-                className="fill-muted-foreground"
-              />
-            </marker>
-          </defs>
-          {edges.map((edge, index) => {
-            const from = nodeById.get(edge.from);
-            const to = nodeById.get(edge.to);
-            if (!from || !to) return null;
-            return (
-              <line
-                key={`${edge.from}-${edge.to}-${index}`}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                markerEnd={`url(#${arrowId})`}
-                vectorEffect="non-scaling-stroke"
-                className="stroke-border"
-                strokeWidth={2}
-                strokeDasharray={edge.label ? "0" : "6 5"}
-              />
-            );
-          })}
-        </svg>
-
-        {!compact &&
-          edges.map((edge, index) => {
-            const from = nodeById.get(edge.from);
-            const to = nodeById.get(edge.to);
-            if (!edge.label || !from || !to) return null;
-            return (
-              <span
-                key={`${edge.from}-${edge.to}-${index}-label`}
-                className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm"
-                style={{
-                  left: `${(from.x + to.x) / 2}%`,
-                  top: `${(from.y + to.y) / 2}%`,
-                }}
-              >
-                {edge.label}
-              </span>
-            );
-          })}
-
-        {nodes.map((node, index) => (
-          <article
-            key={node.id}
-            className="absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm"
-            style={{
-              left: `${node.x}%`,
-              top: `${node.y}%`,
-              width: nodeWidth,
-            }}
+          <svg
+            className="pointer-events-none absolute inset-0 z-0 h-full w-full"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
           >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {index + 1}
-            </p>
-            <h3 className="mt-2 text-base font-semibold leading-tight">
-              {node.label}
-            </h3>
-            {node.detail && !compact && (
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {node.detail}
+            <defs>
+              <marker
+                id={arrowId}
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
+              >
+                <path
+                  d="M 0 0 L 10 5 L 0 10 z"
+                  className="fill-muted-foreground"
+                />
+              </marker>
+            </defs>
+            {edges.map((edge, index) => {
+              const from = nodeByIdForDirection.get(edge.from);
+              const to = nodeByIdForDirection.get(edge.to);
+              if (!from || !to) return null;
+              return (
+                <line
+                  key={`${edge.from}-${edge.to}-${index}`}
+                  x1={from.displayX}
+                  y1={from.displayY}
+                  x2={to.displayX}
+                  y2={to.displayY}
+                  markerEnd={`url(#${arrowId})`}
+                  vectorEffect="non-scaling-stroke"
+                  className="stroke-border"
+                  strokeWidth={2}
+                  strokeDasharray={edge.label ? "0" : "6 5"}
+                />
+              );
+            })}
+          </svg>
+
+          {!compact &&
+            edges.map((edge, index) => {
+              const from = nodeByIdForDirection.get(edge.from);
+              const to = nodeByIdForDirection.get(edge.to);
+              if (!edge.label || !from || !to) return null;
+              return (
+                <span
+                  key={`${edge.from}-${edge.to}-${index}-label`}
+                  className="absolute z-10 max-w-[130px] -translate-x-1/2 -translate-y-1/2 break-words rounded-full border border-border bg-background px-2 py-0.5 text-center text-[11px] font-semibold text-muted-foreground shadow-sm [overflow-wrap:anywhere]"
+                  style={{
+                    left: `${(from.displayX + to.displayX) / 2}%`,
+                    top: `${(from.displayY + to.displayY) / 2}%`,
+                  }}
+                >
+                  {edge.label}
+                </span>
+              );
+            })}
+
+          {displayNodesForDirection.map((node, index) => (
+            <article
+              key={node.id}
+              className="absolute z-20 -translate-x-1/2 -translate-y-1/2 break-words rounded-xl border-2 border-border bg-background p-3 text-foreground shadow-sm [overflow-wrap:anywhere]"
+              style={{
+                left: `${node.displayX}%`,
+                top: `${node.displayY}%`,
+                width: nodeWidth,
+              }}
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {index + 1}
               </p>
-            )}
-          </article>
-        ))}
+              <h3 className="mt-2 text-base font-semibold leading-tight">
+                {node.label}
+              </h3>
+              {node.detail && !compact && (
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {node.detail}
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
       </div>
       {data.notes && data.notes.length > 0 && !compact && (
         <div className="mt-4 grid gap-2 border-t border-border pt-4 text-sm text-muted-foreground md:grid-cols-2">
@@ -283,12 +356,100 @@ function PositionedDiagram({
   );
 }
 
+type DiagramViewBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function diagramViewBox(
+  nodes: Array<Pick<DiagramNode, "x" | "y">>,
+  nodeWidthPct: number,
+  nodeHeightPct: number,
+): DiagramViewBox {
+  if (nodes.length === 0) return { x: 0, y: 0, width: 100, height: 100 };
+
+  const halfWidth = nodeWidthPct / 2;
+  const halfHeight = nodeHeightPct / 2;
+  const left = Math.min(...nodes.map((node) => (node.x ?? 50) - halfWidth));
+  const right = Math.max(...nodes.map((node) => (node.x ?? 50) + halfWidth));
+  const top = Math.min(...nodes.map((node) => (node.y ?? 50) - halfHeight));
+  const bottom = Math.max(...nodes.map((node) => (node.y ?? 50) + halfHeight));
+
+  const x = Math.min(0, left);
+  const y = Math.min(0, top);
+  const width = Math.max(100, right) - x;
+  const height = Math.max(100, bottom) - y;
+
+  return { x, y, width, height };
+}
+
+function diagramPointPercent(
+  value: number,
+  viewBoxStart: number,
+  viewBoxSize: number,
+  margin = 0,
+): number {
+  if (
+    !Number.isFinite(value) ||
+    !Number.isFinite(viewBoxSize) ||
+    !viewBoxSize
+  ) {
+    return 50;
+  }
+  const percent = ((value - viewBoxStart) / viewBoxSize) * 100;
+  return Math.min(100 - margin, Math.max(margin, percent));
+}
+
+function diagramRows(
+  nodes: Array<Pick<DiagramNode, "y">>,
+  compact?: boolean,
+): number[] {
+  const rowGap = compact ? 8 : 10;
+  return [...nodes]
+    .sort((a, b) => (a.y ?? 50) - (b.y ?? 50))
+    .reduce<number[]>((acc, node) => {
+      const y = node.y ?? 50;
+      const last = acc[acc.length - 1];
+      if (last == null || Math.abs(y - last) >= rowGap) acc.push(y);
+      return acc;
+    }, []);
+}
+
+function diagramRowPointPercent(
+  value: number,
+  rows: number[],
+  viewBox: DiagramViewBox,
+  margin: number,
+): number {
+  if (rows.length <= 2) {
+    return diagramPointPercent(value, viewBox.y, viewBox.height, margin);
+  }
+  const closestIndex = rows.reduce((bestIndex, row, index) => {
+    const bestDistance = Math.abs((rows[bestIndex] ?? 50) - value);
+    return Math.abs(row - value) < bestDistance ? index : bestIndex;
+  }, 0);
+  const span = 100 - margin * 2;
+  return margin + (span * closestIndex) / Math.max(1, rows.length - 1);
+}
+
+function diagramCanvasHeight(rows: number, compact?: boolean): number {
+  const base = compact ? 280 : 430;
+  if (rows <= 2) return base;
+  return Math.max(base, rows * (compact ? 140 : 190) + (compact ? 80 : 120));
+}
+
 function SequenceDiagram({
   data,
   compact,
+  direction,
+  showFrame,
 }: {
   data: DiagramData;
   compact?: boolean;
+  direction?: BlockRenderContext["textDirection"];
+  showFrame: boolean;
 }) {
   const edges = data.edges ?? [];
   const nodes = orderDiagramNodes(data.nodes ?? [], edges);
@@ -299,20 +460,29 @@ function SequenceDiagram({
       </div>
     );
   }
+  const visualNodes = direction === "rtl" ? [...nodes].reverse() : nodes;
   return (
-    <div className="plan-sketch rounded-[16px] border border-border bg-muted p-5">
+    <div
+      className={cn(
+        "plan-sketch",
+        showFrame ? "rounded-[16px] border border-border bg-muted p-5" : "p-0",
+      )}
+      dir={direction}
+      data-text-direction={direction}
+    >
       <div
         className={cn(
           "flex gap-3 overflow-x-auto pb-2",
           compact ? "items-center" : "items-stretch",
         )}
       >
-        {nodes.map((node, index) => {
-          const next = nodes[index + 1];
+        {visualNodes.map((node, index) => {
+          const next = visualNodes[index + 1];
           const edge = next
             ? edges.find(
                 (candidate) =>
-                  candidate.from === node.id && candidate.to === next.id,
+                  (candidate.from === node.id && candidate.to === next.id) ||
+                  (candidate.from === next.id && candidate.to === node.id),
               )
             : undefined;
           return (
@@ -338,7 +508,7 @@ function SequenceDiagram({
               {next && (
                 <div className="grid min-w-[72px] justify-items-center gap-1 text-muted-foreground">
                   {edge?.label && (
-                    <span className="max-w-[96px] truncate rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold">
+                    <span className="max-w-[96px] whitespace-normal break-words rounded-full border border-border px-2 py-0.5 text-center text-[11px] font-semibold [overflow-wrap:anywhere]">
                       {edge.label}
                     </span>
                   )}
@@ -377,15 +547,29 @@ function DiagramBody({
   compact?: boolean;
 }) {
   const markerId = useId().replace(/:/g, "");
+  const showFrame = resolveVisualFrame(data.frame, ctx);
   if (data.html?.trim()) {
     return <HtmlDiagram data={data} ctx={ctx} compact={compact} />;
   }
   if (hasPositionedDiagramNodes(data)) {
     return (
-      <PositionedDiagram data={data} compact={compact} markerId={markerId} />
+      <PositionedDiagram
+        data={data}
+        compact={compact}
+        markerId={markerId}
+        direction={ctx.textDirection}
+        showFrame={showFrame}
+      />
     );
   }
-  return <SequenceDiagram data={data} compact={compact} />;
+  return (
+    <SequenceDiagram
+      data={data}
+      compact={compact}
+      direction={ctx.textDirection}
+      showFrame={showFrame}
+    />
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -461,24 +645,66 @@ export function DiagramLightbox({
 function ExpandableDiagramBody({
   data,
   ctx,
+  compact,
 }: {
   data: DiagramData;
   ctx: BlockRenderContext;
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const designMode = data.renderMode === "design";
+  const supportsStyleToggle = Boolean(data.html) && !designMode;
+  const style = useWireframeStyle();
+  const copy = useBlockCopy();
+  const sketchy = style === "sketchy";
+  const styleLabel = sketchy
+    ? copy.switchToCleanDiagrams
+    : copy.switchToHandDrawnDiagrams;
+  const styleTooltip = sketchy
+    ? copy.handDrawnDiagramsSwitch
+    : copy.cleanDiagramsSwitch;
   return (
     <div className="group/diagram relative">
-      <DiagramBody data={data} ctx={ctx} />
-      <button
-        type="button"
-        data-plan-interactive
-        onClick={() => setExpanded(true)}
-        aria-label="Expand diagram"
-        title="Expand diagram"
-        className="an-diagram-expand-trigger absolute right-2 top-2 z-10 flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
-      >
-        <IconArrowsMaximize className="size-4" />
-      </button>
+      <DiagramBody data={data} ctx={ctx} compact={compact} />
+      <TooltipProvider delayDuration={100} skipDelayDuration={0}>
+        <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5">
+          {supportsStyleToggle && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-plan-interactive
+                  onClick={() => toggleWireframeStyle()}
+                  aria-label={styleLabel}
+                  aria-pressed={sketchy}
+                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                >
+                  {sketchy ? (
+                    <IconScribble className="size-4" />
+                  ) : (
+                    <IconShape2 className="size-4" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{styleTooltip}</TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-plan-interactive
+                onClick={() => setExpanded(true)}
+                aria-label={copy.expandDiagram}
+                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+              >
+                <IconArrowsMaximize className="size-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{copy.expandDiagram}</TooltipContent>
+          </Tooltip>
+        </div>
+      </TooltipProvider>
       {expanded ? (
         <DiagramLightbox onClose={() => setExpanded(false)}>
           <DiagramBody data={data} ctx={ctx} />
@@ -499,11 +725,16 @@ export function DiagramRead({
   title,
   summary,
   ctx,
+  compactVisuals,
 }: BlockReadProps<DiagramData>) {
   return (
-    <section className="an-block plan-block" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="an-block plan-block"
+      data-block-id={blockId}
+    >
       {title && <div className="an-block-label plan-block-label">{title}</div>}
-      <ExpandableDiagramBody data={data} ctx={ctx} />
+      <ExpandableDiagramBody data={data} ctx={ctx} compact={compactVisuals} />
       {summary && <p className="mt-5 text-muted-foreground">{summary}</p>}
     </section>
   );
@@ -566,7 +797,9 @@ export function DiagramEdit({
     onChange({
       html: html.trim() || undefined,
       css: css.trim() || undefined,
+      renderMode: data.renderMode,
       caption: caption.trim() || undefined,
+      frame: data.frame,
       nodes: data.nodes,
       edges: data.edges,
       notes: data.notes,
@@ -718,7 +951,7 @@ export const diagramBlock = defineBlock<DiagramData>({
   editSurface: "panel",
   label: "Diagram",
   description:
-    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
+    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use renderMode design for clean presentation or .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
   // Seed the legacy fallback shape so a fresh block validates while agents can
   // replace it with html/css when layout quality matters.
   empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),

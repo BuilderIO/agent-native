@@ -1,5 +1,9 @@
 // Owns: image/document/text attachment adapters and attachment serialization helpers.
 
+import {
+  CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
+  IMAGE_ATTACHMENT_ACCEPT,
+} from "@agent-native/toolkit/composer/attachment-accept";
 import type {
   AttachmentAdapter,
   CompleteAttachment,
@@ -36,6 +40,7 @@ const WEB_SAFE_IMAGE_TYPES = new Set([
 export function inferDocumentContentType(file: File): string {
   if (file.type) return file.type;
   if (file.name.toLowerCase().endsWith(".pdf")) return "application/pdf";
+  if (file.name.toLowerCase().endsWith(".svg")) return "image/svg+xml";
   return "application/octet-stream";
 }
 
@@ -46,6 +51,12 @@ export function getFileDataURL(file: File | Blob): Promise<string> {
     reader.onerror = (error) => reject(error);
     reader.readAsDataURL(file);
   });
+}
+
+function formatOversizedDocumentError(name: string, size: number): string {
+  const mb = (size / 1024 / 1024).toFixed(1);
+  const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
+  return `"${name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -162,7 +173,7 @@ export function estimateAttachmentBodyBytes(dataUrls: string[]): number {
 export type QueuedAttachment = CompleteAttachment;
 
 export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
-  public accept = "image/*";
+  public accept = IMAGE_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
     return {
@@ -196,9 +207,14 @@ export class DownscalingImageAttachmentAdapter implements AttachmentAdapter {
 }
 
 export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
-  public accept = "application/pdf,.pdf";
+  public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 
   public async add(state: { file: File }): Promise<PendingAttachment> {
+    if (state.file.size > MAX_PDF_BYTES) {
+      throw new Error(
+        formatOversizedDocumentError(state.file.name, state.file.size),
+      );
+    }
     return {
       id: state.file.name,
       type: "document",
@@ -213,10 +229,8 @@ export class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
     attachment: PendingAttachment,
   ): Promise<CompleteAttachment> {
     if (attachment.file && attachment.file.size > MAX_PDF_BYTES) {
-      const mb = (attachment.file.size / 1024 / 1024).toFixed(1);
-      const maxMb = (MAX_PDF_BYTES / 1024 / 1024).toFixed(0);
       throw new Error(
-        `"${attachment.name}" is ${mb} MB — PDFs are capped at ${maxMb} MB to stay within message limits. Please reduce the file size or split it into smaller parts.`,
+        formatOversizedDocumentError(attachment.name, attachment.file.size),
       );
     }
     return {
@@ -278,7 +292,14 @@ function escapeQueuedAttachmentAttribute(value: string): string {
 export function isTextLikeFile(file: File): boolean {
   if (file.type.startsWith("text/")) return true;
   if (file.type === "application/json") return true;
-  return /\.(txt|md|markdown|csv|json|yaml|yml)$/i.test(file.name);
+  return /\.(txt|md|markdown|csv|json|yaml|yml|html?|css|xml)$/i.test(
+    file.name,
+  );
+}
+
+function isSvgFile(file: File): boolean {
+  const contentType = file.type.split(";")[0]?.trim().toLowerCase();
+  return contentType === "image/svg+xml" || /\.svg$/i.test(file.name);
 }
 
 export function textFileAttachmentEnvelope(file: File, text: string): string {
@@ -341,7 +362,24 @@ export async function serializeQueuedAttachments(
 
     if (typeof File !== "undefined" && attachment.file instanceof File) {
       const file = attachment.file;
-      if (file.type.startsWith("image/")) {
+      if (isSvgFile(file)) {
+        const contentType = inferDocumentContentType(file);
+        queued.push({
+          id,
+          type: "document",
+          name,
+          contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "file",
+              filename: file.name,
+              data: await getFileDataURL(file),
+              mimeType: contentType,
+            },
+          ],
+        });
+      } else if (file.type.startsWith("image/")) {
         queued.push({
           id,
           type: "image",

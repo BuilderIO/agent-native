@@ -1,4 +1,5 @@
 import { format, type SqlLanguage } from "sql-formatter";
+
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 // Match {{name}} interpolation, {{?name}} conditional opens, and {{/name}}
@@ -8,7 +9,7 @@ const TEMPLATE_PARAM_REGEX = String.raw`\{\{[?/]?[A-Za-z_][A-Za-z0-9_]*\}\}`;
 
 function languageForSource(source: DataSourceType): SqlLanguage | null {
   if (source === "bigquery") return "bigquery";
-  if (source === "first-party") return "sqlite";
+  if (source === "first-party") return "postgresql";
   return null;
 }
 
@@ -29,4 +30,18 @@ export function formatPanelSql(sql: string, source: DataSourceType): string {
       custom: [{ regex: TEMPLATE_PARAM_REGEX }],
     },
   }).trim();
+}
+
+export function safeFormatPanelSql(
+  sql: string,
+  source: DataSourceType,
+): { sql: string; error: string | null } {
+  try {
+    return { sql: formatPanelSql(sql, source), error: null };
+  } catch (err) {
+    return {
+      sql,
+      error: err instanceof Error ? err.message : "Failed to format SQL",
+    };
+  }
 }

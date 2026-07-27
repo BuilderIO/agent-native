@@ -35,6 +35,10 @@ the shared package (`@{{APP_NAME}}/shared`).
 
 The workspace root also links `.agents/skills` to the shared package so coding
 agents launched from the root can discover the same workspace-wide skills.
+Run `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) after updating
+`@agent-native/core` to refresh framework-provided shared skills and repair
+Claude compatibility links.
 
 Runtime-editable global resources live in Dispatch, not in `packages/shared`.
 Use Dispatch **Resources** for company context and guardrails that admins should
@@ -68,10 +72,10 @@ pnpm dev               # starts the workspace gateway; opens Dispatch when prese
 ```
 
 The dev gateway serves Dispatch at `/dispatch` when you keep the recommended
-Dispatch app selected, and every app at its own path such as `/starter`. It
+Dispatch app selected, and every app at its own path such as `/chat`. It
 watches `apps/`, so newly-created apps are detected without restarting
 `pnpm dev`. App servers start lazily the first time you visit their path. App
-links should stay relative, such as `/starter` or `/<app-id>`; do not hardcode
+links should stay relative, such as `/chat` or `/<app-id>`; do not hardcode
 localhost or dev ports because the active gateway origin owns the port.
 
 Dispatch vault keys are workspace-wide by default: every saved vault key is
@@ -93,25 +97,25 @@ cross-app trust:
 - `A2A_SECRET` — shared signing secret for cross-app A2A calls.
 
 Run `pnpm repair:workspace-org -- --name "<org>" --domain example.com --owner-email owner@example.com`
-to fill or validate those values without committing secrets. Existing
+to validate those values without writing env files. Existing
 organization rows should still be repaired through the app's org settings UI or
 authenticated org routes whenever possible.
 
 ## Adding a new app
 
 ```bash
-pnpm exec agent-native create crm --template=starter
+pnpm exec agent-native create crm --template=chat
 ```
 
-The CLI detects the workspace root and scaffolds a minimal app that already
+The CLI detects the workspace root and scaffolds a minimal starter app that already
 depends on `@{{APP_NAME}}/shared`. Edit only the routes you care about;
 auth, org switching, skills, and instructions come from the shared package.
-Starter is only the source scaffold: the finished app should use its own name,
+The source template is only a scaffold: the finished app should use its own name,
 home screen, navigation, package metadata, and manifest rather than leaving
 starter or new-app UI in place.
 If the request starts from Dispatch in production, Dispatch sends it to Builder
 branch creation; that branch should still add a new `apps/<app-id>` workspace
-app rather than adding files to `apps/starter`.
+app rather than editing an existing app directory.
 Dispatch discovers ready apps from `apps/<app-id>/package.json`; there is no
 separate workspace app registry to edit. React Router apps must preserve
 `APP_BASE_PATH` / `VITE_APP_BASE_PATH` in `app/entry.client.tsx` via

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLoader2, IconMessageCircle } from "@tabler/icons-react";
-import { focusAgentChat } from "@agent-native/core/client";
+import { useEffect, useState } from "react";
 
 export function isAgentSidebarVisible() {
   const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
@@ -47,6 +48,7 @@ function useAgentSidebarVisible() {
 }
 
 export function AgentWorkIndicator() {
+  const t = useT();
   const [running, setRunning] = useState(false);
   const sidebarVisible = useAgentSidebarVisible();
 
@@ -68,7 +70,9 @@ export function AgentWorkIndicator() {
       <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-lg border border-border bg-popover/95 px-3 py-2 text-popover-foreground shadow-xl shadow-black/20 backdrop-blur">
         <div className="flex min-w-0 items-center gap-2">
           <IconLoader2 className="h-4 w-4 shrink-0 animate-spin text-[#609FF8]" />
-          <span className="truncate text-sm font-medium">Agent is working</span>
+          <span className="truncate text-sm font-medium">
+            {t("raw.agentWorking")}
+          </span>
         </div>
         <button
           type="button"
@@ -83,7 +87,7 @@ export function AgentWorkIndicator() {
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconMessageCircle className="h-3.5 w-3.5" />
-          Open chat
+          {t("raw.openChat")}
         </button>
       </div>
     </div>

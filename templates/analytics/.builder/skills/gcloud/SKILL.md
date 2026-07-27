@@ -42,11 +42,11 @@ description: >
 Use `gcloud` for agent-facing Google Cloud work. Do not call
 `/api/gcloud/*` directly from the agent.
 
-| Mode | Args | Description |
-| --- | --- | --- |
-| `services` | | List Cloud Run services and Cloud Functions |
-| `metrics` | `service`, `serviceType`, `metric`, `period`, `extraFilter` | Query Cloud Monitoring |
-| `logs` | `service`, `serviceType`, `severity`, `limit` | Read Cloud Logging |
+| Mode       | Args                                                        | Description                                 |
+| ---------- | ----------------------------------------------------------- | ------------------------------------------- |
+| `services` |                                                             | List Cloud Run services and Cloud Functions |
+| `metrics`  | `service`, `serviceType`, `metric`, `period`, `extraFilter` | Query Cloud Monitoring                      |
+| `logs`     | `service`, `serviceType`, `severity`, `limit`               | Read Cloud Logging                          |
 
 ### Dashboard
 

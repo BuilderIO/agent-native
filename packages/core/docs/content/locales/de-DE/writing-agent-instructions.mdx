@@ -1,0 +1,214 @@
+---
+title: "Anweisungen für Schreibagenten & Fähigkeiten"
+description: "So schreiben Sie großartige Agentenanweisungen für eine agentennative App oder Vorlage: AGENTS.md, skills und Toolbeschreibungen."
+---
+
+# Anweisungen für Schreibagenten & Fähigkeiten
+
+Das Verhalten des Agenten in einer agentennativen App ist nur so gut wie die Anweisungen, die Sie ihm geben. Drei Oberflächen tragen diese Anleitung: `AGENTS.md` (die Karte), skills (die tiefen Tauchgänge) und Aktions-/Werkzeugbeschreibungen (wie der Agent das richtige Werkzeug auswählt). Schreiben Sie jedes einzelne zum schnellen Auffinden, nicht für Prosa.
+
+<Diagram id="doc-block-uge8uk" title={"Drei erstellte Oberflächen + eine Laufzeitoberfläche"} summary={"AGENTS.md und Werkzeugbeschreibungen werden bei jeder Runde geladen; Kompetenzbelastung bei Bedarf; application_state wird live von Ihrer Benutzeroberfläche geschrieben."}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Jeder Turn</span><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >die Karte: Zweck, Kernregeln, State-Keys, Action- + Skill-Index</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Jeder Turn</span
+    ><strong>Tool-Beschreibungen</strong
+    ><small class="diagram-muted"
+      >steuert Tool-Auswahl — je ein präziser Satz</small
+    >
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">Bei Bedarf</span><strong>Fähigkeiten</strong
+    ><small class="diagram-muted"
+      >tiefes How-to, geladen wenn die Beschreibung greift</small
+    >
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted"
+      >von deiner UI geschrieben: Navigation, Auswahl, Fokus</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+```
+
+</Diagram>
+
+## Halten Sie AGENTS.md klein und überstreichbar {#small-agents-md}
+
+`AGENTS.md` geladen. Es sollte die kleinste Sache sein, die es dem Agenten ermöglicht, richtig zu handeln, wobei alles tief in skills verankert sein sollte. Streben Sie diese Abschnitte und wenig anderes an:
+
+- **Zweckzeile** – ein Satz darüber, was die App ist und der primäre Arbeitsablauf.
+- **Kernregeln** – die Handvoll Invarianten, die immer gelten müssen (Daten in SQL, Operationen durchlaufen actions, KI geht durch den Agenten-Chat, Schemaänderungen sind additiv). Kurze, zwingende Aufzählungszeichen.
+- **Anwendungsstatusschlüssel** – die `navigation`/Auswahl-/Fokusschlüssel, die der Agent liest, um anhand ihrer Form zu erfahren, was der Benutzer sieht.
+- **Aktionstabelle** – eine kompakte Tabelle mit Aktionsnamen und Zweck.
+- **Fähigkeiten-Index** – eine Liste der vorhandenen skills und wann sie jeweils gelesen werden sollen.
+
+Wenn ein Abschnitt über einen Bildschirm hinauswächst, gehört er zu einer Fertigkeit. `AGENTS.md` antwortet mit „Was ist diese App und was kann ich tun“, nicht mit „Wie genau mache ich das Schwierige?“.
+
+```markdown
+# Projekte-App
+
+Ein Arbeitsbereich für Projekte, Aufgaben und Notizen. Agent und UI teilen dieselben SQL-Daten
+und dieselben actions.
+
+## Grundregeln
+
+- Daten leben in SQL über Drizzle. Verwenden Sie actions für alle Schreibvorgänge.
+- Alle KI-Arbeit läuft über den Agenten-Chat; rufen Sie niemals ein LLM inline auf.
+- Schemaänderungen sind nur additiv.
+
+## Anwendungsstatus
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: ausgewähltes Projekt auf einer Projektseite
+
+## Aktionen
+
+| Action           | Zweck                                   |
+| ---------------- | --------------------------------------- |
+| `list-projects`  | Zugängliche Projekte auflisten          |
+| `create-project` | Ein Projekt erstellen                   |
+| `update-project` | Ein Projekt umbenennen oder archivieren |
+
+## Fähigkeiten
+
+- `project-imports` — vor dem Import alter CSV-Exporte lesen.
+- `sharing` — vor dem Freigeben eines Projekts für andere Benutzer lesen.
+```
+
+## Einzelquelle AGENTS.md {#single-source}
+
+Behalten Sie eine Datei mit kanonischen Anweisungen: `AGENTS.md`. Wenn ein Client `CLAUDE.md` erwartet, erstellen Sie einen symbolischen Link zu `AGENTS.md` und nicht eine zweite Kopie. Zwei handverwaltete Dateien geraten ins Wanken und der Agent erhält widersprüchliche Regeln. Eine Quelle der Wahrheit, verlinkt, wo nötig.
+
+## SKILL.md frontmatter muss sagen, was AND wann {#skill-frontmatter}
+
+`description` ist das Einzige, was der Agent sieht, wenn er entscheidet, ob er einen Skill lesen möchte. Es muss zwei Fragen beantworten: Was deckt die Fertigkeit ab und wann soll sie ausgelöst werden? Eine Beschreibung, die nur das Thema beschreibt, wird nicht ausgelöst.
+
+```markdown
+---
+name: project-imports
+description: >-
+  How to import projects from the legacy CSV export. Use when the user uploads
+  a project CSV or asks to migrate projects from the old system.
+---
+```
+
+- Führen Sie die Funktion aus und fügen Sie dann eine explizite **"Use when…"**-Klausel hinzu.
+- Seien Sie etwas aufdringlich – zu viel Auslösen ist besser als eine Fertigkeit, die nie geladen wird.
+- Halten Sie es unter ca. 40 Wörtern; Es wird bei jedem Gespräch in den Kontext geladen.
+
+## Progressive Offenlegung {#progressive-disclosure}
+
+Schreiben Sie `SKILL.md` als die schlanke, unverzichtbare Ebene: die Regel, die Vorgehensweise, die Do/Don't-Liste und Hinweise. Übertragen Sie lange Beispiele, ausführliche Feldverweise, API-Macken und Edge-Case-Tabellen in `references/`-Dateien, die der Agent nur dann liest, wenn er sie benötigt.
+
+```text
+.agents/skills/project-imports/
+├── SKILL.md            # Regel + glücklicher Weg + do/don't
+└── references/
+    └── csv-format.md   # Vollständige Spaltenspezifikation, Kodierungen, Randfälle
+```
+
+Dadurch bleibt die stets geladene Oberfläche klein und die Tiefe lässt sich skalieren, ohne den Kontext aufzublähen. Das vollständige Skill-Format finden Sie im [Fähigkeiten Guide](/docs/skills-guide).
+
+## Aktionsorientierte Tabellen schreiben {#action-tables}
+
+Der Agent scannt Tabellen schneller als Prosa. Bevorzugen Sie eine Tabelle mit Namen und Zweck gegenüber Absätzen, in denen die einzelnen Vorgänge beschrieben werden. Dasselbe gilt für Zustandsschlüssel, Feldtypen und alle aufzählbaren Mengen. Tabellen können überflogen, unterschieden und einfach synchronisiert werden, wenn Sie eine Aktion hinzufügen.
+
+## Schreiben Sie klare Werkzeugbeschreibungen {#tool-descriptions}
+
+Aktionsbeschreibungen sind Werkzeugbeschreibungen – sie steuern die Werkzeugauswahl. Machen Sie aus jedem einen präzisen Satz mit einem einzigen Zweck:
+
+- Sagen Sie, was es tut und was es zurückgibt, nicht wie es implementiert ist.
+- Beschreiben Sie jeden Parameter in seinem `.describe()`, damit der Agent ihn korrekt ausfüllt.
+- Eine Verantwortung pro Aktion. Wenn eine Beschreibung „und auch…“ benötigt, teilen Sie sie auf.
+- Markieren Sie actions (`readOnly: true` oder `http: { method: "GET" }`) als schreibgeschützt, damit der Agent weiß, dass er sicher frei anrufen kann.
+
+```ts
+defineAction({
+  description: "Create a project. Returns the new project id and title.",
+  schema: z.object({
+    title: z.string().min(1).describe("Project title shown in the sidebar"),
+  }),
+  // ...
+});
+```
+
+## Fähigkeiten vs. actions {#skills-vs-actions}
+
+Fähigkeiten und actions ergänzen sich. Eine Fertigkeit ist eine Anleitung, die der Agent liest; ein
+Aktion ist Code, den der Agent ausführen kann.
+
+| Bedarf                                                                                         | Verwenden                                  |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Der Agent muss einen Arbeitsablauf, eine Richtlinie, eine Checkliste oder eine Rubrik befolgen | **Fähigkeit**                              |
+| Der Agent benötigt Beispiele, Referenzmaterial oder domänenspezifische Regeln                  | **Fähigkeit**                              |
+| Der Agent muss App-Daten lesen oder schreiben                                                  | **Aktion**                                 |
+| Der Agent muss einen externen API anrufen oder eine Genehmigung durchführen                    | **Aktion**                                 |
+| Der Agent ruft den richtigen Vorgang auf, aber auf die falsche Weise                           | Verbessere die **Fähigkeit**               |
+| Der Agent kann den Vorgang nicht zuverlässig aufrufen                                          | Verbessern Sie die **Aktion**              |
+| Der Agent wählt das falsche Tool                                                               | Verbessern Sie die **Aktionsbeschreibung** |
+
+Die meisten echten Funktionen nutzen beides: Der Skill erklärt, wie man die Aufgabe angeht, und
+Die Aktion stellt die typisierte Operation bereit. Zum Beispiel ein `invoice-review`-Skill
+kann die Überprüfungsrichtlinien und Eskalationsregeln erläutern, während `list-invoices`,
+`flag-invoice` und `approve-invoice` actions führen die eigentlichen Lese- und Schreibvorgänge durch.
+
+## Anti-Herstellung einbacken und vor dem Fertigstellen überprüfen {#anti-fabrication}
+
+App-Anweisungen sollten Ehrlichkeit und Überprüfung zum Standardverhalten machen:
+
+- **Niemals fabrizieren.** Wenn Daten nicht gefunden werden oder eine Aktion fehlschlägt, sagen Sie es und erholen Sie sich – erfinden Sie keine Ergebnisse und behaupten Sie nicht, Erfolg zu haben. Lesen Sie den tatsächlichen Wert über eine Aktion oder Abfrage, bevor Sie ihn melden.
+- **Überprüfen Sie, bevor Sie es für erledigt erklären.** Bestätigen Sie nach einer Änderung diese mit einem Rücklesen (fragen Sie die Zeile erneut ab, lesen Sie den Bildschirm erneut über `view-screen`), anstatt davon auszugehen, dass der Schreibvorgang funktioniert hat.
+- **Wiederherstellen, nicht aufgeben.** Bei einem behebbaren Fehler (einer fehlgeschlagenen Abfrage, einem vorübergehenden Abruf) versuchen Sie es erneut oder korrigieren Sie die Eingabe, anstatt die Aufgabe abzubrechen. Halten Sie dies getrennt von der Anti-Fabrication-Regel – verwechseln Sie „nichts erfinden“ nicht mit „beim ersten Fehler aufhören“.
+
+Fügen Sie diese als Grundregeln in `AGENTS.md` ein, damit sie in jeder Runde gelten.
+
+## Die vier Oberflächen, die der Agent sieht {#four-surfaces}
+
+Jede Anleitung, die Sie verfassen, landet auf einer von vier Oberflächen. Wenn Sie wissen, welche Oberfläche verwendet werden soll, vermeiden Sie Duplikate und falsch platzierte Details:
+
+| Oberfläche                    | Wer schreibt es            | Wenn es geladen ist                                                      | Was dorthin gehört                                                       |
+| ----------------------------- | -------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `AGENTS.md`-Anweisungen       | Sie (Entwickler)           | Jede Runde als Orientierung                                              | Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index           |
+| Fähigkeiten (`SKILL.md`)      | Sie (Entwickler)           | Auf Anfrage, wenn der Agent entscheidet, dass die Fähigkeit relevant ist | Schritt-für-Schritt-Anleitung für ein bestimmtes Muster, Do/Don't-Listen |
+| Aktionsbeschreibungen (Tools) | Sie (Entwickler)           | Jede Runde, wie die Werkzeugliste                                        | Was die Aktion bewirkt, was sie zurückgibt, Parametersemantik            |
+| `application_state`-Kontext   | Ihr UI-Code (zur Laufzeit) | Jede Runde, als Live-App-Status                                          | Aktuelle Navigation, Auswahl, fokussiertes Objekt, URL                   |
+
+**Schnelldiagnose:**
+
+- „Der Agent fragt ständig, auf welchen Datensatz er reagieren soll, auch wenn einer geöffnet ist“ → Fix: Schreiben Sie die aktuelle Element-ID von Ihrem UI in `application_state` (`navigation`-Schlüssel). Das ist eine `application_state`-Lücke, keine Qualifikationslücke.
+- „Der Agent ruft die falsche Aktion auf oder missbraucht einen Parameter“ → Fix: `description` und `.describe()` der Aktion für den Parameter verbessern. Dabei handelt es sich um eine Korrektur der Toolbeschreibung, nicht um eine Fertigkeit.
+
+## Was gehört wohin {#what-goes-where}
+
+- **AGENTS.md** – gilt für die gesamte App, in jeder Runde: Zweck, Kernregeln, Statusschlüssel, Aktionsindex, skills-Index.
+- **Fähigkeiten** – wiederverwendbare Anleitung für ein bestimmtes Muster, die bei Bedarf geladen wird. Gilt für alle, die in der App arbeiten.
+- **Speicher (`memory/MEMORY.md`)** – Präferenzen und Korrekturen pro Benutzer, keine verfasste Anleitung.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [Fähigkeiten Guide](/docs/skills-guide) – das Skill-Dateiformat, das Framework skills und das App-gestützte skills.
+- [Creating Templates](/docs/creating-templates) – wie `AGENTS.md` und skills in eine versandfähige Vorlage passen.
+- [The four-area checklist](/docs/key-concepts#four-area-checklist) – das Vier-Bereichs-Modell, das jedes Merkmal erfüllen muss.

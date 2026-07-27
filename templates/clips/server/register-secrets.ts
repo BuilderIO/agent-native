@@ -7,13 +7,14 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // run in a separate Vite SSR module graph and write to a different Map.
 
 // ── Transcription secrets (optional) ──────────────────────────────────
-// Native web/macOS speech is the primary transcript source. Gemini is used
-// for cleanup and titles after native text exists; Groq is the only BYOK
-// speech-to-text fallback when native transcription is unavailable.
+// Native web/macOS speech is the primary recording transcript source. Builder
+// is the only cloud fallback for a saved recording. Gemini/Groq BYOK remain
+// available for desktop voice dictation and other provider-specific tools.
 //
 // We support two BYOK providers:
 //   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
-//   2. Groq `whisper-large-v3-turbo` — fast speech-to-text fallback.
+//   2. Groq — optional voice-dictation provider, not a recording transcript
+//      fallback.
 //
 // Neither is strictly required — videos still upload and play back without
 // cloud transcription.
@@ -110,9 +111,9 @@ registerRequiredSecret({
 
 registerRequiredSecret({
   key: "GROQ_API_KEY",
-  label: "Groq API Key (recommended)",
+  label: "Groq API Key (voice dictation)",
   description:
-    "Fast speech-to-text fallback via Groq. Builder Gemini Flash-Lite is preferred when connected; Groq is used only when Builder/native transcription is unavailable.",
+    "Optional speech-to-text provider for desktop voice dictation. Clips recording transcripts use native browser/macOS capture first and Builder transcription for the saved recording fallback.",
   docsUrl: "https://console.groq.com/keys",
   scope: "user",
   kind: "api-key",
@@ -169,4 +170,172 @@ registerRequiredSecret({
   scope: "workspace",
   kind: "api-key",
   required: false,
+});
+
+// ── Slack unfurl app credentials ─────────────────────────────────────
+// Slack Events API requests are signed with one deploy-level Slack app.
+// These optional workspace secrets surface the required values in Settings.
+
+registerRequiredSecret({
+  key: "SLACK_SIGNING_SECRET",
+  label: "Slack Signing Secret",
+  description:
+    "Signing secret for the Slack app that sends link_shared events to Clips.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_CLIENT_ID",
+  label: "Slack Client ID",
+  description:
+    "OAuth client id for Agent-Native Clips for Slack. Used to let Slack workspaces install the Clips unfurl app.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_CLIENT_SECRET",
+  label: "Slack Client Secret",
+  description:
+    "OAuth client secret matching SLACK_CLIENT_ID. Required for Clips to exchange Slack install codes for bot tokens.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+registerRequiredSecret({
+  key: "SLACK_BOT_TOKEN",
+  label: "Slack Bot Token (legacy)",
+  description:
+    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Clips Slack workspace connection; new messaging automations should connect Slack in Settings > Messaging.",
+  docsUrl: "https://api.slack.com/apps",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+});
+
+// ── Brain transcript ingest ──────────────────────────────────────────
+// Both values are workspace-scoped: every clip in the workspace must reach
+// the same Brain source, while the encrypted secret store keeps the token out
+// of action responses, application state, and client bundles.
+
+registerRequiredSecret({
+  key: "BRAIN_INGEST_URL",
+  label: "Brain ingest URL",
+  description:
+    "Signed Brain generic-ingest endpoint for ready Clips transcripts. Pair with BRAIN_INGEST_TOKEN.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? true
+        : { ok: false, error: "Use an HTTP or HTTPS URL." };
+    } catch {
+      return { ok: false, error: "Enter a valid ingest URL." };
+    }
+  },
+});
+
+registerRequiredSecret({
+  key: "BRAIN_INGEST_TOKEN",
+  label: "Brain ingest token",
+  description:
+    "Bearer token for the configured Brain ingest URL. Stored encrypted and never returned to Clips clients or export receipts.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    return typeof value === "string" && value.trim().length >= 8
+      ? true
+      : { ok: false, error: "Token looks too short." };
+  },
+});
+
+// ── Dark-launched media worker plumbing ──────────────────────────────
+// These are optional until the ai-services worker is deployed. When enabled,
+// Clips enqueues background video compression jobs there instead of using
+// Builder's existing compress-media endpoint.
+
+registerRequiredSecret({
+  key: "CLIPS_DISABLE_BUILDER_COMPRESSION",
+  label: "Disable Builder media compression",
+  description:
+    "Emergency kill switch for Clips background calls to Builder's compress-media endpoint.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    const normalized = value.trim().toLowerCase();
+    return ["true", "1", "yes", "on", "false", "0", "no", "off"].includes(
+      normalized,
+    )
+      ? true
+      : { ok: false, error: "Use true/1/yes/on or false/0/no/off." };
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_ENABLED",
+  label: "Clips media worker enabled",
+  description:
+    "Boolean flag for the upcoming ai-services media worker. Leave unset or false until the worker endpoint is deployed.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    const normalized = value.trim().toLowerCase();
+    return ["true", "1", "yes", "on", "false", "0", "no", "off"].includes(
+      normalized,
+    )
+      ? true
+      : { ok: false, error: "Use true/1/yes/on or false/0/no/off." };
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_URL",
+  label: "Clips media worker URL",
+  description:
+    "Absolute enqueue endpoint URL for the upcoming ai-services media worker.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return { ok: false, error: "Enter an absolute URL." };
+    }
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_SECRET",
+  label: "Clips media worker signing secret",
+  description:
+    "Shared HMAC secret used to sign media-worker enqueue requests and verify callbacks.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    return value.length >= 24
+      ? true
+      : { ok: false, error: "Use at least 24 characters." };
+  },
 });

@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import {
-  IconArrowUpRight,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   IconChevronDown,
   IconChevronRight,
   IconClockHour4,
@@ -13,11 +14,19 @@ import {
   IconWorld,
   IconTrash,
 } from "@tabler/icons-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { AppKeysPopover } from "@/components/app-keys-popover";
-import { AppResourceEffectiveStack } from "@/components/workspace-resource-effective-stack";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+
+import { cn } from "../lib/utils";
+import {
+  isPendingBuilderHref,
+  workspaceAppHref,
+  type WorkspaceAppSummary,
+} from "../lib/workspace-apps";
+import { ActionQueryError } from "./action-query-error";
+import { AppKeysPopover } from "./app-keys-popover";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,27 +35,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
+} from "./ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
-import {
-  isPendingBuilderHref,
-  workspaceAppHref,
-  type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "./ui/dropdown-menu";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Textarea } from "./ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack";
+
+const APP_CARD_ACTION_CLASS =
+  "size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
 
 export function WorkspaceAppCard({
   app,
@@ -124,7 +127,7 @@ export function WorkspaceAppCard({
     <div
       aria-disabled={!href}
       className={cn(
-        "group relative rounded-lg border bg-card p-4 transition hover:border-foreground/30 aria-disabled:opacity-60",
+        "group relative rounded-xl bg-card/40 p-4 transition-[background-color] hover:bg-accent/15 focus-within:bg-accent/15 aria-disabled:opacity-60",
         isArchived && "opacity-70",
         className,
       )}
@@ -135,7 +138,7 @@ export function WorkspaceAppCard({
           target={openInNewTab ? "_blank" : undefined}
           rel={openInNewTab ? "noreferrer" : undefined}
           aria-label={`Open ${app.name}`}
-          className="absolute inset-0 z-0 rounded-lg"
+          className="absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         />
       ) : null}
 
@@ -167,7 +170,7 @@ export function WorkspaceAppCard({
               </Badge>
             ) : null}
           </div>
-          <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
             {app.path}
           </p>
           {isPending && app.branchName ? (
@@ -176,7 +179,7 @@ export function WorkspaceAppCard({
             </p>
           ) : null}
           {app.description ? (
-            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+            <p className="mt-2 min-h-10 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
               {app.description}
             </p>
           ) : null}
@@ -194,16 +197,24 @@ export function WorkspaceAppCard({
           ) : null}
           <div className="pointer-events-auto">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={`More actions for ${app.name}`}
-                  className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <IconDots size={15} />
-                </button>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={`More actions for ${app.name}`}
+                      className={cn(
+                        APP_CARD_ACTION_CLASS,
+                        "inline-flex cursor-pointer items-center justify-center",
+                      )}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <IconDots size={15} />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>More actions</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem
                   onSelect={(event) => {
@@ -236,12 +247,6 @@ export function WorkspaceAppCard({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          {href && !isArchived ? (
-            <IconArrowUpRight
-              size={16}
-              className="text-muted-foreground transition group-hover:text-foreground"
-            />
-          ) : null}
         </div>
       </div>
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -293,11 +298,12 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
   const [inspectedResourceId, setInspectedResourceId] = useState<string | null>(
     null,
   );
-  const { data, isLoading } = useActionQuery(
+  const query = useActionQuery(
     "list-workspace-resources-for-app",
     { appId: app.id },
     { enabled: open },
   );
+  const { data, isLoading } = query;
 
   const resources = ((data as any)?.resources ?? []) as any[];
   const counts = (data as any)?.counts;
@@ -317,28 +323,29 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
               type="button"
               variant="ghost"
               size="sm"
-              aria-label={`View context resources for ${app.name}`}
-              className="h-7 w-7 p-0"
+              aria-label={`View agent resources for ${app.name}`}
+              className={APP_CARD_ACTION_CLASS}
               onClick={(e) => e.stopPropagation()}
             >
               <IconFileText size={14} />
             </Button>
           </DialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>Context</TooltipContent>
+        <TooltipContent>View agent resources</TooltipContent>
       </Tooltip>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{app.name} workspace resources</DialogTitle>
+          <DialogTitle>{app.name} agent resources</DialogTitle>
           <DialogDescription>
-            Workspace-level resources are inherited at runtime. App shared and
-            personal resources can override them locally.
+            Workspace-scope agent resources are inherited at runtime. App shared
+            and personal resources can override them locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            All-app resources live once at workspace scope and are read by each
-            app agent when it builds context. Nothing is copied into this app.
+            All-app agent resources live once at workspace scope and are read by
+            each app agent when it builds context. Nothing is copied into this
+            app.
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -352,7 +359,12 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
             </Badge>
           </div>
 
-          {isLoading ? (
+          {query.isError ? (
+            <ActionQueryError
+              error={query.error}
+              onRetry={() => void query.refetch()}
+            />
+          ) : isLoading ? (
             <div className="space-y-2">
               <div className="h-14 rounded-lg border bg-muted/30" />
               <div className="h-14 rounded-lg border bg-muted/30" />

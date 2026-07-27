@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
 import { createClient, type Client } from "@libsql/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Behavior tests for db-exec that complement parameterized.spec.ts (which

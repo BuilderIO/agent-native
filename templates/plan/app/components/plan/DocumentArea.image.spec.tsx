@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import type { PlanBlock } from "@shared/plan-content";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { PlanBlockView } from "./DocumentArea";
-import type { PlanBlock } from "@shared/plan-content";
 
 let container: HTMLElement;
 let root: Root;

@@ -311,6 +311,10 @@ describe("workspace connection store", () => {
       listWorkspaceConnections,
       upsertWorkspaceConnection,
     } = await import("./store.js");
+    const { registerWorkspaceConnectionLifecycleListener } =
+      await import("./lifecycle.js");
+    const lifecycle = vi.fn();
+    const unregister = registerWorkspaceConnectionLifecycleListener(lifecycle);
 
     await runWithRequestContext({ userEmail: "alice@example.com" }, () =>
       upsertWorkspaceConnection({
@@ -352,6 +356,20 @@ describe("workspace connection store", () => {
       () => deleteWorkspaceConnection("conn-personal"),
     );
     expect(bobDeleted).toBe(false);
+    expect(lifecycle).not.toHaveBeenCalled();
+
+    const aliceDeleted = await runWithRequestContext(
+      { userEmail: "alice@example.com" },
+      () => deleteWorkspaceConnection("conn-personal"),
+    );
+    expect(aliceDeleted).toBe(true);
+    expect(lifecycle).toHaveBeenCalledWith({
+      type: "connection-deleted",
+      connectionId: "conn-personal",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+    });
+    unregister();
   });
 
   it("uses active org scope when present", async () => {
@@ -897,6 +915,10 @@ describe("workspace connection store", () => {
       upsertWorkspaceConnection,
       upsertWorkspaceConnectionGrant,
     } = await import("./store.js");
+    const { registerWorkspaceConnectionLifecycleListener } =
+      await import("./lifecycle.js");
+    const lifecycle = vi.fn();
+    const unregister = registerWorkspaceConnectionLifecycleListener(lifecycle);
 
     await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "org-1" },
@@ -931,6 +953,13 @@ describe("workspace connection store", () => {
       () => revokeWorkspaceConnectionGrant("conn-granted", "dispatch"),
     );
     expect(revoked).toBe(true);
+    expect(lifecycle).toHaveBeenCalledWith({
+      type: "grant-revoked",
+      connectionId: "conn-granted",
+      appId: "dispatch",
+      ownerEmail: "bob@example.com",
+      orgId: "org-1",
+    });
 
     const grants = await runWithRequestContext(
       { userEmail: "bob@example.com", orgId: "org-1" },
@@ -945,6 +974,7 @@ describe("workspace connection store", () => {
     expect(dispatchConnections.map((connection) => connection.id)).toEqual([
       "conn-legacy",
     ]);
+    unregister();
   });
 
   it("redacts secret-shaped fields during serialization", async () => {

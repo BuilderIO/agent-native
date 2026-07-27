@@ -1,27 +1,33 @@
-import { useMemo, useRef, useState } from "react";
 import { IconCode, IconPlus, IconTrash } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
 import type { BlockEditProps, BlockReadProps } from "../types.js";
 import type {
   AnnotatedCodeAnnotation,
   AnnotatedCodeData,
 } from "./annotated-code.config.js";
 import {
-  highlightCode,
-  inferLanguageFromFilename,
-  normalizeCodeLanguage,
-} from "./code-highlight.js";
-import {
   AnnotationHiddenStack,
   AnnotationHoverCard,
+  AnnotationInlineOverlayStack,
+  AnnotationGutterMarker,
   anchorFromElements,
   buildLineMarkerMap,
   hasRailAnnotations,
   resolveAnnotations,
+  useAnnotationMarginNotesAvailable,
   useAnnotationHover,
   type ResolvedAnnotation,
 } from "./annotation-rail.js";
+import { useBlockCopy } from "./block-copy.js";
 import { CodeFilenameLabel } from "./code-filename-label.js";
+import {
+  highlightCode,
+  inferLanguageFromFilename,
+  normalizeCodeLanguage,
+} from "./code-highlight.js";
 import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
 
 /**
@@ -39,6 +45,9 @@ import { DevInput, DevLabel, DevTextarea } from "./dev-doc-ui.js";
  * pairs, so it reads correctly in BOTH light and dark mode. Code lines render as
  * `<span>`s (never one `<pre>` per line) so they don't pick up document
  * code/pre chrome. Lives in core so any app can register the dev-doc block.
+ * Each annotated range also gets a numbered marker in the left gutter on the
+ * first line, matching the diff block's annotation affordance without adding a
+ * persistent note column.
  *
  * Editing is panel-driven (config-style, like the diff/HTML blocks): a monospace
  * code Textarea, filename/language Inputs, and add/remove-able annotation rows.
@@ -151,6 +160,7 @@ function AnnotatedCodeRead({
   summary,
   ctx,
 }: BlockReadProps<AnnotatedCodeData>) {
+  const copy = useBlockCopy();
   // On-hover popover (anchored to the right of the code) replaces the old
   // persistent rail: nothing is visible when idle. `codeRef` measures the code
   // block's right edge; `hover` carries the active index + captured geometry.
@@ -193,6 +203,40 @@ function AnnotatedCodeRead({
   const lineMarkers = useMemo(() => buildLineMarkerMap(resolved), [resolved]);
 
   const hasAnnotations = hasRailAnnotations(resolved);
+  const showAnnotationOverlays = Boolean(ctx.showCodeAnnotationOverlays);
+  const annotationLayout = ctx.codeAnnotationLayout;
+  const annotationHoverSide = annotationLayout?.hoverSide ?? "right";
+  const annotationHoverFallbackSide =
+    annotationLayout?.hoverFallbackSide ?? "right";
+  const annotationMarginSide = annotationLayout?.marginSide ?? "auto";
+  const defaultVisibleAnnotations =
+    annotationLayout?.defaultVisibleAnnotations ??
+    (annotationLayout?.showByDefaultWhenRoom ? "all" : undefined);
+  const showMarginAnnotations = useAnnotationMarginNotesAvailable({
+    containerRef: codeRef,
+    enabled: Boolean(
+      hasAnnotations && !showAnnotationOverlays && defaultVisibleAnnotations,
+    ),
+    side: annotationMarginSide,
+    preferredSide: annotationHoverSide,
+  });
+  const showPersistentAnnotations =
+    showAnnotationOverlays || showMarginAnnotations;
+  const persistentAnnotationIndexes = useMemo(() => {
+    if (!showMarginAnnotations || !defaultVisibleAnnotations) {
+      return new Set<number>();
+    }
+    const visible = resolved.filter((item) => item.range);
+    if (defaultVisibleAnnotations === "first") {
+      const first = visible[0];
+      return first ? new Set([first.index]) : new Set<number>();
+    }
+    return new Set(visible.map((item) => item.index));
+  }, [defaultVisibleAnnotations, resolved, showMarginAnnotations]);
+  const captureOverlayAnnotationIndex = useMemo(
+    () => resolved.find((item) => item.range)?.index ?? null,
+    [resolved],
+  );
   const langChip = data.language?.trim();
   const hasFilename = Boolean(data.filename?.trim());
   const showLangChip = Boolean(langChip && !hasFilename);
@@ -206,6 +250,11 @@ function AnnotatedCodeRead({
           : (resolved.find((item) => item.index === activeIndex) ?? null),
       [activeIndex, resolved],
     );
+  const activeItemIsPersistentlyVisible = Boolean(
+    activeItem &&
+    !showAnnotationOverlays &&
+    persistentAnnotationIndexes.has(activeItem.index),
+  );
 
   // Line-collapse state: a set of collapsed segment start lines that have been
   // expanded by the reader. Starts empty (all segments in their default state).
@@ -223,13 +272,38 @@ function AnnotatedCodeRead({
     const isAnnotated = !!markers?.length;
     const isActive =
       activeIndex != null && !!markers?.some((m) => m.index === activeIndex);
+    const overlayItems =
+      showPersistentAnnotations && markers
+        ? markers.filter(
+            (item) =>
+              item.range?.start === lineNo &&
+              (showAnnotationOverlays
+                ? item.index === captureOverlayAnnotationIndex
+                : persistentAnnotationIndexes.has(item.index)),
+          )
+        : [];
+    const rowHasPersistentAnnotation = Boolean(
+      markers?.some((item) => persistentAnnotationIndexes.has(item.index)),
+    );
+    const rangeStartMarkers =
+      markers?.filter((item) => item.range?.start === lineNo) ?? [];
+    const showMarkerColumn = hasAnnotations;
 
-    const buildAnchorForRow = (el: HTMLElement) => {
-      if (!markers) return null;
-      const primaryMarker = markers[0];
-      const anchorLine = primaryMarker.range?.start ?? lineNo;
-      const anchorRow = lineRefs.current.get(anchorLine) ?? el;
+    const buildAnchorForItem = (
+      item: ResolvedAnnotation<AnnotatedCodeAnnotation>,
+      fallbackRow: HTMLElement,
+    ) => {
+      const anchorLine = item.range?.start ?? lineNo;
+      const anchorRow = lineRefs.current.get(anchorLine) ?? fallbackRow;
       return anchorFromElements(codeRef.current, anchorRow);
+    };
+
+    const openAnnotation = (
+      item: ResolvedAnnotation<AnnotatedCodeAnnotation>,
+      row: HTMLElement,
+    ) => {
+      const anchor = buildAnchorForItem(item, row);
+      if (anchor) hover.open(item.index, anchor);
     };
 
     return (
@@ -241,21 +315,28 @@ function AnnotatedCodeRead({
         tabIndex={isAnnotated ? 0 : undefined}
         role={isAnnotated ? "button" : undefined}
         aria-expanded={isAnnotated ? isActive : undefined}
-        aria-label={isAnnotated ? `Line ${lineNo} annotation` : undefined}
+        aria-label={
+          isAnnotated
+            ? copy.lineAnnotation.replace("{{line}}", String(lineNo))
+            : undefined
+        }
         className={cn(
-          "flex w-full",
+          "relative flex w-full",
           isAnnotated && "cursor-pointer",
           isActive
-            ? "bg-amber-400/20 dark:bg-amber-300/15"
-            : isAnnotated
-              ? "bg-amber-400/[0.07] dark:bg-amber-300/[0.07]"
-              : null,
+            ? "bg-amber-400/[0.12] dark:bg-amber-300/[0.10]"
+            : rowHasPersistentAnnotation
+              ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
+              : isAnnotated && showAnnotationOverlays
+                ? "bg-amber-300/[0.14] dark:bg-amber-300/[0.10]"
+                : isAnnotated
+                  ? "bg-amber-400/[0.045] dark:bg-amber-300/[0.045]"
+                  : null,
         )}
         onMouseEnter={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -263,8 +344,7 @@ function AnnotatedCodeRead({
         onClick={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -273,16 +353,14 @@ function AnnotatedCodeRead({
             ? (event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
         onFocus={
           isAnnotated && markers
             ? (event) => {
-                const anchor = buildAnchorForRow(event.currentTarget);
-                if (anchor) hover.open(markers[0].index, anchor);
+                openAnnotation(markers[0], event.currentTarget);
               }
             : undefined
         }
@@ -294,17 +372,71 @@ function AnnotatedCodeRead({
             "w-[3px] shrink-0 self-stretch",
             isAnnotated
               ? isActive
-                ? "bg-amber-500 dark:bg-amber-400"
-                : "bg-amber-400/45 dark:bg-amber-300/35"
+                ? "bg-amber-500/80 dark:bg-amber-400/70"
+                : showAnnotationOverlays
+                  ? "bg-amber-500/55 dark:bg-amber-300/45"
+                  : "bg-amber-400/30 dark:bg-amber-300/25"
               : null,
           )}
         />
         <span className="w-11 shrink-0 select-none px-3 text-right text-[11px] tabular-nums text-plan-muted/60">
           {lineNo}
         </span>
+        {showMarkerColumn && (
+          <span
+            aria-hidden
+            className="flex w-6 shrink-0 select-none items-center justify-center gap-1 py-0"
+            data-annotated-code-marker-stack={
+              rangeStartMarkers.length > 0 ? "" : undefined
+            }
+          >
+            {rangeStartMarkers.map((item) => (
+              <span
+                key={item.index}
+                data-annotated-code-marker={item.marker}
+                onMouseEnter={(event) => {
+                  event.stopPropagation();
+                  const row =
+                    event.currentTarget.closest<HTMLElement>(
+                      "[data-code-line]",
+                    ) ?? event.currentTarget;
+                  openAnnotation(item, row);
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  const row =
+                    event.currentTarget.closest<HTMLElement>(
+                      "[data-code-line]",
+                    ) ?? event.currentTarget;
+                  openAnnotation(item, row);
+                }}
+                className="inline-flex cursor-pointer outline-none transition-transform hover:scale-110"
+              >
+                <AnnotationGutterMarker
+                  marker={item.marker}
+                  active={
+                    activeIndex === item.index ||
+                    persistentAnnotationIndexes.has(item.index)
+                  }
+                />
+              </span>
+            ))}
+          </span>
+        )}
         <span className="flex-1 whitespace-pre pr-4 text-plan-code-text">
           {highlightedLines[lineNo - 1]}
         </span>
+        {overlayItems.length > 0 && (
+          <AnnotationInlineOverlayStack
+            items={overlayItems}
+            ctx={ctx}
+            showMarker
+            containerRef={codeRef}
+            mode={showAnnotationOverlays ? "capture" : "margin"}
+            side={showAnnotationOverlays ? "right" : annotationMarginSide}
+            preferredSide={annotationHoverSide}
+          />
+        )}
       </div>
     );
   };
@@ -369,7 +501,10 @@ function AnnotatedCodeRead({
                   ···
                 </span>
                 <span className="flex-1 text-[11px] text-plan-muted/70">
-                  {hiddenCount} lines — click to expand
+                  {copy.hiddenLinesExpand.replace(
+                    "{{count}}",
+                    String(hiddenCount),
+                  )}
                 </span>
               </button>
             );
@@ -380,23 +515,37 @@ function AnnotatedCodeRead({
   );
 
   return (
-    <section className="plan-block relative" data-block-id={blockId}>
+    <section
+      {...ltrCodeBlockProps}
+      className="plan-block relative"
+      data-block-id={blockId}
+    >
       {title && <div className="plan-block-label">{title}</div>}
       {/* The code keeps its full width — no persistent annotation column. Notes
           live in a visually-hidden stack (a11y + tests) and surface ONE at a
           time as an on-hover popover anchored to the right of the code. */}
       {codeSurface}
-      {hasAnnotations && <AnnotationHiddenStack items={resolved} ctx={ctx} />}
-      {hasAnnotations && activeItem && hover.anchor && (
-        <AnnotationHoverCard
-          item={activeItem}
-          anchor={hover.anchor}
-          ctx={ctx}
-          onMouseEnter={hover.cancelClose}
-          onMouseLeave={hover.scheduleClose}
-          onClose={hover.closeForScroll}
-        />
+      {hasAnnotations && (
+        <AnnotationHiddenStack items={resolved} ctx={ctx} showMarker />
       )}
+      {hasAnnotations &&
+        !showAnnotationOverlays &&
+        !activeItemIsPersistentlyVisible &&
+        activeItem &&
+        hover.anchor && (
+          <AnnotationHoverCard
+            item={activeItem}
+            anchor={hover.anchor}
+            ctx={ctx}
+            showMarker
+            preferredSide={annotationHoverSide}
+            hoverFallbackSide={annotationHoverFallbackSide}
+            onMouseEnter={hover.cancelClose}
+            onMouseLeave={hover.scheduleClose}
+            onClose={hover.closeForScroll}
+            onInteractOutside={hover.close}
+          />
+        )}
       {summary && <p className="mt-5 text-plan-muted">{summary}</p>}
     </section>
   );

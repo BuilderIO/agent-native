@@ -3,6 +3,7 @@ import {
   getWorkspaceConnectionProvider,
   listWorkspaceConnectionProvidersForTemplate,
 } from "@agent-native/core/connections";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
@@ -11,15 +12,32 @@ import {
   type SerializedWorkspaceConnection,
 } from "@agent-native/core/workspace-connections";
 import { z } from "zod";
-import { hasCredential } from "../server/lib/credentials";
+
 import {
   credentialProviderConfigs,
   resolveCredentialConfigs,
 } from "../server/lib/credential-keys";
+import { hasCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 import { getGitHubAccessToken } from "../server/lib/github-oauth";
+import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
 const APP_ID = "analytics";
+const DATA_SOURCES_SETUP_LINK = buildDeepLink({
+  app: APP_ID,
+  view: "data-sources",
+  to: "/data-sources",
+});
+
+const BUILT_IN_FIRST_PARTY_PROVIDER = {
+  provider: "first-party",
+  label: "First-party Analytics",
+  configured: true,
+  configuredKeys: [],
+  missingRequiredKeys: [],
+  optionalKeys: [],
+  queryAction: "query-agent-native-analytics",
+} as const;
 
 function summarizeWorkspaceConnections(
   providerId: string,
@@ -56,7 +74,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data-source credentials and granted workspace connections are configured without revealing secret values. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; when a requested provider is unavailable, use that link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
@@ -75,6 +93,7 @@ export default defineAction({
         label: "Authentication",
         message: "Sign in to view credential status.",
         settingsPath: "/data-sources",
+        dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
       };
     }
 
@@ -126,7 +145,16 @@ export default defineAction({
         const configured =
           cfg.key === "GITHUB_TOKEN"
             ? !!(await getGitHubAccessToken(ctx)).token
-            : await hasCredential(cfg.key, ctx);
+            : (cfg.key === "GONG_ACCESS_KEY" ||
+                  cfg.key === "GONG_ACCESS_SECRET") &&
+                (await resolveAnalyticsProviderCredential({
+                  provider: "gong",
+                  keys: [cfg.key],
+                  ctx,
+                  workspaceConnection: false,
+                }))
+              ? true
+              : await hasCredential(cfg.key, ctx);
         return {
           key: cfg.key,
           label: cfg.label,
@@ -140,37 +168,80 @@ export default defineAction({
     );
     const visibleKeys = new Set(results.map((result) => result.key));
     const providers = credentialProviderConfigs
-      .filter((provider) =>
-        provider.requiredKeys.every((key) => visibleKeys.has(key)),
-      )
+      .filter((provider) => {
+        const requiredMode = provider.requiredMode ?? "all";
+        return requiredMode === "any"
+          ? provider.requiredKeys.some((key) => visibleKeys.has(key))
+          : provider.requiredKeys.every((key) => visibleKeys.has(key));
+      })
       .map((provider) => {
         const optionalKeys = provider.optionalKeys ?? [];
-        const missingRequiredKeys = provider.requiredKeys.filter(
-          (key) => !configuredKeys.has(key),
-        );
+        const requiredMode = provider.requiredMode ?? "all";
+        const hasRequiredCredentials =
+          requiredMode === "any"
+            ? provider.requiredKeys.some((key) => configuredKeys.has(key))
+            : provider.requiredKeys.every((key) => configuredKeys.has(key));
+        const missingRequiredKeys = hasRequiredCredentials
+          ? []
+          : provider.requiredKeys.filter((key) => !configuredKeys.has(key));
         const configuredProviderKeys = [
           ...provider.requiredKeys,
           ...optionalKeys,
         ].filter((key) => configuredKeys.has(key));
+        const workspaceConnection =
+          workspaceProviderStatusById.get(provider.provider) ??
+          summarizeWorkspaceConnections(
+            provider.provider,
+            workspace.connections,
+            workspace.grants,
+          );
         return {
           provider: provider.provider,
           label: provider.label,
-          configured: missingRequiredKeys.length === 0,
+          configured:
+            hasRequiredCredentials ||
+            workspaceConnection.grantState === "connected",
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,
           optionalKeys,
-          workspaceConnection:
-            workspaceProviderStatusById.get(provider.provider) ??
-            summarizeWorkspaceConnections(
-              provider.provider,
-              workspace.connections,
-              workspace.grants,
-            ),
+          workspaceConnection,
         };
       });
+    const configuredDataSources = [
+      {
+        provider: BUILT_IN_FIRST_PARTY_PROVIDER.provider,
+        label: BUILT_IN_FIRST_PARTY_PROVIDER.label,
+        via: "built-in",
+        queryAction: BUILT_IN_FIRST_PARTY_PROVIDER.queryAction,
+      },
+      ...providers
+        .filter((provider) => provider.configured)
+        .map((provider) => ({
+          provider: provider.provider,
+          label: provider.label,
+          via:
+            provider.configuredKeys.length > 0 &&
+            provider.workspaceConnection.grantState === "connected"
+              ? "credentials-and-workspace"
+              : provider.workspaceConnection.grantState === "connected"
+                ? "workspace"
+                : "credentials",
+        })),
+    ];
+    const connectedExternalDataSources = configuredDataSources.filter(
+      (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
+    );
     return {
+      // Keep a compact, explicit summary first so models do not infer source
+      // availability from the much larger per-credential list below.
+      hasConfiguredDataSources: configuredDataSources.length > 0,
+      configuredDataSourceCount: configuredDataSources.length,
+      configuredDataSources,
+      hasConnectedExternalDataSources: connectedExternalDataSources.length > 0,
+      connectedExternalDataSourceCount: connectedExternalDataSources.length,
+      dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
       credentials: results,
-      providers,
+      providers: [BUILT_IN_FIRST_PARTY_PROVIDER, ...providers],
       total: results.length,
       workspaceConnections: {
         appId: APP_ID,
@@ -180,4 +251,9 @@ export default defineAction({
       },
     };
   },
+  link: () => ({
+    url: DATA_SOURCES_SETUP_LINK,
+    label: "Open Analytics data sources",
+    view: "data-sources",
+  }),
 });

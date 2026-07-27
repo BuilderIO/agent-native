@@ -25,13 +25,24 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { createBuilderEngine } from "@agent-native/core/agent/engine";
 import {
   resolveBuilderCredentials,
   resolveSecret,
   FeatureNotConfiguredError,
 } from "@agent-native/core/server";
-import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import {
+  applyVoiceContextReplacements,
+  formatVoiceContextPackForPrompt,
+  type VoiceContextPack,
+} from "@agent-native/core/voice";
+import { z } from "zod";
+
+import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
+import {
+  clearBuilderCreditsExhausted,
+  noteBuilderCreditsExhausted,
+} from "./lib/builder-credits-state.js";
 
 // Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
 const BUILDER_MODEL = "gemini-3-1-flash-lite";
@@ -42,6 +53,19 @@ const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
 const MAX_INPUT_CHARS = 200_000;
+const MAX_CLEANUP_OUTPUT_TOKENS = 32_000;
+
+export function cleanupMaxOutputTokens(
+  task: "cleanup" | "title" | "summary",
+  transcriptLength: number,
+): number {
+  if (task === "title") return 1_024;
+  if (task === "summary") return 4_096;
+  return Math.min(
+    MAX_CLEANUP_OUTPUT_TOKENS,
+    Math.max(1_024, Math.ceil(transcriptLength / 3) + 512),
+  );
+}
 
 const CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS = [
   "Relevant Clips AGENTS.md rules:",
@@ -84,6 +108,12 @@ export default defineAction({
       .describe(
         "Optional surrounding context (e.g. meeting title, attendees, previous notes) to ground the cleanup pass.",
       ),
+    contextPack: z
+      .unknown()
+      .optional()
+      .describe(
+        "Optional structured voice context: snippets, vocabulary replacements, and metadata.",
+      ),
     language: z
       .string()
       .optional()
@@ -91,13 +121,19 @@ export default defineAction({
   }),
   run: async (args): Promise<CleanupResult> => {
     const transcript = args.transcript.slice(0, MAX_INPUT_CHARS);
+    const contextPack = args.contextPack as VoiceContextPack | undefined;
     const prompt = buildPrompt({
       task: args.task,
       transcript,
       context: args.context,
+      contextPack,
       language: args.language,
     });
     const wantJson = args.task === "summary";
+    const maxOutputTokens = cleanupMaxOutputTokens(
+      args.task,
+      transcript.length,
+    );
 
     // 1) Builder gateway (preferred — uses Builder.io Connect credentials).
     const builderCreds = await resolveBuilderCredentials();
@@ -114,20 +150,33 @@ export default defineAction({
       try {
         const text = await callBuilderGateway({
           prompt,
-          wantJson,
+          maxOutputTokens,
         });
         if (text.trim()) {
-          return shapeResult(args.task, text, "builder");
+          await clearBuilderCreditsExhausted();
+          return shapeResult(args.task, text, "builder", contextPack);
         }
         builderReturnedEmpty = true;
         console.warn("[cleanup-transcript] Builder path returned empty text");
       } catch (err) {
-        // Fall through to BYOK only when Builder is misconfigured / unavailable.
-        // Hard errors (e.g. credits exhausted) still surface to the caller.
         const message = (err as Error)?.message ?? String(err);
         builderFailureMessage = message;
-        if (message.includes("credits exhausted")) throw err;
-        console.warn("[cleanup-transcript] Builder path failed:", message);
+        if (isBuilderCreditsExhaustedMessage(message)) {
+          await noteBuilderCreditsExhausted({
+            source:
+              args.task === "title"
+                ? "title"
+                : args.task === "summary"
+                  ? "summary"
+                  : "cleanup",
+            message,
+          });
+          console.warn(
+            "[cleanup-transcript] Builder credits exhausted; trying BYOK fallback",
+          );
+        } else {
+          console.warn("[cleanup-transcript] Builder path failed:", message);
+        }
       }
     }
 
@@ -138,8 +187,9 @@ export default defineAction({
         apiKey: geminiKey,
         prompt,
         wantJson,
+        maxOutputTokens,
       });
-      return shapeResult(args.task, text, "gemini-byok");
+      return shapeResult(args.task, text, "gemini-byok", contextPack);
     }
 
     throw buildCleanupConfigurationError({
@@ -157,10 +207,10 @@ async function resolveUserGeminiKey(): Promise<string | null> {
 
 async function callBuilderGateway({
   prompt,
-  wantJson,
+  maxOutputTokens,
 }: {
   prompt: { system: string; user: string };
-  wantJson: boolean;
+  maxOutputTokens: number;
 }): Promise<string> {
   const engine = createBuilderEngine();
   const controller = new AbortController();
@@ -181,7 +231,7 @@ async function callBuilderGateway({
       ],
       tools: [],
       abortSignal: controller.signal,
-      maxOutputTokens: wantJson ? 4096 : 1024,
+      maxOutputTokens,
       temperature: 0,
     });
     for await (const event of events) {
@@ -199,6 +249,10 @@ async function callBuilderGateway({
           (event.errorCode
             ? `Builder gateway returned ${event.errorCode}`
             : "Builder gateway returned an error");
+      }
+      if (event.type === "stop" && event.reason === "max_tokens") {
+        terminalError =
+          "Builder gateway truncated transcript cleanup at the output-token limit";
       }
     }
   } finally {
@@ -248,10 +302,12 @@ async function callGeminiByok({
   apiKey,
   prompt,
   wantJson,
+  maxOutputTokens,
 }: {
   apiKey: string;
   prompt: { system: string; user: string };
   wantJson: boolean;
+  maxOutputTokens: number;
 }): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -270,6 +326,7 @@ async function callGeminiByok({
         ],
         generationConfig: {
           temperature: 0,
+          maxOutputTokens,
           ...(wantJson ? { responseMimeType: "application/json" } : {}),
         },
       }),
@@ -282,8 +339,14 @@ async function callGeminiByok({
     const data = (await res.json()) as {
       candidates?: Array<{
         content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
       }>;
     };
+    if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      throw new Error(
+        "Gemini truncated transcript cleanup at the output-token limit",
+      );
+    }
     return (
       data.candidates?.[0]?.content?.parts
         ?.map((p) => p.text ?? "")
@@ -299,13 +362,16 @@ function shapeResult(
   task: "cleanup" | "title" | "summary",
   raw: string,
   provider: "builder" | "gemini-byok",
+  contextPack?: VoiceContextPack,
 ): CleanupResult {
   const stripped = stripEnvelope(raw);
+  const applyContext = (value: string) =>
+    applyVoiceContextReplacements(value, contextPack).trim();
   if (task === "title") {
-    return { task, title: stripped.slice(0, 120), provider };
+    return { task, title: applyContext(stripped).slice(0, 120), provider };
   }
   if (task === "cleanup") {
-    return { task, cleanedText: stripped, provider };
+    return { task, cleanedText: applyContext(stripped), provider };
   }
   // task === 'summary' — expect JSON.
   try {
@@ -320,11 +386,16 @@ function shapeResult(
     };
     return {
       task,
-      summaryMd: typeof parsed.summaryMd === "string" ? parsed.summaryMd : "",
+      summaryMd:
+        typeof parsed.summaryMd === "string"
+          ? applyContext(parsed.summaryMd)
+          : "",
       bullets: Array.isArray(parsed.bullets)
         ? parsed.bullets
             .map((b) =>
-              typeof b === "string" ? { text: b } : { text: b.text ?? "" },
+              typeof b === "string"
+                ? { text: applyContext(b) }
+                : { text: applyContext(b.text ?? "") },
             )
             .filter((b) => b.text)
         : [],
@@ -341,7 +412,7 @@ function shapeResult(
                   : "";
               const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail);
               return {
-                text: (a.text ?? "").trim(),
+                text: applyContext(a.text ?? ""),
                 ...(isEmail ? { assigneeEmail: rawEmail } : {}),
                 ...(a.dueDate ? { dueDate: a.dueDate } : {}),
               };
@@ -353,7 +424,7 @@ function shapeResult(
     // Provider didn't return JSON — fall back to raw markdown summary.
     return {
       task,
-      summaryMd: stripped,
+      summaryMd: applyContext(stripped),
       bullets: [],
       actionItems: [],
       provider,
@@ -373,20 +444,29 @@ function buildPrompt({
   task,
   transcript,
   context,
+  contextPack,
   language,
 }: {
   task: "cleanup" | "title" | "summary";
   transcript: string;
   context?: string;
+  contextPack?: VoiceContextPack;
   language?: string;
 }): { system: string; user: string } {
   const langHint = language ? ` The transcript language is ${language}.` : "";
-  const ctxBlock = context ? `\n\n<context>\n${context}\n</context>` : "";
+  const voiceContext = formatVoiceContextPackForPrompt(contextPack);
+  const contextParts = [
+    context?.trim(),
+    voiceContext ? `Voice context:\n${voiceContext}` : "",
+  ].filter(Boolean);
+  const ctxBlock = contextParts.length
+    ? `\n\n<context>\n${contextParts.join("\n\n")}\n</context>`
+    : "";
 
   if (task === "title") {
     return {
-      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. If AGENTS.md resources are included in <context>, use them only for relevant naming, terminology, style, and personal/team preferences; personal instructions win over organization instructions. Output the title only — no quotes, no preamble, no markdown. Keep it under 80 characters.${langHint}`,
-      user: `Pick a concise, specific title for this transcript:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
+      system: `${CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS}\n\nYou produce one short, descriptive title for a Clip. The title must summarize the main subject covered in the transcript, not quote an opening aside. Ignore conversational setup and filler such as "let me walk through this", "real quick", "regarding your question", "there are two things", greetings, hesitation, and other meta commentary. Prefer the concrete topic, named entities, numbers, product names, and business terms that explain what the Clip is actually about. Do not use vague titles built from words like "quick", "thing", "question", "walkthrough", "scenario", or "discussion" unless they are the real topic. If AGENTS.md resources are included in <context>, use them only for relevant naming, terminology, style, and personal/team preferences; personal instructions win over organization instructions. Output the title only — no quotes, no preamble, no markdown. Keep it 4-9 words and under 80 characters.${langHint}`,
+      user: `Pick a concise, specific title that summarizes the main subject of this transcript:${ctxBlock}\n\n<transcript>\n${transcript}\n</transcript>`,
     };
   }
 
@@ -409,6 +489,11 @@ function buildPrompt({
     "dueDate"?: string              // ISO date if explicitly mentioned
   }>
 }
+Rules for summaryMd:
+- Write it the way the person who made this recording would describe it themselves — plain, direct, and about the subject matter.
+- Never narrate the recording from the outside. Do not write "the speaker", "the presenter", "the narrator", "the author", "the team", "the video", "this recording", "this clip", "this meeting", "the discussion covered", or any equivalent framing.
+- Lead with the topic, decisions, and specifics. Name a person only when who said or owns something actually matters.
+- No praise, no meta commentary about the transcript, no "overall" wrap-up sentence.
 Rules for action items:
 - Attribute each action item to a specific attendee whenever the transcript makes the owner clear (e.g. "I'll send the deck", "Alice will follow up").
 - The "assigneeEmail" MUST be one of the attendee emails listed in the <context> block above — do not invent emails or use display names.

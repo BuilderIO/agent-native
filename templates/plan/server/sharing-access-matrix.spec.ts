@@ -17,9 +17,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
+import {
+  accessFilter,
+  registerShareableResource,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { createClient, type Client } from "@libsql/client";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import { eq } from "drizzle-orm";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import {
   afterAll,
   beforeAll,
@@ -29,17 +36,15 @@ import {
   it,
   vi,
 } from "vitest";
+
 import * as planSchema from "./db/schema.js";
-import {
-  accessFilter,
-  registerShareableResource,
-  resolveAccess,
-} from "@agent-native/core/sharing";
-import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import {
   LOCAL_PLAN_OWNER_EMAIL,
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
+
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
 
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
@@ -72,6 +77,8 @@ type AnyAction = { run: (args: any) => Promise<any> };
 let createVisualPlan: AnyAction;
 let listVisualPlans: AnyAction;
 let getVisualPlan: AnyAction;
+let getPlanAccessStatus: AnyAction;
+let requestPlanAccess: AnyAction;
 let updateVisualPlan: AnyAction;
 let shareResource: AnyAction;
 let listResourceShares: AnyAction;
@@ -84,7 +91,10 @@ const VIEWER = "viewer@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
-const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
+// The full CI matrix imports every action package concurrently with the other
+// template suites. The setup is normally a few seconds, but can exceed the
+// Vitest default under a saturated runner without indicating a product fault.
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 60_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
@@ -95,6 +105,7 @@ async function resetTables() {
     DELETE FROM plan_sections;
     DELETE FROM plan_shares;
     DELETE FROM plans;
+    DELETE FROM organizations;
   `);
 }
 
@@ -125,6 +136,13 @@ async function createPlanAs(
   return result.planId as string;
 }
 
+async function seedOrg(id: string, name: string) {
+  await client.execute({
+    sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
+    args: [id, name, OWNER, Date.now()],
+  });
+}
+
 async function setVisibility(
   actorEmail: string,
   orgId: string | undefined,
@@ -147,6 +165,14 @@ async function rawPlan(planId: string) {
     .from(planSchema.plans)
     .where(eq(planSchema.plans.id, planId));
   return row as any;
+}
+
+async function rawEvents(planId: string) {
+  // guard:allow-unscoped -- test-only fixture assertion reads rows for the row just created.
+  return db
+    .select()
+    .from(planSchema.planEvents)
+    .where(eq(planSchema.planEvents.planId, planId));
 }
 
 beforeAll(async () => {
@@ -190,6 +216,16 @@ beforeAll(async () => {
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
       source_url TEXT,
+      source_type TEXT,
+      source_repo TEXT,
+      source_pr_number INTEGER,
+      source_pr_state TEXT,
+      source_pr_merged_at TEXT,
+      source_author_email TEXT,
+      source_author_name TEXT,
+      source_author_login TEXT,
+      recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -223,6 +259,8 @@ beforeAll(async () => {
       resolved_by TEXT,
       resolved_at TEXT,
       consumed_at TEXT,
+      deleted_at TEXT,
+      deleted_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -243,7 +281,14 @@ beforeAll(async () => {
       snapshot_json TEXT NOT NULL,
       change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      summary_status TEXT,
+      summary_source TEXT,
+      block_count INTEGER,
+      section_count INTEGER,
+      has_canvas INTEGER,
+      has_prototype INTEGER,
+      preview_text TEXT
     );
     CREATE TABLE plan_shares (
       id TEXT PRIMARY KEY,
@@ -263,6 +308,14 @@ beforeAll(async () => {
       byte_size INTEGER NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      allowed_domain TEXT,
+      a2a_secret TEXT
+    );
   `);
 
   registerShareableResource({
@@ -281,6 +334,10 @@ beforeAll(async () => {
   listVisualPlans = (await import("../actions/list-visual-plans.js"))
     .default as AnyAction;
   getVisualPlan = (await import("../actions/get-visual-plan.js"))
+    .default as AnyAction;
+  getPlanAccessStatus = (await import("../actions/get-plan-access-status.js"))
+    .default as AnyAction;
+  requestPlanAccess = (await import("../actions/request-plan-access.js"))
     .default as AnyAction;
   updateVisualPlan = (await import("../actions/update-visual-plan.js"))
     .default as AnyAction;
@@ -426,7 +483,111 @@ describe("non-owner on a private plan (deny)", () => {
 });
 
 // ===========================================================================
-// 3. Shared-with reviewer: read (allow) + edit gated by share role
+// 3. Private-link recovery metadata (existence only, no content)
+// ===========================================================================
+describe("private plan access status and requests", () => {
+  it("reveals a real private plan URL without revealing the plan content", async () => {
+    await seedOrg(ORG, "Acme Planning");
+    const planId = await createPlanAs(OWNER, ORG, {
+      brief: "PRIVATE-PLAN-SECRET",
+    });
+
+    const status = await asUser({ userEmail: OTHER }, () =>
+      getPlanAccessStatus.run({ planId }),
+    );
+    expect(status).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      orgId: null,
+      orgName: null,
+      visibility: "private",
+    });
+    expect(JSON.stringify(status)).not.toContain("PRIVATE-PLAN-SECRET");
+    expect(JSON.stringify(status)).not.toContain("Acme Planning");
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+  });
+
+  it("returns a distinct missing-plan status", async () => {
+    await expect(
+      asUser({ userEmail: OTHER }, () =>
+        getPlanAccessStatus.run({ planId: "plan_nope" }),
+      ),
+    ).resolves.toMatchObject({
+      exists: false,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      visibility: null,
+    });
+  });
+
+  it("includes the org name for inaccessible org-visible plans", async () => {
+    await seedOrg(ORG, "Acme Planning");
+    const planId = await createPlanAs(OWNER, ORG, {
+      brief: "ORG-ONLY-PLAN-SECRET",
+    });
+    await setVisibility(OWNER, ORG, planId, "org");
+
+    const status = await asUser({ userEmail: OTHER, orgId: OTHER_ORG }, () =>
+      getPlanAccessStatus.run({ planId }),
+    );
+
+    expect(status).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: true,
+      viewerEmail: OTHER,
+      role: null,
+      orgId: ORG,
+      orgName: "Acme Planning",
+      visibility: "org",
+    });
+    expect(JSON.stringify(status)).not.toContain("ORG-ONLY-PLAN-SECRET");
+  });
+
+  it("records a signed-in request for access without granting access", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    const result = await asUser({ userEmail: OTHER }, () =>
+      requestPlanAccess.run({ planId }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+    });
+
+    await expect(
+      asUser({ userEmail: OTHER }, () => getVisualPlan.run({ id: planId })),
+    ).rejects.toThrow();
+    expect(await rawEvents(planId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "plan.access_requested",
+          createdBy: "human",
+          message: `${OTHER} requested access to this plan.`,
+        }),
+      ]),
+    );
+  });
+
+  it("requires a signed-in account to request access", async () => {
+    const planId = await createPlanAs(OWNER, undefined);
+
+    await expect(
+      asUser({}, () => requestPlanAccess.run({ planId })),
+    ).rejects.toMatchObject({ statusCode: 401 });
+  });
+});
+
+// ===========================================================================
+// 4. Shared-with reviewer: read (allow) + edit gated by share role
 // ===========================================================================
 describe("explicit user shares", () => {
   it("a VIEWER share grants read but NOT edit", async () => {

@@ -38,7 +38,12 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
-  a2aSecret?: string | null;
+  /**
+   * Whether the active org has an A2A secret. The value itself is never part
+   * of this payload — owners/admins fetch it on demand from
+   * `GET /_agent-native/org/a2a-secret`.
+   */
+  a2aSecretSet?: boolean;
 }
 
 export interface OrgMember {

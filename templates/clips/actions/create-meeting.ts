@@ -8,16 +8,18 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
+  getOrganizationDefaultVisibility,
   nanoid,
 } from "../server/lib/recordings.js";
-import { writeAppState } from "@agent-native/core/application-state";
-import { resolveAccess } from "@agent-native/core/sharing";
 
 const PLATFORMS = [
   "zoom",
@@ -63,7 +65,15 @@ export default defineAction({
       visibility: z
         .enum(["private", "org", "public"])
         .optional()
-        .describe("Initial visibility — defaults to private"),
+        .describe(
+          "Initial visibility. When omitted, uses the organization default and falls back to public.",
+        ),
+      source: z
+        .enum(["calendar", "adhoc", "manual"])
+        .optional()
+        .describe(
+          "How the meeting was created. Desktop adhoc Zoom/Teams detection passes `adhoc`; omit to infer from title/calendarEventId.",
+        ),
     })
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
@@ -85,9 +95,8 @@ export default defineAction({
       isOrganizer?: boolean;
     }> = args.participants ?? [];
     let calendarEventIdLink: string | null = null;
-    let source: "calendar" | "adhoc" | "manual" = args.title
-      ? "manual"
-      : "adhoc";
+    let source: "calendar" | "adhoc" | "manual" =
+      args.source ?? (args.title ? "manual" : "adhoc");
 
     if (args.calendarEventId) {
       // Verify the user owns the calendar account that hosts this event.
@@ -118,6 +127,41 @@ export default defineAction({
         if (existing) return { meeting: existing, created: false };
       }
 
+      // Claim the event row atomically before inserting a meetings row below
+      // — mirrors materializeCalendarMeetingFromVirtualId's TOCTOU fix, so
+      // two concurrent create-meeting calls for the same calendarEventId
+      // can't both insert a duplicate meeting.
+      const claimed = await db
+        .update(schema.calendarEvents)
+        .set({ meetingId: id, updatedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(schema.calendarEvents.id, args.calendarEventId),
+            isNull(schema.calendarEvents.meetingId),
+          ),
+        )
+        .returning({ id: schema.calendarEvents.id });
+
+      if (!claimed.length) {
+        // Someone else claimed it first — re-read and return their meeting.
+        const [winnerEvent] = await db
+          .select({ meetingId: schema.calendarEvents.meetingId })
+          .from(schema.calendarEvents)
+          .where(eq(schema.calendarEvents.id, args.calendarEventId))
+          .limit(1);
+        if (winnerEvent?.meetingId) {
+          const [winnerMeeting] = await db
+            .select()
+            .from(schema.meetings)
+            .where(eq(schema.meetings.id, winnerEvent.meetingId))
+            .limit(1);
+          if (winnerMeeting) return { meeting: winnerMeeting, created: false };
+        }
+        throw new Error(
+          `Calendar event ${args.calendarEventId} was claimed by another meeting concurrently.`,
+        );
+      }
+
       title = title || event.title || "Untitled meeting";
       scheduledStart = scheduledStart || event.start;
       scheduledEnd = scheduledEnd || event.end;
@@ -146,48 +190,61 @@ export default defineAction({
       }
     }
 
-    const visibility = args.visibility ?? "private";
+    const visibility =
+      args.visibility ?? (await getOrganizationDefaultVisibility(orgId));
 
-    await db.insert(schema.meetings).values({
-      id,
-      organizationId: orgId ?? null,
-      title: title || "Untitled meeting",
-      scheduledStart,
-      scheduledEnd,
-      actualStart: null,
-      actualEnd: null,
-      platform,
-      joinUrl,
-      calendarEventId: calendarEventIdLink,
-      recordingId: null,
-      transcriptStatus: "idle",
-      summaryMd: "",
-      bulletsJson: "[]",
-      actionItemsJson: "[]",
-      source,
-      ownerEmail,
-      orgId: orgId ?? null,
-      visibility,
-    });
+    try {
+      await db.insert(schema.meetings).values({
+        id,
+        organizationId: orgId ?? null,
+        title: title || "Untitled meeting",
+        scheduledStart,
+        scheduledEnd,
+        actualStart: null,
+        actualEnd: null,
+        platform,
+        joinUrl,
+        calendarEventId: calendarEventIdLink,
+        recordingId: null,
+        transcriptStatus: "idle",
+        summaryMd: "",
+        bulletsJson: "[]",
+        actionItemsJson: "[]",
+        source,
+        ownerEmail,
+        orgId: orgId ?? null,
+        visibility,
+      });
 
-    if (participantsToInsert.length) {
-      await db.insert(schema.meetingParticipants).values(
-        participantsToInsert.map((p) => ({
-          id: nanoid(),
-          meetingId: id,
-          email: p.email,
-          name: p.name ?? null,
-          isOrganizer: !!p.isOrganizer,
-          attendedAt: null,
-        })),
-      );
-    }
-
-    if (calendarEventIdLink) {
-      await db
-        .update(schema.calendarEvents)
-        .set({ meetingId: id, updatedAt: new Date().toISOString() })
-        .where(eq(schema.calendarEvents.id, calendarEventIdLink));
+      if (participantsToInsert.length) {
+        await db.insert(schema.meetingParticipants).values(
+          participantsToInsert.map((p) => ({
+            id: nanoid(),
+            meetingId: id,
+            email: p.email,
+            name: p.name ?? null,
+            isOrganizer: !!p.isOrganizer,
+            attendedAt: null,
+          })),
+        );
+      }
+    } catch (err) {
+      // Roll back the calendar_events claim (only if it still points at our
+      // own id) so a future call can retry instead of leaving the event
+      // permanently pointed at a meeting that was never created.
+      if (calendarEventIdLink) {
+        await db
+          .update(schema.calendarEvents)
+          .set({ meetingId: null, updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.calendarEvents.id, calendarEventIdLink),
+              eq(schema.calendarEvents.meetingId, id),
+            ),
+          )
+          .catch(() => {});
+      }
+      throw err;
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });

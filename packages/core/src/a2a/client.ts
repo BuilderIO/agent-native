@@ -1,12 +1,64 @@
 import * as jose from "jose";
+
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+
+/**
+ * A workspace serves every app from one gateway on loopback, so sibling A2A
+ * targets are private addresses by construction and the SSRF guard cannot tell
+ * them apart from an attack. Trust only origins this deployment configured for
+ * itself — never a value that arrived on a request.
+ */
+function workspacePrivateOrigins(): string[] {
+  const origins = [
+    process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
+    process.env.BETTER_AUTH_URL,
+    // Escape hatch for contexts that never receive the gateway manifest (the
+    // action CLI, one-off scripts). Comma-separated origins.
+    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
+  ]
+    .map((value) => value?.trim())
+    .filter((value): value is string => !!value);
+
+  // The gateway also hands each child the sibling manifest, and siblings are
+  // reached on their own loopback ports rather than through the gateway.
+  const raw = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const apps = Array.isArray(parsed?.apps)
+        ? parsed.apps
+        : Array.isArray(parsed)
+          ? parsed
+          : [];
+      for (const app of apps) {
+        const url = app?.url ?? app?.origin ?? app?.baseUrl;
+        if (typeof url === "string" && url) origins.push(url);
+        const port = app?.port;
+        if (typeof port === "number" && Number.isFinite(port)) {
+          origins.push(`http://127.0.0.1:${port}`);
+        }
+      }
+    } catch {
+      // A malformed manifest must not disable the SSRF guard.
+    }
+  }
+  return origins;
+}
+import { sanitizeA2ACorrelationMetadata } from "./correlation.js";
 import type {
+  A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContextReference,
+  A2AReadOnlyActionResult,
   AgentCard,
   JsonRpcRequest,
   JsonRpcResponse,
   Message,
   Task,
 } from "./types.js";
+
+const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
 
 export class A2ATaskTimeoutError extends Error {
   readonly taskId: string;
@@ -43,6 +95,7 @@ export async function signA2AToken(
   options?: {
     expiresIn?: string | number;
     preferGlobalSecret?: boolean;
+    audience?: string | string[];
     /**
      * Extra JWT claims to merge alongside `sub` / `org_domain`. Used by the
      * MCP connect flow to add a revocable `jti` and a `scope: "mcp-connect"`
@@ -67,7 +120,7 @@ export async function signA2AToken(
     process.env.BETTER_AUTH_URL ||
     "http://localhost:3000";
 
-  return new jose.SignJWT({
+  const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),
     // `sub` / `org_domain` are spread AFTER extraClaims so a caller-supplied
     // map can never override the verified identity claims.
@@ -77,13 +130,21 @@ export async function signA2AToken(
     .setProtectedHeader({ alg: "HS256" })
     .setIssuer(appUrl)
     .setIssuedAt()
-    .setExpirationTime(options?.expiresIn ?? "15m")
-    .sign(new TextEncoder().encode(secret));
+    .setExpirationTime(options?.expiresIn ?? "15m");
+
+  if (options?.audience) jwt.setAudience(options.audience);
+
+  return jwt.sign(new TextEncoder().encode(secret));
+}
+
+export function shouldPreferGlobalA2ASecret(orgSecret?: string): boolean {
+  return !!process.env.A2A_SECRET?.trim() || !orgSecret;
 }
 
 export class A2AClient {
   private baseUrl: string;
   private apiKey?: string;
+  private apiKeyAttempts: Array<string | undefined>;
   private endpointCandidates: string[] = [];
   private endpointResolved = false;
   private requestTimeoutMs?: number;
@@ -91,7 +152,7 @@ export class A2AClient {
   constructor(
     baseUrl: string,
     apiKey?: string,
-    options?: { requestTimeoutMs?: number },
+    options?: { requestTimeoutMs?: number; fallbackApiKeys?: string[] },
   ) {
     const normalized = baseUrl.replace(/\/$/, "");
     const explicitEndpoint = splitExplicitA2AEndpoint(normalized);
@@ -101,6 +162,10 @@ export class A2AClient {
       this.endpointResolved = true;
     }
     this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...(options?.fallbackApiKeys ?? []),
+    ]);
     this.requestTimeoutMs = options?.requestTimeoutMs;
   }
 
@@ -117,7 +182,7 @@ export class A2AClient {
         const res = await ssrfSafeFetch(
           endpoint,
           { method: "OPTIONS" },
-          { maxRedirects: 3 },
+          { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
         );
         if (res.status !== 404 && res.status !== 405) {
           this.endpointCandidates = [endpoint];
@@ -133,17 +198,26 @@ export class A2AClient {
     }
   }
 
-  private headers(): Record<string, string> {
+  private headers(apiKey = this.apiKey): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.apiKey) {
-      h["Authorization"] = `Bearer ${this.apiKey}`;
+    if (apiKey) {
+      h["Authorization"] = `Bearer ${apiKey}`;
     }
     return h;
+  }
+
+  private markApiKeySucceeded(apiKey: string | undefined) {
+    this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([
+      apiKey,
+      ...this.apiKeyAttempts.filter((token) => token !== apiKey),
+    ]);
   }
 
   private async rpc(
     method: string,
     params: Record<string, unknown>,
+    options?: { requestTimeoutMs?: number },
   ): Promise<JsonRpcResponse> {
     const body: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -156,33 +230,60 @@ export class A2AClient {
     let lastError: Error | null = null;
 
     for (const url of this.endpointCandidates) {
-      console.log(`[A2A Client] POST ${url} method=${method}`);
-      const startTime = Date.now();
-      const res = await this.postJson(url, body);
-      console.log(
-        `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
-      );
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        console.log(`[A2A Client] POST ${url} method=${method}`);
+        const startTime = Date.now();
+        const res = await this.postJson(
+          url,
+          body,
+          this.apiKeyAttempts[i],
+          options?.requestTimeoutMs,
+        );
+        console.log(
+          `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
+        );
 
-      if (res.ok) {
-        this.endpointCandidates = [url];
-        return res.json() as Promise<JsonRpcResponse>;
-      }
+        if (res.ok) {
+          const text = await res.text();
+          if (
+            i < this.apiKeyAttempts.length - 1 &&
+            isA2AAuthRejectionResponse(res.status, text)
+          ) {
+            lastError = new Error(
+              `A2A request failed (${res.status}): ${text}`,
+            );
+            continue;
+          }
+          this.endpointCandidates = [url];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          return JSON.parse(text) as JsonRpcResponse;
+        }
 
-      const text = await res.text();
-      lastError = new Error(`A2A request failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) {
-        throw lastError;
+        const text = await res.text();
+        lastError = new Error(`A2A request failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) {
+          throw lastError;
+        }
+        break;
       }
     }
 
     throw lastError ?? new Error("No A2A endpoint candidates available");
   }
 
-  async getAgentCard(): Promise<AgentCard> {
+  async getAgentCard(options?: { timeoutMs?: number }): Promise<AgentCard> {
     const res = await ssrfSafeFetch(
       `${this.baseUrl}/.well-known/agent-card.json`,
-      {},
-      { maxRedirects: 3 },
+      options?.timeoutMs
+        ? { signal: AbortSignal.timeout(options.timeoutMs) }
+        : {},
+      { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
     );
     if (!res.ok) {
       throw new Error(`Failed to fetch agent card (${res.status})`);
@@ -195,6 +296,8 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
+      approvedActions?: A2AApprovedAction[];
       /**
        * If true, ask the server to return the task immediately in `working`
        * state and process the handler in the background. The caller should
@@ -210,6 +313,10 @@ export class A2AClient {
       message,
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.idempotencyKey ? { idempotencyKey: opts.idempotencyKey } : {}),
+      ...(opts?.approvedActions?.length
+        ? { approvedActions: opts.approvedActions }
+        : {}),
       ...(opts?.async ? { async: true } : {}),
     });
 
@@ -225,14 +332,45 @@ export class A2AClient {
   /**
    * Poll for a task by id. Used in async mode after `send({ async: true })`.
    */
-  async getTask(taskId: string): Promise<Task> {
-    const response = await this.rpc("tasks/get", { id: taskId });
+  async getTask(
+    taskId: string,
+    opts?: { requestTimeoutMs?: number },
+  ): Promise<Task> {
+    const response = await this.rpc(
+      "tasks/get",
+      { id: taskId },
+      { requestTimeoutMs: opts?.requestTimeoutMs },
+    );
     if (response.error) {
       throw new Error(
         `A2A error (${response.error.code}): ${response.error.message}`,
       );
     }
     return response.result as Task;
+  }
+
+  /**
+   * Execute one receiver-approved read-only action without starting the
+   * receiver's agent loop. The receiver still owns validation, credentials,
+   * request scoping, and the explicit action exposure decision.
+   */
+  async invokeAction(
+    action: string,
+    input: Record<string, unknown> = {},
+    opts?: { metadata?: A2ACorrelationMetadata },
+  ): Promise<A2AReadOnlyActionResult> {
+    const metadata = sanitizeA2ACorrelationMetadata(opts?.metadata);
+    const response = await this.rpc("actions/invoke", {
+      action,
+      input,
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    });
+    if (response.error) {
+      throw new Error(
+        `A2A error (${response.error.code}): ${response.error.message}`,
+      );
+    }
+    return response.result as A2AReadOnlyActionResult;
   }
 
   /**
@@ -249,6 +387,8 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      idempotencyKey?: string;
+      approvedActions?: A2AApprovedAction[];
       /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
       /** Poll interval. Default 2s. */
@@ -260,10 +400,51 @@ export class A2AClient {
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      idempotencyKey: opts?.idempotencyKey,
+      ...(opts?.approvedActions?.length
+        ? { approvedActions: opts.approvedActions }
+        : {}),
       async: true,
     });
 
-    const terminalStates = new Set(["completed", "failed", "canceled"]);
+    return this.pollTask(submitted, opts);
+  }
+
+  /**
+   * Continue waiting for an existing async task without submitting a second
+   * message. Use this after a bounded caller-side wait expires but the remote
+   * task is still working.
+   */
+  async waitForTask(
+    taskId: string,
+    opts?: {
+      /** Total time to wait for completion. Default 5 min. */
+      timeoutMs?: number;
+      /** Poll interval. Default 2s. */
+      pollIntervalMs?: number;
+      /** Called with each successfully polled task. */
+      onUpdate?: (task: Task) => void;
+    },
+  ): Promise<Task> {
+    const current = await this.getTask(taskId);
+    opts?.onUpdate?.(current);
+    return this.pollTask(current, opts);
+  }
+
+  private async pollTask(
+    submitted: Task,
+    opts?: {
+      timeoutMs?: number;
+      pollIntervalMs?: number;
+      onUpdate?: (task: Task) => void;
+    },
+  ): Promise<Task> {
+    const terminalStates = new Set([
+      "completed",
+      "failed",
+      "canceled",
+      "input-required",
+    ]);
     if (terminalStates.has(submitted.status.state)) return submitted;
 
     const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
@@ -272,9 +453,17 @@ export class A2AClient {
 
     let current = submitted;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, pollMs));
+      const sleepMs = Math.min(pollMs, Math.max(0, deadline - Date.now()));
+      await new Promise((r) => setTimeout(r, sleepMs));
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
       try {
-        current = await this.getTask(submitted.id);
+        current = await this.getTask(submitted.id, {
+          requestTimeoutMs: Math.min(
+            this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
+            remainingMs,
+          ),
+        });
         opts?.onUpdate?.(current);
       } catch {
         // Transient fetch failure — keep polling until the deadline.
@@ -304,14 +493,25 @@ export class A2AClient {
     let res: Response | null = null;
     let lastError: Error | null = null;
     for (const candidate of this.endpointCandidates) {
-      res = await this.postJson(candidate, body);
-      if (res.ok) {
-        this.endpointCandidates = [candidate];
+      for (let i = 0; i < this.apiKeyAttempts.length; i++) {
+        res = await this.postJson(candidate, body, this.apiKeyAttempts[i]);
+        if (res.ok) {
+          this.endpointCandidates = [candidate];
+          this.markApiKeySucceeded(this.apiKeyAttempts[i]);
+          break;
+        }
+        const text = await res.text();
+        lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
+        if (
+          i < this.apiKeyAttempts.length - 1 &&
+          isA2AAuthRejectionResponse(res.status, text)
+        ) {
+          continue;
+        }
+        if (!shouldTryNextEndpoint(res.status)) throw lastError;
         break;
       }
-      const text = await res.text();
-      lastError = new Error(`A2A stream failed (${res.status}): ${text}`);
-      if (!shouldTryNextEndpoint(res.status)) throw lastError;
+      if (res?.ok) break;
     }
     if (!res?.ok) {
       throw lastError ?? new Error("No A2A endpoint candidates available");
@@ -374,24 +574,27 @@ export class A2AClient {
     this.endpointCandidates = unique(candidates);
   }
 
-  private async postJson(url: string, body: JsonRpcRequest): Promise<Response> {
-    const controller = this.requestTimeoutMs
-      ? new AbortController()
-      : undefined;
+  private async postJson(
+    url: string,
+    body: JsonRpcRequest,
+    apiKey = this.apiKey,
+    requestTimeoutMs = this.requestTimeoutMs,
+  ): Promise<Response> {
+    const controller = requestTimeoutMs ? new AbortController() : undefined;
     const timer =
-      controller && this.requestTimeoutMs
-        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
+      controller && requestTimeoutMs
+        ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
       return await ssrfSafeFetch(
         url,
         {
           method: "POST",
-          headers: this.headers(),
+          headers: this.headers(apiKey),
           body: JSON.stringify(body),
           signal: controller?.signal,
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, allowedPrivateOrigins: workspacePrivateOrigins() },
       );
     } finally {
       if (timer) clearTimeout(timer);
@@ -456,6 +659,28 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values));
 }
 
+function uniqueAuthTokens(
+  values: Array<string | undefined>,
+): Array<string | undefined> {
+  const result: Array<string | undefined> = [];
+  for (const value of values) {
+    if (result.includes(value)) continue;
+    result.push(value);
+  }
+  if (result.length === 0) result.push(undefined);
+  return result;
+}
+
+function isA2AAuthRejectionResponse(status: number, text: string): boolean {
+  return (
+    status === 401 ||
+    /verified, audience-bound user identity/i.test(text) ||
+    /A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+      text,
+    )
+  );
+}
+
 /**
  * One-shot convenience function: send a text message and get a text response.
  *
@@ -468,10 +693,24 @@ export async function callAgent(
   text: string,
   opts?: {
     apiKey?: string;
+    /** Additional bearer tokens to try in order after apiKey during rotation. */
+    apiKeyFallbacks?: string[];
+    /** Additional transport metadata. Receivers must not use it as identity. */
+    metadata?: Record<string, unknown>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
+    /** Origin used to build links back to the receiving app. */
+    requestOrigin?: string;
+    /** Exact downstream actions explicitly authorized in the caller's chat. */
+    approvedActions?: A2AApprovedAction[];
+    /** Opaque provenance reference resolved by the receiver through Dispatch. */
+    sourceContext?: A2ASourceContextReference;
+    /** Bounded telemetry-only lineage forwarded to the receiving app. */
+    correlation?: A2ACorrelationMetadata;
+    /** Stable caller-generated key for one message submission. */
+    idempotencyKey?: string;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -480,34 +719,37 @@ export async function callAgent(
     async?: boolean;
     /** Total time to wait for the polled task (default 5 min). */
     timeoutMs?: number;
+    /**
+     * Existing async task to keep polling. When set, no new message is sent.
+     * This prevents a caller-side timeout from duplicating downstream work.
+     */
+    taskId?: string;
     /** Poll interval for async calls. Primarily useful for tests/retries. */
     pollIntervalMs?: number;
+    /**
+     * Return receiver-verified artifact text from the last polled task when
+     * the call times out. Defaults to true for backwards compatibility.
+     * Callers that can continue polling the remote task separately should set
+     * this to false so the A2ATaskTimeoutError (and its taskId) is preserved.
+     */
+    returnRecoverableArtifactsOnTimeout?: boolean;
+    /**
+     * Called with each successfully polled task while an async call is still
+     * in flight (see `A2AClient.sendAndWait`). Fires once per real poll
+     * round-trip that returns a task — including the terminal poll — so
+     * callers can surface genuine remote liveness/progress. Not called when a
+     * poll fetch throws (remote unresponsive) or when the task completes
+     * synchronously on submit. Only threaded through for async calls.
+     */
+    onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
-  let apiKey = opts?.apiKey;
-
-  // Auto-sign with JWT when an A2A secret (org or global) is available and we have a user email
-  if (
-    !apiKey &&
-    opts?.userEmail &&
-    (opts?.orgSecret || process.env.A2A_SECRET)
-  ) {
-    try {
-      apiKey = await signA2AToken(
-        opts.userEmail,
-        opts.orgDomain,
-        opts.orgSecret,
-        { preferGlobalSecret: !opts.orgSecret },
-      );
-    } catch {
-      // Fall back to unsigned call
-    }
-  }
-
-  const client = new A2AClient(url, apiKey);
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = { ...opts?.metadata };
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
+  if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
+  if (opts?.sourceContext) metadata.sourceContext = opts.sourceContext;
+  Object.assign(metadata, sanitizeA2ACorrelationMetadata(opts?.correlation));
 
   // Default to async + poll. The receiving A2A server's `_process-task` route
   // runs the handler in a fresh function execution (cross-platform queue
@@ -520,39 +762,190 @@ export async function callAgent(
     parts: [{ type: "text", text }],
   };
 
-  let task: Task;
-  if (useAsync) {
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(opts);
+  let lastAuthError: unknown;
+
+  for (let i = 0; i < apiKeyAttempts.length; i++) {
     try {
-      task = await client.sendAndWait(message, {
-        contextId: opts?.contextId,
-        metadata,
-        timeoutMs: opts?.timeoutMs,
-        pollIntervalMs: opts?.pollIntervalMs,
+      const fallbackApiKeys = apiKeyAttempts
+        .slice(i + 1)
+        .filter((token): token is string => token !== undefined);
+      const client = new A2AClient(url, apiKeyAttempts[i], {
+        fallbackApiKeys,
       });
+      let task: Task;
+      if (useAsync) {
+        task = opts?.taskId
+          ? await client.waitForTask(opts.taskId, {
+              timeoutMs: opts.timeoutMs,
+              pollIntervalMs: opts.pollIntervalMs,
+              onUpdate: opts.onUpdate,
+            })
+          : await client.sendAndWait(message, {
+              contextId: opts?.contextId,
+              metadata,
+              idempotencyKey: opts?.idempotencyKey,
+              ...(opts?.approvedActions?.length
+                ? { approvedActions: opts.approvedActions }
+                : {}),
+              timeoutMs: opts?.timeoutMs,
+              pollIntervalMs: opts?.pollIntervalMs,
+              onUpdate: opts?.onUpdate,
+            });
+      } else {
+        if (opts?.taskId) {
+          throw new Error("Polling an existing A2A task requires async mode");
+        }
+        task = await client.send(message, {
+          contextId: opts?.contextId,
+          metadata,
+          idempotencyKey: opts?.idempotencyKey,
+          ...(opts?.approvedActions?.length
+            ? { approvedActions: opts.approvedActions }
+            : {}),
+        });
+      }
+
+      // Extract text from the response
+      const responseMessage = task.status.message;
+      if (responseMessage) {
+        const textParts = responseMessage.parts
+          .filter((p): p is { type: "text"; text: string } => p.type === "text")
+          .map((p) => p.text);
+        return textParts.join("\n");
+      }
+
+      return "";
     } catch (err) {
-      if (err instanceof A2ATaskTimeoutError) {
+      if (
+        opts?.returnRecoverableArtifactsOnTimeout !== false &&
+        err instanceof A2ATaskTimeoutError
+      ) {
         const recoverableText = extractRecoverableArtifactText(err.lastTask);
         if (recoverableText) return recoverableText;
       }
+      if (i < apiKeyAttempts.length - 1 && isA2AAuthRejection(err)) {
+        lastAuthError = err;
+        continue;
+      }
       throw err;
     }
-  } else {
-    task = await client.send(message, {
-      contextId: opts?.contextId,
-      metadata,
-    });
   }
 
-  // Extract text from the response
-  const responseMessage = task.status.message;
-  if (responseMessage) {
-    const textParts = responseMessage.parts
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text);
-    return textParts.join("\n");
-  }
-
+  if (lastAuthError) throw lastAuthError;
   return "";
+}
+
+/**
+ * Invoke one receiver-approved read-only action with an audience-bound user
+ * token. Unlike conversational delegation, this never starts the receiver's
+ * model loop.
+ */
+export async function callAction(
+  url: string,
+  action: string,
+  input: Record<string, unknown> = {},
+  opts?: {
+    apiKey?: string;
+    userEmail?: string;
+    orgDomain?: string;
+    orgSecret?: string;
+    requestTimeoutMs?: number;
+    correlation?: A2ACorrelationMetadata;
+  },
+): Promise<A2AReadOnlyActionResult> {
+  const actionName = action.trim();
+  if (!actionName) throw new Error("A2A action name is required");
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("A2A action input must be an object");
+  }
+
+  const apiKeyAttempts = await buildA2AApiKeyAttempts(
+    opts,
+    normalizeA2AAudience(url),
+  );
+  const fallbackApiKeys = apiKeyAttempts
+    .slice(1)
+    .filter((token): token is string => token !== undefined);
+  const client = new A2AClient(url, apiKeyAttempts[0], {
+    fallbackApiKeys,
+    requestTimeoutMs: opts?.requestTimeoutMs,
+  });
+  return client.invokeAction(actionName, input, {
+    metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
+  });
+}
+
+async function buildA2AApiKeyAttempts(
+  opts?: {
+    apiKey?: string;
+    apiKeyFallbacks?: string[];
+    userEmail?: string;
+    orgDomain?: string;
+    orgSecret?: string;
+  },
+  audience?: string,
+): Promise<Array<string | undefined>> {
+  const attempts: Array<string | undefined> = [];
+  const add = (token: string | undefined) => {
+    if (token === undefined || attempts.includes(token)) return;
+    attempts.push(token);
+  };
+
+  add(opts?.apiKey);
+  for (const fallback of opts?.apiKeyFallbacks ?? []) add(fallback);
+
+  if (opts?.userEmail && (opts.orgSecret || process.env.A2A_SECRET)) {
+    if (process.env.A2A_SECRET?.trim()) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: true,
+            audience,
+          }),
+        );
+      } catch {
+        // Keep any explicit token attempt, then fall back below.
+      }
+    }
+
+    if (opts.orgSecret) {
+      try {
+        add(
+          await signA2AToken(opts.userEmail, opts.orgDomain, opts.orgSecret, {
+            preferGlobalSecret: false,
+            audience,
+          }),
+        );
+      } catch {
+        // Fall through to the attempts we already have.
+      }
+    }
+  }
+
+  if (attempts.length === 0) attempts.push(undefined);
+  return attempts;
+}
+
+function normalizeA2AAudience(url: string): string {
+  const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
+  const base = (explicit?.baseUrl ?? url).replace(/\/$/, "");
+  // Receivers derive their expected audience from APP_URL, which carries no
+  // app path. In a workspace every app is mounted under one gateway origin, so
+  // signing the path-qualified URL yields an audience the receiver can never
+  // match. The origin is the identifier both sides agree on.
+  try {
+    return new URL(base).origin;
+  } catch {
+    return base;
+  }
+}
+
+function isA2AAuthRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return /A2A request failed \(401\)|A2A error \(-32001\): (?:Invalid or expired A2A token|Invalid API key|Authentication required)|Invalid or expired A2A token|Invalid API key|Authentication required/i.test(
+    message,
+  );
 }
 
 function extractRecoverableArtifactText(task: Task): string {

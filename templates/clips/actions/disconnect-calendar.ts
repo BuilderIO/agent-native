@@ -9,14 +9,16 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
+import { writeAppState } from "@agent-native/core/application-state";
 import { deleteAppSecret, readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { lockCalendarAccount } from "../server/lib/calendar-event-meetings.js";
 import { revokeToken } from "../server/lib/google-calendar-client.js";
-import { writeAppState } from "@agent-native/core/application-state";
 
 export default defineAction({
   description:
@@ -38,20 +40,26 @@ export default defineAction({
       .where(eq(schema.calendarAccounts.id, args.id));
     if (!account) throw new Error(`Calendar account not found: ${args.id}`);
 
+    // Secrets are scoped by the account's stored owner email (set at connect
+    // time — see server/lib/google-calendar-oauth.ts `secretScopeEmail`), not
+    // the current caller's email. A non-owner admin disconnecting someone
+    // else's account must still hit the right (scope, scopeId, key) row.
+    const secretScopeEmail = account.ownerEmail;
+
     // Best-effort revoke of any live access/refresh tokens.
     try {
       if (account.refreshTokenSecretRef) {
         const ref = await readAppSecret({
           key: account.refreshTokenSecretRef,
           scope: "user",
-          scopeId: userEmail,
+          scopeId: secretScopeEmail,
         });
         if (ref?.value) await revokeToken(ref.value);
       } else if (account.accessTokenSecretRef) {
         const ref = await readAppSecret({
           key: account.accessTokenSecretRef,
           scope: "user",
-          scopeId: userEmail,
+          scopeId: secretScopeEmail,
         });
         if (ref?.value) {
           try {
@@ -72,26 +80,73 @@ export default defineAction({
       await deleteAppSecret({
         key: account.accessTokenSecretRef,
         scope: "user",
-        scopeId: userEmail,
+        scopeId: secretScopeEmail,
       }).catch(() => {});
     }
     if (account.refreshTokenSecretRef) {
       await deleteAppSecret({
         key: account.refreshTokenSecretRef,
         scope: "user",
-        scopeId: userEmail,
+        scopeId: secretScopeEmail,
       }).catch(() => {});
     }
 
-    // Drop the synced events for this account so the meetings tab clears.
-    await db
-      .delete(schema.calendarEvents)
-      .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+    await db.transaction(async (tx) => {
+      // Materialization takes this same account-row write lock before it
+      // snapshots/claims an event and inserts a meeting. Taking it before
+      // this cleanup snapshot prevents a new unrecorded meeting from being
+      // inserted after the rows below have been inspected.
+      if (!(await lockCalendarAccount(tx, args.id, account.ownerEmail))) {
+        throw new Error(`Calendar account not found: ${args.id}`);
+      }
 
-    // Drop the account row itself.
-    await db
-      .delete(schema.calendarAccounts)
-      .where(eq(schema.calendarAccounts.id, args.id));
+      // Preserve recorded meetings, but hide unrecorded calendar placeholders
+      // tied to this account. Without this cleanup, those materialized rows
+      // stay visible after the account and its event cache are removed.
+      const syncedEvents = await tx
+        .select({
+          id: schema.calendarEvents.id,
+          meetingId: schema.calendarEvents.meetingId,
+        })
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+      const syncedCalendarEventIds = syncedEvents.map((event) => event.id);
+      const syncedMeetingIds = syncedEvents
+        .map((event) => event.meetingId)
+        .filter((meetingId): meetingId is string => Boolean(meetingId));
+      if (syncedCalendarEventIds.length > 0 || syncedMeetingIds.length > 0) {
+        await tx
+          .update(schema.meetings)
+          .set({ trashedAt: new Date().toISOString() })
+          .where(
+            and(
+              or(
+                syncedMeetingIds.length > 0
+                  ? inArray(schema.meetings.id, syncedMeetingIds)
+                  : undefined,
+                syncedCalendarEventIds.length > 0
+                  ? inArray(
+                      schema.meetings.calendarEventId,
+                      syncedCalendarEventIds,
+                    )
+                  : undefined,
+              )!,
+              isNull(schema.meetings.recordingId),
+              isNull(schema.meetings.trashedAt),
+            ),
+          );
+      }
+
+      // Drop the synced events for this account so the meetings tab clears.
+      await tx
+        .delete(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+
+      // Drop the account row itself.
+      await tx
+        .delete(schema.calendarAccounts)
+        .where(eq(schema.calendarAccounts.id, args.id));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { id: args.id, disconnected: true };

@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
 import {
   BlockRegistry,
   serializeSpecBlock,
   introspect,
 } from "@agent-native/core/blocks/server";
+import { describe, expect, it } from "vitest";
+
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {
@@ -28,6 +29,8 @@ const htmlDiagramData = {
   html: '<div class="diagram-panel"><svg viewBox="0 0 100 40"><path d="M5 20 L95 20" /></svg></div>',
   css: ".diagram-panel { padding: 12px; }",
   caption: "The policy module owns the unstable branch.",
+  frame: "hide" as const,
+  renderMode: "design" as const,
 };
 
 function diagramContent(): PlanContent {
@@ -118,6 +121,8 @@ describe("plan block registry — diagram", () => {
     });
 
     expect(folder["plan.mdx"]).toContain("<Diagram");
+    expect(folder["plan.mdx"]).toContain('frame="hide"');
+    expect(folder["plan.mdx"]).toContain('renderMode="design"');
     expect(folder["plan.mdx"]).toContain("diagram-panel");
     expect(folder["plan.mdx"]).toContain("<svg");
 

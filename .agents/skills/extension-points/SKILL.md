@@ -195,9 +195,12 @@ the `slot-installs` query and the host re-renders without the iframe.
 - **Not a slot manifest.** Slot targets live in the `tool_slots` table
   (Drizzle export `extensionSlots`), not in the extension's HTML content.
   The agent can re-target an extension without rewriting it.
-- **Not for arbitrary code modification.** If a user wants to change how
-  the app itself behaves (not add a sandboxed widget), use the
-  `self-modifying-code` skill instead.
+- **Not for arbitrary code modification.** If the exact request needs UI inside
+  a native component or at a location with no slot, do not stop at "slots
+  cannot do that" or silently move it elsewhere. Treat it as full app
+  customization: use `connect-builder` for the Builder.io Cloud Agent/local
+  editing handoff in hosted chat, or follow `self-modifying-code` in a local
+  code-editing surface.
 
 ## Cross-references
 

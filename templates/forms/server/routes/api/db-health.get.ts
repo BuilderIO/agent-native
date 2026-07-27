@@ -1,5 +1,6 @@
-import { defineEventHandler } from "h3";
 import { sql } from "drizzle-orm";
+import { defineEventHandler } from "h3";
+
 import { getDb } from "../../db/index.js";
 
 export default defineEventHandler(async () => {

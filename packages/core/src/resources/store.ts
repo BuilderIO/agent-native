@@ -1,3 +1,5 @@
+import crypto from "crypto";
+
 import {
   getDbExec,
   isPostgres,
@@ -5,19 +7,64 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
-import { emitResourceChange, emitResourceDelete } from "./emitter.js";
-import type { StoreWriteOptions } from "../settings/store.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
+import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import {
+  canUseLocalWorkspaceResourcePath,
+  deleteLocalWorkspaceResource,
+  isLocalWorkspaceResourceId,
+  isLocalWorkspaceResourcesEnabled,
+  listLocalWorkspaceResources,
+  localWorkspaceResourcePathFromId,
+  readLocalWorkspaceResource,
+  writeLocalWorkspaceResource,
+  type LocalWorkspaceResourceFile,
+  type LocalWorkspaceResourceMeta,
+} from "../local-artifacts/index.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import crypto from "crypto";
+import type { StoreWriteOptions } from "../settings/store.js";
+import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
+const ORGANIZATION_OWNER_PREFIX = "__organization__:";
+
+/**
+ * Encode an organization id into the existing resource owner key. This keeps
+ * organization resources isolated without a destructive resources-table
+ * migration, while preserving the legacy `__shared__` owner as the app-wide
+ * default/fallback used by older deployments and solo mode.
+ */
+export function organizationResourceOwner(orgId: string): string {
+  const normalized = orgId.trim();
+  if (!normalized) {
+    throw new Error("organizationResourceOwner requires a non-empty orgId");
+  }
+  return `${ORGANIZATION_OWNER_PREFIX}${encodeURIComponent(normalized)}`;
+}
+
+export function organizationIdFromResourceOwner(owner: string): string | null {
+  if (!owner.startsWith(ORGANIZATION_OWNER_PREFIX)) return null;
+  const encoded = owner.slice(ORGANIZATION_OWNER_PREFIX.length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+}
+
+/** Active organization scope, with the legacy app-shared owner as solo fallback. */
+export function sharedResourceOwner(orgId?: string | null): string {
+  const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
+  return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
+}
 
 function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+  return value.replace(/[!%_]/g, (char) => `!${char}`);
 }
 
 function prefixLike(value: string): string {
@@ -112,6 +159,8 @@ const RESOURCE_META_SELECT =
 const DISPATCH_WORKSPACE_RESOURCE_ID_PREFIX = "dispatch-workspace-resource:";
 const DISPATCH_WORKSPACE_RESOURCE_METADATA_SOURCE =
   "dispatch-workspace-resource";
+export const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE =
+  "local-workspace-resource";
 
 const DEFAULT_LEARNINGS_SHARED_MD = `# Learnings
 
@@ -125,6 +174,31 @@ Keep this file tidy — revise, consolidate, and remove outdated entries. Don't 
 
 ## Patterns
 `;
+
+/**
+ * Read the project-root learnings seed file for the shared LEARNINGS.md
+ * resource. Prefers `learnings.md` (scaffolded by `create.ts`, possibly
+ * customized locally), then the checked-in `learnings.defaults.md` — the
+ * scaffolded copy is gitignored, so production deploys built from git only
+ * carry the defaults file. Returns null when neither file is present, both
+ * are empty, or fs is unavailable (e.g. edge runtimes) so seeding falls back
+ * to the built-in default. Only consulted on first insert (INSERT OR IGNORE),
+ * so an existing LEARNINGS.md resource is never overwritten.
+ */
+async function readProjectRootLearningsSeed(): Promise<string | null> {
+  try {
+    const [fs, path] = await Promise.all([import("fs"), import("path")]);
+    for (const name of ["learnings.md", "learnings.defaults.md"]) {
+      const filePath = path.resolve(process.cwd(), name);
+      if (!fs.existsSync(filePath)) continue;
+      const content = fs.readFileSync(filePath, "utf-8");
+      if (content.trim()) return content;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 const DEFAULT_LEARNINGS_PERSONAL_MD = `# My Learnings
 
@@ -467,6 +541,119 @@ function rowToGrantedWorkspaceResource(row: any): Resource {
   };
 }
 
+function localResourceTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function localWorkspaceResourceMetadata(
+  resource: LocalWorkspaceResourceMeta,
+): string {
+  return JSON.stringify({
+    source: LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE,
+    absolutePath: resource.absolutePath,
+    hash: resource.hash,
+    mtimeMs: resource.mtimeMs,
+  });
+}
+
+function localWorkspaceResourceToResource(
+  resource: LocalWorkspaceResourceFile,
+): Resource {
+  return {
+    id: resource.id,
+    path: resource.path,
+    owner: WORKSPACE_OWNER,
+    content: resource.content,
+    mimeType: resource.mimeType,
+    size: resource.sizeBytes,
+    createdAt: localResourceTimestamp(resource.createdAt),
+    updatedAt: localResourceTimestamp(resource.updatedAt),
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: localWorkspaceResourceMetadata(resource),
+  };
+}
+
+function localWorkspaceResourceToMeta(
+  resource: LocalWorkspaceResourceMeta,
+): ResourceMeta {
+  return {
+    id: resource.id,
+    path: resource.path,
+    owner: WORKSPACE_OWNER,
+    mimeType: resource.mimeType,
+    size: resource.sizeBytes,
+    createdAt: localResourceTimestamp(resource.createdAt),
+    updatedAt: localResourceTimestamp(resource.updatedAt),
+    createdBy: "system",
+    visibility: "workspace",
+    threadId: null,
+    runId: null,
+    expiresAt: null,
+    metadata: localWorkspaceResourceMetadata(resource),
+  };
+}
+
+async function localWorkspaceResourceById(
+  id: string,
+): Promise<Resource | null> {
+  const resourcePath = localWorkspaceResourcePathFromId(id);
+  if (!resourcePath) return null;
+  const resource = await readLocalWorkspaceResource({ path: resourcePath });
+  return resource ? localWorkspaceResourceToResource(resource) : null;
+}
+
+async function localWorkspaceResourceByPath(
+  resourcePath: string,
+): Promise<Resource | null> {
+  if (!canUseLocalWorkspaceResourcePath(resourcePath)) return null;
+  const resource = await readLocalWorkspaceResource({ path: resourcePath });
+  return resource ? localWorkspaceResourceToResource(resource) : null;
+}
+
+async function localWorkspaceResourceMetas(
+  pathPrefix?: string,
+): Promise<ResourceMeta[]> {
+  const resources = (await listLocalWorkspaceResources()).map(
+    localWorkspaceResourceToMeta,
+  );
+  if (!pathPrefix) return resources;
+  return resources.filter((resource) => resource.path.startsWith(pathPrefix));
+}
+
+export async function canWriteLocalWorkspaceResourcePath(
+  resourcePath: string,
+): Promise<boolean> {
+  return (
+    canUseLocalWorkspaceResourcePath(resourcePath) &&
+    (await isLocalWorkspaceResourcesEnabled())
+  );
+}
+
+async function shouldHandleWorkspaceResourceAsLocal(resourcePath: string) {
+  return (
+    (await isLocalWorkspaceResourcesEnabled()) &&
+    canUseLocalWorkspaceResourcePath(resourcePath)
+  );
+}
+
+async function assertWritableWorkspaceResourcePath(resourcePath: string) {
+  if (
+    (await isLocalWorkspaceResourcesEnabled()) &&
+    !canUseLocalWorkspaceResourcePath(resourcePath)
+  ) {
+    throw new Error(
+      "Workspace resources in local file mode must be AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, or under skills/.",
+    );
+  }
+}
+
+export { isLocalWorkspaceResourceId };
+
 function mergeResourceMetas(
   primary: ResourceMeta[],
   inherited: ResourceMeta[],
@@ -505,7 +692,7 @@ async function selectGrantedWorkspaceResourceRows(input: {
     args.push(input.path);
   }
   if (input.pathPrefix) {
-    conditions.push("wr.path LIKE ? ESCAPE '\\'");
+    conditions.push("wr.path LIKE ? ESCAPE '!'");
     args.push(prefixLike(input.pathPrefix));
   }
 
@@ -622,37 +809,80 @@ async function ensureTable(): Promise<void> {
 
 async function _doEnsureTable(): Promise<void> {
   const client = getDbExec();
-  await retryOnDdlRace(() =>
-    client.execute(`
-      CREATE TABLE IF NOT EXISTS resources (
-        id TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        mime_type TEXT NOT NULL DEFAULT 'text/markdown',
-        size ${intType()} NOT NULL DEFAULT 0,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL,
-        created_by TEXT NOT NULL DEFAULT 'user',
-        visibility TEXT NOT NULL DEFAULT 'workspace',
-        thread_id TEXT,
-        run_id TEXT,
-        expires_at ${intType()},
-        metadata TEXT,
-        UNIQUE(path, owner)
-      )
-    `),
-  );
+  const createSql = `
+    CREATE TABLE IF NOT EXISTS resources (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      mime_type TEXT NOT NULL DEFAULT 'text/markdown',
+      size ${intType()} NOT NULL DEFAULT 0,
+      created_at ${intType()} NOT NULL,
+      updated_at ${intType()} NOT NULL,
+      created_by TEXT NOT NULL DEFAULT 'user',
+      visibility TEXT NOT NULL DEFAULT 'workspace',
+      thread_id TEXT,
+      run_id TEXT,
+      expires_at ${intType()},
+      metadata TEXT,
+      UNIQUE(path, owner)
+    )
+  `;
 
-  await ensureResourceColumn(client, "created_by TEXT NOT NULL DEFAULT 'user'");
-  await ensureResourceColumn(
-    client,
-    "visibility TEXT NOT NULL DEFAULT 'workspace'",
-  );
-  await ensureResourceColumn(client, "thread_id TEXT");
-  await ensureResourceColumn(client, "run_id TEXT");
-  await ensureResourceColumn(client, `expires_at ${intType()}`);
-  await ensureResourceColumn(client, "metadata TEXT");
+  if (isPostgres()) {
+    // Hot path: the `resources` table and its additive columns are virtually
+    // always already present in production. Issuing `CREATE TABLE`/`ALTER
+    // TABLE` still takes an ACCESS EXCLUSIVE lock that, in a fresh
+    // background-worker process behind a concurrent connection on the shared
+    // Neon DB, can block ~indefinitely. The ensure* wrappers probe
+    // `information_schema` first (plain reads, no lock) and run DDL ONLY for
+    // what is actually missing, bounded by a transaction-scoped `lock_timeout`.
+    // If a swallowed lock-timeout leaves the schema still missing they RE-PROBE
+    // and THROW rather than letting init memoize success against absent schema.
+    await ensureTableExists("resources", createSql);
+    // Additive columns — guarded so the hot path (columns already present)
+    // skips the ACCESS EXCLUSIVE ALTER entirely.
+    const pgColumns: Array<[string, string]> = [
+      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+      ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
+      ["thread_id", "TEXT"],
+      ["run_id", "TEXT"],
+      ["expires_at", intType()],
+      ["metadata", "TEXT"],
+    ];
+    for (const [col, def] of pgColumns) {
+      await ensureColumnExists(
+        "resources",
+        col,
+        `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+      );
+    }
+  } else {
+    // SQLite (local dev): no lock problem — keep the original behaviour using
+    // `retryOnDdlRace` + `ensureResourceColumn` (duplicate-column catch).
+    await retryOnDdlRace(() => client.execute(createSql));
+    await ensureResourceColumn(
+      client,
+      "created_by TEXT NOT NULL DEFAULT 'user'",
+    );
+    await ensureResourceColumn(
+      client,
+      "visibility TEXT NOT NULL DEFAULT 'workspace'",
+    );
+    await ensureResourceColumn(client, "thread_id TEXT");
+    await ensureResourceColumn(client, "run_id TEXT");
+    await ensureResourceColumn(client, `expires_at ${intType()}`);
+    await ensureResourceColumn(client, "metadata TEXT");
+  }
+
+  // Older deployments have 32-bit timestamp columns; on Postgres the
+  // `Date.now()` written on insert/update overflows int4. Widen in place
+  // (no-op once done / on fresh DBs).
+  await widenIntColumnsToBigInt("resources", [
+    "created_at",
+    "updated_at",
+    "expires_at",
+  ]);
 
   // Seed default shared resources if they don't exist (INSERT OR IGNORE to avoid race conditions)
   const now = Date.now();
@@ -676,15 +906,21 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // LEARNINGS.md — shared learnings (preferences, corrections, patterns)
-  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_SHARED_MD, "utf8");
+  // LEARNINGS.md — shared learnings (preferences, corrections, patterns).
+  // Prefer the project-root learnings.md (scaffolded from the template's
+  // learnings.defaults.md) so template-authored defaults reach the prompt
+  // without a manual migrate-learnings step. INSERT OR IGNORE means this only
+  // applies on first seed — existing LEARNINGS.md content is never overwritten.
+  const learningsSeedContent =
+    (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
       "LEARNINGS.md",
       SHARED_OWNER,
-      DEFAULT_LEARNINGS_SHARED_MD,
+      learningsSeedContent,
       "text/markdown",
       learningsSize,
       now,
@@ -940,6 +1176,9 @@ export async function resourceGet(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
+  if (isLocalWorkspaceResourceId(id)) {
+    return localWorkspaceResourceById(id);
+  }
   const client = getDbExec();
   await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
@@ -956,6 +1195,10 @@ export async function resourceGetByPath(
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
   await ensureTable();
+  if (owner === WORKSPACE_OWNER) {
+    const local = await localWorkspaceResourceByPath(path);
+    if (local) return local;
+  }
   const client = getDbExec();
   await cleanupExpiredAgentScratchResources(client);
   const { rows } = await client.execute({
@@ -977,6 +1220,26 @@ export async function resourcePut(
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
   await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(path))
+  ) {
+    const written = await writeLocalWorkspaceResource({ path, content });
+    const resource = localWorkspaceResourceToResource({
+      ...written,
+      content,
+    });
+    emitResourceChange(
+      resource.id,
+      resource.path,
+      resource.owner,
+      options?.requestSource,
+    );
+    return resource;
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
+  }
   const client = getDbExec();
   const now = Date.now();
   const size = Buffer.byteLength(content, "utf8");
@@ -1078,6 +1341,15 @@ export async function resourcePut(
 
 export async function resourceDelete(id: string): Promise<boolean> {
   await ensureTable();
+  if (isLocalWorkspaceResourceId(id)) {
+    const resourcePath = localWorkspaceResourcePathFromId(id);
+    if (!resourcePath) return false;
+    const deleted = await deleteLocalWorkspaceResource({ path: resourcePath });
+    if (deleted) {
+      emitResourceDelete(id, resourcePath, WORKSPACE_OWNER);
+    }
+    return deleted;
+  }
   const client = getDbExec();
 
   // Get resource info for emitter before deleting
@@ -1103,6 +1375,20 @@ export async function resourceDeleteByPath(
   path: string,
 ): Promise<boolean> {
   await ensureTable();
+  if (
+    owner === WORKSPACE_OWNER &&
+    (await shouldHandleWorkspaceResourceAsLocal(path))
+  ) {
+    const existing = await localWorkspaceResourceByPath(path);
+    const deleted = await deleteLocalWorkspaceResource({ path });
+    if (deleted) {
+      emitResourceDelete(existing?.id ?? "", path, WORKSPACE_OWNER);
+      return true;
+    }
+  }
+  if (owner === WORKSPACE_OWNER) {
+    await assertWritableWorkspaceResourcePath(path);
+  }
   const client = getDbExec();
 
   // Get resource info for emitter before deleting
@@ -1135,18 +1421,22 @@ export async function resourceList(
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
       args: [owner, prefixLike(pathPrefix)],
     });
     const resources = rows.map(rowToMeta);
     if (owner !== WORKSPACE_OWNER) return resources;
+    const local = await localWorkspaceResourceMetas(pathPrefix);
     const granted = await grantedWorkspaceResources({
       pathPrefix,
       workspaceAppId: options?.workspaceAppId,
       userEmail: options?.userEmail,
       orgId: options?.orgId,
     });
-    return mergeResourceMetas(resources, granted.map(resourceToMeta));
+    return mergeResourceMetas(
+      local,
+      mergeResourceMetas(resources, granted.map(resourceToMeta)),
+    );
   }
 
   const { rows } = await client.execute({
@@ -1155,12 +1445,16 @@ export async function resourceList(
   });
   const resources = rows.map(rowToMeta);
   if (owner !== WORKSPACE_OWNER) return resources;
+  const local = await localWorkspaceResourceMetas();
   const granted = await grantedWorkspaceResources({
     workspaceAppId: options?.workspaceAppId,
     userEmail: options?.userEmail,
     orgId: options?.orgId,
   });
-  return mergeResourceMetas(resources, granted.map(resourceToMeta));
+  return mergeResourceMetas(
+    local,
+    mergeResourceMetas(resources, granted.map(resourceToMeta)),
+  );
 }
 
 export async function resourceListAccessible(
@@ -1168,52 +1462,29 @@ export async function resourceListAccessible(
   pathPrefix?: string,
   options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
-  await ensureTable();
-  const client = getDbExec();
-  await cleanupExpiredAgentScratchResources(client);
-  const visibilitySql = scratchFilterSql(options);
-
-  if (pathPrefix) {
-    const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
-            UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
-            UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
-      args: [
-        userEmail,
-        prefixLike(pathPrefix),
-        SHARED_OWNER,
-        prefixLike(pathPrefix),
-        WORKSPACE_OWNER,
-        prefixLike(pathPrefix),
-      ],
-    });
-    const resources = rows.map(rowToMeta);
-    const granted = await grantedWorkspaceResources({
-      pathPrefix,
-      workspaceAppId: options?.workspaceAppId,
+  const organizationOwner = sharedResourceOwner(options?.orgId);
+  const [personal, organization, legacyShared, workspace] = await Promise.all([
+    resourceList(userEmail, pathPrefix, options),
+    organizationOwner === SHARED_OWNER
+      ? Promise.resolve([])
+      : resourceList(organizationOwner, pathPrefix, options),
+    resourceList(SHARED_OWNER, pathPrefix, options),
+    resourceList(WORKSPACE_OWNER, pathPrefix, {
+      ...options,
       userEmail,
-      orgId: options?.orgId,
-    });
-    return mergeResourceMetas(resources, granted.map(resourceToMeta));
-  }
+    }),
+  ]);
 
-  const { rows } = await client.execute({
-    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
-          UNION
-          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
-          UNION
-          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-    args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
-  });
-  const resources = rows.map(rowToMeta);
-  const granted = await grantedWorkspaceResources({
-    workspaceAppId: options?.workspaceAppId,
-    userEmail,
-    orgId: options?.orgId,
-  });
-  return mergeResourceMetas(resources, granted.map(resourceToMeta));
+  // Later layers are inherited fallbacks. A personal resource wins over an
+  // organization resource, which wins over the legacy app-shared default,
+  // which wins over the workspace default.
+  return mergeResourceMetas(
+    personal,
+    mergeResourceMetas(
+      organization,
+      mergeResourceMetas(legacyShared, workspace),
+    ),
+  );
 }
 
 export async function resourceEffectiveContext(
@@ -1227,7 +1498,13 @@ export async function resourceEffectiveContext(
     ...options,
     userEmail,
   });
-  const shared = await resourceGetByPath(SHARED_OWNER, path);
+  const organizationOwner = sharedResourceOwner(options?.orgId);
+  const organization =
+    organizationOwner === SHARED_OWNER
+      ? null
+      : await resourceGetByPath(organizationOwner, path);
+  const legacyShared = await resourceGetByPath(SHARED_OWNER, path);
+  const shared = organization ?? legacyShared;
   const personal = await resourceGetByPath(userEmail, path);
   const effective = personal ?? shared ?? workspace ?? null;
   const effectiveScope: ResourceInheritanceScope | null = personal
@@ -1250,12 +1527,12 @@ export async function resourceEffectiveContext(
       label: "Workspace default",
       owner: WORKSPACE_OWNER,
       resource: workspace,
-      canWrite: false,
+      canWrite: workspace ? isLocalWorkspaceResourceId(workspace.id) : false,
     },
     {
       scope: "shared",
       label: "Organization/app override",
-      owner: SHARED_OWNER,
+      owner: organizationOwner,
       resource: shared,
       canWrite: true,
     },
@@ -1295,10 +1572,23 @@ export async function resourceListAllOwners(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '\\'`,
+    sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
-  return rows.map(rowToResource);
+  const localResources = (
+    await Promise.all(
+      (
+        await localWorkspaceResourceMetas(pathPrefix)
+      ).map((resource) => resourceGet(resource.id)),
+    )
+  ).filter((resource): resource is Resource => !!resource);
+  const localPaths = new Set(localResources.map((resource) => resource.path));
+  return [
+    ...localResources,
+    ...rows
+      .map(rowToResource)
+      .filter((resource) => !localPaths.has(resource.path)),
+  ];
 }
 
 export async function resourceMove(

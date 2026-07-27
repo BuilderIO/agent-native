@@ -1,15 +1,17 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconDots,
   IconTrash,
   IconCopy,
   IconPencil,
   IconPalette,
+  IconPlus,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
-import type { Deck } from "@/context/DeckContext";
-import SlideRenderer from "./SlideRenderer";
-import { VisibilityBadge } from "@agent-native/core/client";
+import { Link } from "react-router";
+
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -17,6 +19,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import type { Deck } from "@/context/DeckContext";
+
+import SlideRenderer from "./SlideRenderer";
 
 interface DeckCardProps {
   deck: Deck;
@@ -35,10 +40,12 @@ export default function DeckCard({
   isDuplicating = false,
   designSystemTitle,
 }: DeckCardProps) {
+  const t = useT();
   const firstSlide = deck.slides?.[0];
   const [isRenaming, setIsRenaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(deck.title);
+  const [contextOpen, setContextOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pendingRenameRef = useRef(false);
 
@@ -122,12 +129,12 @@ export default function DeckCard({
             )}
             <VisibilityBadge visibility={deck.visibility} />
           </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-            <span>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <span className="shrink-0 whitespace-nowrap">
               {deck.slides.length} slide{deck.slides.length !== 1 ? "s" : ""}
             </span>
             {deck.designSystemId && (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
+              <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/80">
                 <IconPalette className="h-3 w-3 shrink-0 text-[#609FF8]" />
                 <span className="max-w-28 truncate">
                   {designSystemTitle || "Design system"}
@@ -139,7 +146,7 @@ export default function DeckCard({
       </Link>
 
       {/* Menu Button - always visible on touch devices */}
-      <div className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100">
+      <div className="absolute top-2 end-2 sm:opacity-0 sm:group-hover:opacity-100">
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -148,7 +155,7 @@ export default function DeckCard({
                 e.stopPropagation();
               }}
               className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
-              aria-label="Deck options"
+              aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />
             </button>
@@ -170,7 +177,7 @@ export default function DeckCard({
                 startRename();
               }}
             >
-              <IconPencil className="w-3.5 h-3.5 mr-2" />
+              <IconPencil className="w-3.5 h-3.5 me-2" />
               Rename
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -182,8 +189,18 @@ export default function DeckCard({
               }}
               disabled={isDuplicating}
             >
-              <IconCopy className="w-3.5 h-3.5 mr-2" />
+              <IconCopy className="w-3.5 h-3.5 me-2" />
               {isDuplicating ? "Duplicating..." : "Duplicate"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                setContextOpen(true);
+              }}
+            >
+              <IconPlus className="w-3.5 h-3.5 me-2" />
+              {t("creativeContext.addToContext" /* i18n-key-ignore */)}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -194,12 +211,26 @@ export default function DeckCard({
               }}
               className="text-red-400 focus:text-red-400"
             >
-              <IconTrash className="w-3.5 h-3.5 mr-2" />
+              <IconTrash className="w-3.5 h-3.5 me-2" />
               Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "slides",
+          resourceType: "deck",
+          resourceId: deck.id,
+          title: deck.title,
+          updatedAt: deck.updatedAt,
+          visibility: deck.visibility,
+          preview: { kind: "document", label: "Deck" },
+        }}
+        canManage={deck.createdByMe}
+      />
     </div>
   );
 }

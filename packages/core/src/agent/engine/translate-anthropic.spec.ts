@@ -1,4 +1,7 @@
+import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect } from "vitest";
+
+import { dbExecToolParameters } from "../../scripts/db/tool-schemas.js";
 import {
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
@@ -29,6 +32,83 @@ describe("engineToolsToAnthropic", () => {
     expect(result[0].name).toBe("my-tool");
     expect(result[0].description).toBe("Does something");
     expect(result[0].input_schema.properties).toHaveProperty("msg");
+  });
+
+  it("removes top-level combinators Anthropic rejects from tool schemas", () => {
+    const inputSchema: EngineTool["inputSchema"] = {
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+      allOf: [{ required: ["maybe"] }],
+    };
+
+    const result = engineToolsToAnthropic([
+      {
+        name: "write",
+        description: "Write SQL",
+        inputSchema,
+      },
+    ]);
+
+    expect(result[0].input_schema).toMatchObject({
+      type: "object",
+      properties: {
+        sql: { type: "string" },
+        statements: { type: "string" },
+        maybe: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+        },
+      },
+    });
+    expect(result[0].input_schema).not.toHaveProperty("oneOf");
+    expect(result[0].input_schema).not.toHaveProperty("allOf");
+    expect(inputSchema).toHaveProperty("oneOf");
+    expect(inputSchema).toHaveProperty("allOf");
+  });
+
+  it("narrows db-exec to statements for Anthropic compatibility", () => {
+    const inputSchema = dbExecToolParameters() as EngineTool["inputSchema"];
+    const result = engineToolsToAnthropic([
+      {
+        name: "db-exec",
+        description: "Write SQL",
+        inputSchema,
+      },
+    ]);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const validate = new Ajv2020({ strict: false, allErrors: true }).compile(
+      schema,
+    );
+
+    expect(schema).not.toHaveProperty("oneOf");
+    expect(schema).toMatchObject({
+      type: "object",
+      required: ["statements"],
+      additionalProperties: false,
+      properties: {
+        statements: {
+          type: "string",
+          description: expect.stringContaining("single write"),
+        },
+      },
+    });
+    expect(schema.properties).not.toHaveProperty("sql");
+    expect(schema.properties).not.toHaveProperty("args");
+    expect(validate({})).toBe(false);
+    expect(validate({ sql: "UPDATE notes SET title = ?" })).toBe(false);
+    expect(validate({ format: "json" })).toBe(false);
+    expect(validate({ statements: "[]" })).toBe(true);
+    expect(
+      validate({ sql: "UPDATE notes SET title = ?", statements: "[]" }),
+    ).toBe(false);
+    expect(inputSchema).toHaveProperty("oneOf");
+    expect(inputSchema.properties).toHaveProperty("sql");
   });
 });
 
@@ -290,6 +370,122 @@ describe("engineMessagesToAnthropic", () => {
         /\(Omitted unmatched tool results from replayed history\.\) \[tool_use_id=ghost\] orphan/,
       ),
     });
+  });
+});
+
+describe("tool-result images", () => {
+  const withImages = (
+    images: import("./types.js").EngineToolResultImagePart[] | undefined,
+    extra?: Partial<
+      Extract<import("./types.js").EngineContentPart, { type: "tool-result" }>
+    >,
+  ): EngineMessage[] => [
+    { role: "user", content: [{ type: "text", text: "go" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "tool-call", id: "tc-1", name: "screenshot", input: {} },
+      ],
+    },
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc-1",
+          toolName: "screenshot",
+          toolInput: "{}",
+          content: "Captured the dashboard",
+          ...(images ? { images } : {}),
+          ...extra,
+        },
+      ],
+    },
+  ];
+
+  it("emits a text + image content array for url images on the native API", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toEqual([
+      { type: "text", text: "Captured the dashboard" },
+      {
+        type: "image",
+        source: { type: "url", url: "https://cdn.example.com/shot.png" },
+      },
+    ]);
+  });
+
+  it("emits base64 image blocks with media_type on the native API", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ data: "aGVsbG8=", mediaType: "image/png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content[1]).toEqual({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: "aGVsbG8=" },
+    });
+  });
+
+  it("keeps plain string content when there are no images", () => {
+    const result = engineMessagesToAnthropic(withImages(undefined));
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("keeps plain string content when image entries are malformed", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ label: "no url or data" } as any]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("keeps plain string content for error results even with images", () => {
+    const result = engineMessagesToAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }], {
+        isError: true,
+      }),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+    expect(tr.is_error).toBe(true);
+  });
+
+  it("degrades to string content on the Builder gateway path", () => {
+    const result = engineMessagesToBuilderGatewayAnthropic(
+      withImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    const tr = (result[2].content as any[]).find(
+      (p: any) => p.type === "tool_result",
+    );
+    expect(tr.content).toBe("Captured the dashboard");
+  });
+
+  it("preserves images through the tool-result backfill", () => {
+    const messages = withImages([
+      { url: "https://cdn.example.com/shot.png", label: "tab" },
+    ]);
+    // Blank the toolName so the backfill rebuilds the part.
+    (messages[2].content[0] as any).toolName = "";
+    (messages[2].content[0] as any).toolInput = "";
+    const filled = backfillEngineMessagesToolResults(messages);
+    const tr = (filled[2] as any).content[0];
+    expect(tr.toolName).toBe("screenshot");
+    expect(tr.images).toEqual([
+      { url: "https://cdn.example.com/shot.png", label: "tab" },
+    ]);
   });
 });
 

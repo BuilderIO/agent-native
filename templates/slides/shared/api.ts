@@ -23,7 +23,7 @@ export interface ImageGenRequest {
 }
 
 export interface ImageGenResponse {
-  url: string; // data URL of generated image
+  url: string; // Hosted URL of generated image
   model: string;
   prompt: string;
 }

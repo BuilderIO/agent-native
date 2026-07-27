@@ -1,49 +1,77 @@
-import { useParams, redirect, type LoaderFunctionArgs } from "react-router";
+import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
+
+import DocContent from "../components/DocContent";
+import { getDoc, type DocEntry } from "../components/docs-content";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsPathForSlug,
+  isDocsLocale,
+} from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
-import MarkdownRenderer from "../components/MarkdownRenderer";
-import { getDoc } from "../components/docs-content";
-import { withDefaultSocialImage } from "../seo";
+import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
 /** Legacy slug → current slug. Keep in sync with any renames in content/. */
 const SLUG_REDIRECTS: Record<string, string> = {
-  resources: "workspace",
+  "core-philosophy": "key-concepts",
+  "database-adapters": "deployment",
+  resources: "agent-resources",
   secrets: "security",
+  workspace: "agent-resources",
   // Plans docs consolidated into the single template-plan page.
   "visual-plans": "template-plan",
+  // Toolkit -ui pages merged into their parent kit doc.
+  "toolkit-app-adapters": "toolkit-ui",
+  "toolkit-shell-hooks": "toolkit-ui",
+  "toolkit-collaboration-ui": "toolkit-collaboration",
+  "toolkit-sharing-ui": "toolkit-sharing",
+  // Migration workbench folded into the code-agents-ui /migrate section.
+  "migration-workbench": "code-agents-ui",
 };
 
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
+  if (isDocsLocale(slug)) {
+    throw redirect(docsPathForSlug("getting-started", slug), 302);
+  }
+
   const target = SLUG_REDIRECTS[slug];
   if (target) {
-    throw redirect(`/docs/${target}`, 301);
+    throw redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301);
   }
-  if (!getDoc(slug)) {
+  const doc = getDoc(slug);
+  if (!doc) {
     throw new Response("Not Found", { status: 404 });
   }
-  return null;
+  return doc;
 }
 
-export const meta = ({ params }: { params: { slug: string } }) => {
-  const doc = getDoc(params.slug);
+export const meta = ({
+  data,
+  loaderData,
+  params,
+}: {
+  data?: DocEntry;
+  loaderData?: DocEntry;
+  params: { slug: string };
+}) => {
+  const doc = data ?? loaderData ?? getDoc(params.slug);
   if (!doc)
     return withDefaultSocialImage([{ title: "Not Found — Agent-Native" }]);
-  return withDefaultSocialImage([
-    { title: `${doc.title} — Agent-Native` },
-    { name: "description", content: doc.description },
-    { property: "og:title", content: `${doc.title} — Agent-Native` },
-    { property: "og:description", content: doc.description },
-    { property: "og:type", content: "article" },
-  ]);
+  return withDocsSocialImage(
+    [
+      { title: `${doc.title} — Agent-Native` },
+      { name: "description", content: doc.description },
+      { property: "og:title", content: `${doc.title} — Agent-Native` },
+      { property: "og:description", content: doc.description },
+      { property: "og:type", content: "article" },
+    ],
+    doc.title,
+  );
 };
 
 export default function DocPage() {
-  const { slug } = useParams<{ slug: string }>();
-  const doc = getDoc(slug!);
-
-  // Loader already throws 404 for unknown slugs; this is just a type-narrowing
-  // guard for the TypeScript type — should never be reached at runtime.
-  if (!doc) return null;
+  const doc = useLoaderData<typeof loader>();
 
   const toc = doc.headings.map((h) => ({
     id: h.id,
@@ -52,8 +80,13 @@ export default function DocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
-      <MarkdownRenderer markdown={doc.body} />
+    <DocsLayout
+      toc={toc}
+      markdownUrl={
+        docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
+      }
+    >
+      <DocContent markdown={doc.body} />
     </DocsLayout>
   );
 }

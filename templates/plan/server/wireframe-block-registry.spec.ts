@@ -1,4 +1,3 @@
-import { describe, expect, it } from "vitest";
 import {
   BlockRegistry,
   serializeSpecBlock,
@@ -6,6 +5,8 @@ import {
   createAttrReader,
   type MdxJsxNode,
 } from "@agent-native/core/blocks/server";
+import { describe, expect, it } from "vitest";
+
 import { registerPlanBlocks } from "../shared/plan-block-registry.js";
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {
@@ -101,7 +102,8 @@ describe("plan block registry — wireframe", () => {
     // The exported plan.mdx contains a real `<WireframeBlock>` with a nested
     // `<Screen>` and kit primitives.
     expect(folder["plan.mdx"]).toContain("<WireframeBlock");
-    expect(folder["plan.mdx"]).toContain('<Screen surface="browser"');
+    expect(folder["plan.mdx"]).toContain("<Screen");
+    expect(folder["plan.mdx"]).toContain('surface="browser"');
     expect(folder["plan.mdx"]).toContain("<FrameScreen");
     expect(folder["plan.mdx"]).toContain('text="Compose"');
 
@@ -117,6 +119,40 @@ describe("plan block registry — wireframe", () => {
       expect(wireframe.data.screen?.[0]?.children?.[0]?.id).toBe("title-1");
       expect(wireframe.data.screen?.[0]?.children?.[1]?.text).toBe("Compose");
     }
+  });
+
+  it("round-trips the explicit wireframe frame option on the nested Screen", async () => {
+    const source = planContentSchema.parse({
+      version: 2,
+      title: "Borderless docs wireframe",
+      blocks: [
+        {
+          id: "wf-borderless",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            frame: "hide",
+            html: "<div>Getting started sketch</div>",
+          },
+        },
+      ],
+    });
+    const folder = await exportPlanContentToMdxFolder({
+      content: source,
+      title: source.title,
+    });
+
+    expect(folder["plan.mdx"]).toContain("<Screen");
+    expect(folder["plan.mdx"]).toContain('surface="browser"');
+    expect(folder["plan.mdx"]).toContain('frame="hide"');
+
+    const parsed = await parsePlanMdxFolder(folder);
+    const wireframe = parsed.blocks.find(
+      (block) => block.id === "wf-borderless",
+    );
+    expect(wireframe?.type).toBe("wireframe");
+    if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
+    expect(wireframe.data.frame).toBe("hide");
   });
 
   it("assigns the same stable node ids the legacy parser derived (no drift)", async () => {

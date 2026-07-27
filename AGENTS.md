@@ -7,11 +7,14 @@ read the relevant skill before changing that area.
 
 ## Always-On Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation. Save deep exploration for ambiguous or cross-cutting work.
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
-  stash, or otherwise move branches unless Steve explicitly asks for that exact
+  stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current branch unless Steve explicitly requests a new branch.
+- PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
@@ -21,6 +24,25 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- A `catch`, default, or coercion that returns a value callers cannot
+  distinguish from success is a bug, not a guard. "Absent" and "unreadable" must
+  be different values; a truncated run is not a completed one; a dropped payload
+  is not an empty one. Six weeks of repeat user reports traced back to this one
+  habit — each layer coerced a failure into a clean value, so every layer above
+  it reported something confidently wrong and nobody, including us, could see
+  it. Prefer a loud, typed failure over a plausible-looking normal state.
+- Before adding a condition to a function that already stacks several special
+  cases, stop: that shape is how the same bug ships twice. Fix the boundary that
+  made the special case necessary, and delete the ones it subsumes.
+- Write code that reads like the surrounding code: match its comment density,
+  naming, and idiom. When you do comment, comment a constraint the code cannot
+  show — a non-obvious trap a future change would otherwise reintroduce — not
+  what the next line does, why your change is correct, or where it came from.
+- When changing docs under `packages/core/docs/content`, update the matching
+  localized docs under `packages/core/docs/content/locales/*` when the source
+  meaning changes. If translations cannot be updated in the same change, call
+  out the specific locales that need follow-up; reviewers should flag docs
+  changes that only update one language.
 
 ## Final Status Block
 
@@ -41,7 +63,15 @@ step is still pending. Use `🔴` only when blocked on user input.
 
 ## Architecture Contract
 
-- Data lives in SQL via Drizzle. Keep schemas provider-agnostic.
+- Data lives in SQL via Drizzle by default. Explicit Local File Mode artifacts
+  declared through `agent-native.json` may use repo files as the source of truth,
+  but app state, auth, settings, and hosted/collaborative mode still use SQL.
+  Keep schemas provider-agnostic.
+- Keep app and template database code dialect-agnostic. Never call adapter-only
+  methods such as libSQL/SQLite `run()`, `all()`, or `get()`, or PostgreSQL-only
+  client APIs. Use Drizzle's shared query builder for normal reads and writes
+  and `getDbExec().execute()` for reviewed portable raw SQL; keep dialect
+  branching inside core database helpers.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.
@@ -52,12 +82,33 @@ step is still pending. Use `🔴` only when blocked on user input.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions.
+  actions. If you are about to write a handler under `server/routes/api/`, or
+  middleware to guard one, stop and write an action instead. The only
+  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
+  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
+  is a grandfathered baseline being migrated, not a pattern to copy;
+  `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
   `@agent-native/core/provider-api` instead of hardcoding one action per
-  provider endpoint/filter.
+  provider endpoint/filter. This is a framework tenet: first-class actions are
+  ergonomic shortcuts, not artificial capability limits. When the upstream API
+  can express an endpoint, filter, pagination mode, or payload, agents should
+  have a safe way to call it directly through the provider API substrate. If an
+  app stores provider credentials on resource/share rows, add a scoped resolver
+  that preserves those access checks before exposing raw provider requests.
+- Treat Clay as a credentialed GTM provider API, not as a messaging channel.
+  Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
+  the optional local Clay CLI/MCP plugin has a separate browser-login session
+  and must not be required, auto-installed, or vendored by default. Its public
+  repository currently declares no license. Use n8n and Zapier as
+  automation/workflow or remote MCP connections rather than provider presets.
+- For composable workspace workflows, prefer many focused headless or small-UI
+  mini-apps that discover and call each other over A2A instead of one oversized
+  app. Pass artifact ids, URLs, and bounded summaries between apps instead of
+  pasting large provider dumps through prompts. Read `composable-mini-apps`
+  before designing cross-app orchestration.
 - All AI work goes through the agent chat. UIs do not call LLMs directly.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
@@ -67,10 +118,36 @@ step is still pending. Use `🔴` only when blocked on user input.
 Every feature must touch the four areas when applicable: UI, actions, skills or
 instructions, and application state.
 
+## Plan Product Knowledge Chat
+
+- Plan's `/` route is the Ask Plan chat surface. Use it for product and code
+  questions backed by visual plans, merged PR recaps, and visual answers.
+- For historical product questions like "what shipped last week", "when did this
+  API change", or "what did that UI look like", call `search-pr-recaps` first.
+  The default scope is merged pull requests only. Include unmerged PR recaps only
+  when the user explicitly asks for unmerged or in-progress work.
+- After finding a recap, call `get-visual-plan` and inspect structured blocks:
+  `wireframe`, `diagram`, `api-endpoint`, `openapi-spec`, `data-model`, `diff`,
+  `file-tree`, `tabs`, and `annotated-code`.
+- For live code questions like "what is the API spec for this", "what does this
+  look like now", or "what is the schema model for x", use `visual-answer` after
+  inspecting the real code through the local repo, the Plan bridge, or GitHub.
+- Before generating or updating visual content, call `get-plan-blocks` or
+  `list-plan-components`. Custom components become chat-visible only after they
+  are registered in the normalized schema, shared/server registry, and browser
+  registry.
+
 ## Data And Security
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
   alter tables or columns in migrations or startup code.
+- SQL stores structured app state, metadata, references, and searchable text. Do
+  not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
+  screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
+  bodies — in SQL tables, `application_state`, `settings`, or `resources`. Use
+  configured file/blob storage (`uploadFile`, `putPrivateBlob`, provider object
+  storage) and persist only URLs, ids, or opaque handles. In hosted or persistent
+  DB mode, fail closed with setup guidance instead of falling back to SQL blobs.
 - Never use `drizzle-kit push` against production databases.
 - Tables with `ownableColumns()` require scoped reads and writes through
   `accessFilter`, `resolveAccess`, or `assertAccess`. Custom Nitro routes must
@@ -82,13 +159,19 @@ instructions, and application state.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
+- Never create an organization, repoint a user's `active-org-id`, or migrate a
+  roster/identity list into a new org on your own initiative. Vault credentials
+  are per-organization, so a second org orphans every key synced under the first
+  and surfaces as a missing-key error elsewhere. One org per workspace is the
+  intended pattern: add members to the existing org, and stop and get an explicit
+  yes before doing otherwise. See the `authentication` skill.
 - Use the `security`, `storing-data`, `sharing`, `portability`, and
   `integration-webhooks` skills for implementation details.
 
 ## Frontend And UX
 
 - TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run Prettier on modified source files.
+- Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
 - Use Tabler Icons for UI icons. Do not use emojis as first-party icons.
@@ -98,13 +181,19 @@ instructions, and application state.
 - Background agents must use the core run-manager / agent-teams infrastructure
   unless working on the existing local Code exception.
 - Logged-in app pages can be CSR. Public/SEO pages must SSR real content.
+- Every SSR HTML and React Router `.data` response is one impersonal, public
+  shell, hard-cached at the CDN for every visitor. Never add `private`,
+  `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
+  path — personalization is client-side after load. Enforced by
+  `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
 - Keep template UX clean and progressively disclosed. Do not solve feedback by
   adding always-visible controls unless that is clearly the main workflow.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
-  `real-time-sync`, and `delegate-to-agent` skills for details.
+  `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
+  details.
 
 ## Packages And Releases
 
@@ -115,6 +204,13 @@ instructions, and application state.
   `packages/shared-app-config/templates.ts` plus mirrored CLI/docs surfaces.
   Hidden templates must not appear in public catalogs unless they are explicitly
   unhidden first.
+- When you ship a user-facing change to a template app (new capability, visible
+  improvement, or behavior-affecting fix), record it from that app with
+  `agent-native changelog add "<one user-facing sentence>" --type <added|improved|fixed>`.
+  This writes a changeset-style pending entry under `changelog/`; `changelog
+release` rolls pending entries into the app's `CHANGELOG.md`, which renders in
+  the command menu (Cmd+K → "What's new") and settings. Skip refactors, tooling,
+  and tests. See the `changelog` skill.
 
 ## Extensions
 
@@ -125,38 +221,15 @@ call `appAction` for app actions/data, `dbQuery`, `dbExec`, `appFetch` for
 allowed framework endpoints, and `extensionFetch` for external APIs from the
 iframe bridge. Use the `extensions` skill for the full rules.
 
-## Project Map
+## Skills
 
-```txt
-app/                 React frontend
-actions/             App operations exposed to agent and frontend
-server/              Nitro API, plugins, DB, framework routes
-packages/core/       Framework runtime
-packages/dispatch/   Dispatch package
-packages/scheduling/ Scheduling package
-templates/*/         Template apps
-.agents/skills/      Detailed implementation guidance
-```
+`.agents/skills/` holds the deep guidance, one directory per skill, each with a
+`description` naming when to read it. Read the matching skill before changing
+that area — most encode a decision the surrounding code cannot show. Prefer
+searching the skill directory over guessing from nearby code.
 
-## Skill Index
+Two are entry points rather than area guides:
 
-Read the relevant skill before making changes in that area:
-
-- `adding-a-feature` for the four-area checklist.
-- `context-xray` for inspecting and managing the live agent context window.
-- `actions` for action definitions and invocation.
-- `storing-data`, `portability`, `security`, `sharing` for data work.
-- `performance` for keeping lists, reads, and page loads fast — column
-  projection, indexing hot-path queries, and avoiding round-trip waterfalls.
-- `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
-- `client-methods` for browser/client APIs that must use named helpers instead
-  of raw REST calls.
-- `delegate-to-agent` for LLM/agent delegation.
-- `self-modifying-code` for source edits by the agent.
-- `server-plugins` for `/_agent-native/*` routes and plugins.
-- `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
-- `automations`, `recurring-jobs`, `integration-webhooks` for background work.
-- `frontend-design`, `shadcn-ui` for interface work.
-- `extensions` for sandboxed mini-apps.
-- `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
-  `external-agents`, and template-specific skills as needed.
+- `adding-a-feature` — the four-area checklist every feature must satisfy.
+- `writing-agent-instructions` — read before editing any `AGENTS.md`,
+  `SKILL.md`, or tool/action description, including this file.

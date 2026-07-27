@@ -1,8 +1,13 @@
+import { callAction } from "@agent-native/core/client/hooks";
+import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
+import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
-import { addBytesProcessed } from "./cost-tracker";
-import { getIdToken } from "./auth";
+
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
-import { appApiPath } from "@agent-native/core/client";
+
+import { addBytesProcessed } from "./cost-tracker";
+
+export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
@@ -10,38 +15,105 @@ export interface SqlQueryResult {
   schema?: { name: string; type: string }[];
 }
 
+type PendingSqlQuerySlot = {
+  resolve: (release: () => void) => void;
+  reject: (reason: unknown) => void;
+  signal?: AbortSignal;
+  onAbort: () => void;
+};
+
+let activeSqlQueries = 0;
+const pendingSqlQuerySlots: PendingSqlQuerySlot[] = [];
+
+function createAbortError(): Error {
+  if (typeof DOMException !== "undefined") {
+    return new DOMException("SQL query aborted", "AbortError");
+  }
+  const error = new Error("SQL query aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function createSqlQueryRelease(): () => void {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeSqlQueries = Math.max(0, activeSqlQueries - 1);
+    drainSqlQuerySlots();
+  };
+}
+
+function drainSqlQuerySlots(): void {
+  while (
+    activeSqlQueries < MAX_CONCURRENT_SQL_QUERIES &&
+    pendingSqlQuerySlots.length > 0
+  ) {
+    const pending = pendingSqlQuerySlots.shift();
+    if (!pending) return;
+    pending.signal?.removeEventListener("abort", pending.onAbort);
+    if (pending.signal?.aborted) {
+      pending.reject(createAbortError());
+      continue;
+    }
+    activeSqlQueries += 1;
+    pending.resolve(createSqlQueryRelease());
+  }
+}
+
+async function acquireSqlQuerySlot(signal?: AbortSignal): Promise<() => void> {
+  if (signal?.aborted) throw createAbortError();
+  return new Promise((resolve, reject) => {
+    const pending: PendingSqlQuerySlot = {
+      resolve,
+      reject,
+      signal,
+      onAbort: () => {
+        const index = pendingSqlQuerySlots.indexOf(pending);
+        if (index >= 0) pendingSqlQuerySlots.splice(index, 1);
+        reject(createAbortError());
+      },
+    };
+    signal?.addEventListener("abort", pending.onAbort, { once: true });
+    pendingSqlQuerySlots.push(pending);
+    drainSqlQuerySlots();
+  });
+}
+
+type DashboardPanelQueryResponse = SqlQueryResult & {
+  bytesProcessed?: number;
+  message?: string;
+};
+
 export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
+  signal?: AbortSignal,
+  options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/sql-query"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ query: sql, source }),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    return {
-      rows: [],
-      error: body.error || `Query failed (${res.status})`,
-    };
+  const release = await acquireSqlQuerySlot(signal);
+  let data: DashboardPanelQueryResponse;
+  try {
+    data = await callAction<DashboardPanelQueryResponse>(
+      "query-dashboard-panel",
+      { query: sql, source },
+      {
+        signal,
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
+          : {}),
+      },
+    );
+  } finally {
+    release();
   }
 
-  const data = await res.json();
-
   if (typeof data?.error === "string") {
-    return {
-      rows: [],
-      error:
-        typeof data.message === "string" && data.message
-          ? data.message
-          : data.error,
-    };
+    throw new Error(
+      typeof data.message === "string" && data.message
+        ? data.message
+        : data.error,
+    );
   }
 
   if (data.bytesProcessed) {
@@ -60,14 +132,27 @@ export function useSqlQuery(
   source: DataSourceType,
   options?: {
     enabled?: boolean;
-    refetchInterval?: number;
+    refetchInterval?: number | false;
+    refetchOnMount?: boolean | "always";
+    refetchOnReconnect?: boolean | "always";
+    refetchOnWindowFocus?: boolean | "always";
+    retry?: boolean | number;
+    reportScreenshot?: boolean;
+    staleTime?: number;
   },
 ) {
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: () => executeSqlQuery(sql, source),
+    queryFn: ({ signal }) =>
+      executeSqlQuery(sql, source, signal, {
+        reportScreenshot: options?.reportScreenshot,
+      }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
-    staleTime: 5 * 60 * 1000,
+    refetchOnMount: options?.refetchOnMount ?? false,
+    refetchOnReconnect: options?.refetchOnReconnect ?? false,
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
+    retry: options?.retry ?? false,
+    staleTime: options?.staleTime ?? 5 * 60 * 1000,
   });
 }

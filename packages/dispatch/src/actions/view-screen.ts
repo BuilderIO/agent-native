@@ -10,7 +10,15 @@
 import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
+
+import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
 import { listOverview } from "../server/lib/dispatch-store.js";
+import {
+  getAgentThreadDebug,
+  listThreadDebugSources,
+  searchAgentThreads,
+} from "../server/lib/thread-debug-store.js";
+import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 import {
   listVaultOverview,
   listSecrets,
@@ -18,17 +26,10 @@ import {
   listRequests,
   getVaultAccessSettings,
 } from "../server/lib/vault-store.js";
-import { listWorkspaceApps } from "../server/lib/app-creation-store.js";
-import { listDispatchUsageMetrics } from "../server/lib/usage-metrics-store.js";
 import {
   listWorkspaceResourceOptions,
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
-import {
-  getAgentThreadDebug,
-  listThreadDebugSources,
-  searchAgentThreads,
-} from "../server/lib/thread-debug-store.js";
 
 async function runLocalDispatchAction(
   name: string,
@@ -88,6 +89,17 @@ export default defineAction({
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
+    }
+    if (navigation?.view === "operations") {
+      const nav = navigation as { operationsView?: string };
+      screen.operatorConsole = {
+        view: nav.operationsView === "database" ? "database" : "monitoring",
+        monitoring:
+          "The shared observability dashboard provides traces, conversations, evaluations, experiments, and feedback.",
+        database:
+          "The shared database admin is available in Code mode for table browsing and SQL inspection.",
+        relatedTools: ["thread-debug", "audit", "destinations", "automations"],
+      };
     }
     if (
       navigation?.view === "overview" ||

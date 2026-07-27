@@ -7,11 +7,19 @@ description: >-
 
 # Document Editing
 
-Documents are stored in the SQL database via Drizzle ORM. Each document has a title, markdown content, optional parent (for nesting), and a position for ordering.
+Documents are stored in the SQL database via Drizzle ORM. Each document has a
+title, stable description, markdown content, optional parent (for nesting), and
+a position for ordering. The description explains why the page exists and what
+belongs there; it is not a changing synopsis of the current body.
 
 ## Scripts
 
 Always use the dedicated scripts for document operations. Never use raw `db-exec` SQL.
+
+In dev, call actions with `pnpm action <name>`; in production, call native
+tools. Never use `curl`, raw HTTP requests, or `db-exec` with raw SQL for
+document operations. `.env` is loaded automatically — never manually set
+`DATABASE_URL` or other env vars.
 
 ### list-documents
 
@@ -48,6 +56,7 @@ Create a new document.
 pnpm action create-document --title "Meeting Notes" --content "# Meeting Notes\n\nAttendees: ..."
 pnpm action create-document --title "Sub Page" --parentId parent123
 pnpm action create-document --title "My Page" --icon "📝"
+pnpm action create-document --title "Research" --description "Evidence and source notes that support the current project"
 ```
 
 ### edit-document
@@ -73,14 +82,23 @@ Update an existing document. Use for **full rewrites or new content**, not for s
 pnpm action update-document --id abc123 --title "New Title"
 pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
 pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
 ### delete-document
 
-Delete a document and all its children recursively.
+Move a document and all its children to Trash. IDs, bodies, hierarchy, and
+database membership remain intact so the subtree can be restored.
 
 ```bash
 pnpm action delete-document --id abc123
+```
+
+Restore the root subtree, or permanently delete it only after it is in Trash:
+
+```bash
+pnpm action restore-document --id abc123
+pnpm action permanently-delete-document --id abc123
 ```
 
 ## Comments
@@ -121,42 +139,136 @@ pnpm action refresh-list
 
 Always run this after any document modification to update the sidebar.
 
+`create-document`, `update-document`, and `delete-document` already signal a UI
+refresh, so in practice only call `refresh-list` directly if you mutate
+documents another way and the UI doesn't update.
+
 ## Document Schema
 
-| Column       | Type    | Description                             |
-| ------------ | ------- | --------------------------------------- |
-| `id`         | text    | Primary key (12-char hex string)        |
-| `parent_id`  | text    | Parent document ID (null for root)      |
-| `title`      | text    | Document title (default: "Untitled")    |
-| `content`    | text    | Markdown content                        |
-| `icon`       | text    | Emoji icon (optional)                   |
-| `position`   | integer | Sort order within parent (0-based)      |
-| `is_favorite`| integer | Whether document is favorited (0 or 1)  |
-| `created_at` | text    | ISO timestamp                           |
-| `updated_at` | text    | ISO timestamp                           |
+| Column        | Type    | Description                            |
+| ------------- | ------- | -------------------------------------- |
+| `id`          | text    | Primary key (12-char hex string)       |
+| `parent_id`   | text    | Parent document ID (null for root)     |
+| `title`       | text    | Document title (default: "Untitled")   |
+| `description` | text    | Stable semantic guidance for the page  |
+| `content`     | text    | Markdown content                       |
+| `icon`        | text    | Emoji icon (optional)                  |
+| `position`    | integer | Sort order within parent (0-based)     |
+| `is_favorite` | integer | Whether document is favorited (0 or 1) |
+| `created_at`  | text    | ISO timestamp                          |
+| `updated_at`  | text    | ISO timestamp                          |
+
+### Related Tables
+
+Documents live in the SQL `documents` table via Drizzle; the framework injects
+the live column schema separately, so this covers only semantics the schema
+can't convey:
+
+- `document_shares` holds per-user/per-org grants with a `viewer`, `editor`,
+  or `admin` role.
+- `document_versions`, `document_comments`, and `document_sync_links` all
+  carry `owner_email` so a workspace can upgrade from local mode to a real
+  account without losing history, comments, or Notion links.
+- A database is a normal document (`content_databases` +
+  `document_property_definitions`) whose rows are also documents, linked
+  through `content_database_items`. Row pages are omitted from the ordinary
+  sidebar tree — they're reached through the database view.
+
+Documents are **private by default**; use `share-resource` /
+`set-resource-visibility` (`resourceType document`) to change access.
 
 ## Content Format
 
 Documents use **markdown** for content. The editor renders markdown in real time.
 
+### Math
+
+Content renders LaTeX with KaTeX while preserving the source in NFM. Use the
+canonical Content delimiters when an agent creates or edits math:
+
+```md
+Inline math: The relationship is $`E = mc^2`$ in this example.
+
+Block math:
+
+$$
+\int_0^1 x^2 dx = \frac{1}{3}
+$$
+```
+
+- Inline math uses ``$`...`$``. Do not substitute ordinary `$...$`; dollar
+  amounts in prose are intentionally not interpreted as equations.
+- Block equations use `$$` on their own lines before and after the LaTeX.
+- Keep the raw LaTeX intact when editing around an equation. Invalid or
+  unsupported expressions remain visible as source so they can be repaired.
+- Markdown exports preserve these delimiters. HTML and PDF-ready exports render
+  the equation.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:
+
 - Root documents have `parent_id = null`
 - Child documents reference their parent's `id`
 - Deleting a parent recursively deletes all children
 - Position determines ordering within the same parent
 
+Descriptions are owned; context is inherited. `get-document` and `view-screen`
+return the focused page's own description plus a computed root-to-parent
+`contextPath`. Use that path to understand where the page lives, but never copy
+ancestor descriptions into the child. Database, property, and option
+descriptions narrow the guidance further when working with structured values.
+
+## Screen Context And IDs
+
+Screen context is auto-included as a `<current-screen>` block on every message —
+check it before acting instead of calling `view-screen` by default. Call
+`view-screen` explicitly only when that snapshot is truncated or doesn't yet
+reflect something that changed earlier in the same turn (for example, right
+after `create-document` or `navigate`).
+
+IDs for edits always come from `<current-screen>` or a prior action result —
+never guessed.
+
+| User request              | What to do                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| "What am I looking at?"   | Answer from `<current-screen>` (call `view-screen` only if truncated)             |
+| "Create a page about X"   | `create-document --title "X" --content "# X\n\n..."`                              |
+| "Fix a typo / small edit" | ID from `<current-screen>`, `edit-document --id ... --find "old" --replace "new"` |
+| "Delete this page"        | ID from `<current-screen>`, `delete-document --id ...`                            |
+
 ## Common Tasks
 
-| User says                     | What to do                                                       |
-| ----------------------------- | ---------------------------------------------------------------- |
-| "Create a page about X"       | `create-document --title "X" --content "# X\n\n..."`           |
-| "Find my meeting notes"       | `search-documents --query "meeting notes"`                      |
-| "Fix a typo / edit a line"    | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"       | `view-screen` to get ID, then `update-document --id ... --content ...` |
-| "Delete this page"            | `view-screen` to get ID, then `delete-document --id ...`       |
-| "Add a sub-page"              | `create-document --title "Sub" --parentId <parentId>`           |
-| "Show me the document tree"   | `list-documents`                                                |
+| User says                    | What to do                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| "Delete this page"           | `view-screen` to get ID, then `delete-document --id ...`                            |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
+| "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.
+
+## Reference Files
+
+- **`references/document-behavior.md`** — self-documenting descriptions,
+  `pull-document`'s collab-flush handshake vs `get-document`, versions, image
+  blocks, and the sharing/visibility model (`/page/<id>` vs `/p/<id>`,
+  discoverability, the read-only public chat). Read it before touching
+  descriptions, external ingest, or a document's visibility.
+- **`references/databases.md`** — full behavioral reference for Content
+  databases: property types, Blocks fields, and every view type (table,
+  list, gallery, board, calendar, timeline, form). Read it before building or
+  modifying database views, properties, or forms.
+
+Also read on demand, outside this skill:
+
+- `references/local-file-mode.md` in the `content` skill — local folder
+  sources, Builder Symbol/source-component preservation, local MDX components.
+- The `notion-integration` skill — connecting, sync, conflicts, the read-only
+  database-source pilot, and the raw Notion provider API path.
+- The **Comments** section above — inline anchor-tracked threads, @mentions,
+  resolve/reopen.

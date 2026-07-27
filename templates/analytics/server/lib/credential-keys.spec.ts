@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   buildOptionalCredentialKeys,
   credentialProviderConfigs,
@@ -24,7 +25,7 @@ describe("credential key lookup", () => {
       "BIGQUERY_PROJECT_ID",
     ]);
     expect(keysFor("github")).toEqual(["GITHUB_TOKEN"]);
-    expect(keysFor("github-code")).toEqual(["GITHUB_TOKEN"]);
+    expect(keysFor("clay")).toEqual(["CLAY_PUBLIC_API_KEY"]);
     expect(keysFor("hubspot")).toEqual([
       "HUBSPOT_PRIVATE_APP_TOKEN",
       "HUBSPOT_ACCESS_TOKEN",
@@ -62,6 +63,12 @@ describe("credential key lookup", () => {
     ).toMatchObject({
       requiredKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
       optionalKeys: ["GONG_API_BASE"],
+    });
+    expect(
+      credentialProviderConfigs.find((cfg) => cfg.provider === "hubspot"),
+    ).toMatchObject({
+      requiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      requiredMode: "any",
     });
   });
 });

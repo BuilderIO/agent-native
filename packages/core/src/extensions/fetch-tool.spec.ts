@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createFetchToolEntry } from "./fetch-tool.js";
 
 describe("createFetchToolEntry", () => {
@@ -92,6 +93,80 @@ describe("createFetchToolEntry", () => {
     expect(result).not.toContain("sk-secret");
   });
 
+  it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => {
+        if (text.includes("${keys.URL_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.URL_KEY}", "93.184.216.34/api"),
+            usedKeys: ["URL_KEY"],
+            secretValues: [],
+            resolvedKeys: [{ name: "URL_KEY", scope: "org", scopeId: "org_1" }],
+          };
+        }
+        if (text.includes("${keys.HEADER_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.HEADER_KEY}", "secret-header"),
+            usedKeys: ["HEADER_KEY"],
+            secretValues: ["secret-header"],
+            resolvedKeys: [
+              { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+            ],
+          };
+        }
+        return { resolved: text, usedKeys: [], secretValues: [] };
+      },
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://${keys.URL_KEY}",
+      headers: '{"X-Token":"${keys.HEADER_KEY}"}',
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api",
+      ["URL_KEY", "HEADER_KEY"],
+      [
+        { name: "URL_KEY", scope: "org", scopeId: "org_1" },
+        { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+      ],
+    );
+  });
+
+  it("passes resolvedKeys as undefined when the resolver never reports any", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text.replaceAll("${keys.API_TOKEN}", "sk-secret"),
+        usedKeys: text.includes("${keys.API_TOKEN}") ? ["API_TOKEN"] : [],
+        secretValues: text.includes("${keys.API_TOKEN}") ? ["sk-secret"] : [],
+        // No `resolvedKeys` field — mirrors resolvers written before this
+        // field existed. The fetch tool must stay backwards compatible.
+      }),
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://93.184.216.34/api?token=${keys.API_TOKEN}",
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api?token=sk-secret",
+      ["API_TOKEN"],
+      undefined,
+    );
+  });
+
   it("rejects unsupported HTTP methods before fetching", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const entry = createFetchToolEntry()["web-request"];
@@ -140,5 +215,92 @@ describe("createFetchToolEntry", () => {
     expect(sentHeaders["Accept"]).toBe("application/json");
     // Other browser defaults still fill in for headers the caller didn't set.
     expect(sentHeaders["Sec-Fetch-Mode"]).toBe("navigate");
+  });
+
+  it("extracts HTML responses to readable markdown by default", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>API Docs</title></head>
+          <body>
+            <nav>Navigation noise</nav>
+            <main>
+              <article>
+                <h1>Widget API</h1>
+                <p>Use the list widgets endpoint for pagination.</p>
+                <a href="/reference/widgets">Widget reference</a>
+              </article>
+            </main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/api");
+
+    expect(result).toContain("HTTP 200 OK");
+    expect(result).toContain("# Widget API");
+    expect(result).toContain("Use the list widgets endpoint");
+    expect(result).toContain(
+      "[Widget reference](https://93.184.216.34/reference/widgets)",
+    );
+    expect(result).not.toContain("<html>");
+  });
+
+  it("returns bounded matches from extracted HTML content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html><html><body><main>
+          <h1>Endpoints</h1>
+          <p>GET /v1/widgets returns widgets.</p>
+          <p>POST /v1/widgets creates widgets.</p>
+        </main></body></html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html" },
+        },
+      ),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/api",
+      responseMode: "matches",
+      search: {
+        regex: "\\b(GET|POST) /v1/widgets\\b",
+        maxMatches: 1,
+        contextChars: 24,
+      },
+    });
+
+    expect(result).toContain("Matches: 1 shown of 2");
+    expect(result).toContain("GET /v1/widgets");
+    expect(result).toContain("1 omitted");
+  });
+
+  it("rejects unsafe regex searches before running them over fetched content", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("aaaaaaaaaaaaaaaaaaaa!", {
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "text/plain" },
+      }),
+    );
+
+    const entry = createFetchToolEntry()["web-request"];
+    const result = await entry.run({
+      url: "https://93.184.216.34/logs",
+      responseMode: "matches",
+      search: { regex: "(a+)+$" },
+    });
+
+    expect(result).toContain("Unsafe regex rejected");
   });
 });

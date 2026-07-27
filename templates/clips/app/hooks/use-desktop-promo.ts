@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
-const DISMISSED_KEY = "clips.desktop-promo.dismissed";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  hasDownloadedDesktopApp,
+  markDesktopAppDownloaded,
+} from "@/lib/capture-install-options";
 
 function detectDesktopApp(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -17,31 +21,30 @@ function detectDesktopApp(): boolean {
 }
 
 export function useDesktopPromo() {
+  const isMobile = useIsMobile();
   const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const [runtimeDetected, setRuntimeDetected] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setIsDesktopApp(detectDesktopApp());
-    setDismissed(
-      typeof window !== "undefined" &&
-        window.localStorage?.getItem(DISMISSED_KEY) === "1",
-    );
+    setDismissed(hasDownloadedDesktopApp());
+    // Keep desktop prompts hidden until the client runtime is known. This
+    // prevents the web CTA from flashing in the desktop shell's first render.
+    setRuntimeDetected(true);
   }, []);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    try {
-      window.localStorage?.setItem(DISMISSED_KEY, "1");
-    } catch {
-      // localStorage can throw in private browsing — ignore, dismissal
-      // still holds for the session via React state.
-    }
+    markDesktopAppDownloaded();
   }, []);
 
   return {
     isDesktopApp,
-    shouldShowPromo: !isDesktopApp && !dismissed,
-    shouldShowSidebarLink: !isDesktopApp,
+    isMobile,
+    shouldShowPromo:
+      runtimeDetected && !isMobile && !isDesktopApp && !dismissed,
+    shouldShowSidebarLink: runtimeDetected && !isMobile && !isDesktopApp,
     dismiss,
   };
 }

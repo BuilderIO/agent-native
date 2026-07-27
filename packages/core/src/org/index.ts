@@ -11,6 +11,14 @@ export type {
 } from "./types.js";
 
 export {
+  canInviteOrgMembers,
+  canManageOrg,
+  canManageOrgDomain,
+  orgRoleAtLeast,
+  orgRoleRank,
+} from "./permissions.js";
+
+export {
   getOrgContext,
   getOrgDomain,
   getOrgA2ASecret,
@@ -19,6 +27,11 @@ export {
   resolveOrgIdForEmail,
   createOrganization,
 } from "./context.js";
+
+export {
+  implicitServiceOrgRole,
+  parseServiceIdentityEmail,
+} from "./service-identity.js";
 
 export { acceptPendingInvitationsForEmail } from "./accept-pending.js";
 export type { AcceptPendingResult } from "./accept-pending.js";

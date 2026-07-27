@@ -171,7 +171,7 @@ const ACCESS_CONTROL_COLUMN_TOKENS = new Set([
 function normalizeIdentifier(value: string): string {
   return value
     .trim()
-    .replace(/^["'`\[]/, "")
+    .replace(/^["'`[]/, "")
     .replace(/["'`\]]$/, "")
     .toLowerCase();
 }

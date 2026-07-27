@@ -1,11 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { readBrainScreen } from "../server/lib/brain.js";
+import { readBrainHealth } from "./get-brain-health.js";
 import {
   readDistillationQueue,
   type ListDistillationQueueArgs,
 } from "./list-distillation-queue.js";
-import { readBrainHealth } from "./get-brain-health.js";
 
 const queueStatuses = ["queued", "processing", "done", "failed"] as const;
 const queueIssues = ["all", "failed", "stale", "retryable"] as const;

@@ -159,6 +159,15 @@ describe("resolvePublicPlanViewerOwner", () => {
     expect(dbState.lastQueriedId).toBe("plan_priv");
   });
 
+  it("mints a public-viewer identity for a public recap route", async () => {
+    dbState.byId.set("recap_pub", "public");
+    requestUrl = "/recaps/recap_pub";
+
+    const owner = await resolvePublicPlanViewerOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.lastQueriedId).toBe("recap_pub");
+  });
+
   it("REFUSES for an unknown / nonexistent plan id", async () => {
     requestUrl = "/plans/plan_does_not_exist";
     const owner = await resolvePublicPlanViewerOwner(makeEvent());
@@ -299,6 +308,33 @@ describe("resolvePlanAnonymousOwner (composition: public-viewer THEN local)", ()
   it("in HOSTED/production with a non-public target, returns null (no identity)", async () => {
     dbState.byId.set("plan_priv", "private");
     requestUrl = "/plans/plan_priv";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toBeNull();
+  });
+
+  it("allows anonymous metadata checks for private plan URLs without reading plan visibility", async () => {
+    requestUrl =
+      "/_agent-native/actions/get-plan-access-status?planId=plan_priv";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.queryCount).toBe(0);
+  });
+
+  it("allows anonymous metadata checks even when the framework event URL omits query params", async () => {
+    requestUrl = "/_agent-native/actions/get-plan-access-status";
+    process.env.NODE_ENV = "production";
+
+    const owner = await resolvePlanAnonymousOwner(makeEvent());
+    expect(owner).toMatch(PUBLIC_RE);
+    expect(dbState.queryCount).toBe(0);
+  });
+
+  it("does not allow anonymous private plan content reads", async () => {
+    requestUrl = "/_agent-native/actions/get-visual-plan?id=plan_priv";
     process.env.NODE_ENV = "production";
 
     const owner = await resolvePlanAnonymousOwner(makeEvent());

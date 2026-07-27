@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   IconDeviceFloppy,
   IconPencil,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import {
   type FeatureConfig,
   type RegionGuideRect,
@@ -283,7 +285,12 @@ export function RegionGuides() {
   );
 }
 
-export function RegionGuideEditor() {
+export function RegionGuideEditor({
+  mode = "preset",
+}: {
+  mode?: "preset" | "capture";
+}) {
+  const captureMode = mode === "capture";
   const config = useFeatureConfig();
   const guides = regionGuideConfig(config);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
@@ -308,9 +315,7 @@ export function RegionGuideEditor() {
           setDraft(null);
           return;
         }
-        getCurrentWindow()
-          .close()
-          .catch(() => {});
+        closeEditor();
       }
       if (event.key === "Backspace" || event.key === "Delete") {
         if (!selectedId) return;
@@ -344,6 +349,27 @@ export function RegionGuideEditor() {
     setSelectedId(null);
     setDirty(true);
     setMessage(null);
+  }
+
+  async function useSelectedCaptureRegion() {
+    const selected =
+      (selectedId ? rects.find((rect) => rect.id === selectedId) : null) ??
+      rects[0] ??
+      null;
+    const rect = selected ? normalizeRect(selected) : null;
+    if (!rect) {
+      setMessage("Draw a region first.");
+      return;
+    }
+    await emit("clips:region-capture-selected", {
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height,
+    }).catch(() => {});
+    getCurrentWindow()
+      .close()
+      .catch(() => {});
   }
 
   async function savePreset() {
@@ -382,6 +408,9 @@ export function RegionGuideEditor() {
   }
 
   function closeEditor() {
+    if (captureMode) {
+      emit("clips:region-capture-cancelled").catch(() => {});
+    }
     getCurrentWindow()
       .close()
       .catch(() => {});
@@ -406,6 +435,10 @@ export function RegionGuideEditor() {
     };
     setSelectedId(null);
     setMessage(null);
+    if (captureMode) {
+      setRects([]);
+      setDirty(true);
+    }
     setDraft(null);
     surfaceRef.current?.setPointerCapture(event.pointerId);
   }
@@ -461,7 +494,14 @@ export function RegionGuideEditor() {
 
     if (interaction.kind === "draw") {
       setDraft(
-        squareRectFromPoints(interaction.id, interaction.start, point, size),
+        captureMode
+          ? rectFromPoints(interaction.id, interaction.start, point)
+          : squareRectFromPoints(
+              interaction.id,
+              interaction.start,
+              point,
+              size,
+            ),
       );
       return;
     }
@@ -490,14 +530,18 @@ export function RegionGuideEditor() {
     }
     if (interaction.kind === "draw") {
       const point = pointForEvent(event, surfaceRef.current);
-      const nextRect = squareRectFromPoints(
-        interaction.id,
-        interaction.start,
-        point,
-        surfaceSize(surfaceRef.current),
-      );
+      const nextRect = captureMode
+        ? rectFromPoints(interaction.id, interaction.start, point)
+        : squareRectFromPoints(
+            interaction.id,
+            interaction.start,
+            point,
+            surfaceSize(surfaceRef.current),
+          );
       if (nextRect) {
-        setRects((current) => [...current, nextRect]);
+        setRects((current) =>
+          captureMode ? [nextRect] : [...current, nextRect],
+        );
         setSelectedId(nextRect.id);
         setDirty(true);
       }
@@ -526,7 +570,9 @@ export function RegionGuideEditor() {
       <div className="region-guide-editor-bar" data-region-toolbar>
         <div className="region-guide-editor-title">
           <IconPencil size={16} stroke={1.8} />
-          <span>Region guide preset</span>
+          <span>
+            {captureMode ? "Recording region" : "Region guide preset"}
+          </span>
           <span className="region-guide-editor-count">
             {rects.length} {rects.length === 1 ? "box" : "boxes"}
           </span>
@@ -552,11 +598,13 @@ export function RegionGuideEditor() {
           <button
             type="button"
             className="region-guide-editor-button region-guide-editor-button-primary"
-            onClick={savePreset}
-            disabled={!dirty || saving || !config}
+            onClick={captureMode ? useSelectedCaptureRegion : savePreset}
+            disabled={
+              captureMode ? rects.length === 0 : !dirty || saving || !config
+            }
           >
             <IconDeviceFloppy size={15} stroke={1.9} />
-            {saving ? "Saving" : "Save"}
+            {captureMode ? "Use region" : saving ? "Saving" : "Save"}
           </button>
           <button
             type="button"
@@ -575,7 +623,9 @@ export function RegionGuideEditor() {
       </div>
 
       <div className="region-guide-editor-hint" data-region-toolbar>
-        Square guides. Corners resize. Drag a box to move.
+        {captureMode
+          ? "Draw the area to record. Drag the box to move it, or pull a corner to resize."
+          : "Square guides. Corners resize. Drag a box to move."}
       </div>
 
       {rects.map((rect) => (

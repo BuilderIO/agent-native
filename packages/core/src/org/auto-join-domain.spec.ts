@@ -79,6 +79,26 @@ describe("autoJoinDomainMatchingOrgs", () => {
     expect(mockPutUserSetting).not.toHaveBeenCalled();
   });
 
+  it("can activate a newly joined domain org for request-time resolution", async () => {
+    queueSelect(
+      [{ orgId: "builder_io" }],
+      [], // INSERT org_members
+    );
+    mockGetUserSetting.mockResolvedValueOnce({ orgId: "personal_org" });
+
+    const out = await autoJoinDomainMatchingOrgs("existing@builder.io", {
+      activateJoinedOrg: "always",
+    });
+
+    expect(out.joined).toEqual([{ orgId: "builder_io" }]);
+    expect(out.activeOrgId).toBe("builder_io");
+    expect(mockPutUserSetting).toHaveBeenCalledWith(
+      "existing@builder.io",
+      "active-org-id",
+      { orgId: "builder_io" },
+    );
+  });
+
   it("excludes orgs the user is already a member of (NOT EXISTS)", async () => {
     // The query itself filters via NOT EXISTS, so we just confirm we
     // call it correctly. When the query returns empty (because the user

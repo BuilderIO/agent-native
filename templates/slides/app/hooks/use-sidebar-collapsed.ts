@@ -1,5 +1,6 @@
-import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 const KEY = "sidebarCollapsed";

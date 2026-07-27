@@ -3,6 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect } from "react";
 
 export type LocalRecordingMode = "off" | "composed" | "separate";
+export type RewindCaptureMode = "visuals" | "visuals-audio";
+export type RewindAgentClipRetention =
+  | "forever"
+  | "24-hours"
+  | "7-days"
+  | "30-days";
 
 export interface RegionGuideRect {
   id: string;
@@ -18,6 +24,98 @@ export interface RegionGuidesConfig {
   alwaysVisible?: boolean;
 }
 
+export interface ScreenMemoryConfig {
+  enabled: boolean;
+  paused: boolean;
+  retentionHours: number;
+  maxBytes: number;
+  segmentSeconds: number;
+  sampleIntervalSeconds: number;
+  captureMode: RewindCaptureMode;
+  reviewBeforeSending: boolean;
+  autoPreviewBeforeSending: boolean;
+  agentClipRetention: RewindAgentClipRetention;
+  excludedBundleIds: string[];
+  excludePrivateWindows: boolean;
+}
+
+export type ScreenMemoryRuntimeState =
+  | "disabled"
+  | "idle"
+  | "recording"
+  | "paused";
+
+export interface ScreenMemorySegmentMetadata {
+  id: string;
+  path: string;
+  fileName: string;
+  mimeType: string;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  width?: number | null;
+  height?: number | null;
+  bytes: number;
+  systemAudioPath?: string | null;
+  microphonePath?: string | null;
+  corrupt: boolean;
+  error?: string | null;
+}
+
+export interface ScreenMemoryActiveSegment {
+  id: string;
+  path: string;
+  mimeType: string;
+  startedAt: string;
+  durationMs: number;
+  width?: number | null;
+  height?: number | null;
+}
+
+export interface ScreenMemoryStatus {
+  available: boolean;
+  state: ScreenMemoryRuntimeState;
+  config: ScreenMemoryConfig;
+  storageDir: string;
+  activeSegment?: ScreenMemoryActiveSegment | null;
+  recentSegments: ScreenMemorySegmentMetadata[];
+  lastError?: string | null;
+  exclusionActive: boolean;
+  coverage: string;
+}
+
+export interface ScreenMemoryDeleteResult {
+  deletedSegments: number;
+  deletedBytes: number;
+}
+
+export interface ScreenMemoryEvent {
+  capturedAt: string;
+  appName?: string | null;
+  windowTitle?: string | null;
+  bundleId?: string | null;
+  source: string;
+}
+
+export interface ScreenMemoryQueryResult {
+  query?: string | null;
+  minutes: number;
+  events: ScreenMemoryEvent[];
+  segments: ScreenMemorySegmentMetadata[];
+}
+
+export interface ScreenMemoryExportFile {
+  path: string;
+  fileName: string;
+  bytes: number;
+  mimeType: string;
+}
+
+export interface ScreenMemoryExportResult {
+  folderPath: string;
+  files: ScreenMemoryExportFile[];
+}
+
 export interface FeatureConfig {
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
@@ -29,8 +127,10 @@ export interface FeatureConfig {
   showMeetingWidgetEnabled: boolean;
   showInScreenCapture: boolean;
   regionGuides: RegionGuidesConfig;
+  screenMemory: ScreenMemoryConfig;
   onboardingComplete: boolean;
   whisperModelEnabled: boolean;
+  whisperModelId: string;
 }
 
 export function useFeatureConfig() {

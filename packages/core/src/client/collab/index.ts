@@ -33,19 +33,28 @@ export {
   type UseCollaborativeArrayResult,
 } from "../../collab/client-struct.js";
 export {
-  PresenceBar,
-  type PresenceBarProps,
-} from "../components/PresenceBar.js";
+  appendRecentEdit,
+  collectRecentEdits,
+  publishRecentEdit,
+  useRecentEdits,
+  RECENT_EDITS_MAX,
+  RECENT_EDIT_TTL_MS,
+  type RecentEdit,
+  type RecentEditDescriptor,
+  type AttributedRecentEdit,
+  type UseRecentEditsOptions,
+} from "../../collab/recent-edits.js";
 export {
-  AgentPresenceChip,
-  type AgentPresenceChipProps,
-} from "../components/AgentPresenceChip.js";
-export {
-  LiveCursorOverlay,
-  type LiveCursorOverlayProps,
-  type CursorMapFn,
-} from "../components/LiveCursorOverlay.js";
-export {
-  RemoteSelectionRings,
-  type RemoteSelectionRingsProps,
-} from "../components/RemoteSelectionRings.js";
+  useCollabUndo,
+  useLocalOpUndo,
+  createLocalOpUndoController,
+  type UseCollabUndoOptions,
+  type UseCollabUndoResult,
+  type CollabUndoScope,
+  type UseLocalOpUndoOptions,
+  type UseLocalOpUndoResult,
+  type LocalOpUndoEntry,
+  type LocalOpUndoController,
+  type CreateLocalOpUndoOptions,
+  type UndoKeyboardOptions,
+} from "../../collab/undo.js";

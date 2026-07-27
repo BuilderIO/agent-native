@@ -1,5 +1,7 @@
 import { AgentActionStopError, defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
+
 import { runQuery } from "../server/lib/bigquery";
 
 function extractBigQueryMessage(message: string): string {
@@ -48,6 +50,23 @@ function stopForBigQueryNotConfigured(message: string): never {
   });
 }
 
+function stopForBigQueryCancellation(): never {
+  const message =
+    "The BigQuery query was cancelled because the agent run ended before it could finish.";
+  throw new AgentActionStopError(message, {
+    errorCode: "run_cancelled",
+    toolResult: JSON.stringify(
+      {
+        error: "run_cancelled",
+        message,
+        recoverable: false,
+      },
+      null,
+      2,
+    ),
+  });
+}
+
 export default defineAction({
   description:
     "Query the user-configured BigQuery data warehouse. Use this when the user asks for warehouse SQL, BigQuery, or a data-dictionary metric/table that lives in BigQuery. If the user names a provider action such as Jira or Pylon, use that provider action first and do not use BigQuery unless the user explicitly asks for a warehouse copy. Pass standard SQL via the `sql` arg. Do NOT use `db-query` for warehouse data (it only reaches the app's own SQL database). If a query fails with a schema or SQL error (unknown dataset/table/column, syntax), treat it as a normal debugging signal: inspect the real schema with `search-bigquery-schema` (or query INFORMATION_SCHEMA), correct the query based on the error, and run it again — a few corrective attempts are expected. Surface the error to the user only if it still fails after a few attempts or is non-recoverable (missing credentials, permission, quota). Never rerun identical failing SQL, and never substitute made-up numbers for data you could not query.",
@@ -56,10 +75,16 @@ export default defineAction({
   }),
   readOnly: true,
   toolCallable: true,
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     try {
-      return await runQuery(args.sql);
+      return await runQuery(args.sql, { signal: context?.signal });
     } catch (err) {
+      // A run cancellation is terminal for this invocation. Returning it as a
+      // recoverable SQL error would invite the agent to retry work after the
+      // parent run has already ended. Normalize the provider's AbortError so
+      // the generic tool-error path cannot record it as a warehouse failure.
+      if (context?.signal?.aborted) stopForBigQueryCancellation();
+
       const msg = err instanceof Error ? err.message : String(err);
       if (
         /GOOGLE_APPLICATION_CREDENTIALS_JSON not configured/i.test(msg) ||
@@ -71,10 +96,18 @@ export default defineAction({
           "BigQuery isn't connected for this workspace yet. Open Settings -> Data sources and add BIGQUERY_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (a service-account JSON key).",
         );
       }
-      if (
-        /BigQuery (API|poll) error/i.test(msg) ||
-        /BigQuery query timed out/i.test(msg)
-      ) {
+      // A timeout means the SQL was valid but slow. Routing it through the schema-error
+      // branch below told the model to go re-inspect the schema and rerun, which turns
+      // one slow query into a loop of 60-second attempts.
+      if (/BigQuery query timed out/i.test(msg)) {
+        return {
+          error: "bigquery_query_timeout",
+          message: extractBigQueryMessage(msg),
+          recoverable: true,
+          hint: "The SQL was valid but exceeded the 60-second warehouse budget. Do NOT inspect the schema and do NOT rerun this query as-is. Make it cheaper: narrow the date range, add a LIMIT, aggregate in SQL instead of returning raw rows, or filter on a partition/cluster column. If the full scan is genuinely required, run it through run-code with background: true instead of retrying here.",
+        };
+      }
+      if (/BigQuery (API|poll) error/i.test(msg)) {
         // Recoverable: hand the real error back to the model so it can inspect
         // the schema and self-correct, instead of force-ending the turn.
         return {

@@ -1,9 +1,11 @@
 import { Spinner } from "@/components/ui/spinner";
-import { PlansPage } from "@/pages/PlansPage";
 import { APP_TITLE } from "@/lib/app-config";
-import type { Route } from ".react-router/types/app/routes/+types/plans.$id";
+import { planDocumentTitle } from "@/lib/plan-document-title";
+import { PlansPage } from "@/pages/PlansPage";
+
 import { fetchPublicPlanMeta } from "../../server/lib/plan-meta.server";
 import { buildPlanMetaDescription } from "../../shared/plan-meta-format";
+import type { Route } from ".react-router/types/app/routes/+types/plans.$id";
 
 export async function loader({ params }: Route.LoaderArgs) {
   const id = params.id;
@@ -12,8 +14,8 @@ export async function loader({ params }: Route.LoaderArgs) {
   return { planMeta };
 }
 
-export const meta: Route.MetaFunction = ({ data }) => {
-  const planMeta = data?.planMeta;
+export const meta: Route.MetaFunction = ({ loaderData }) => {
+  const planMeta = loaderData?.planMeta;
   if (!planMeta) {
     return [
       { title: APP_TITLE },
@@ -24,7 +26,7 @@ export const meta: Route.MetaFunction = ({ data }) => {
       },
     ];
   }
-  const title = `${planMeta.title} · ${APP_TITLE}`;
+  const title = planDocumentTitle(planMeta.title, APP_TITLE);
   const description = buildPlanMetaDescription(planMeta.brief);
   return [
     { title },

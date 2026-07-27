@@ -136,7 +136,12 @@ export function frontmatterFieldsToObject(
 }
 
 export function isSkillPath(path: string): boolean {
-  return path.startsWith("skills/") && path.endsWith(".md");
+  if (!path.startsWith("skills/") || !path.endsWith(".md")) return false;
+  const relative = path.replace(/^skills\//, "");
+  return (
+    relative.endsWith("/SKILL.md") ||
+    (relative.endsWith(".md") && !relative.includes("/"))
+  );
 }
 
 export function getSkillNameFromPath(path: string): string {

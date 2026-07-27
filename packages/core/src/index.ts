@@ -14,6 +14,11 @@ export {
   type AgentChatEvent,
   type AgentChatAttachment,
   DEFAULT_MODEL,
+  // In-loop processors (observers/guardrails for runAgentLoop)
+  TripWire,
+  type Processor,
+  type ProcessorState,
+  type ProcessorAbort,
 } from "./agent/index.js";
 export {
   defineAction,
@@ -36,6 +41,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export * from "./user-profile/index.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
@@ -48,6 +54,47 @@ export {
   type EmbedRoutePathBuilder,
   type EmbedRouteResult,
 } from "./mcp/embed-route.js";
+export {
+  ACTION_CHAT_UI_DATA_CHART_RENDERER,
+  ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
+  ACTION_CHAT_UI_DATA_TABLE_RENDERER,
+  ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  type ActionChatUIConfig,
+} from "./action-ui.js";
+export {
+  DATA_CHART_WIDGET,
+  DATA_INSIGHTS_WIDGET,
+  DATA_TABLE_WIDGET,
+  createDataChartWidgetResult,
+  createDataInsightsWidgetResult,
+  createDataTableWidgetResult,
+  dataChartWidgetResultSchema,
+  dataChartWidgetSchema,
+  dataInsightsWidgetResultSchema,
+  dataTableWidgetResultSchema,
+  dataTableWidgetSchema,
+  dataWidgetResultSchema,
+  isDataChartWidget,
+  isDataTableWidget,
+  isDataWidgetResult,
+  normalizeDataWidgetKind,
+  normalizeDataWidgetResult,
+  type DataChartSeriesDefinition,
+  type DataChartWidget,
+  type DataChartWidgetResult,
+  type DataChartWidgetResultInput,
+  type DataInsightsWidgetResult,
+  type DataInsightsWidgetResultInput,
+  type DataTableColumn,
+  type DataTableWidget,
+  type DataTableWidgetResult,
+  type DataTableWidgetResultInput,
+  type DataWidgetDisplay,
+  type DataWidgetKind,
+  type DataWidgetResult,
+  type DataWidgetResultMetadata,
+} from "./data-widgets/index.js";
 export { createDevScriptRegistry } from "./scripts/dev/index.js";
 export {
   createAgentChatPlugin,
@@ -59,6 +106,58 @@ export {
   mountAgentNativeEmbedded,
   type AgentNativeEmbeddedPluginOptions,
 } from "./server/embedded.js";
+export {
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type AutomationCapabilities,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
+} from "./integrations/catalog.js";
+export {
+  AutomationConnectorError,
+  createAutomationCallbackHandler,
+  createAutomationRuntime,
+  createInvokeAutomationWorkflowAction,
+  type AutomationCallbackAuthentication,
+  type AutomationCallbackInput,
+  type AutomationCallbackResult,
+  type AutomationInboundDefinition,
+  type AutomationInvocation,
+  type AutomationInvocationResult,
+  type AutomationInvocationStatus,
+  type AutomationOutboundDefinition,
+  type AutomationResponseMode,
+  type AutomationRetryPolicy,
+  type AutomationRuntime,
+  type AutomationRuntimeOptions,
+  type AutomationWorkflowCapabilities,
+  type AutomationWorkflowDefinition,
+  type JsonSchema,
+} from "./automation/index.js";
+export {
+  createFeatureFlagsPlugin,
+  defineFeatureFlag,
+  defineFeatureFlags,
+  evaluateFeatureFlag,
+  getFeatureFlagDefinition,
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  listFeatureFlags,
+  registerFeatureFlags,
+  type FeatureFlagDefinition,
+  type FeatureFlagMode,
+  type FeatureFlagRules,
+  type FeatureFlagScope,
+} from "./feature-flags/index.js";
 
 // Server
 export {
@@ -74,62 +173,23 @@ export {
 } from "./server/index.js";
 
 // Client
-export {
-  addContextToAgentChat,
-  appendAgentChatContextToMessage,
-  clearAgentChatContext,
-  formatAgentChatContextItemsForPrompt,
-  listAgentChatContext,
-  refreshAgentChatContext,
-  removeAgentChatContextItem,
-  sendToAgentChat,
-  setAgentChatContextItem,
-  setContextToAgentChat,
-  isEmbedMcpChatBridgeActive,
-  useAgentChatContext,
-  useAgentChatGenerating,
-  useDevMode,
-  useSendToAgentChat,
-  AGENT_NATIVE_MCP_APP_HOST_MESSAGE_TYPES,
-  getMcpAppHostContext,
-  openMcpAppHostLink,
-  requestMcpAppDisplayMode,
-  updateMcpAppModelContext,
-  useMcpAppHostContext,
-  CodeRequiredDialog,
-  useAgentNativeEmbeddedBrowserSession,
-  useDbSync,
-  useFileWatcher,
-  cn,
-  ApiKeySettings,
-  useSession,
-  AgentNativeEmbedded,
-  useProductionAgent,
-  ProductionAgentPanel,
-  type AgentChatContextItem,
-  type AgentChatContextMessage,
-  type AgentChatContextMutationOptions,
-  type AgentChatContextRemoveOptions,
-  type AgentChatContextSetOptions,
-  type AgentChatContextState,
-  type AgentChatMessage,
-  type AgentNativeMcpAppHostMessageType,
-  type McpAppDisplayMode,
-  type McpAppHostCapabilities,
-  type McpAppHostContext,
-  type McpAppHostContextSnapshot,
-  type McpAppModelContextContentPart,
-  type McpAppModelContextUpdate,
-  type AgentNativeEmbeddedProps,
-  type UseAgentNativeEmbeddedBrowserSessionOptions,
-  type CodeRequiredDialogProps,
-  type ProductionAgentMessage,
-  type UseProductionAgentResult,
-  type ProductionAgentPanelProps,
-  type UseAgentChatContextResult,
-  useActionQuery,
-  useActionMutation,
-} from "./client/index.js";
+//
+// IMPORTANT: this top-level entry (the package `default`/Node condition) must
+// stay server-safe. It is what `import { defineAction } from "@agent-native/core"`
+// resolves to in a headless / Node / SSR context, where React, react-router, and
+// @tanstack/react-query are NOT installed. The React client surface therefore
+// lives behind the `@agent-native/core/client` subpath instead of being
+// re-exported here — re-exporting "./client/index.js" from this module would
+// eagerly pull route-state.ts → "@tanstack/react-query" into the load graph and
+// crash any headless app at module load.
+//
+// Browser bundlers resolve "@agent-native/core" to the `browser` condition
+// (./index.browser.ts), which re-exports the client surface, so UI code that
+// imports client helpers from the bare specifier keeps working in the browser.
+// Code that runs through the Node entry (SSR, scripts, headless) must import
+// client helpers explicitly:
+//
+//   import { useDbSync, cn } from "@agent-native/core/client";
 
 // Shared (isomorphic)
 export {
@@ -192,6 +252,8 @@ export {
   BUILDER_CREDIT_USAGE_BILLING,
   USD_USAGE_BILLING,
   type UsageRecord,
+  type UsageCostSource,
+  type UsageCostAggregate,
   type UsageSummary,
   type UsageBillingMode,
   type UsageBillingUnit,
@@ -253,6 +315,9 @@ export {
   type WorkspaceConnectionPublicCredentialRef,
   type WorkspaceConnectionStatus,
   workspaceConnectionIsAvailableToApp,
+  registerWorkspaceConnectionLifecycleListener,
+  type WorkspaceConnectionLifecycleEvent,
+  type WorkspaceConnectionLifecycleListener,
 } from "./workspace-connections/index.js";
 
 // Reusable workspace connection provider catalog
@@ -271,6 +336,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   providerReaderSupports,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
@@ -329,3 +395,15 @@ export {
   type SecretValidator,
   type SecretRef,
 } from "./secrets/index.js";
+
+export * from "./history/index.js";
+export * from "./review/index.js";
+export * from "./org-team/index.js";
+export * from "./navigation/index.js";
+export * from "./command-navigation/index.js";
+export * from "./search/index.js";
+export * from "./embeddings/index.js";
+export {
+  registerWorkspaceConnectionOnboardingStep,
+  type RegisterWorkspaceConnectionOnboardingStepOptions,
+} from "./setup-connections/index.js";

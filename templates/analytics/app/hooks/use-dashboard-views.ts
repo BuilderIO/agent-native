@@ -1,6 +1,5 @@
+import { callAction } from "@agent-native/core/client/hooks";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getIdToken } from "@/lib/auth";
-import { appApiPath } from "@agent-native/core/client";
 
 export interface DashboardView {
   id: string;
@@ -10,47 +9,39 @@ export interface DashboardView {
   createdAt?: string;
 }
 
-async function fetchWithAuth(url: string, options?: RequestInit) {
-  const token = await getIdToken();
-  return fetch(appApiPath(url), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options?.headers,
-    },
-  });
+async function loadViews(dashboardId: string): Promise<DashboardView[]> {
+  const data = await callAction(
+    "list-dashboard-views",
+    { dashboardId },
+    { method: "GET" },
+  );
+  return (data?.views ?? []) as DashboardView[];
 }
 
 export function useDashboardViews(dashboardId: string | undefined) {
   const queryClient = useQueryClient();
   const queryKey = ["dashboard-views", dashboardId];
 
-  const { data: views = [], isLoading } = useQuery({
+  const viewsQuery = useQuery({
     queryKey,
     queryFn: async (): Promise<DashboardView[]> => {
       if (!dashboardId) return [];
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
-      );
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.views ?? [];
+      return await loadViews(dashboardId);
     },
     enabled: !!dashboardId,
     staleTime: 30_000,
   });
+  const views = viewsQuery.data ?? [];
 
   const { mutateAsync: saveView } = useMutation({
     mutationFn: async (view: DashboardView) => {
       if (!dashboardId) return;
-      await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}`,
-        {
-          method: "POST",
-          body: JSON.stringify(view),
-        },
-      );
+      await callAction("save-dashboard-view", {
+        dashboardId,
+        id: view.id,
+        name: view.name,
+        filters: view.filters,
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -62,8 +53,9 @@ export function useDashboardViews(dashboardId: string | undefined) {
   const { mutateAsync: deleteView } = useMutation({
     mutationFn: async (viewId: string) => {
       if (!dashboardId) return;
-      await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
+      await callAction(
+        "delete-dashboard-view",
+        { dashboardId, viewId },
         { method: "DELETE" },
       );
     },
@@ -73,7 +65,14 @@ export function useDashboardViews(dashboardId: string | undefined) {
     },
   });
 
-  return { views, isLoading, saveView, deleteView };
+  return {
+    views,
+    isLoading: viewsQuery.isLoading,
+    error: viewsQuery.error,
+    refetch: viewsQuery.refetch,
+    saveView,
+    deleteView,
+  };
 }
 
 /**
@@ -91,11 +90,11 @@ export function useDeleteDashboardView() {
       dashboardId: string;
       viewId: string;
     }) => {
-      const res = await fetchWithAuth(
-        `/api/dashboard-views/${encodeURIComponent(dashboardId)}/${encodeURIComponent(viewId)}`,
+      await callAction(
+        "delete-dashboard-view",
+        { dashboardId, viewId },
         { method: "DELETE" },
       );
-      if (!res.ok) throw new Error(`Delete failed: ${res.status}`);
     },
     onSettled: (_data, _err, { dashboardId }) => {
       queryClient.invalidateQueries({
@@ -117,13 +116,7 @@ export function useAllDashboardViews(dashboardIds: string[]) {
       const results: Record<string, DashboardView[]> = {};
       await Promise.all(
         dashboardIds.map(async (id) => {
-          const res = await fetchWithAuth(
-            `/api/dashboard-views/${encodeURIComponent(id)}`,
-          );
-          if (res.ok) {
-            const data = await res.json();
-            results[id] = data.views ?? [];
-          }
+          results[id] = await loadViews(id);
         }),
       );
       return results;

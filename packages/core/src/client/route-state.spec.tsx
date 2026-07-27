@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   useAgentRouteState,
   useSemanticNavigationState,
@@ -86,6 +87,7 @@ describe("route-state client helpers", () => {
     for (const container of containers) {
       container.remove();
     }
+    Reflect.deleteProperty(document, "startViewTransition");
     vi.unstubAllGlobals();
   });
 
@@ -235,5 +237,52 @@ describe("route-state client helpers", () => {
       view: "detail/123",
       label: null,
     });
+  });
+
+  it("prepares shared chat view transitions before navigate commands", async () => {
+    const { fetchMock } = makeAppStateFetch({
+      navigate: { view: "detail", id: "123", _writeId: "cmd-1" },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const prepare = vi.fn();
+    window.addEventListener("agentNative.chatViewTransitionPrepare", prepare);
+
+    function Harness() {
+      const location = useLocation();
+      useAgentRouteState<
+        { view: string },
+        { view: string; id?: string; _writeId?: string }
+      >({
+        refetchInterval: false,
+        getNavigationState: ({ pathname }) => ({
+          view: pathname === "/" ? "home" : pathname.slice(1),
+        }),
+        getCommandPath: (command) =>
+          command.view === "detail" && command.id
+            ? `/detail/${command.id}`
+            : null,
+        agentChatViewTransition: true,
+      });
+      return <div>{location.pathname}</div>;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+    await act(flush);
+
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(rendered.container.textContent).toBe("/detail/123");
+    window.removeEventListener(
+      "agentNative.chatViewTransitionPrepare",
+      prepare,
+    );
   });
 });

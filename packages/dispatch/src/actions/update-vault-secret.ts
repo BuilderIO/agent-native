@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { updateSecret } from "../server/lib/vault-store.js";
 
 export default defineAction({
@@ -41,5 +42,8 @@ export default defineAction({
         description !== undefined,
       "At least one secret field must be updated",
     ),
+  // Carries a secret `value`. Record THAT the secret changed, never the value —
+  // keep the audit trail from becoming a second credential store.
+  audit: { recordInputs: false },
   run: async (args) => updateSecret(args.id, args),
 });

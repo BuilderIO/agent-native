@@ -1,10 +1,21 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 function readDatabaseSource() {
-  return readFileSync(new URL("./DocumentDatabase.tsx", import.meta.url), {
-    encoding: "utf8",
-  });
+  return [
+    "./database/DatabaseView.tsx",
+    "./database/settings.tsx",
+    "./database/shared.tsx",
+    "./database/view-config.ts",
+    "./database/view-state.ts",
+  ]
+    .map((path) =>
+      readFileSync(new URL(path, import.meta.url), {
+        encoding: "utf8",
+      }),
+    )
+    .join("\n");
 }
 
 describe("document database layout", () => {
@@ -31,13 +42,15 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain("const newDatabaseRowLabel =");
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
   });
 
   it("selects the current view name when renaming a database view", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain('aria-label="View name"');
+    expect(source).toContain('aria-label={dbText("viewName")}');
     expect(source).toContain("const renameInputRef = useRef<HTMLInputElement>");
     expect(source).toContain("renameInputRef.current?.focus()");
     expect(source).toContain("renameInputRef.current?.select()");
@@ -85,7 +98,7 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function DatabasePropertyPickerSearch");
-    expect(source).toContain('placeholder="Search properties"');
+    expect(source).toContain('placeholder={dbText("searchProperties")}');
     expect(source).toContain("DatabasePropertyPickerSubContent");
     expect(source).toContain(
       "const groupPropertyItems = databasePropertyPickerItems",
@@ -114,7 +127,7 @@ describe("document database layout", () => {
 
     expect(source).toContain("function databaseToolbarIconButtonClass");
     expect(source).toContain('aria-label="Search"');
-    expect(source).toContain('aria-label="View settings"');
+    expect(source).toContain(': "Database settings"');
     expect(source).toContain("Property visibility");
     expect(source).toContain("bg-foreground px-2.5 text-xs font-medium");
   });
@@ -123,8 +136,8 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("type DatabaseSettingsPanel");
-    expect(source).toContain("function DatabaseViewSettingsPanel");
-    expect(source).toContain("View settings");
+    expect(source).toContain("function DatabaseSettingsPanelSheet");
+    expect(source).toContain("Database settings");
     expect(source).toContain("function DatabaseSettingsLayoutPanel");
     expect(source).toContain(
       "function DatabaseSettingsPropertyVisibilityPanel",
@@ -133,13 +146,63 @@ describe("document database layout", () => {
     expect(source).toContain("fixed bottom-0 right-0 top-12");
   });
 
+  it("keeps database settings row clicks inside the source drawer", () => {
+    const source = readDatabaseSource();
+
+    expect(source).toContain("onClick={(event) => event.stopPropagation()}");
+    expect(source).toContain(
+      "onPointerDown={(event) => event.stopPropagation()}",
+    );
+    expect(source).toContain(
+      "onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {",
+    );
+    expect(source).toContain("event.stopPropagation();");
+    expect(source).toContain('label="Sources"');
+    expect(source).toContain('onClick={() => onPanelChange("source")}');
+  });
+
+  it("keeps idle reloads, source-panel mounts, remounts, and focus local until explicit refresh", () => {
+    const source = readDatabaseSource();
+
+    expect(source).not.toContain("const autoSyncEnabled");
+    expect(source).not.toContain('window.addEventListener("focus"');
+    expect(source).not.toContain("refreshSourceRef.current()");
+    expect(source.match(/dbText\("refreshSource"\)/g)).toHaveLength(2);
+    expect(
+      source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
+    ).toHaveLength(2);
+    // The independent DatabaseView continuation pump still resumes an already
+    // fetching snapshot after a reload; it is not a panel-open freshness read.
+    expect(source).toContain(
+      'builderSourceRowFetchStatus(source) === "fetching"',
+    );
+    expect(source).toContain("source.metadata.lastReadHasMore === true");
+    expect(source).toContain("const continuationKey");
+  });
+
+  it("reduces the connected source panel to read-only status plus a diff slot", () => {
+    const source = readDatabaseSource();
+
+    // Read-only is the headline signal; live writes flip the same badge.
+    expect(source).toContain('dbText("readOnly")');
+    expect(source).toContain('dbText("liveWritesOn")');
+    // The dormant diff slot is the single push-review entry point.
+    expect(source).toContain('dbText("reviewDiff")');
+    // A failed sync surfaces inline instead of silently going stale.
+    expect(source).toContain('dbText("couldntSyncRetry")');
+    // Disconnect stays available, tucked at the bottom.
+    expect(source).toContain('dbText("disconnectSource")');
+    // The aggregate field-mappings list is gone (mappings live in column menus).
+    expect(source).not.toContain(">Field mappings<");
+  });
+
   it("keeps the Layout settings panel limited to implemented controls", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function DatabaseOpenPagesInSetting");
     expect(source).toContain("databaseOpenPagesInDescription");
-    expect(source).toContain("Wrap all content");
-    expect(source).toContain("Open pages in");
+    expect(source).toContain('dbText("wrapAllContent")');
+    expect(source).toContain('dbText("openPagesIn")');
     expect(source).not.toContain("Row density");
     expect(source).not.toContain("DATABASE_ROW_DENSITIES");
     expect(source).not.toContain("databaseRowDensityLabel");
@@ -171,7 +234,8 @@ describe("document database layout", () => {
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
@@ -188,7 +252,7 @@ describe("document database layout", () => {
     expect(source).toContain("reorderDatabaseView(");
     expect(source).toContain("targetView.side");
     expect(source).toContain("onContextMenu={(event) => {");
-    expect(source).toContain('aria-label="Add database view"');
+    expect(source).toContain('aria-label={dbText("addDatabaseView")}');
     expect(source).toContain("group-hover/viewtabs:opacity-100");
     expect(source).not.toContain(
       "hover:bg-background/80 hover:text-foreground",

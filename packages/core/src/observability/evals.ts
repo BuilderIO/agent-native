@@ -1,16 +1,17 @@
+import {
+  resolveEngine,
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+} from "../agent/engine/index.js";
+import type { AgentEngine } from "../agent/engine/types.js";
+import { getRunById, getRunEventsSince } from "../agent/run-store.js";
+import { getTraceSummary, insertEvalResult, getEvalDataset } from "./store.js";
 import type {
   EvalResult,
   EvalCriteria,
   TraceSummary,
   EvalTestCase,
 } from "./types.js";
-import { getTraceSummary, insertEvalResult, getEvalDataset } from "./store.js";
-import { getRunById, getRunEventsSince } from "../agent/run-store.js";
-import type { AgentEngine } from "../agent/engine/types.js";
-import {
-  resolveEngine,
-  getStoredModelForEngine,
-} from "../agent/engine/index.js";
 
 const LATENCY_BASELINE_PER_TOOL_MS = 10_000;
 const COST_BASELINE_PER_TOOL_CX100 = 50;
@@ -127,14 +128,13 @@ function scoreErrorRecovery(
   runStatus: string,
 ): EvalResult {
   const hadErrors = summary.failedTools > 0;
-  let score: number;
-  if (!hadErrors) {
-    score = 1.0;
-  } else if (runStatus === "completed") {
-    score = 1.0;
-  } else {
-    score = 0;
-  }
+  // `truncated` scores 0 alongside errored/aborted: a turn that hit a budget or
+  // timeout boundary did not recover from its tool errors, it ran out of room.
+  // Before `truncated` existed those runs were stored as `completed` and scored
+  // a full 1.0, so this criterion's historical series has a discontinuity at the
+  // point that status was introduced.
+  const recovered = runStatus === "completed";
+  const score = !hadErrors || recovered ? 1.0 : 0;
   return makeEvalResult({
     ...fromSummary(summary),
     evalType: "automated",
@@ -241,10 +241,11 @@ export async function runLlmJudgeEval(
 
     const engine =
       opts?.engine ?? (await resolveEngine({ engineOption: undefined }));
-    const model =
+    const modelCandidate =
       opts?.model ??
       (await getStoredModelForEngine(engine)) ??
       engine.defaultModel;
+    const model = normalizeModelForEngine(engine, modelCandidate);
 
     const judgePrompt = buildJudgePrompt(transcript, criteria);
 
@@ -324,10 +325,11 @@ export async function runDatasetEval(
 
   const engine =
     opts?.engine ?? (await resolveEngine({ engineOption: undefined }));
-  const model =
+  const modelCandidate =
     opts?.model ??
     (await getStoredModelForEngine(engine)) ??
     engine.defaultModel;
+  const model = normalizeModelForEngine(engine, modelCandidate);
 
   const criteria = opts?.criteria ?? [
     {

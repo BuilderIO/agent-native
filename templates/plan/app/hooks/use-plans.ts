@@ -1,7 +1,8 @@
-import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import type { RefObject } from "react";
-import { toast } from "sonner";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
 import type {
   PlanAuthor,
   PlanBundle,
@@ -9,6 +10,8 @@ import type {
   PlanCommentMention,
   PlanCommentResolutionTarget,
   PlanCommentStatus,
+  PlanKind,
+  PlanReportReason,
   PlanSectionType,
   PlanSource,
   PlanStatus,
@@ -16,7 +19,10 @@ import type {
   PlanVersionDetail,
   PlanVersionListResponse,
 } from "@shared/types";
-import type { PlanContent, PlanContentPatch } from "@shared/plan-content";
+import { useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import { toast } from "sonner";
+
+import type { PlanMdxFolder } from "@/lib/desktop-plan-files";
 
 export type PlanSectionInput = {
   id?: string;
@@ -132,6 +138,8 @@ export type VisualizePlanInput = {
 
 export type UpdatePlanInput = {
   planId: string;
+  expectedUpdatedAt?: string;
+  allowDestructive?: boolean;
   title?: string;
   brief?: string;
   status?: PlanStatus;
@@ -146,6 +154,30 @@ export type UpdatePlanInput = {
   note?: string;
 };
 
+export type UpdateLocalPlanInput = {
+  slug: string;
+  path?: string;
+  title?: string;
+  brief?: string;
+  content?: PlanContent;
+  contentPatches?: PlanContentPatch[];
+  note?: string;
+};
+
+export type UpdateLocalPlanCommentsInput = {
+  slug: string;
+  path?: string;
+  comments?: PlanCommentInput[];
+  deletedCommentIds?: string[];
+};
+
+export type PromoteLocalPlanInput = {
+  slug: string;
+  path?: string;
+  targetPath?: string;
+  overwrite?: boolean;
+};
+
 export type ConvertVisualPlanToPrototypeInput = {
   planId: string;
   title?: string;
@@ -153,11 +185,96 @@ export type ConvertVisualPlanToPrototypeInput = {
   removeCanvas?: boolean;
 };
 
+export type ReportVisualPlanInput = {
+  planId: string;
+  reason: PlanReportReason;
+  details?: string;
+  pageUrl?: string;
+};
+
+export type ReportVisualPlanResult = {
+  ok: true;
+  reportId: string;
+  duplicate: boolean;
+  message: string;
+};
+
+export type DeletePlanCommentInput = {
+  planId: string;
+  commentId: string;
+};
+
+export type DeletePlanCommentResult = {
+  planId: string;
+  commentId: string;
+  deletedCommentIds: string[];
+  deletedCount: number;
+  deletedAt: string;
+};
+
+export type ListPlansInput = {
+  status?: PlanStatus;
+  limit?: number;
+  deleted?: "active" | "deleted" | "all";
+};
+
+export const ACTIVE_PLANS_QUERY_ARGS = {};
+export const ACTIVE_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ACTIVE_PLANS_QUERY_ARGS,
+] as const;
+export const ALL_PLANS_QUERY_ARGS = { deleted: "all" as const };
+export const ALL_PLANS_QUERY_KEY = [
+  "action",
+  "list-visual-plans",
+  ALL_PLANS_QUERY_ARGS,
+] as const;
+
+export type DeletePlanInput = {
+  planId: string;
+  mode?: "soft" | "restore" | "hard";
+  confirmation?: string;
+};
+
+export type DeletePlanResult =
+  | {
+      planId: string;
+      mode: "soft";
+      deletedAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "restore";
+      restoredAt: string;
+      hardDeleted: false;
+    }
+  | {
+      planId: string;
+      mode: "hard";
+      deletedAt: string;
+      hardDeleted: true;
+      deletedCounts: {
+        comments: number;
+        sections: number;
+        events: number;
+        reports: number;
+        versions: number;
+        shares: number;
+        assets: number;
+        plans: number;
+      };
+    };
+
 function usePlanInvalidation() {
   const qc = useQueryClient();
   return () => {
     void qc.invalidateQueries({ queryKey: ["action", "list-visual-plans"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-visual-plan"] });
+    void qc.invalidateQueries({
+      queryKey: ["action", "get-local-plan-folder"],
+    });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-feedback"] });
     void qc.invalidateQueries({ queryKey: ["action", "list-plan-versions"] });
     void qc.invalidateQueries({ queryKey: ["action", "get-plan-version"] });
@@ -179,25 +296,102 @@ type UsePlansOptions = Omit<
   "queryKey" | "queryFn"
 >;
 
-export function usePlans(options?: UsePlansOptions) {
-  return useActionQuery<PlanSummary[]>("list-visual-plans", {}, options);
+function isListPlansInput(value: unknown): value is ListPlansInput {
+  if (!value || typeof value !== "object") return false;
+  return "status" in value || "limit" in value || "deleted" in value;
 }
 
-export function usePlan(
-  id?: string,
-  pausePollRef?: RefObject<boolean> | { current: boolean },
+export function usePlans(
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  args: ListPlansInput,
+  options?: UsePlansOptions,
+): ReturnType<typeof useActionQuery<PlanSummary[]>>;
+export function usePlans(
+  argsOrOptions?: ListPlansInput | UsePlansOptions,
+  options?: UsePlansOptions,
 ) {
+  const args = isListPlansInput(argsOrOptions)
+    ? argsOrOptions
+    : ACTIVE_PLANS_QUERY_ARGS;
+  const queryOptions = isListPlansInput(argsOrOptions)
+    ? options
+    : (argsOrOptions as UsePlansOptions | undefined);
+  return useActionQuery<PlanSummary[]>("list-visual-plans", args, queryOptions);
+}
+
+export function planBundleQueryParams(id: string) {
+  return { id, includeMdx: false, includeHtml: true } as const;
+}
+
+export function planBundleQueryKey(id: string) {
+  return ["action", "get-visual-plan", planBundleQueryParams(id)] as const;
+}
+
+export function localPlanBundleQueryParams(slug: string, path?: string | null) {
+  return path ? ({ slug, path } as const) : ({ slug } as const);
+}
+
+export function localPlanBundleQueryKey(slug: string, path?: string | null) {
+  return [
+    "action",
+    "get-local-plan-folder",
+    localPlanBundleQueryParams(slug, path),
+  ] as const;
+}
+
+export function usePlan(id?: string) {
   return useActionQuery<PlanBundle & { html?: string }>(
     "get-visual-plan",
-    { id: id ?? "" },
+    planBundleQueryParams(id ?? ""),
     {
       enabled: !!id,
-      // Pause the 3-second poll while a comment mutation is in-flight so
-      // an optimistic comment inserted into the cache isn't evicted before
-      // the server write commits (Issue 4a).
-      refetchInterval: pausePollRef
-        ? () => (pausePollRef.current ? false : 3_000)
-        : 3_000,
+      // Mutating actions and collaboration writes already arrive through the
+      // shared useDbSync SSE/poll transport, which invalidates active action
+      // reads. Keep the last bundle visible during that targeted refresh and
+      // avoid repeatedly downloading the full plan while nothing changed.
+      placeholderData: (previous) => previous,
+    },
+  );
+}
+
+export type PlanAccessStatusResponse = {
+  exists: boolean;
+  hasAccess: boolean;
+  signedIn: boolean;
+  viewerEmail: string | null;
+  viewerName: string | null;
+  role: "owner" | "viewer" | "editor" | "admin" | null;
+  orgId: string | null;
+  orgName: string | null;
+  visibility: "private" | "org" | "public" | null;
+};
+
+export function usePlanAccessStatus(planId?: string, enabled = true) {
+  return useActionQuery<PlanAccessStatusResponse>(
+    "get-plan-access-status",
+    { planId: planId ?? "" },
+    {
+      enabled: Boolean(planId && enabled),
+      retry: false,
+    },
+  );
+}
+
+export type RequestPlanAccessResult = {
+  ok: true;
+  alreadyHasAccess: boolean;
+  notifiedOwner: boolean;
+  requestId?: string;
+  message: string;
+};
+
+export function useRequestPlanAccess() {
+  return useActionMutation<RequestPlanAccessResult, { planId: string }>(
+    "request-plan-access",
+    {
+      onError: showActionError("Failed to request access"),
     },
   );
 }
@@ -231,7 +425,7 @@ export function useCreatePrototypePlan() {
     CreatePrototypePlanInput
   >("create-prototype-plan", {
     onSuccess: invalidate,
-    onError: showActionError("Failed to create prototype plan"),
+    onError: showActionError("Failed to create visual plan"),
   });
 }
 
@@ -279,6 +473,102 @@ export function useUpdatePlan() {
   );
 }
 
+export function useUpdateLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    UpdateLocalPlanInput
+  >("update-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan files"),
+  });
+}
+
+// Like useUpdatePlanComments, but persists to the local folder's comments.json
+// (DB-free) so comments survive a refresh in /local-plans/:slug.
+export function useUpdateLocalPlanComments() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+    },
+    UpdateLocalPlanCommentsInput
+  >("update-local-plan-comments", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      invalidate();
+    },
+    onError: showActionError("Failed to update local plan comments"),
+  });
+}
+
+export function usePromoteLocalPlan() {
+  const qc = useQueryClient();
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & {
+      localOnly: true;
+      slug: string;
+      folder: string;
+      repoPath?: string | null;
+      suggestedRepoPath?: string;
+      targetPath?: string;
+      alreadyPromoted?: boolean;
+      path?: string;
+      url?: string;
+      html?: string;
+      mdx?: PlanMdxFolder;
+      localFiles?: { written: boolean; folder: string; files: string[] };
+    },
+    PromoteLocalPlanInput
+  >("promote-local-plan-folder", {
+    onSuccess: (data, variables) => {
+      qc.setQueryData(
+        localPlanBundleQueryKey(variables.slug, variables.path),
+        data,
+      );
+      if (data.repoPath) {
+        qc.setQueryData(
+          localPlanBundleQueryKey(data.slug, data.repoPath),
+          data,
+        );
+      }
+      invalidate();
+    },
+    onError: showActionError("Failed to save local plan to repo"),
+  });
+}
+
 /**
  * A separate mutation instance used exclusively for status changes
  * (draft / review / approved / in_progress / complete). Keeping it separate
@@ -309,6 +599,28 @@ export function useUpdatePlanComments() {
     {
       onSuccess: invalidate,
       onError: showActionError("Failed to update visual plan"),
+    },
+  );
+}
+
+export function useDeletePlanComment() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanCommentResult, DeletePlanCommentInput>(
+    "delete-plan-comment",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete comment"),
+    },
+  );
+}
+
+export function useDeletePlan() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<DeletePlanResult, DeletePlanInput>(
+    "delete-visual-plan",
+    {
+      onSuccess: invalidate,
+      onError: showActionError("Failed to delete plan"),
     },
   );
 }
@@ -396,11 +708,45 @@ export function usePublishVisualPlan() {
   );
 }
 
+export function useReportVisualPlan() {
+  return useActionMutation<ReportVisualPlanResult, ReportVisualPlanInput>(
+    "report-visual-plan",
+    {
+      onError: showActionError("Failed to report plan"),
+    },
+  );
+}
+
+export type ImportPlanSourceInput = {
+  planId?: string;
+  expectedUpdatedAt?: string;
+  title?: string;
+  brief?: string;
+  kind?: PlanKind;
+  source?: PlanSource;
+  repoPath?: string;
+  currentFocus?: string;
+  status?: PlanStatus;
+  mdx: PlanMdxFolder;
+};
+
+export function useImportPlanSource() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<
+    PlanBundle & { path?: string; url?: string; html?: string },
+    ImportPlanSourceInput
+  >("import-visual-plan-source", {
+    onSuccess: invalidate,
+    onError: showActionError("Failed to import plan source"),
+  });
+}
+
 export function useExportPlan(planId?: string) {
   return useActionQuery<{
     markdown: string;
     html: string;
     json: PlanBundle;
+    mdx: PlanMdxFolder;
     path: string;
     url: string;
   }>("export-visual-plan", { planId: planId ?? "" }, { enabled: false });

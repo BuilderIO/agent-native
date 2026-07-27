@@ -1,25 +1,16 @@
-import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+  appApiPath,
+  agentNativePath,
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconChevronDown,
@@ -37,39 +28,31 @@ import {
   IconCopy,
   IconDotsVertical,
   IconBrandGithub,
+  IconBrandGoogle,
+  IconPlugConnected,
 } from "@tabler/icons-react";
-import { getIdToken } from "@/lib/auth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+
 import {
-  dataSources,
-  categoryLabels,
-  categoryOrder,
-  type DataSource,
-  type WalkthroughStep,
-} from "@/lib/data-sources";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  getOptionalCredentialKeys,
-  getSharedConnectionStatus,
-  isSourceReady,
-  isSourceConfigured,
-  credentialRowsFromStatus,
-  type DataSourceStatusResponse,
-  type EnvKeyStatus,
-  type SharedConnectionStatus,
-} from "@/lib/data-source-status";
-import {
-  appApiPath,
-  agentNativePath,
-  oauthRedirectUri,
-  useActionMutation,
-  useActionQuery,
-  useSendToAgentChat,
-  PromptComposer,
-} from "@agent-native/core/client";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +60,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getIdToken } from "@/lib/auth";
+import {
+  getOptionalCredentialKeys,
+  getSharedConnectionStatus,
+  getGoogleDriveConnection,
+  isSourceReady,
+  isSourceLocallyConfigured,
+  credentialRowsFromStatus,
+  type DataSourceStatusResponse,
+  type EnvKeyStatus,
+  type SharedConnectionStatus,
+} from "@/lib/data-source-status";
+import {
+  dataSources,
+  categoryLabels,
+  categoryOrder,
+  type DataSource,
+  type WalkthroughStep,
+} from "@/lib/data-sources";
 
 interface AnalyticsPublicKeyRow {
   id: string;
@@ -110,19 +118,7 @@ const firstPartyAnalyticsEndpoint =
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
 ): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ vars }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to save");
-  }
+  await callAction("update-data-source-credentials", { vars });
 }
 
 async function testConnection(
@@ -168,6 +164,7 @@ function StepItem({
   inputValues: Record<string, string>;
   onInputChange: (key: string, value: string) => void;
 }) {
+  const t = useT();
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !step.inputKey) return;
@@ -213,7 +210,8 @@ function StepItem({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
           >
-            {step.linkText || "Open"} <IconExternalLink className="h-3 w-3" />
+            {step.linkText || t("dataSources.open")}{" "}
+            <IconExternalLink className="h-3 w-3" />
           </a>
         )}
         {step.inputKey && (
@@ -225,7 +223,7 @@ function StepItem({
               {step.inputAcceptFile && (
                 <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
                   <IconUpload className="h-3 w-3" />
-                  Upload file
+                  {t("dataSources.uploadFile")}
                   <input
                     type="file"
                     accept={step.inputAcceptFile}
@@ -253,8 +251,7 @@ function StepItem({
             )}
             {isSaved && !inputValues[step.inputKey] && (
               <p className="text-xs text-muted-foreground">
-                A value is already saved. Leave blank to keep it, or enter a new
-                value to replace it.
+                {t("dataSources.savedValueHint")}
               </p>
             )}
           </div>
@@ -265,19 +262,7 @@ function StepItem({
 }
 
 async function deleteCredentials(keys: string[]): Promise<void> {
-  const token = await getIdToken();
-  const res = await fetch(appApiPath("/api/credentials"), {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-    body: JSON.stringify({ keys }),
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || "Failed to delete");
-  }
+  await callAction("delete-data-source-credentials", { keys });
 }
 
 async function disconnectDataSource(source: DataSource): Promise<void> {
@@ -302,6 +287,7 @@ function GitHubOAuthView({
   connected: boolean;
   onSaved: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: status, isLoading } = useQuery({
     queryKey: ["github-oauth-status"],
@@ -380,10 +366,11 @@ function GitHubOAuthView({
             <IconBrandGithub className="h-4 w-4" />
           </div>
           <div className="min-w-0 space-y-1">
-            <p className="text-xs font-medium text-foreground">GitHub OAuth</p>
+            <p className="text-xs font-medium text-foreground">
+              {t("dataSources.githubOAuth")}
+            </p>
             <p className="text-xs text-muted-foreground">
-              Grant repository access so the agent can search source code and
-              read files without a manual token.
+              {t("dataSources.githubOAuthDescription")}
             </p>
           </div>
         </div>
@@ -400,12 +387,12 @@ function GitHubOAuthView({
             {connectMutation.isPending ? (
               <>
                 <IconLoader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                Opening...
+                {t("dataSources.opening")}
               </>
             ) : oauthConnected || connected ? (
-              "Reconnect"
+              t("dataSources.reconnect")
             ) : (
-              "Connect"
+              t("dataSources.connect")
             )}
           </Button>
         ) : null}
@@ -416,24 +403,22 @@ function GitHubOAuthView({
           <div className="flex items-center gap-2 text-xs text-emerald-500">
             <IconCheck className="h-3.5 w-3.5" />
             {viewerLabel
-              ? `Connected as ${viewerLabel}`
-              : "GitHub is connected"}
+              ? t("dataSources.connectedAs", { viewer: viewerLabel })
+              : t("dataSources.githubConnected")}
           </div>
         ) : status?.connected && status.valid === false ? (
           <div className="flex items-center gap-2 text-xs text-amber-500">
             <IconAlertCircle className="h-3.5 w-3.5" />
-            Saved GitHub token needs to be reconnected.
+            {t("dataSources.githubReconnectNeeded")}
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            OAuth will request repo read access for code search, file reads,
-            pull requests, and issues.
+            {t("dataSources.githubOAuthRequest")}
           </p>
         )
       ) : (
         <p className="text-xs text-muted-foreground">
-          OAuth app credentials are not configured on this deployment. Use the
-          personal access token field below.
+          {t("dataSources.githubOAuthUnavailable")}
         </p>
       )}
 
@@ -444,6 +429,99 @@ function GitHubOAuthView({
         </div>
       )}
     </div>
+  );
+}
+
+function WorkspaceOAuthView({
+  provider,
+  label,
+  connected,
+}: {
+  provider: string;
+  label: string;
+  connected: boolean;
+}) {
+  const t = useT();
+  const connect = () => {
+    const params = new URLSearchParams({
+      appId: "analytics",
+      return: "/data-sources",
+    });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
+      ),
+    );
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+            <IconPlugConnected className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-medium text-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("dataSources.sharedIntegration")}
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant={connected ? "outline" : "default"}
+          onClick={connect}
+          className="shrink-0 text-xs"
+        >
+          {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function GoogleSheetsExportCard({
+  statusData,
+}: {
+  statusData: DataSourceStatusResponse | undefined;
+}) {
+  const t = useT();
+  const connection = getGoogleDriveConnection(statusData);
+  const connected = connection?.grantState === "connected";
+
+  return (
+    <Card className="data-source-card bg-card border-border/50">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <IconBrandGoogle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">
+                {t("dataSources.googleSheetsExport")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.googleSheetsExportDescription")}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`shrink-0 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}
+          >
+            {connected
+              ? t("dataSources.connected")
+              : t("dataSources.notConfigured")}
+          </span>
+        </div>
+        <WorkspaceOAuthView
+          provider="google_drive"
+          label={t("dataSources.googleSheets")}
+          connected={connected}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -469,21 +547,22 @@ function SharedConnectionStatusRow({
 }: {
   status: SharedConnectionStatus;
 }) {
+  const t = useT();
   const message =
     status.kind === "ready"
-      ? "Analytics can use this provider through a workspace connection granted from Dispatch."
+      ? t("dataSources.sharedReady")
       : status.kind === "needs_grant"
-        ? "A workspace connection exists. Open Dispatch to grant Analytics access."
+        ? t("dataSources.sharedNeedsGrant")
         : status.kind === "local_credentials"
-          ? "Using credentials saved in this app. For reuse across apps, connect and grant this provider in Dispatch."
-          : "Connect or grant this provider in Dispatch to reuse it across apps, or save local credentials below.";
+          ? t("dataSources.sharedLocalCredentials")
+          : t("dataSources.sharedFallback");
 
   return (
     <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-border/50 bg-muted/20 p-3">
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs font-medium text-foreground">
-            Shared integration
+            {t("dataSources.sharedIntegration")}
           </p>
           <SharedConnectionBadge status={status} />
         </div>
@@ -502,6 +581,7 @@ function WorkspaceReadyView({
   onSaved: () => void;
   onAddLocalCredentials: () => void;
 }) {
+  const t = useT();
   const [testResult, setTestResult] = useState<{
     ok: boolean;
     error?: string;
@@ -518,8 +598,7 @@ function WorkspaceReadyView({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        This source is ready through a shared workspace connection. Manage
-        shared access in Dispatch, or add local credentials for this app only.
+        {t("dataSources.workspaceReadyDescription")}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button
@@ -537,7 +616,9 @@ function WorkspaceReadyView({
           ) : (
             <IconCheck className="mr-1.5 h-3 w-3" />
           )}
-          {testMutation.isPending ? "Testing..." : "Test connection"}
+          {testMutation.isPending
+            ? t("dataSources.testing")
+            : t("dataSources.testConnection")}
         </Button>
         <Button
           size="sm"
@@ -545,7 +626,7 @@ function WorkspaceReadyView({
           onClick={onAddLocalCredentials}
           className="text-xs"
         >
-          Add local credentials
+          {t("dataSources.addLocalCredentials")}
         </Button>
         {source.docsUrl && (
           <a
@@ -554,7 +635,7 @@ function WorkspaceReadyView({
             rel="noopener noreferrer"
             className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
           >
-            Docs <IconExternalLink className="h-3 w-3" />
+            {t("dataSources.docs")} <IconExternalLink className="h-3 w-3" />
           </a>
         )}
       </div>
@@ -565,12 +646,12 @@ function WorkspaceReadyView({
           {testResult.ok ? (
             <>
               <IconCheck className="h-3.5 w-3.5" />
-              Connection successful
+              {t("dataSources.connectionSuccessful")}
             </>
           ) : (
             <>
               <IconAlertCircle className="h-3.5 w-3.5" />
-              {testResult.error || "Connection failed"}
+              {testResult.error || t("dataSources.connectionFailed")}
             </>
           )}
         </div>
@@ -588,6 +669,7 @@ function ConnectedView({
   onSaved: () => void;
   envStatus: EnvKeyStatus[];
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -667,6 +749,13 @@ function ConnectedView({
     ),
   );
   const optionalKeys = getOptionalCredentialKeys(source);
+  const isAnyCredentialMode = source.credentialRequirementMode === "any";
+  const configuredCredentialKeys = new Set(
+    envStatus.filter((s) => s.configured).map((s) => s.key),
+  );
+  const hasAlternativeCredential =
+    isAnyCredentialMode &&
+    source.envKeys.some((key) => configuredCredentialKeys.has(key));
 
   const handleDisconnect = () => {
     if (sharedCredentialKeys.length > 0) {
@@ -713,13 +802,13 @@ function ConnectedView({
                         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-rose-400 cursor-pointer"
                       >
                         <IconTrash className="h-3 w-3" />
-                        Clear saved value
+                        {t("dataSources.clearSavedValue")}
                       </button>
                     )}
                     {step.inputAcceptFile && !isPendingClear && (
                       <label className="inline-flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 cursor-pointer">
                         <IconUpload className="h-3 w-3" />
-                        Upload file
+                        {t("dataSources.uploadFile")}
                         <input
                           type="file"
                           accept={step.inputAcceptFile}
@@ -774,7 +863,7 @@ function ConnectedView({
                 )}
                 {isPendingClear ? (
                   <div className="flex items-center justify-between gap-2 text-xs text-amber-500">
-                    <span>Will be cleared on save (back to default).</span>
+                    <span>{t("dataSources.willClearOnSave")}</span>
                     <button
                       type="button"
                       onClick={() => {
@@ -786,15 +875,14 @@ function ConnectedView({
                       }}
                       className="text-muted-foreground hover:text-foreground cursor-pointer"
                     >
-                      Undo
+                      {t("dataSources.undo")}
                     </button>
                   </div>
                 ) : (
                   isConfigured &&
                   !hasTyped && (
                     <p className="text-xs text-muted-foreground">
-                      A value is already saved. Leave blank to keep it, or enter
-                      a new value to replace it.
+                      {t("dataSources.savedValueHint")}
                     </p>
                   )
                 )}
@@ -811,10 +899,10 @@ function ConnectedView({
             {saveMutation.isPending ? (
               <>
                 <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                Saving...
+                {t("dataSources.saving")}
               </>
             ) : (
-              "Save Changes"
+              t("dataSources.saveChanges")
             )}
           </Button>
           <Button
@@ -827,7 +915,7 @@ function ConnectedView({
             }}
             className="text-xs"
           >
-            Cancel
+            {t("sidebar.cancel")}
           </Button>
         </div>
         {saveMutation.isError && (
@@ -846,8 +934,7 @@ function ConnectedView({
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 space-y-2">
             {source.envKeys.map((key) => {
-              const configured =
-                envStatus.find((s) => s.key === key)?.configured ?? false;
+              const configured = configuredCredentialKeys.has(key);
               const optional = optionalKeys.has(key);
               return (
                 <div
@@ -860,17 +947,22 @@ function ConnectedView({
                   {configured ? (
                     <span className="flex items-center gap-1 whitespace-nowrap text-emerald-500">
                       <IconCheck className="h-3 w-3" />
-                      Configured
+                      {t("dataSources.configured")}
                     </span>
                   ) : optional ? (
                     <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
                       <IconCircle className="h-3 w-3" />
-                      Optional
+                      {t("dataSources.optional")}
+                    </span>
+                  ) : hasAlternativeCredential ? (
+                    <span className="flex items-center gap-1 whitespace-nowrap text-muted-foreground">
+                      <IconCircle className="h-3 w-3" />
+                      Alternative
                     </span>
                   ) : (
                     <span className="flex items-center gap-1 whitespace-nowrap text-rose-400">
                       <IconAlertCircle className="h-3 w-3" />
-                      Missing
+                      {t("dataSources.missing")}
                     </span>
                   )}
                 </div>
@@ -884,7 +976,9 @@ function ConnectedView({
                 size="icon"
                 variant="ghost"
                 className="-mr-1 -mt-1 h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                aria-label={`${source.name} actions`}
+                aria-label={t("dataSources.sourceActions", {
+                  name: source.name,
+                })}
               >
                 <IconDotsVertical className="h-4 w-4" />
               </Button>
@@ -902,11 +996,13 @@ function ConnectedView({
                 ) : (
                   <IconCheck className="mr-2 h-4 w-4" />
                 )}
-                {testMutation.isPending ? "Testing..." : "Test connection"}
+                {testMutation.isPending
+                  ? t("dataSources.testing")
+                  : t("dataSources.testConnection")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setEditing(true)}>
                 <IconPencil className="mr-2 h-4 w-4" />
-                Edit credentials
+                {t("dataSources.editCredentials")}
               </DropdownMenuItem>
               {source.docsUrl && (
                 <DropdownMenuItem asChild>
@@ -916,7 +1012,7 @@ function ConnectedView({
                     rel="noopener noreferrer"
                   >
                     <IconExternalLink className="mr-2 h-4 w-4" />
-                    Open docs
+                    {t("dataSources.openDocs")}
                   </a>
                 </DropdownMenuItem>
               )}
@@ -932,8 +1028,8 @@ function ConnectedView({
                   <IconTrash className="mr-2 h-4 w-4" />
                 )}
                 {disconnectMutation.isPending
-                  ? "Disconnecting..."
-                  : "Disconnect"}
+                  ? t("dataSources.disconnecting")
+                  : t("dataSources.disconnect")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -946,12 +1042,12 @@ function ConnectedView({
             {testResult.ok ? (
               <>
                 <IconCheck className="h-3.5 w-3.5" />
-                Connection successful
+                {t("dataSources.connectionSuccessful")}
               </>
             ) : (
               <>
                 <IconAlertCircle className="h-3.5 w-3.5" />
-                {testResult.error || "Connection failed"}
+                {testResult.error || t("dataSources.connectionFailed")}
               </>
             )}
           </div>
@@ -963,27 +1059,32 @@ function ConnectedView({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Disconnect {source.name}?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("dataSources.disconnectTitle", { name: source.name })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will clear credentials shared with{" "}
-              {sharedSourceNames.join(", ")}. Those sources may stop working
-              until the shared credentials are added again.
+              {t("dataSources.disconnectDescription", {
+                sources: sharedSourceNames.join(", "),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground">
-            Shared credentials:{" "}
-            {sharedCredentialKeys
-              .map((key) => keyLabels[key] || key)
-              .join(", ")}
+            {t("dataSources.sharedCredentials", {
+              credentials: sharedCredentialKeys
+                .map((key) => keyLabels[key] || key)
+                .join(", "),
+            })}
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => disconnectMutation.mutate()}
               disabled={disconnectMutation.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {disconnectMutation.isPending ? "Disconnecting..." : "Disconnect"}
+              {disconnectMutation.isPending
+                ? t("dataSources.disconnecting")
+                : t("dataSources.disconnect")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1009,6 +1110,7 @@ function DataSourceCard({
   isStatusLoading: boolean;
   onSaved: () => void;
 }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
@@ -1063,13 +1165,13 @@ function DataSourceCard({
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
                   {readyViaWorkspace && !locallyConfigured
-                    ? "Ready"
-                    : "Configured"}
+                    ? t("dataSources.ready")
+                    : t("dataSources.configured")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not configured
+                  {t("dataSources.notConfigured")}
                 </span>
               )}
               {!isStatusLoading && sharedConnectionStatus && (
@@ -1094,6 +1196,17 @@ function DataSourceCard({
               <GitHubOAuthView
                 connected={locallyConfigured}
                 onSaved={onSaved}
+              />
+            </div>
+          )}
+          {(["notion", "hubspot", "jira", "sentry"] as const).includes(
+            source.id as "notion" | "hubspot" | "jira" | "sentry",
+          ) && (
+            <div className="mb-4">
+              <WorkspaceOAuthView
+                provider={source.id}
+                label={source.name}
+                connected={readyViaWorkspace}
               />
             </div>
           )}
@@ -1182,7 +1295,7 @@ function DataSourceCard({
                         }}
                         className="text-xs"
                       >
-                        Back
+                        {t("dataSources.back")}
                       </Button>
                     )}
                     {currentStep < totalSteps - 1 && (
@@ -1196,7 +1309,7 @@ function DataSourceCard({
                         }}
                         className="text-xs"
                       >
-                        Continue
+                        {t("dataSources.continue")}
                       </Button>
                     )}
                   </div>
@@ -1217,10 +1330,10 @@ function DataSourceCard({
                     {saveMutation.isPending ? (
                       <>
                         <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                        Saving...
+                        {t("dataSources.saving")}
                       </>
                     ) : (
-                      "Save Credentials"
+                      t("dataSources.saveCredentials")
                     )}
                   </Button>
                 )}
@@ -1232,7 +1345,8 @@ function DataSourceCard({
                     className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    Docs <IconExternalLink className="h-3 w-3" />
+                    {t("dataSources.docs")}{" "}
+                    <IconExternalLink className="h-3 w-3" />
                   </a>
                 )}
               </div>
@@ -1246,7 +1360,7 @@ function DataSourceCard({
               {saveMutation.isSuccess && (
                 <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Credentials saved.
+                  {t("dataSources.credentialsSaved")}
                 </div>
               )}
             </>
@@ -1258,6 +1372,7 @@ function DataSourceCard({
 }
 
 function AddDataSourceCTA() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useSendToAgentChat();
 
@@ -1290,7 +1405,9 @@ function AddDataSourceCTA() {
           ) : (
             <IconPlus className="h-4 w-4" />
           )}
-          {isGenerating ? "Adding..." : "Add Data Source"}
+          {isGenerating
+            ? t("dataSources.adding")
+            : t("dataSources.addDataSource")}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -1298,16 +1415,15 @@ function AddDataSourceCTA() {
         align="end"
       >
         <p className="px-1 pb-1 text-sm font-semibold text-foreground">
-          Add a Data Source
+          {t("dataSources.addDataSourceTitle")}
         </p>
         <p className="px-1 pb-3 text-xs text-muted-foreground">
-          Don't see the integration you need? Describe it and the agent will add
-          it.
+          {t("dataSources.addDataSourceDescription")}
         </p>
         <PromptComposer
           autoFocus
           disabled={isGenerating}
-          placeholder='e.g., "Add Salesforce integration so I can query CRM data"'
+          placeholder={t("dataSources.addDataSourcePlaceholder")}
           draftScope="analytics:add-data-source"
           onSubmit={handleSubmit}
         />
@@ -1317,9 +1433,10 @@ function AddDataSourceCTA() {
 }
 
 function FirstPartyAnalyticsCard() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const [name, setName] = useState("Hosted templates");
+  const [name, setName] = useState(() => t("dataSources.defaultKeyName"));
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -1371,11 +1488,10 @@ function FirstPartyAnalyticsCard() {
               </div>
               <div className="min-w-0">
                 <CardTitle className="text-sm font-medium">
-                  First-party Analytics
+                  {t("dataSources.firstPartyAnalytics")}
                 </CardTitle>
                 <CardDescription className="mt-0.5 line-clamp-2 text-xs">
-                  Receive product events at your first-party endpoint and query
-                  them as a dashboard data source.
+                  {t("dataSources.firstPartyDescription")}
                 </CardDescription>
               </div>
             </div>
@@ -1385,12 +1501,12 @@ function FirstPartyAnalyticsCard() {
               ) : connected ? (
                 <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-medium whitespace-nowrap">
                   <IconCheck className="h-3.5 w-3.5" />
-                  Configured
+                  {t("dataSources.configured")}
                 </span>
               ) : (
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
                   <IconCircle className="h-3 w-3" />
-                  Not configured
+                  {t("dataSources.notConfigured")}
                 </span>
               )}
               {expanded ? (
@@ -1408,23 +1524,57 @@ function FirstPartyAnalyticsCard() {
           <div className="space-y-4">
             <div className="grid gap-2 rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Endpoint</span>
+                <span className="text-muted-foreground">
+                  {t("dataSources.endpoint")}
+                </span>
                 <code className="truncate font-mono">
                   {firstPartyAnalyticsEndpoint}
                 </code>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Server env</span>
+                <span className="text-muted-foreground">
+                  {t("dataSources.serverEnv")}
+                </span>
                 <code className="truncate font-mono">
                   AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
                 </code>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Browser env</span>
+                <span className="text-muted-foreground">
+                  {t("dataSources.browserEnv")}
+                </span>
                 <code className="truncate font-mono">
                   VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY
                 </code>
               </div>
+            </div>
+
+            {/* Error capture note — the analytics SDK also captures uncaught
+                exceptions and links them to session replays. Static English
+                copy because shared i18n is owned elsewhere. */}
+            <div className="rounded-md border border-border/50 bg-muted/20 p-3 text-xs">
+              <div className="font-medium text-foreground">
+                Error capture{/* i18n-ignore static SDK docs label */}
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                Once a public key is set, the browser SDK automatically captures
+                uncaught exceptions and unhandled promise rejections, and
+                exposes a Sentry-style{" "}
+                <code className="font-mono">captureException()</code> /{" "}
+                <code className="font-mono">captureMessage()</code> API. Errors
+                {/* i18n-ignore static SDK docs copy */} are grouped into issues
+                under Monitoring → Errors and linked to the session replay where
+                each one happened.
+              </p>
+              <a
+                href="https://www.agent-native.com/docs/tracking#error-capture"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                Error capture docs{/* i18n-ignore static SDK docs link */}
+                <IconExternalLink className="h-3 w-3" />
+              </a>
             </div>
 
             <div className="data-source-inline-form">
@@ -1432,7 +1582,7 @@ function FirstPartyAnalyticsCard() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="flex min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-                placeholder="Key name"
+                placeholder={t("dataSources.keyNamePlaceholder")}
               />
               <Button
                 size="sm"
@@ -1446,12 +1596,12 @@ function FirstPartyAnalyticsCard() {
                 {createKey.isPending ? (
                   <>
                     <IconLoader2 className="h-3 w-3 animate-spin mr-1.5" />
-                    Generating...
+                    {t("dataSources.generating")}
                   </>
                 ) : (
                   <>
                     <IconPlus className="h-3 w-3 mr-1.5" />
-                    Generate Key
+                    {t("dataSources.generateKey")}
                   </>
                 )}
               </Button>
@@ -1460,7 +1610,7 @@ function FirstPartyAnalyticsCard() {
             {createdKey && (
               <div className="space-y-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3">
                 <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                  New key generated
+                  {t("dataSources.newKeyGenerated")}
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -1478,7 +1628,7 @@ function FirstPartyAnalyticsCard() {
                     className="text-xs"
                   >
                     <IconCopy className="h-3 w-3 mr-1.5" />
-                    {copied ? "Copied" : "Copy"}
+                    {copied ? t("dataSources.copied") : t("dataSources.copy")}
                   </Button>
                 </div>
               </div>
@@ -1496,8 +1646,12 @@ function FirstPartyAnalyticsCard() {
                       <div className="text-muted-foreground font-mono">
                         {key.publicKeyPrefix}...
                         {key.lastUsedAt
-                          ? ` last used ${new Date(key.lastUsedAt).toLocaleDateString()}`
-                          : " never used"}
+                          ? ` ${t("dataSources.lastUsed", {
+                              date: new Date(
+                                key.lastUsedAt,
+                              ).toLocaleDateString(),
+                            })}`
+                          : ` ${t("dataSources.neverUsed")}`}
                       </div>
                     </div>
                     <DropdownMenu>
@@ -1506,7 +1660,9 @@ function FirstPartyAnalyticsCard() {
                           size="icon"
                           variant="ghost"
                           className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground"
-                          aria-label={`${key.name} key actions`}
+                          aria-label={t("dataSources.keyActions", {
+                            name: key.name,
+                          })}
                         >
                           <IconDotsVertical className="h-4 w-4" />
                         </Button>
@@ -1522,7 +1678,9 @@ function FirstPartyAnalyticsCard() {
                           ) : (
                             <IconTrash className="mr-2 h-4 w-4" />
                           )}
-                          {revokeKey.isPending ? "Revoking..." : "Revoke"}
+                          {revokeKey.isPending
+                            ? t("dataSources.revoking")
+                            : t("dataSources.revoke")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -1538,6 +1696,7 @@ function FirstPartyAnalyticsCard() {
 }
 
 export default function DataSources() {
+  const t = useT();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
 
@@ -1562,6 +1721,15 @@ export default function DataSources() {
   };
 
   const searchLower = search.toLowerCase();
+  const firstPartyAnalyticsSearchText = [
+    t("dataSources.firstPartyAnalytics"),
+    t("dataSources.firstPartyDescription"),
+    "first-party analytics tracking observability llm ai generation $ai_generation posthog agent native analytics AGENT_NATIVE_ANALYTICS_PUBLIC_KEY VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const firstPartyAnalyticsMatchesSearch =
+    search.length > 0 && firstPartyAnalyticsSearchText.includes(searchLower);
   const filteredSources = search
     ? dataSources.filter(
         (s) =>
@@ -1573,16 +1741,20 @@ export default function DataSources() {
   return (
     <div className="data-sources-layout mx-auto max-w-5xl space-y-8">
       <p className="text-sm text-muted-foreground">
-        Connect your data sources, then ask the agent to create dashboards.{" "}
+        {t("dataSources.intro")}{" "}
         {!isStatusLoading &&
           (configuredCount > 0 ? (
             <span className="text-emerald-500 font-medium">
-              {configuredCount} configured
+              {t("dataSources.configuredCount", { count: configuredCount })}
             </span>
           ) : (
-            <span className="text-amber-500 font-medium">0 configured</span>
+            <span className="text-amber-500 font-medium">
+              {t("dataSources.configuredCount", { count: 0 })}
+            </span>
           ))}
       </p>
+
+      <GoogleSheetsExportCard statusData={statusData} />
 
       {/* Search bar + Add Data Source */}
       <div className="data-sources-toolbar">
@@ -1592,7 +1764,7 @@ export default function DataSources() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search data sources..."
+            placeholder={t("dataSources.searchPlaceholder")}
             className="flex w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
           />
         </div>
@@ -1601,13 +1773,18 @@ export default function DataSources() {
 
       {/* Filtered results */}
       {filteredSources !== null ? (
-        filteredSources.length > 0 ? (
+        filteredSources.length > 0 || firstPartyAnalyticsMatchesSearch ? (
           <div className="data-sources-grid">
+            {firstPartyAnalyticsMatchesSearch && <FirstPartyAnalyticsCard />}
             {filteredSources.map((source) => (
               <DataSourceCard
                 key={source.id}
                 source={source}
-                locallyConfigured={isSourceConfigured(source, envStatus)}
+                locallyConfigured={isSourceLocallyConfigured(
+                  source,
+                  statusData,
+                  envStatus,
+                )}
                 ready={isSourceReady(source, statusData, envStatus)}
                 sharedConnectionStatus={getSharedConnectionStatus(
                   source,
@@ -1622,7 +1799,7 @@ export default function DataSources() {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground py-4">
-            No data sources match "{search}"
+            {t("dataSources.noMatch", { search })}
           </p>
         )
       ) : (
@@ -1640,7 +1817,11 @@ export default function DataSources() {
                   <DataSourceCard
                     key={source.id}
                     source={source}
-                    locallyConfigured={isSourceConfigured(source, envStatus)}
+                    locallyConfigured={isSourceLocallyConfigured(
+                      source,
+                      statusData,
+                      envStatus,
+                    )}
                     ready={isSourceReady(source, statusData, envStatus)}
                     sharedConnectionStatus={getSharedConnectionStatus(
                       source,

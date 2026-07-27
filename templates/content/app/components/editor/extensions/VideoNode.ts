@@ -1,6 +1,7 @@
 import { Node } from "@tiptap/core";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
+
 import { VideoBlock } from "./VideoBlock";
 
 export interface ContentVideoOptions {
@@ -111,6 +112,20 @@ export const VideoNode = Node.create<ContentVideoOptions>({
       uploadId: {
         default: null,
         parseHTML: () => null,
+        renderHTML: () => ({}),
+      },
+      // UI-only state. Keeping the source panel on the ProseMirror node makes
+      // it survive React node-view remounts while the empty video draft is
+      // being autosaved/reconciled. It is deliberately omitted from HTML and
+      // Markdown serialization.
+      sourcePanelOpen: {
+        default: false,
+        parseHTML: () => false,
+        renderHTML: () => ({}),
+      },
+      sourceTab: {
+        default: "upload",
+        parseHTML: () => "upload",
         renderHTML: () => ({}),
       },
     };

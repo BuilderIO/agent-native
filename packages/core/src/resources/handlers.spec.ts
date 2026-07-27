@@ -12,10 +12,23 @@ const mockResourceListAccessible = vi.fn();
 const mockResourceMove = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
+const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
+const mockIsLocalWorkspaceResourceId = vi.fn();
+const mockUploadFile = vi.fn();
 
 vi.mock("./store.js", () => ({
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
+  organizationIdFromResourceOwner: (owner: string) =>
+    owner.startsWith("__organization__:")
+      ? decodeURIComponent(owner.slice("__organization__:".length))
+      : null,
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${encodeURIComponent(orgId)}` : "__shared__",
+  canWriteLocalWorkspaceResourcePath: (...args: any[]) =>
+    mockCanWriteLocalWorkspaceResourcePath(...args),
+  isLocalWorkspaceResourceId: (...args: any[]) =>
+    mockIsLocalWorkspaceResourceId(...args),
   resourceGet: (...args: any[]) => mockResourceGet(...args),
   resourceGetByPath: (...args: any[]) => mockResourceGetByPath(...args),
   resourcePut: (...args: any[]) => mockResourcePut(...args),
@@ -44,6 +57,10 @@ const mockGetOrgContext = vi.fn().mockResolvedValue({
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => mockGetOrgContext(...args),
+}));
+
+vi.mock("../file-upload/index.js", () => ({
+  uploadFile: (...args: any[]) => mockUploadFile(...args),
 }));
 
 let lastStatus = 200;
@@ -80,6 +97,9 @@ describe("resource handlers", () => {
     vi.clearAllMocks();
     lastStatus = 200;
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
+    mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
+    mockIsLocalWorkspaceResourceId.mockReturnValue(false);
+    mockUploadFile.mockResolvedValue(null);
     vi.mocked(getSession).mockResolvedValue({ email: "test@test.com" } as any);
     mockGetOrgContext.mockResolvedValue({
       email: "test@test.com",
@@ -467,7 +487,7 @@ describe("resource handlers", () => {
       await handleCreateResource(event);
 
       expect(mockResourcePut).toHaveBeenCalledWith(
-        "__shared__",
+        "__organization__:org-1",
         "shared.md",
         "",
         undefined,
@@ -550,6 +570,56 @@ describe("resource handlers", () => {
       expect(mockResourceMove).toHaveBeenCalledWith("r1", "new.md");
     });
 
+    it("updates local workspace resources", async () => {
+      const existing = {
+        id: "local-workspace-resource:agents",
+        path: "AGENTS.md",
+        owner: "__workspace__",
+        content: "old",
+        mimeType: "text/markdown",
+      };
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockResourceGet.mockResolvedValue(existing);
+      mockResourcePut.mockResolvedValue({ ...existing, content: "new" });
+
+      const event = {
+        _params: { id: "local-workspace-resource:agents" },
+        _body: { content: "new" },
+        context: {},
+      };
+      await handleUpdateResource(event);
+
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "__workspace__",
+        "AGENTS.md",
+        "new",
+        "text/markdown",
+      );
+    });
+
+    it("keeps Dispatch workspace resources read-only", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "dispatch-workspace-resource:brand",
+        path: "context/brand.md",
+        owner: "__workspace__",
+        content: "old",
+        mimeType: "text/markdown",
+      });
+
+      const event = {
+        _params: { id: "dispatch-workspace-resource:brand" },
+        _body: { content: "new" },
+        context: {},
+      };
+      const result = await handleUpdateResource(event);
+
+      expect(lastStatus).toBe(403);
+      expect(result).toEqual({
+        error: "Workspace resources are managed from Dispatch",
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
     it("returns 404 when updating another user's personal resource", async () => {
       mockResourceGet.mockResolvedValue({
         id: "r1",
@@ -587,6 +657,47 @@ describe("resource handlers", () => {
       expect(result).toEqual({ ok: true });
     });
 
+    it("deletes local workspace resources", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockResourceGet.mockResolvedValue({
+        id: "local-workspace-resource:agents",
+        path: "AGENTS.md",
+        owner: "__workspace__",
+      });
+      mockResourceDelete.mockResolvedValue(true);
+
+      const event = {
+        _params: { id: "local-workspace-resource:agents" },
+        context: {},
+      };
+      const result = await handleDeleteResource(event);
+
+      expect(result).toEqual({ ok: true });
+      expect(mockResourceDelete).toHaveBeenCalledWith(
+        "local-workspace-resource:agents",
+      );
+    });
+
+    it("keeps Dispatch workspace resources delete-protected", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "dispatch-workspace-resource:brand",
+        path: "context/brand.md",
+        owner: "__workspace__",
+      });
+
+      const event = {
+        _params: { id: "dispatch-workspace-resource:brand" },
+        context: {},
+      };
+      const result = await handleDeleteResource(event);
+
+      expect(lastStatus).toBe(403);
+      expect(result).toEqual({
+        error: "Workspace resources are managed from Dispatch",
+      });
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
     it("returns 400 when no ID provided", async () => {
       const event = { _params: {}, context: { params: {} } };
       const result = await handleDeleteResource(event);
@@ -622,6 +733,97 @@ describe("resource handlers", () => {
   });
 
   describe("handleUploadResource", () => {
+    it("stores text uploads in SQL", async () => {
+      const resource = {
+        id: "doc",
+        path: "/note.md",
+        owner: "test@test.com",
+        content: "# Note",
+        mimeType: "text/markdown",
+        size: 6,
+      };
+      mockResourcePut.mockResolvedValue(resource);
+
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "note.md",
+            type: "text/markdown",
+            data: Buffer.from("# Note"),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(mockUploadFile).not.toHaveBeenCalled();
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "test@test.com",
+        "/note.md",
+        "# Note",
+        "text/markdown",
+      );
+      expect(result).toEqual(resource);
+    });
+
+    it("rejects binary uploads when file storage is not configured", async () => {
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "photo.png",
+            type: "image/png",
+            data: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(503);
+      expect(result).toMatchObject({ storageSetupRequired: true });
+      expect(mockUploadFile).toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("stores binary uploads as provider URLs", async () => {
+      mockUploadFile.mockResolvedValue({
+        url: "https://cdn.example.test/photo.png",
+        provider: "test",
+      });
+      const resource = {
+        id: "img",
+        path: "/photo.png",
+        owner: "test@test.com",
+        content: "https://cdn.example.test/photo.png",
+        mimeType: "image/png",
+        size: 34,
+      };
+      mockResourcePut.mockResolvedValue(resource);
+
+      const result = await handleUploadResource({
+        _multipart: [
+          {
+            name: "file",
+            filename: "photo.png",
+            type: "image/png",
+            data: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+          },
+        ],
+      });
+
+      expect(lastStatus).toBe(201);
+      expect(mockResourcePut).toHaveBeenCalledWith(
+        "test@test.com",
+        "/photo.png",
+        "https://cdn.example.test/photo.png",
+        "image/png",
+      );
+      expect(result).toMatchObject({
+        id: "img",
+        url: "https://cdn.example.test/photo.png",
+        provider: "test",
+      });
+    });
+
     it("rejects unauthenticated shared uploads", async () => {
       vi.mocked(getSession).mockResolvedValue(null as any);
 

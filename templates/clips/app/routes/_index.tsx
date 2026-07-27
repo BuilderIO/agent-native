@@ -1,14 +1,22 @@
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { redirect, type LoaderFunctionArgs } from "react-router";
-import { DefaultSpinner } from "@agent-native/core/client";
+
+const SEO_TITLE = "Clips - Open Source screen recorder";
+const SEO_DESCRIPTION =
+  "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 
 export function meta() {
   return [
-    { title: "Agent-Native Clips" },
+    { title: SEO_TITLE },
     {
       name: "description",
-      content:
-        "Screen recording, meeting notes, and voice dictation — all transcribed, summarized, and searchable. The open-source alternative to Loom, Granola, and Wisprflow.",
+      content: SEO_DESCRIPTION,
     },
+    { property: "og:title", content: SEO_TITLE },
+    { property: "og:description", content: SEO_DESCRIPTION },
+    { name: "twitter:card", content: "summary" },
+    { name: "twitter:title", content: SEO_TITLE },
+    { name: "twitter:description", content: SEO_DESCRIPTION },
   ];
 }
 
@@ -25,17 +33,16 @@ export function meta() {
  * completes before the app hydrates; `clientLoader` covers SPA-style
  * navigations to `/`.
  */
-function buildTarget(request: Request): string {
-  const url = new URL(request.url);
+function buildTarget(url: URL): string {
   return `/library${url.search}${url.hash}`;
 }
 
-export function loader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
-export function clientLoader({ request }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(request));
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(buildTarget(url));
 }
 
 export function HydrateFallback() {

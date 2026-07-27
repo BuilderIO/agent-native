@@ -1,14 +1,18 @@
 import { z } from "zod";
+
 import { defineAction } from "../../../action.js";
-import { callerOwnsThread } from "../../run-ownership.js";
 import { getRequestUserEmail } from "../../../server/request-context.js";
+import { callerOwnsThread } from "../../run-ownership.js";
 import {
   deactivateContextDirective,
+  readContextManifest,
   writeContextManifestStatus,
 } from "../directives-store.js";
 import {
   contextXrayAuthError,
+  contextXraySystemSegmentError,
   contextXrayThreadNotFoundError,
+  isContextXraySystemSegment,
 } from "./errors.js";
 
 export default defineAction({
@@ -23,6 +27,14 @@ export default defineAction({
     if (!ownerEmail) throw contextXrayAuthError();
     if (!(await callerOwnsThread(ownerEmail, args.threadId))) {
       throw contextXrayThreadNotFoundError();
+    }
+    if (
+      isContextXraySystemSegment(
+        await readContextManifest(args.threadId),
+        args.segmentId,
+      )
+    ) {
+      throw contextXraySystemSegmentError();
     }
     const restored = await deactivateContextDirective({
       threadId: args.threadId,

@@ -3,6 +3,7 @@ import {
   createIntegrationsPlugin,
   slackAdapter,
 } from "@agent-native/core/server";
+
 import {
   beforeMailIntegrationProcess,
   resolveMailIntegrationOwner,

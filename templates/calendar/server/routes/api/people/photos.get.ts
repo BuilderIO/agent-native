@@ -1,7 +1,8 @@
-import { defineEventHandler, getQuery } from "h3";
 import { getSession } from "@agent-native/core/server";
-import { getClient } from "../../../lib/google-calendar.js";
+import { defineEventHandler, getQuery } from "h3";
+
 import { peopleSearchDirectoryPeople } from "../../../lib/google-api.js";
+import { getClient } from "../../../lib/google-calendar.js";
 
 /**
  * GET /api/people/photos?emails=a@foo.com,b@foo.com

@@ -8,7 +8,7 @@
  * (SQLite), cached briefly to keep latency down but never hard-coded.
  *
  * The block also:
- *   - points at the db-query / db-exec / db-patch / db-schema tools for runtime access
+ *   - points at the enabled db-* tools for runtime access
  *   - lists Postgres column descriptions (`COMMENT ON COLUMN ...`) if present
  *   - explains the current user/org data scoping so the agent doesn't re-filter
  *     by hand (which would be redundant and easy to get wrong)
@@ -19,6 +19,10 @@ import {
   isPostgres,
   type DbExec,
 } from "../db/client.js";
+import {
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
 
 interface ColumnSchema {
   name: string;
@@ -169,6 +173,14 @@ async function introspectSqlite(db: DbExec): Promise<TableSchema[]> {
 
 // ─── Cached entry point ─────────────────────────────────────────────────────
 
+// Coalesces concurrent cache-miss introspections (same pattern as poll.ts's
+// _checkPromise): several chat turns starting inside one TTL window would
+// otherwise each run the full multi-query DB introspection in parallel.
+let _inflight: {
+  key: string;
+  promise: Promise<{ tables: TableSchema[]; dialect: "postgres" | "sqlite" }>;
+} | null = null;
+
 async function getSchema(): Promise<{
   tables: TableSchema[];
   dialect: "postgres" | "sqlite";
@@ -178,16 +190,27 @@ async function getSchema(): Promise<{
   if (_cache && _cache.key === key && _cache.expires > now) {
     return { tables: _cache.tables, dialect: _cache.dialect };
   }
+  if (_inflight && _inflight.key === key) {
+    return _inflight.promise;
+  }
 
-  const db = getDbExec();
-  const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
-  const tables =
-    dialect === "postgres"
-      ? await introspectPostgres(db)
-      : await introspectSqlite(db);
+  const promise = (async () => {
+    const db = getDbExec();
+    const dialect: "postgres" | "sqlite" = isPostgres() ? "postgres" : "sqlite";
+    const tables =
+      dialect === "postgres"
+        ? await introspectPostgres(db)
+        : await introspectSqlite(db);
 
-  _cache = { key, expires: now + CACHE_TTL_MS, tables, dialect };
-  return { tables, dialect };
+    _cache = { key, expires: Date.now() + CACHE_TTL_MS, tables, dialect };
+    return { tables, dialect };
+  })();
+  _inflight = { key, promise };
+  try {
+    return await promise;
+  } finally {
+    if (_inflight?.promise === promise) _inflight = null;
+  }
 }
 
 /** Manually drop the cache — useful from tests or after running a migration. */
@@ -248,7 +271,9 @@ function formatTable(table: TableSchema): string {
 export async function loadSchemaPromptBlock(opts: {
   owner?: string | null;
   orgId?: string | null;
-  /** If true, mention db-query/db-exec/db-patch/db-schema as available tools. */
+  /** Controls which raw db-* tools are available to the agent. */
+  databaseTools?: DatabaseToolsOption;
+  /** @deprecated Use databaseTools instead. */
   hasRawDbTools?: boolean;
 }): Promise<string> {
   let tables: TableSchema[];
@@ -314,8 +339,15 @@ export async function loadSchemaPromptBlock(opts: {
     }
   }
 
+  const databaseToolsMode =
+    opts.databaseTools === undefined && opts.hasRawDbTools !== undefined
+      ? normalizeDatabaseToolsMode(opts.hasRawDbTools)
+      : normalizeDatabaseToolsMode(opts.databaseTools);
+  const hasRawDbTools = databaseToolsMode !== "off";
+  const hasRawDbWriteTools = databaseToolsMode === "write";
+
   // Tooling references.
-  if (opts.hasRawDbTools) {
+  if (hasRawDbTools) {
     lines.push("## SQL tools");
     lines.push(
       "- `db-schema` — refresh the full schema with indexes and foreign keys",
@@ -323,23 +355,31 @@ export async function loadSchemaPromptBlock(opts: {
     lines.push(
       "- `db-query` — run a SELECT (read-only; results already filtered to the current user/org)",
     );
-    lines.push(
-      "- `db-exec` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, pass `statements` so they run in one transaction instead of separate tool calls. Schema changes are blocked.",
-    );
-    lines.push(
-      "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
-    );
+    if (hasRawDbWriteTools) {
+      lines.push(
+        "- `db-exec` — run INSERT / UPDATE / DELETE / REPLACE (writes already scoped; owner_email and org_id are auto-injected on INSERT). For multiple related writes, pass `statements` so they run in one transaction instead of separate tool calls. Schema changes are blocked.",
+      );
+      lines.push(
+        "- `db-patch` — surgical search-and-replace on a large text column. Send `{find, replace}` pairs instead of the full new value. Use this for edits to large fields (documents, slide HTML, dashboard/form JSON) — it avoids re-sending multi-kilobyte strings and saves tokens. Targets exactly one row (narrow `--where` by primary key). Uses the same per-user/per-org scoping as db-exec.",
+      );
+    }
     lines.push("");
     lines.push("### When to pick which SQL tool");
-    lines.push(
-      "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
-    );
-    lines.push(
-      '- Insert/update several rows as one logical operation → `db-exec` with `statements: \'[{"sql":"...","args":[...]}]\'` so the batch commits or rolls back together.',
-    );
-    lines.push(
-      "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",
-    );
+    if (hasRawDbWriteTools) {
+      lines.push(
+        "- Set a short column outright, update multiple columns, or do computed updates (`calories = calories + 50`) → `db-exec UPDATE`.",
+      );
+      lines.push(
+        '- Insert/update several rows as one logical operation → `db-exec` with `statements: \'[{"sql":"...","args":[...]}]\'` so the batch commits or rolls back together.',
+      );
+      lines.push(
+        "- Change a small slice of a large text/JSON column → `db-patch`. Much cheaper token-wise than re-sending the whole column.",
+      );
+    } else {
+      lines.push(
+        "- Read data and inspect shape → `db-query` / `db-schema`. Raw SQL write tools are not available on this surface.",
+      );
+    }
     lines.push(
       "- A template-specific action exists for the table (`edit-document`, `update-slide`, etc.) → use that action. It encodes business rules and pushes live Yjs updates to any open collaborative editor; raw SQL does neither.",
     );
@@ -352,7 +392,7 @@ export async function loadSchemaPromptBlock(opts: {
       "The `db-*` tools ONLY query the app's own SQL database (the tables listed above). They do NOT reach external data warehouses, analytics platforms, or third-party services.",
     );
     lines.push(
-      "If the user asks about tables that are NOT in the schema above, use the appropriate template action instead — for example `bigquery` for BigQuery warehouse tables, `ga4-report` for Google Analytics, `hubspot-deals` for HubSpot, etc. Check your available actions for the right data-source-specific tool.",
+      "If the user asks about tables that are NOT in the schema above, use the relevant provider, warehouse, MCP, or template action listed in your available tools. When provider-api-catalog/provider-api-docs/provider-api-request are available, use them for provider endpoints or filters that no first-class shortcut models.",
     );
     lines.push(
       "**Never use `db-query` for external data.** It will fail because those tables don't exist in the app database.",

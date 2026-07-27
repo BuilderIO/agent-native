@@ -4,6 +4,11 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
+import {
+  resolveGoogleProviderCredentialCandidatesWithReader,
+  resolveSecret,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -30,44 +35,74 @@ interface GoogleUserInfo {
   verified_email?: boolean;
 }
 
-function getOAuthCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+async function resolveGoogleDocsProviderCredentialCandidates(owner?: string) {
+  const resolve = () =>
+    resolveGoogleProviderCredentialCandidatesWithReader({
+      readCredential: resolveSecret,
+    });
+  return owner
+    ? runWithRequestContext({ userEmail: owner }, resolve)
+    : await resolve();
+}
+
+async function getOAuthCredentials(owner?: string): Promise<{
+  clientId: string;
+  clientSecret: string;
+}> {
+  const credentials = (
+    await resolveGoogleDocsProviderCredentialCandidates(owner)
+  )[0];
+  if (!credentials) {
     throw new Error(
-      "Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+      "Google OAuth is not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
     );
   }
-  return { clientId, clientSecret };
+  return credentials;
 }
 
-export function isGoogleDocsOAuthConfigured(): boolean {
-  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+export async function isGoogleDocsOAuthConfigured(
+  owner?: string,
+): Promise<boolean> {
+  return (
+    (await resolveGoogleDocsProviderCredentialCandidates(owner)).length > 0
+  );
 }
 
-export function getGooglePickerConfig(): {
+function isPermanentGoogleRefreshError(error: string | undefined): boolean {
+  return (
+    error === "invalid_grant" ||
+    error === "unauthorized_client" ||
+    error === "invalid_client"
+  );
+}
+
+export async function getGooglePickerConfig(owner?: string): Promise<{
   apiKey: string | null;
   appId: string | null;
-} {
-  return {
+}> {
+  const resolve = async () => ({
     apiKey:
-      process.env.GOOGLE_PICKER_API_KEY ||
-      process.env.GOOGLE_API_KEY ||
+      (await resolveSecret("GOOGLE_PICKER_API_KEY")) ||
+      (await resolveSecret("GOOGLE_API_KEY")) ||
       process.env.VITE_GOOGLE_PICKER_API_KEY ||
       null,
     appId:
-      process.env.GOOGLE_PICKER_APP_ID ||
-      process.env.GOOGLE_PROJECT_NUMBER ||
+      (await resolveSecret("GOOGLE_PICKER_APP_ID")) ||
+      (await resolveSecret("GOOGLE_PROJECT_NUMBER")) ||
       process.env.VITE_GOOGLE_PICKER_APP_ID ||
       null,
-  };
+  });
+  return owner
+    ? runWithRequestContext({ userEmail: owner }, resolve)
+    : await resolve();
 }
 
-export function getGoogleDocsAuthUrl(
+export async function getGoogleDocsAuthUrl(
   redirectUri: string,
   state: string,
-): string {
-  const { clientId } = getOAuthCredentials();
+  owner?: string,
+): Promise<string> {
+  const { clientId } = await getOAuthCredentials(owner);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
@@ -98,35 +133,56 @@ async function refreshGoogleDocsToken(
     throw new Error("Google Docs connection expired. Please reconnect.");
   }
 
-  const { clientId, clientSecret } = getOAuthCredentials();
-  const response = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      refresh_token: tokens.refresh_token,
-      client_id: clientId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-    }),
-  });
-  const data = (await response.json()) as {
+  const credentialCandidates =
+    await resolveGoogleDocsProviderCredentialCandidates(owner);
+  let data: {
     access_token?: string;
     expires_in?: number;
     token_type?: string;
     scope?: string;
     error?: string;
     error_description?: string;
-  };
-  if (!response.ok || !data.access_token) {
-    if (
-      data.error === "invalid_grant" ||
-      data.error === "unauthorized_client" ||
-      data.error === "invalid_client"
-    ) {
+  } | null = null;
+  let lastStatusText = "Could not refresh Google token.";
+  for (const credentials of credentialCandidates) {
+    const response = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        refresh_token: tokens.refresh_token,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        grant_type: "refresh_token",
+      }),
+    });
+    lastStatusText = response.statusText;
+    data = (await response.json()) as {
+      access_token?: string;
+      expires_in?: number;
+      token_type?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
+    if (response.ok && data.access_token) break;
+    if (!isPermanentGoogleRefreshError(data.error)) {
+      throw new Error(
+        data.error_description ||
+          data.error ||
+          "Could not refresh Google token.",
+      );
+    }
+  }
+
+  if (!data?.access_token) {
+    if (isPermanentGoogleRefreshError(data?.error)) {
       await deleteOAuthTokens(GOOGLE_DOCS_PROVIDER, accountId);
     }
     throw new Error(
-      data.error_description || data.error || "Could not refresh Google token.",
+      data?.error_description ||
+        data?.error ||
+        lastStatusText ||
+        "Could not refresh Google token.",
     );
   }
 
@@ -161,7 +217,7 @@ export async function exchangeGoogleDocsCode(opts: {
   redirectUri: string;
   owner: string;
 }): Promise<{ email: string; name?: string }> {
-  const { clientId, clientSecret } = getOAuthCredentials();
+  const { clientId, clientSecret } = await getOAuthCredentials(opts.owner);
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },

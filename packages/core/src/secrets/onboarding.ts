@@ -7,12 +7,12 @@
  * env var, by looking at oauth-tokens, or by reading `app_secrets`.
  */
 
+import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import { registerOnboardingStep } from "../onboarding/registry.js";
 import type {
   OnboardingResolveContext,
   OnboardingStep,
 } from "../onboarding/types.js";
-import { listOAuthAccountsByOwner } from "../oauth-tokens/store.js";
 import type { RegisteredSecret } from "./register.js";
 import { readAppSecretMeta } from "./storage.js";
 

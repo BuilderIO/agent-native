@@ -1,5 +1,4 @@
-// @vitest-environment happy-dom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -8,10 +7,21 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { focusAgentChat } from "@agent-native/core/client";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) =>
+    (
+      ({
+        "raw.agentWorking": "Agent is working",
+        "raw.openChat": "Open chat",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 import {

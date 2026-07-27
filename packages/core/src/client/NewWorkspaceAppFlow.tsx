@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import {
+  IconAlertTriangle,
   IconArrowUpRight,
   IconBook,
   IconCheck,
@@ -7,12 +7,15 @@ import {
   IconFileText,
   IconKey,
 } from "@tabler/icons-react";
-import { agentNativePath, appBasePath } from "./api-path.js";
-import { sendToAgentChat } from "./agent-chat.js";
-import { isInBuilderFrame } from "./builder-frame.js";
-import { useDevMode } from "./use-dev-mode.js";
+import { useEffect, useMemo, useState } from "react";
+
 import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js";
-import { PromptComposer } from "./composer/PromptComposer.js";
+import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath, appBasePath } from "./api-path.js";
+import { isInBuilderFrame } from "./builder-frame.js";
+import { PromptComposer } from "./composer/index.js";
+import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
+import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {
   id: string;
@@ -71,6 +74,16 @@ function defaultDispatchBasePath(sourceApp?: string): string | null {
   return "/dispatch";
 }
 
+const ERROR_FAILURE_REASONS = new Set([
+  "builder-error",
+  "builder-not-connected",
+  "credential-store-unavailable",
+]);
+
+function isErrorFailureReason(reason: string | null): boolean {
+  return !!reason && ERROR_FAILURE_REASONS.has(reason);
+}
+
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
   const res = await fetch(url, init);
   const data = await res.json().catch(() => null);
@@ -117,13 +130,14 @@ function buildNewWorkspaceAppPrompt(input: {
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
-    `Pick a starter template that fits the user's prompt — analytics, assets, brain, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
-    `If you use the starter template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Starter", "Blank app", or "New app" UI behind.`,
+    `Pick a UI template that fits the user's prompt — analytics, assets, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when the request needs custom UI but none of the domain templates fit.`,
+    `Use the chat template as the minimal add-UI scaffold. Do not treat Chat as the required default for primitive/headless agent workflows unless the user explicitly asks for a UI app.`,
+    `If you use the chat template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     `Important routing rule: from outside the app, link to /${input.appId}; inside apps/${input.appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${input.appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${input.appId}/${input.appId}/review.`,
     `Action-backed UI is mandatory for normal CRUD. Define reads/writes in actions/ with defineAction, expose read actions with http: { method: "GET" }, and call them from React with useActionQuery/useActionMutation or a named helper that uses callAction. Do not create duplicate JSON CRUD routes under /api/* for data the agent can mutate; those bypass the action cache contract and make agent-created records invisible until reload. If a rare raw non-action fetch is unavoidable, include useChangeVersions(["action", <domain-source>]) in the query key and wrap framework URLs with named client helpers so mounted apps call the right URL.`,
     `If the user's prompt mentions sibling apps like Mail, Calendar, Assets, Brain, Dispatch, or other templates, treat them as existing workspace neighbors or integrations. Do not scaffold those sibling apps inside apps/${input.appId} unless the user explicitly asks to create them too.`,
-    `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
+    `Do not satisfy this by adding a route, page, component, or file inside apps/chat or another existing app unless the user explicitly asks to modify that existing app.`,
     `Use relative workspace links like /${input.appId}. Do not hardcode localhost, 127.0.0.1, 8080, 8100, or any dev port; the active workspace gateway/browser origin owns the port.`,
     `Use the framework/template UI stack: shadcn/ui components and @tabler/icons-react. Do not add lucide-react or another icon library for standard UI.`,
     `Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath().`,
@@ -146,7 +160,7 @@ function buildNewWorkspaceAppPrompt(input: {
 }
 
 export function NewWorkspaceAppFlow({
-  sourceApp = "starter",
+  sourceApp = "chat",
   className = "",
   dispatchBasePath,
 }: NewWorkspaceAppFlowProps) {
@@ -160,6 +174,8 @@ export function NewWorkspaceAppFlow({
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  const [lastSubmittedPrompt, setLastSubmittedPrompt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isDevMode } = useDevMode();
 
@@ -167,6 +183,19 @@ export function NewWorkspaceAppFlow({
     dispatchBasePath === undefined
       ? defaultDispatchBasePath(sourceApp)
       : dispatchBasePath;
+
+  // Enabled only while the connect CTA is on screen. Left always-on, the hook
+  // would poll Builder status on every mount and fire onConnected on its first
+  // status read for anyone already connected.
+  const connectFlow = useBuilderConnectFlow({
+    enabled: failureReason === "builder-not-connected",
+    trackingSource: "new_workspace_app_flow",
+    trackingFlow: "create_app",
+    onConnected: () => {
+      setFailureReason(null);
+      setStatusMessage("Builder connected. Press Create app to try again.");
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -262,9 +291,11 @@ export function NewWorkspaceAppFlow({
       selectedResources,
       vaultAccessMode,
     });
+    setLastSubmittedPrompt(prompt);
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
+    setFailureReason(null);
 
     try {
       if (isInBuilderFrame()) {
@@ -293,12 +324,16 @@ export function NewWorkspaceAppFlow({
         } else {
           setStatusMessage(
             result?.message ||
-              "Builder app creation is coming soon here. Open this workspace in Builder to create an app from this prompt.",
+              "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
+          );
+          setFailureReason(
+            result?.mode === "builder-unavailable" ? result.reason : null,
           );
         }
       }
     } catch (err: any) {
       setStatusMessage(err?.message || "Could not start the new app flow.");
+      setFailureReason(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -336,17 +371,49 @@ export function NewWorkspaceAppFlow({
           />
 
           {statusMessage ? (
-            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-              {statusMessage}
-              {branchUrl ? (
-                <a
-                  href={branchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+            <div
+              className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-sm ${
+                isErrorFailureReason(failureReason)
+                  ? "border-destructive/40 bg-destructive/10 text-destructive"
+                  : "border-border bg-muted/40 text-muted-foreground"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                {isErrorFailureReason(failureReason) ? (
+                  <IconAlertTriangle className="h-4 w-4 shrink-0" />
+                ) : null}
+                <span>{statusMessage}</span>
+                {branchUrl ? (
+                  <a
+                    href={branchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-foreground underline"
+                  >
+                    Open branch <IconArrowUpRight className="h-3 w-3" />
+                  </a>
+                ) : null}
+              </div>
+              {failureReason === "builder-not-connected" ? (
+                <button
+                  type="button"
+                  onClick={() => connectFlow.start()}
+                  disabled={connectFlow.connecting}
+                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Open branch <IconArrowUpRight className="h-3 w-3" />
-                </a>
+                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                </button>
+              ) : null}
+              {failureReason === "credential-store-unavailable" ||
+              failureReason === "builder-error" ? (
+                <button
+                  type="button"
+                  onClick={() => submit(lastSubmittedPrompt)}
+                  disabled={isSubmitting}
+                  className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Try again
+                </button>
               ) : null}
             </div>
           ) : null}
@@ -393,7 +460,7 @@ export function NewWorkspaceAppFlow({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleSecret(secret.id)}
-                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
@@ -420,7 +487,7 @@ export function NewWorkspaceAppFlow({
                         <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
                         Details
                       </summary>
-                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                      <div className="mt-1.5 space-y-1 pb-0.5 ps-4">
                         <div className="truncate">
                           Provider: {secret.provider || "Not specified"}
                         </div>
@@ -469,7 +536,7 @@ export function NewWorkspaceAppFlow({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => toggleResource(resource.id)}
-                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                      className="flex w-full cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     >
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
@@ -497,7 +564,7 @@ export function NewWorkspaceAppFlow({
                         <IconChevronDown className="h-3 w-3 transition-transform group-open/details:rotate-180" />
                         Details
                       </summary>
-                      <div className="mt-1.5 space-y-1 pb-0.5 pl-4">
+                      <div className="mt-1.5 space-y-1 pb-0.5 ps-4">
                         <div className="truncate">
                           Scope:{" "}
                           {resource.scope === "all"

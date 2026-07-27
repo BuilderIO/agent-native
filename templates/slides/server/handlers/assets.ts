@@ -1,12 +1,13 @@
+import path from "path";
+
+import { uploadFile } from "@agent-native/core/file-upload";
+import { getSession } from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
-import path from "path";
-import { getSession } from "@agent-native/core/server";
-import { uploadFile } from "@agent-native/core/file-upload";
-import { runWithRequestContext } from "@agent-native/core/server";
 
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -130,7 +131,7 @@ export async function uploadImageAsset(args: {
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No file upload provider is configured. Connect Builder.io in Settings → File uploads, set BUILDER_PRIVATE_KEY, or register a custom provider via registerFileUploadProvider().",
+      "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
     );
     err.statusCode = 503;
     throw err;

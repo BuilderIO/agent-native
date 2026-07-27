@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useDevMode } from "@agent-native/core/client/agent-chat";
 import {
-  PromptComposer,
   agentNativePath,
   appBasePath,
-  isInBuilderFrame,
-  sendToAgentChat,
-  useDevMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import {
+  IconAlertTriangle,
   IconArrowLeft,
   IconArrowUpRight,
   IconBook,
@@ -19,12 +20,10 @@ import {
   IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+
+import { Button } from "./ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 
 interface VaultSecretOption {
   id: string;
@@ -110,8 +109,8 @@ function buildAppCreationPrompt(input: {
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
     ``,
-    `Pick a starter template that fits the user's prompt — analytics, assets, brain, calendar, content, design, dispatch, forms, mail, slides, clips, or starter when none of the others fit.`,
-    `If you use the starter template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Starter", "Blank app", or "New app" UI behind.`,
+    `Pick a UI template that fits the user's prompt — analytics, assets, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when none of the others fit.`,
+    `If you use the chat template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.`,
     `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     `Important routing rule: from outside the app, link to /${input.appId}; inside apps/${input.appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${input.appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${input.appId}/${input.appId}/review.`,
     `Prefer useActionQuery/useActionMutation for actions. If you must raw-fetch framework endpoints, wrap them with agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL.`,
@@ -120,7 +119,7 @@ function buildAppCreationPrompt(input: {
     `Existing first-party apps are neighbors, not implementation details for this app. If the user's prompt mentions Mail, Calendar, Analytics, Brain, Assets, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at https://mail.agent-native.com, https://calendar.agent-native.com, https://analytics.agent-native.com, https://brain.agent-native.com, and https://assets.agent-native.com.`,
     `Do not clone first-party templates, create wrapper apps, or scaffold child apps/routes for Mail, Calendar, Analytics, Brain, Assets, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
     `Only create another first-party app copy when the user explicitly asks for a customized fork/copy of that app; otherwise keep using the hosted/shared app so improvements to the base template keep flowing to users.`,
-    `Do not satisfy this by adding a route, page, component, or file inside apps/starter or another existing app unless the user explicitly asks to modify that existing app.`,
+    `Do not satisfy this by adding a route, page, component, or file inside apps/chat or another existing app unless the user explicitly asks to modify that existing app.`,
     input.vaultAccessMode === "all-apps"
       ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
       : keyList
@@ -163,6 +162,16 @@ function actionUrl(basePath: string | null, action: string): string {
   return `${normalized}${path}`;
 }
 
+const ERROR_FAILURE_REASONS = new Set([
+  "builder-error",
+  "builder-not-connected",
+  "credential-store-unavailable",
+]);
+
+function isErrorFailureReason(reason: string | null): boolean {
+  return !!reason && ERROR_FAILURE_REASONS.has(reason);
+}
+
 /**
  * Inline two-step app-creation flow: prompt → optional access picker → submit.
  * Used both in the popover form and in the dedicated `/new-app` page so the
@@ -187,10 +196,24 @@ export function CreateAppFlow({
   const [resourcesError, setResourcesError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [branchUrl, setBranchUrl] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { isDevMode } = useDevMode();
 
   const basePath = useMemo(() => defaultDispatchBasePath(), []);
+
+  // Enabled only while the connect CTA is on screen. Left always-on, the hook
+  // would poll Builder status on every popover mount and fire onConnected on
+  // its first status read for anyone already connected.
+  const connectFlow = useBuilderConnectFlow({
+    enabled: failureReason === "builder-not-connected",
+    trackingSource: "dispatch_create_app",
+    trackingFlow: "create_app",
+    onConnected: () => {
+      setFailureReason(null);
+      setStatusMessage("Builder connected. Press Create app to try again.");
+    },
+  });
 
   // Fetch access options eagerly so step 2 has them ready immediately.
   useEffect(() => {
@@ -288,6 +311,7 @@ export function CreateAppFlow({
     setIsSubmitting(true);
     setStatusMessage(null);
     setBranchUrl(null);
+    setFailureReason(null);
 
     try {
       if (isInBuilderFrame()) {
@@ -322,12 +346,16 @@ export function CreateAppFlow({
         } else {
           setStatusMessage(
             result?.message ||
-              "Builder app creation is coming soon. Open this workspace in Builder to create an app from this prompt.",
+              "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
+          );
+          setFailureReason(
+            result?.mode === "builder-unavailable" ? result.reason : null,
           );
         }
       }
     } catch (err: any) {
       setStatusMessage(err?.message || "Could not start the new app flow.");
+      setFailureReason(null);
     } finally {
       setIsSubmitting(false);
     }
@@ -551,17 +579,53 @@ export function CreateAppFlow({
       )}
 
       {statusMessage ? (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          {statusMessage}
-          {branchUrl ? (
-            <a
-              href={branchUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="ml-2 inline-flex items-center gap-1 font-medium text-foreground underline"
+        <div
+          className={`flex flex-col gap-2 rounded-md border px-3 py-2 text-xs ${
+            isErrorFailureReason(failureReason)
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-border bg-muted/40 text-muted-foreground"
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            {isErrorFailureReason(failureReason) ? (
+              <IconAlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            ) : null}
+            <span>{statusMessage}</span>
+            {branchUrl ? (
+              <a
+                href={branchUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-foreground underline"
+              >
+                Open branch <IconArrowUpRight className="h-3 w-3" />
+              </a>
+            ) : null}
+          </div>
+          {failureReason === "builder-not-connected" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => connectFlow.start()}
+              disabled={connectFlow.connecting}
+              className="w-fit"
             >
-              Open branch <IconArrowUpRight className="h-3 w-3" />
-            </a>
+              {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+            </Button>
+          ) : null}
+          {failureReason === "credential-store-unavailable" ||
+          failureReason === "builder-error" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={submitWithSelectedAccess}
+              disabled={isSubmitting}
+              className="w-fit"
+            >
+              Try again
+            </Button>
           ) : null}
         </div>
       ) : null}

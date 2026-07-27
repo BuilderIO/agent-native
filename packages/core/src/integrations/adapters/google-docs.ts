@@ -1,11 +1,13 @@
 import type { H3Event } from "h3";
+
+import type { EnvKeyConfig } from "../../server/create-server.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  PlatformDeliveryReceipt,
 } from "../types.js";
-import type { EnvKeyConfig } from "../../server/create-server.js";
 
 /** Google Docs comment replies have no formal length limit but keep it reasonable */
 const GDOCS_MAX_LENGTH = 4000;
@@ -302,7 +304,7 @@ export function googleDocsAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const fileId = context.platformContext.fileId as string;
       const commentId = context.platformContext.commentId as string;
 
@@ -318,8 +320,10 @@ export function googleDocsAdapter(): PlatformAdapter {
           await replyToComment(fileId, commentId, chunk, accessToken);
         } catch (err) {
           console.error("[google-docs] Failed to send reply:", err);
+          throw err;
         }
       }
+      return { status: "delivered" };
     },
 
     formatAgentResponse(text: string): OutgoingMessage {

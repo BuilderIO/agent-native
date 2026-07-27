@@ -1,11 +1,12 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
 import { IconPencil } from "@tabler/icons-react";
+import { useState, type MouseEvent as ReactMouseEvent } from "react";
+
+import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 import type {
   BlockDataChangeMeta,
   BlockSpec,
   BlockRenderContext,
 } from "./types.js";
-import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
 
 /**
  * Resolve a spec's effective edit surface. Defaults to `"inline"` when the block
@@ -15,7 +16,7 @@ import { SchemaBlockEditor } from "./SchemaBlockEditor.js";
  */
 export function blockEditSurface(
   spec: BlockSpec<any>,
-): "inline" | "panel" | "container" {
+): "inline" | "panel" | "container" | "none" {
   return spec.editSurface ?? (spec.Edit ? "inline" : "panel");
 }
 
@@ -36,6 +37,7 @@ export function BlockView({
   editable = true,
   onChange,
   ctx,
+  compactVisuals,
 }: {
   spec: BlockSpec<any>;
   block: { id: string; title?: string; summary?: string; data: unknown };
@@ -46,6 +48,7 @@ export function BlockView({
   /** Commit a new `data` value for the block. */
   onChange?: (nextData: unknown, meta?: BlockDataChangeMeta) => void;
   ctx: BlockRenderContext;
+  compactVisuals?: boolean;
 }) {
   const [panelHovered, setPanelHovered] = useState(false);
   const Read = spec.Read;
@@ -56,6 +59,7 @@ export function BlockView({
       title={block.title}
       summary={block.summary}
       ctx={ctx}
+      compactVisuals={compactVisuals}
     />
   );
 
@@ -63,6 +67,8 @@ export function BlockView({
     editing && editable && spec.placement.includes("block") && !!onChange;
 
   if (!canEdit) return readNode;
+
+  if (blockEditSurface(spec) === "none") return readNode;
 
   const commit = (nextData: unknown, meta?: BlockDataChangeMeta) =>
     onChange?.(nextData, meta);

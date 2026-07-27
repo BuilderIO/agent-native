@@ -7,6 +7,22 @@ const mockWriteAppState = vi.fn();
 const mockNotifyClients = vi.fn();
 const mockGetUserEmail = vi.fn(() => "owner@example.com");
 const mockGetOrgId = vi.fn(() => null);
+const mockRecordGenerationCreativeContext = vi.fn();
+const mockValidateGenerationCreativeContext = vi.fn(
+  async (input: {
+    contextPackId?: string;
+    contextModeOverride?: "off";
+    reuseLabels?: Array<Record<string, unknown>>;
+  }) => ({
+    contextMode: input.contextModeOverride === "off" ? "off" : "auto",
+    contextPackId:
+      input.contextModeOverride === "off"
+        ? null
+        : (input.contextPackId ?? null),
+    reuseLabels: input.reuseLabels ?? [],
+    results: [],
+  }),
+);
 const mockTables = vi.hoisted(() => ({
   deckTable: { id: "id_col", data: "data_col", updatedAt: "ua_col" },
   designSystemsTable: {
@@ -69,6 +85,13 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: (...args: unknown[]) =>
+    mockRecordGenerationCreativeContext(...args),
+  validateGenerationCreativeContext: (...args: unknown[]) =>
+    mockValidateGenerationCreativeContext(...args),
+}));
+
 vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
 }));
@@ -85,6 +108,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...conditions: unknown[]) => ({ and: conditions }),
   eq: (col: unknown, val: unknown) => ({ col, val }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 import action from "./create-deck";

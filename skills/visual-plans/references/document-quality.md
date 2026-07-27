@@ -18,6 +18,32 @@ behavior). Replace vague prose with specifics; never ship a step like "make it
 work." No hero art, gradients, logos, nav bars, slogans, value props, giant
 landing-page headings, or marketing cards unless the user explicitly asks.
 
+**Every published plan must stand alone.** Even when the agent is revising an
+existing plan, the output is a plan to do the work, not a changelog of the
+conversation. Do not write phrases like "preserve the previous plan", "do not
+drop the old idea", "as discussed above", "this revision", "unlike the prior
+version", or "correction from the earlier plan". Fold the right decisions into
+the plan as normal objective, architecture, scope, and roadmap prose. A reviewer
+who opens the plan from a link with no chat history should understand it. Avoid
+negative framing that only makes sense against absent context ("not the old
+mode", "not just X") unless the contrast is defined in the plan and genuinely
+helps; state the positive model directly.
+
+**Make abstract plans instantly legible.** If the idea is broad, strategic, or
+intended for a third-party reviewer, put one concrete product snapshot near the
+top before dense architecture, mode tables, manifests, or roadmaps. For
+UI-capable concepts, that snapshot is usually a top-canvas app state plus a
+short paragraph that says what the user sees and what changes under the hood.
+Then put mechanics, data flow, sync boundaries, and implementation detail in
+separate diagrams or document sections.
+
+**Preserve the user's level of abstraction.** A motivating use case is not
+automatically the architecture. When the prompt describes a broader framework,
+product mode, or reusable primitive, separate the reusable core from specific
+apps, providers, customers, scripts, or launch examples. Use the concrete
+example to make the plan understandable, then make clear which parts are core,
+which are app-specific adapters, and which are future examples.
+
 **When top visuals exist, they and the document never duplicate each other.**
 For UI work, the UI story lives in the top visual surface: canvas artboards for
 static inspection, plus prototype tabs when the flow should be functional. The
@@ -69,7 +95,11 @@ so you never emit a block the editor cannot render or round-trip:
   two-dimensional layouts — paired before/after panels, layered diagrams,
   swimlanes, dependency maps, matrices, or grouped regions; do not default to
   left-to-right chains, and use a line only when the relationship is truly a
-  sequence. For architecture/code
+  sequence. Do not use a body `diagram` as the primary artifact for a requested
+  product canvas, light storyboard, UI flow, screen flow, or wireframe; those
+  belong in the top canvas as artboards with `Screen` wireframes first. Use
+  diagrams below that canvas only for architecture, data flow, or implementation
+  mechanics. For architecture/code
   diagrams, prefer `data.html` / `data.css` with semantic HTML and inline SVG so
   the diagram can use panels, layers, matrices, arrows, annotations, and
   responsive layout directly. Author diagram HTML with renderer-owned primitives
@@ -79,12 +109,16 @@ so you never emit a block the editor cannot render or round-trip:
   `--wf-paper`, `--wf-card`, `--wf-accent`, `--wf-accent-soft`, `--wf-warn`, and
   `--wf-ok`, and switch to Excalifont plus rough.js outlines in sketchy mode. Do not
   set `font-family` and do not hard-code hex, rgb, or hsl colors in diagram HTML
-  or CSS. Leave room for the sketch font: keep labels short, give nodes generous
-  width, and place boundary/annotation labels in unused space instead of over
-  nodes; labels must not overlap nodes, connectors, or each other. For small
-  text/SVG changes to an existing HTML diagram, use `patch-diagram-html` with a
-  unique `find`/`replace` snippet instead of resending the whole `data.html`
-  string. Use legacy `nodes` / `edges` only for small previews or truly
+  or CSS. Choose the outer `frame` intentionally: use `show` when the diagram
+  stands alone in a recap, comparison, or prose section; use `hide` when the
+  diagram sits inside docs chrome, columns, tabs, cards, a canvas surface, or
+  already has visible `.diagram-panel` / `.diagram-box` structure. Leave room
+  for the sketch font: keep labels short, give nodes generous width, and place
+  boundary/annotation labels in unused space instead of over nodes; labels must
+  not overlap nodes, connectors, or each other. For small text/SVG changes to an
+  existing HTML diagram, use `patch-diagram-html` with a unique
+  `find`/`replace` snippet instead of resending the whole `data.html` string.
+  Use legacy `nodes` / `edges` only for small previews or truly
   sequential flows. In architecture/code plans, prefer a repeated section rhythm:
   recommendation title, confidence and category badges, code-path evidence, a
   local before/after or current/target spatial diagram, then concise
@@ -112,6 +146,20 @@ Keep non-answerable assumptions or risks as concise `callout` blocks in
 the relevant section. Never bury a questions/decisions wall inside the plan
 narrative, and never ask the same question twice.
 
+For complex plans, do not end without an open-question audit. If architecture,
+scope, UX, data shape, rollout, provider mapping, or ownership still depends on
+a choice, either commit to a recommendation with rationale or add it to the
+bottom form with a recommended default. A complex plan with no open questions is
+fine only when every meaningful decision has been explicitly made.
+
+**Verification must exercise the real workflow.** The final verification section
+should go beyond typecheck/unit tests when the plan changes UI, local files,
+sync, providers, browser behavior, or multi-app flows. Include at least one
+end-to-end smoke that matches the user journey, such as a fresh repo/folder,
+real manifest or data fixture, browser interaction, save/sync action, and an
+on-disk or database assertion. Name the command or manual browser path when it
+is known.
+
 **`custom-html` is a bounded escape hatch only** — a single complete fragment
 inside a block, never `html`/`head`/`body`/`script` tags, never a generic
 placeholder, density demo, or proof that custom HTML works. Prefer the native
@@ -121,9 +169,18 @@ blocks for normal plans. For architecture/code reviews, use `diagram`
 requested mockup, UI state, or visual comparison. If UI fidelity requires
 HTML/CSS, image capture, or real React/CSS, the product fix is canvas support
 for that artifact type, not moving the mockup into the document.
+When `custom-html` is genuinely needed, author it against the sandbox-provided
+theme tokens (`--wf-paper`, `--wf-card`, `--wf-ink`, `--wf-muted`,
+`--wf-line`, `--wf-radius`, and the matching `--plan-*` aliases). Do not hardcode
+hex/rgb/hsl light palettes such as white cards with dark ink; the same fragment
+must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
-unreadable diagrams before asking for approval.
+unreadable diagrams before asking for approval. Check the top canvas in the
+current Plan theme, especially dark mode: white mockup panels, low-contrast
+muted text, or invisible controls are defects. If a frame only works in one
+theme, rewrite the HTML with `--wf-*` tokens and semantic helper classes before
+surfacing the plan.
 
 <!-- SHARED-CORE:document-quality END -->

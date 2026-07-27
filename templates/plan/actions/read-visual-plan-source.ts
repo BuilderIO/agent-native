@@ -1,11 +1,15 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import { loadPlanBundle, planDeepLink, planPath } from "../server/plans.js";
 
 export default defineAction({
   description:
-    "Read an Agent-Native Plan as source-control friendly MDX files. Returns plan.mdx, canvas.mdx when the plan has a board, optional .plan-state.json, and the normalized JSON runtime model.",
+    "Read an Agent-Native Plan as source-control friendly MDX files. Returns plan.mdx, canvas.mdx when the plan has a board, optional .plan-state.json, the normalized JSON runtime model, and plan.updatedAt. Pass plan.updatedAt exactly as expectedUpdatedAt for replace-file, then reread to verify the write.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
   }),
@@ -27,6 +31,7 @@ export default defineAction({
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
       url: planPath(bundle.plan.id, bundle.plan.kind),
+      referencedBlockIds: referencedBlockIdsForPlanComments(bundle.comments),
     });
     return {
       planId: bundle.plan.id,

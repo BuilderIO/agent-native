@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   normalizeGoogleEventId,
@@ -57,7 +58,7 @@ export default defineAction({
     await googleCalendar.rsvpEvent(
       googleEventId,
       args.status,
-      accountEmail,
+      { ownerEmail, accountEmail },
       args.scope,
       args.note?.trim() ?? args.note,
       args.sendUpdates,

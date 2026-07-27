@@ -1,11 +1,20 @@
-import { useState, useRef, useEffect } from "react";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconX,
   IconCheck,
   IconTrash,
   IconMessageCircle,
   IconChevronDown,
+  IconAlertTriangle,
+  IconRefresh,
 } from "@tabler/icons-react";
+import { useState, useRef, useEffect } from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   useSlideComments,
   useCreateSlideComment,
@@ -16,11 +25,6 @@ import {
   type CommentThread,
   type SlideComment,
 } from "@/hooks/use-slide-comments";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface SlideCommentsPanelProps {
   deckId: string | null;
@@ -59,6 +63,7 @@ function CommentItem({
   comment: SlideComment;
   onDelete: () => void;
 }) {
+  const t = useT();
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -86,7 +91,7 @@ function CommentItem({
                     <IconTrash size={11} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Delete comment</TooltipContent>
+                <TooltipContent>{t("comments.deleteComment")}</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -113,6 +118,7 @@ function PendingCommentInput({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -137,7 +143,7 @@ function PendingCommentInput({
       onDone();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not save this comment.",
+        err instanceof Error ? err.message : t("comments.saveCommentFailed"),
       );
     }
   };
@@ -160,7 +166,7 @@ function PendingCommentInput({
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onCancel();
         }}
-        placeholder="Add a comment..."
+        placeholder={t("comments.addCommentPlaceholder")}
         rows={3}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
@@ -173,7 +179,7 @@ function PendingCommentInput({
           onClick={onCancel}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
-          Cancel
+          {t("comments.cancel")}
         </button>
         <button
           type="button"
@@ -181,7 +187,9 @@ function PendingCommentInput({
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
         >
-          {createComment.isPending ? "Saving..." : "Comment"}
+          {createComment.isPending
+            ? t("comments.saving")
+            : t("comments.comment")}
         </button>
       </div>
     </div>
@@ -200,6 +208,7 @@ function ReplyInput({
   threadId: string;
   onDone: () => void;
 }) {
+  const t = useT();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -224,7 +233,7 @@ function ReplyInput({
       onDone();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not save this reply.",
+        err instanceof Error ? err.message : t("comments.saveReplyFailed"),
       );
     }
   };
@@ -242,7 +251,7 @@ function ReplyInput({
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
           if (e.key === "Escape") onDone();
         }}
-        placeholder="Reply..."
+        placeholder={t("comments.replyPlaceholder")}
         rows={2}
         className="w-full bg-transparent text-foreground/90 text-[12px] px-3 py-2 outline-none resize-none placeholder:text-muted-foreground"
       />
@@ -255,7 +264,7 @@ function ReplyInput({
           onClick={onDone}
           className="text-[11px] text-muted-foreground hover:text-foreground/80 px-2 py-1 rounded"
         >
-          Cancel
+          {t("comments.cancel")}
         </button>
         <button
           type="button"
@@ -263,7 +272,7 @@ function ReplyInput({
           disabled={!text.trim() || createComment.isPending}
           className="text-[11px] bg-[#609FF8] text-black font-medium px-2.5 py-1 rounded disabled:opacity-40 hover:bg-[#7AB2FA]"
         >
-          Reply
+          {t("comments.reply")}
         </button>
       </div>
     </div>
@@ -280,6 +289,7 @@ function ThreadCard({
   deckId: string;
   slideId: string;
 }) {
+  const t = useT();
   const [replyOpen, setReplyOpen] = useState(false);
   const [showReplies, setShowReplies] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -326,14 +336,19 @@ function ThreadCard({
                     <TooltipTrigger asChild>
                       <button
                         onClick={() =>
-                          resolveComment.mutate({ id: rootComment.id })
+                          resolveComment.mutate({
+                            id: rootComment.id,
+                            resolved: true,
+                          })
                         }
                         className="p-0.5 rounded text-muted-foreground hover:text-green-400"
                       >
                         <IconCheck size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Resolve thread</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.resolveThread")}
+                    </TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -346,7 +361,9 @@ function ThreadCard({
                         <IconTrash size={11} />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Delete comment</TooltipContent>
+                    <TooltipContent>
+                      {t("comments.deleteComment")}
+                    </TooltipContent>
                   </Tooltip>
                 </>
               )}
@@ -368,8 +385,9 @@ function ThreadCard({
             size={11}
             className={`transition-transform ${showReplies ? "rotate-180" : ""}`}
           />
-          {showReplies ? "Hide" : `${replies.length}`}{" "}
-          {replies.length === 1 ? "reply" : "replies"}
+          {showReplies
+            ? t("comments.hideReplies")
+            : t("comments.replyCount", { count: replies.length })}
         </button>
       )}
 
@@ -394,7 +412,7 @@ function ThreadCard({
               onClick={() => setReplyOpen(true)}
               className="text-[11px] text-muted-foreground hover:text-foreground/80"
             >
-              Reply
+              {t("comments.reply")}
             </button>
           )}
         </div>
@@ -421,13 +439,16 @@ export function SlideCommentsPanel({
   onPendingDone,
   onClose,
 }: SlideCommentsPanelProps) {
-  const { data: threads = [] } = useSlideComments(deckId, slideId);
+  const t = useT();
+  const commentsQuery = useSlideComments(deckId, slideId);
+  const threads = commentsQuery.data ?? [];
   const [showResolved, setShowResolved] = useState(false);
   const [addingComment, setAddingComment] = useState(false);
 
   const activeThreads = threads.filter((t) => !t.resolved);
   const resolvedThreads = threads.filter((t) => t.resolved);
   const visibleThreads = showResolved ? threads : activeThreads;
+  const showLoadError = commentsQuery.isError && threads.length === 0;
 
   // When pending comment arrives, cancel any manual "add comment" mode
   useEffect(() => {
@@ -441,7 +462,7 @@ export function SlideCommentsPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
         <span className="text-[13px] font-medium text-foreground/80">
-          Comments
+          {t("comments.title")}
         </span>
         <div className="flex items-center gap-1">
           {!showInput && deckId && slideId && (
@@ -454,7 +475,7 @@ export function SlideCommentsPanel({
                   <IconMessageCircle size={14} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Add comment</TooltipContent>
+              <TooltipContent>{t("comments.addComment")}</TooltipContent>
             </Tooltip>
           )}
           <Tooltip>
@@ -466,7 +487,7 @@ export function SlideCommentsPanel({
                 <IconX size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Close</TooltipContent>
+            <TooltipContent>{t("comments.close")}</TooltipContent>
           </Tooltip>
         </div>
       </div>
@@ -490,15 +511,33 @@ export function SlideCommentsPanel({
           />
         )}
 
+        {showLoadError && (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-destructive/30 bg-destructive/5 px-3 py-8 text-center">
+            <IconAlertTriangle className="size-5 text-destructive/70" />
+            <p className="text-xs text-muted-foreground">
+              {t("comments.loadFailed")}
+            </p>
+            <button
+              type="button"
+              onClick={() => void commentsQuery.refetch()}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <IconRefresh className="size-3.5" />
+              {t("comments.retry")}
+            </button>
+          </div>
+        )}
+
         {/* Thread list */}
-        {visibleThreads.map((thread) => (
-          <ThreadCard
-            key={thread.threadId}
-            thread={thread}
-            deckId={deckId ?? ""}
-            slideId={slideId ?? ""}
-          />
-        ))}
+        {!showLoadError &&
+          visibleThreads.map((thread) => (
+            <ThreadCard
+              key={thread.threadId}
+              thread={thread}
+              deckId={deckId ?? ""}
+              slideId={slideId ?? ""}
+            />
+          ))}
 
         {/* Resolved toggle */}
         {resolvedThreads.length > 0 && (
@@ -507,13 +546,14 @@ export function SlideCommentsPanel({
             className="w-full text-[11px] text-muted-foreground hover:text-foreground/70 py-1"
           >
             {showResolved
-              ? "Hide resolved"
-              : `Show ${resolvedThreads.length} resolved`}
+              ? t("comments.hideResolved")
+              : t("comments.showResolved", { count: resolvedThreads.length })}
           </button>
         )}
 
         {/* Empty state */}
-        {!showInput &&
+        {!showLoadError &&
+          !showInput &&
           visibleThreads.length === 0 &&
           (deckId && slideId ? (
             <button
@@ -526,10 +566,10 @@ export function SlideCommentsPanel({
                 className="mx-auto mb-2 text-muted-foreground/60"
               />
               <p className="text-[12px] text-muted-foreground">
-                No comments yet
+                {t("comments.noCommentsYet")}
               </p>
               <p className="text-[11px] text-muted-foreground/70 mt-1">
-                Click to add a comment
+                {t("comments.clickToAddComment")}
               </p>
             </button>
           ) : (
@@ -539,10 +579,10 @@ export function SlideCommentsPanel({
                 className="mx-auto mb-2 text-muted-foreground/60"
               />
               <p className="text-[12px] text-muted-foreground">
-                No comments yet
+                {t("comments.noCommentsYet")}
               </p>
               <p className="text-[11px] text-muted-foreground/70 mt-1">
-                Select a slide to add one
+                {t("comments.selectSlideToAdd")}
               </p>
             </div>
           ))}

@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createClient, type Client } from "@libsql/client";
-import { registerShareableResource } from "@agent-native/core/sharing";
+
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
+import { registerShareableResource } from "@agent-native/core/sharing";
+import { createClient, type Client } from "@libsql/client";
 import { eq } from "drizzle-orm";
+import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import {
   afterAll,
   beforeAll,
@@ -15,6 +16,7 @@ import {
   it,
   vi,
 } from "vitest";
+
 import * as planSchema from "../server/db/schema.js";
 
 let client: Client;
@@ -205,6 +207,16 @@ beforeAll(async () => {
       usage_cost_source TEXT,
       usage_recorded_at TEXT,
       source_url TEXT,
+      source_type TEXT,
+      source_repo TEXT,
+      source_pr_number INTEGER,
+      source_pr_state TEXT,
+      source_pr_merged_at TEXT,
+      source_author_email TEXT,
+      source_author_name TEXT,
+      source_author_login TEXT,
+      recap_idempotency_key TEXT,
+      deleted_at TEXT, deleted_by TEXT,
       owner_email TEXT NOT NULL,
       org_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'private'
@@ -238,6 +250,8 @@ beforeAll(async () => {
       resolved_by TEXT,
       resolved_at TEXT,
       consumed_at TEXT,
+      deleted_at TEXT,
+      deleted_by TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -258,7 +272,14 @@ beforeAll(async () => {
       snapshot_json TEXT NOT NULL,
       change_label TEXT,
       created_by TEXT NOT NULL DEFAULT 'agent',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      summary_status TEXT,
+      summary_source TEXT,
+      block_count INTEGER,
+      section_count INTEGER,
+      has_canvas INTEGER,
+      has_prototype INTEGER,
+      preview_text TEXT
     );
     CREATE TABLE plan_shares (
       id TEXT PRIMARY KEY,
@@ -392,6 +413,31 @@ describe("plan version actions", () => {
     await expect(
       runWithRequestContext({ userEmail: OTHER }, () =>
         listPlanVersions.run({ planId: PLAN_ID }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it("does not reveal history snapshots to viewer-share readers", async () => {
+    await seedPlan();
+    const snapshot = await createPlanVersionSnapshot(PLAN_ID, { force: true });
+    await db.insert(planSchema.planShares).values({
+      id: "share_viewer_history",
+      resourceId: PLAN_ID,
+      principalType: "user",
+      principalId: OTHER,
+      role: "viewer",
+      createdBy: OWNER,
+      createdAt: CREATED_AT,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OTHER }, () =>
+        listPlanVersions.run({ planId: PLAN_ID }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    await expect(
+      runWithRequestContext({ userEmail: OTHER }, () =>
+        getPlanVersion.run({ planId: PLAN_ID, versionId: snapshot.id }),
       ),
     ).rejects.toMatchObject({ statusCode: 403 });
   });

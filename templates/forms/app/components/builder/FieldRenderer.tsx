@@ -1,7 +1,10 @@
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import type { FormField } from "@shared/types";
+import { IconStar, IconStarFilled } from "@tabler/icons-react";
+
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -9,11 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
-import { IconStar, IconStarFilled } from "@tabler/icons-react";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { FormField } from "@shared/types";
 
 interface FieldRendererProps {
   field: FormField;
@@ -203,14 +204,14 @@ export function FieldRenderer({
               key={star}
               type="button"
               onClick={() => !disabled && handleChange(star)}
-              className="cursor-pointer p-2 sm:p-1.5 disabled:cursor-not-allowed"
+              className="flex size-11 cursor-pointer items-center justify-center rounded-md p-2 transition-[color,transform] duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100 disabled:cursor-not-allowed sm:size-10 sm:p-1.5"
               disabled={disabled}
               aria-label={`${star} star${star !== 1 ? "s" : ""}`}
             >
               {(value as number) >= star ? (
-                <IconStarFilled className="h-7 w-7 sm:h-6 sm:w-6 text-amber-400" />
+                <IconStarFilled className="h-7 w-7 text-amber-400 sm:h-6 sm:w-6" />
               ) : (
-                <IconStar className="h-7 w-7 sm:h-6 sm:w-6 text-muted-foreground/30" />
+                <IconStar className="h-7 w-7 text-muted-foreground/30 sm:h-6 sm:w-6" />
               )}
             </button>
           ))}

@@ -1,15 +1,40 @@
-import { useCallback, useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
   IconDotsVertical,
+  IconMaximize,
   IconPencil,
+  IconRefresh,
   IconTrash,
   IconCode,
   IconDownload,
+  IconMessageCircle,
+  IconBrandGoogle,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,76 +47,219 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { SqlChart } from "@/components/dashboard/SqlChart";
-import { ViewSqlPopover } from "./ViewSqlPopover";
+import type { SelectDashboardPanelOptions } from "@/hooks/use-dashboard-chat-context";
+import { cn } from "@/lib/utils";
+
+import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
+import { ViewSqlPopover } from "./ViewSqlPopover";
 
 interface SqlChartCardProps {
   panel: SqlPanel;
   resolvedSql?: string;
   onRemove: () => void;
-  /** Toggle between "span 1 column" and "span all columns of the current
-   *  section". Optional because section panels never expose this control. */
-  onToggleWidth?: () => void;
-  /** Number of columns in the section this panel currently lives in. Used to
-   *  decide the toggle label / icon: when the panel already spans the full
-   *  row, we offer to shrink; otherwise we offer to expand. */
-  gridColumns?: number;
   onEdit?: () => void;
   /** Persist a SQL-only edit from the inline View SQL popover. Should throw on
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
+  eagerLoad?: boolean;
+  reportScreenshot?: boolean;
+  isDragSource?: boolean;
+  selectedForChat?: boolean;
+  onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
+  extensionContext?: Record<string, unknown> | null;
+  dashboardId?: string;
+  filters?: Record<string, string>;
 }
+
+const PanelDragHandle = memo(function PanelDragHandle({
+  panelId,
+  label,
+  className,
+  iconClassName,
+}: {
+  panelId: string;
+  label: string;
+  className: string;
+  iconClassName: string;
+}) {
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef } =
+    useDraggable({
+      id: panelId,
+    });
+
+  const setHandleRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      setNodeRef(node);
+      setActivatorNodeRef(node);
+    },
+    [setActivatorNodeRef, setNodeRef],
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          ref={setHandleRef}
+          className={className}
+          aria-label={label}
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical className={iconClassName} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+});
 
 export function SqlChartCard({
   panel,
   resolvedSql,
   onRemove,
-  onToggleWidth,
-  gridColumns,
   onEdit,
   onSaveSql,
   editable = true,
+  eagerLoad = false,
+  reportScreenshot = false,
+  isDragSource = false,
+  selectedForChat = false,
+  onSelectForChat,
+  extensionContext,
+  dashboardId,
+  filters,
 }: SqlChartCardProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const t = useT();
+  const queryClient = useQueryClient();
+  const exportToGoogleSheets = useActionMutation(
+    "export-dashboard-panel-to-google-sheet",
+  );
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [extRefreshKey, setExtRefreshKey] = useState(0);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
+  const [shouldLoadData, setShouldLoadData] = useState(
+    eagerLoad ||
+      panel.chartType === "section" ||
+      panel.chartType === "extension",
+  );
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const chartQueryKey = useMemo(
+    () =>
+      [
+        "sql-chart",
+        panel.id,
+        serializePanelSql(resolvedSql ?? panel.sql),
+        panel.source,
+      ] as const,
+    [panel.id, panel.source, panel.sql, resolvedSql],
+  );
+  const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
+    cardRef.current = node;
+  }, []);
 
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    setShouldLoadData(true);
+    void queryClient.invalidateQueries({
+      queryKey: chartQueryKey,
+    });
+  }, [chartQueryKey, queryClient]);
+
+  const handleExportToGoogleSheets = useCallback(async () => {
+    if (!dashboardId || panel.chartType !== "table") return;
+
+    try {
+      const result = (await exportToGoogleSheets.mutateAsync({
+        dashboardId,
+        panelId: panel.id,
+        filters: filters ?? {},
+      })) as { spreadsheetUrl?: string };
+      if (result.spreadsheetUrl) {
+        toast.success(t("sqlDashboard.googleSheetsExported"), {
+          action: {
+            label: t("sqlDashboard.openGoogleSheet"),
+            onClick: () => {
+              window.open(
+                result.spreadsheetUrl,
+                "_blank",
+                "noopener,noreferrer",
+              );
+            },
+          },
+        });
+      } else {
+        toast.success(t("sqlDashboard.googleSheetsExported"));
+      }
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.googleSheetsExportFailed", {
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }, [dashboardId, exportToGoogleSheets, filters, panel, t]);
+
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+        )
+      ) {
+        return;
+      }
+      onSelectForChat?.({ focus: false });
+    },
+    [onSelectForChat],
+  );
+
+  useEffect(() => {
+    if (eagerLoad) {
+      setShouldLoadData(true);
+      return;
+    }
+    // Sections are layout-only and extensions render their own iframe — neither
+    // waits on the intersection observer that gates SQL panels.
+    if (panel.chartType === "section" || panel.chartType === "extension") {
+      setShouldLoadData(true);
+      return;
+    }
+
+    setShouldLoadData(false);
+    const node = cardRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      setShouldLoadData(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setShouldLoadData(true);
+          observer.disconnect();
+        }
+      },
+      {
+        rootMargin: "320px 0px",
+        threshold: 0.01,
+      },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [eagerLoad, panel.chartType, panel.id]);
+
   useEffect(() => {
     setExportCsv(null);
   }, [panel.id]);
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
-  };
 
   // Section panels render as a flush header row (no card chrome, full width)
   // so they read as dividers between groups of panels rather than as another
@@ -99,11 +267,12 @@ export function SqlChartCard({
   if (panel.chartType === "section") {
     return (
       <div
-        ref={setNodeRef}
-        style={style}
-        className="group relative mt-2 first:mt-0"
+        ref={setCardNodeRef}
+        style={isDragSource ? { zIndex: 50 } : undefined}
+        data-dragging={isDragSource ? "true" : undefined}
+        className="dashboard-section-card group relative mt-2 first:mt-0"
       >
-        <div className="flex items-center gap-2 border-b border-border pb-2">
+        <div className="flex items-center gap-2 pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
@@ -113,19 +282,21 @@ export function SqlChartCard({
                     <DropdownMenuTrigger asChild>
                       <button
                         className="p-1 rounded text-muted-foreground hover:text-foreground"
-                        aria-label="Section options"
+                        aria-label={t("sqlDashboard.sectionOptions")}
                       >
                         <IconDotsVertical className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Section options</TooltipContent>
+                  <TooltipContent>
+                    {t("sqlDashboard.sectionOptions")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-40">
                   {onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
                   {onEdit && <DropdownMenuSeparator />}
@@ -136,23 +307,16 @@ export function SqlChartCard({
                     }}
                   >
                     <IconTrash className="h-4 w-4 mr-2" />
-                    Delete
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
-              </Tooltip>
+              <PanelDragHandle
+                panelId={panel.id}
+                label={t("sqlDashboard.dragToReorder")}
+                className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                iconClassName="h-3.5 w-3.5"
+              />
             </div>
           ) : null}
         </div>
@@ -165,20 +329,24 @@ export function SqlChartCard({
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete section?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deleteSectionTitle")}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Delete &quot;{panel.title}&quot;? This cannot be undone.
+                  {t("sqlDashboard.deleteSectionDescription", {
+                    title: panel.title,
+                  })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
                     setConfirmOpen(false);
                     onRemove();
                   }}
                 >
-                  Delete
+                  {t("sidebar.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -188,20 +356,191 @@ export function SqlChartCard({
     );
   }
 
-  const showPanelMenu = editable || panel.chartType === "table";
+  // Extension panels render their sandboxed iframe full-bleed with no card chrome
+  // or title — the extension owns its own UI. All viewers get the read-only
+  // actions (full screen and refresh); editable
+  // dashboards also get delete and drag.
+  if (panel.chartType === "extension") {
+    return (
+      <div
+        ref={setCardNodeRef}
+        onClick={handleCardClick}
+        style={isDragSource ? { zIndex: 50 } : undefined}
+        data-dragging={isDragSource ? "true" : undefined}
+        data-chat-selected={selectedForChat ? "true" : undefined}
+        data-dashboard-report-panel-id={panel.id}
+        data-dashboard-report-panel-title={panel.title}
+        className={cn(
+          "dashboard-extension-card group relative h-full rounded-lg transition-colors",
+          selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+        )}
+      >
+        {!expanded && (
+          <SqlChart
+            key={extRefreshKey}
+            panel={panel}
+            resolvedSql={resolvedSql}
+            loadData
+            reportScreenshot={reportScreenshot}
+            extensionContext={extensionContext}
+          />
+        )}
+        <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="p-1 rounded bg-background/80 text-muted-foreground hover:text-foreground"
+                    aria-label={t("sqlDashboard.panelOptions")}
+                  >
+                    <IconDotsVertical className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t("sqlDashboard.panelOptions")}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem
+                onSelect={() =>
+                  onSelectForChat?.({ openSidebar: true, focus: true })
+                }
+              >
+                <IconMessageCircle className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.chatWithPanel")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setExpanded(true)}>
+                <IconMaximize className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.fullScreen")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setExtRefreshKey((k) => k + 1)}>
+                <IconRefresh className="h-4 w-4 mr-2" />
+                {t("sqlDashboard.refresh")}
+              </DropdownMenuItem>
+              {editable ? (
+                <>
+                  <DropdownMenuSeparator />
+                  {onEdit ? (
+                    <DropdownMenuItem onSelect={() => onEdit()}>
+                      <IconPencil className="h-4 w-4 mr-2" />
+                      {t("sidebar.edit")}
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    <IconTrash className="h-4 w-4 mr-2" />
+                    {t("sidebar.delete")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {editable ? (
+            <PanelDragHandle
+              panelId={panel.id}
+              label={t("sqlDashboard.dragToReorder")}
+              className="p-1 rounded bg-background/80 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+              iconClassName="h-3.5 w-3.5"
+            />
+          ) : null}
+        </div>
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
+            <DialogHeader className="shrink-0 pr-8 text-left">
+              <DialogTitle className="truncate">{panel.title}</DialogTitle>
+            </DialogHeader>
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <ChartFillHeight>
+                <SqlChart
+                  key={extRefreshKey}
+                  panel={panel}
+                  resolvedSql={resolvedSql}
+                  loadData
+                  reportScreenshot={reportScreenshot}
+                  extensionContext={extensionContext}
+                />
+              </ChartFillHeight>
+            </div>
+          </DialogContent>
+        </Dialog>
+        {editable ? (
+          <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deletePanelTitle")}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t("sqlDashboard.deletePanelDescription", {
+                    title: panel.title,
+                  })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmOpen(false);
+                    onRemove();
+                  }}
+                >
+                  {t("sidebar.delete")}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+      </div>
+    );
+  }
+
+  // Every non-section panel exposes at least the Full screen view action, so the
+  // options menu always renders — including on read-only / shared dashboards.
+  const showPanelMenu = true;
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      className="group relative h-full hover:z-20 focus-within:z-20"
+      ref={setCardNodeRef}
+      onClick={handleCardClick}
+      style={isDragSource ? { zIndex: 50 } : undefined}
+      data-dragging={isDragSource ? "true" : undefined}
+      data-chat-selected={selectedForChat ? "true" : undefined}
+      data-dashboard-report-panel-id={panel.id}
+      data-dashboard-report-panel-title={panel.title}
+      className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
-      <Card className="flex h-full flex-col overflow-visible">
+      <Card
+        className={cn(
+          "flex h-full flex-col overflow-visible transition-colors",
+          selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+        )}
+      >
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {editable && onSaveSql ? (
+              <ViewSqlPopover
+                panel={panel}
+                resolvedSql={resolvedSql}
+                onSaveSql={onSaveSql}
+              >
+                <button
+                  className="p-1 rounded text-muted-foreground hover:text-foreground"
+                  aria-label={t("sqlDashboard.viewSql")}
+                  title={t("sqlDashboard.viewSql")}
+                >
+                  <IconCode className="h-3.5 w-3.5" />
+                </button>
+              </ViewSqlPopover>
+            ) : null}
             {showPanelMenu ? (
               <DropdownMenu>
                 <Tooltip>
@@ -209,61 +548,67 @@ export function SqlChartCard({
                     <DropdownMenuTrigger asChild>
                       <button
                         className="p-1 rounded text-muted-foreground hover:text-foreground"
-                        aria-label="Panel options"
+                        aria-label={t("sqlDashboard.panelOptions")}
                       >
                         <IconDotsVertical className="h-3.5 w-3.5" />
                       </button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
-                  <TooltipContent>Panel options</TooltipContent>
+                  <TooltipContent>
+                    {t("sqlDashboard.panelOptions")}
+                  </TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onSelectForChat?.({ openSidebar: true, focus: true })
+                    }
+                  >
+                    <IconMessageCircle className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.chatWithPanel")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setExpanded(true)}>
+                    <IconMaximize className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.fullScreen")}
+                  </DropdownMenuItem>
+                  {editable || panel.chartType === "table" ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
                   {panel.chartType === "table" && (
                     <DropdownMenuItem
                       disabled={!exportCsv}
                       onSelect={() => exportCsv?.()}
                     >
                       <IconDownload className="h-4 w-4 mr-2" />
-                      Download CSV
+                      {t("sqlDashboard.downloadCsv")}
                     </DropdownMenuItem>
                   )}
+                  {panel.chartType === "table" && dashboardId ? (
+                    <DropdownMenuItem
+                      disabled={exportToGoogleSheets.isPending}
+                      onSelect={() => void handleExportToGoogleSheets()}
+                    >
+                      <IconBrandGoogle className="h-4 w-4 mr-2" />
+                      {exportToGoogleSheets.isPending
+                        ? t("sqlDashboard.exportingToGoogleSheets")
+                        : t("sqlDashboard.exportToGoogleSheets")}
+                    </DropdownMenuItem>
+                  ) : null}
                   {editable && panel.chartType === "table" ? (
                     <DropdownMenuSeparator />
                   ) : null}
-                  {editable && onSaveSql ? (
-                    <ViewSqlPopover
-                      panel={panel}
-                      resolvedSql={resolvedSql}
-                      onSaveSql={onSaveSql}
-                    >
-                      <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                        <IconCode className="h-4 w-4 mr-2" />
-                        View SQL
-                      </DropdownMenuItem>
-                    </ViewSqlPopover>
-                  ) : null}
-                  {editable && onToggleWidth && (gridColumns ?? 2) > 1 && (
-                    <DropdownMenuItem onSelect={onToggleWidth}>
-                      {panel.width >= (gridColumns ?? 2) ? (
-                        <>
-                          <IconArrowsMinimize className="h-4 w-4 mr-2" />
-                          Span 1 column
-                        </>
-                      ) : (
-                        <>
-                          <IconArrowsMaximize className="h-4 w-4 mr-2" />
-                          Span full row
-                        </>
-                      )}
-                    </DropdownMenuItem>
-                  )}
-                  {editable ? <DropdownMenuSeparator /> : null}
                   {editable && onEdit && (
                     <DropdownMenuItem onSelect={() => onEdit()}>
                       <IconPencil className="h-4 w-4 mr-2" />
-                      Edit
+                      {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
+                  {!editable ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuItem onSelect={handleRefresh}>
+                    <IconRefresh className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.refresh")}
+                  </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
                       onSelect={(e) => {
@@ -272,56 +617,75 @@ export function SqlChartCard({
                       }}
                     >
                       <IconTrash className="h-4 w-4 mr-2" />
-                      Delete
+                      {t("sidebar.delete")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : null}
             {editable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label="Drag to reorder"
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Drag to reorder</TooltipContent>
-              </Tooltip>
+              <PanelDragHandle
+                panelId={panel.id}
+                label={t("sqlDashboard.dragToReorder")}
+                className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                iconClassName="h-3.5 w-3.5"
+              />
             ) : null}
           </div>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
+        <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
           <SqlChart
             panel={panel}
             resolvedSql={resolvedSql}
+            loadData={shouldLoadData}
+            reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
+            extensionContext={extensionContext}
           />
         </CardContent>
       </Card>
+
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="flex h-[90vh] w-[95vw] max-w-[1400px] flex-col gap-4">
+          <DialogHeader className="shrink-0 pr-8 text-left">
+            <DialogTitle className="truncate">{panel.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+            <ChartFillHeight>
+              <SqlChart
+                panel={panel}
+                resolvedSql={resolvedSql}
+                loadData
+                reportScreenshot={reportScreenshot}
+                extensionContext={extensionContext}
+              />
+            </ChartFillHeight>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {editable ? (
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete panel?</AlertDialogTitle>
+              <AlertDialogTitle>
+                {t("sqlDashboard.deletePanelTitle")}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                Delete "{panel.title}"? This cannot be undone.
+                {t("sqlDashboard.deletePanelDescription", {
+                  title: panel.title,
+                })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={() => {
                   setConfirmOpen(false);
                   onRemove();
                 }}
               >
-                Delete
+                {t("sidebar.delete")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

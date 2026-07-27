@@ -1,9 +1,10 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { agentNativePath } from "@agent-native/core/client";
+
 import { TAB_ID } from "@/lib/tab-id";
-import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
 
 export interface NavigationState {
   view: string;
@@ -53,8 +54,6 @@ export function useNavigationState() {
           state.slideIndex = oneBased - 1;
         }
       }
-    } else if (path.startsWith("/settings")) {
-      state.view = "settings";
     } else if (path.startsWith("/share/")) {
       state.view = "share";
     } else {
@@ -170,8 +169,6 @@ export function useNavigationState() {
           path += `?slide=${internalSlideIndex + 1}`;
         }
       }
-    } else if (cmd.view === "settings") {
-      path = "/settings";
     }
 
     navigate(path);

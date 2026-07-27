@@ -5,21 +5,23 @@ import {
 } from "@agent-native/core/server/request-context";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
-import { serializePlanContent } from "../server/plan-content.js";
+import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import {
   isLocalPlanRuntime,
   resolvePlanOrgIdForWrite,
   requirePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { assertGuestCreateWithinLimits } from "../server/lib/guest-abuse.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   importPlanAssets,
   applyImportedAssets,
 } from "../server/lib/plan-assets.js";
+import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
+import { assertRecapWireframesHaveContent } from "../server/lib/visual-recap-validation.js";
+import { serializePlanContent } from "../server/plan-content.js";
+import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
 import {
   assertPlanEditor,
   buildPlanHtml,
@@ -63,8 +65,14 @@ export default defineAction({
       .optional()
       .describe("Current plan focus for the review surface."),
     status: planStatusSchema.optional().default("review"),
+    recapIdempotencyKey: z
+      .string()
+      .optional()
+      .describe(
+        "Stable recap retry key. Only used when kind='recap' so create-visual-recap can reserve the key during initial insert.",
+      ),
     mdx: planMdxFileSchema.describe(
-      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
+      "Plan source files. plan.mdx holds frontmatter plus markdown/document blocks; canvas.mdx holds optional DesignBoard/Section/Artboard/Screen/Annotation/Connector components. New canvas Screen components must use html/data.html semantic HTML wireframes; nested kit-tree children like FrameScreen/Card/Row/Btn are legacy compatibility only. Optional assets/ holds base64-encoded image assets keyed by filename (png, jpg, gif, webp, svg). Size caps: 2 MB per asset, 10 MB total per plan.",
     ),
   }),
   publicAgent: {
@@ -83,11 +91,34 @@ export default defineAction({
       description: "Open an imported Agent-Native Plan review surface.",
       iframeTitle: "Agent-Native Plan",
       openLabel: "Open Plan",
-      height: 860,
+      height: 900,
     }),
   },
   run: async (args) => {
-    let content = await parsePlanMdxFolder(args.mdx);
+    // MDX parse + recap-validation failures are CLIENT errors: the supplied
+    // source is malformed (an unknown block tag, a malformed wireframe, empty
+    // recap wireframes, …). Re-classify them as a 422 carrying the real message
+    // so callers — especially the PR Visual Recap publisher — get an actionable
+    // reason instead of an opaque 500 "Internal server error". Without this the
+    // action route hides the message as a generic 500 AND the recap CLI retries
+    // a deterministic authoring error 3×.
+    let content: Awaited<ReturnType<typeof parsePlanMdxFolder>>;
+    try {
+      content = await parsePlanMdxFolder(args.mdx, {
+        // Recaps are informational: salvage per-block (keep valid blocks, swap
+        // an "Unsupported block" placeholder for invalid ones) instead of
+        // failing the whole publish on one imperfectly-authored block.
+        salvageInvalidBlocks: args.kind === "recap",
+      });
+      if (args.kind === "recap") {
+        assertRecapWireframesHaveContent(content);
+      }
+    } catch (err) {
+      throw Object.assign(
+        new Error(err instanceof Error ? err.message : String(err)),
+        { statusCode: 422 },
+      );
+    }
     const title = args.title ?? content.title ?? "Imported visual plan";
     const brief = args.brief ?? content.brief ?? "Imported from MDX source.";
     const now = nowIso();
@@ -145,6 +176,9 @@ export default defineAction({
           source: args.source,
           repoPath: args.repoPath ?? null,
           currentFocus: args.currentFocus ?? "source review",
+          ...(args.kind === "recap" && args.recapIdempotencyKey
+            ? { recapIdempotencyKey: args.recapIdempotencyKey }
+            : {}),
           status: args.status,
           markdown: args.mdx["plan.mdx"],
           content: serializePlanContent(content),
@@ -213,6 +247,9 @@ export default defineAction({
       ownerEmail,
       orgId: ownerOrgId,
       visibility: "private",
+      ...(kind === "recap" && args.recapIdempotencyKey
+        ? { recapIdempotencyKey: args.recapIdempotencyKey }
+        : {}),
     });
 
     // Import assets now that the plan row exists (FK on plan_assets.plan_id).

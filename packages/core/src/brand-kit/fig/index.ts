@@ -1,10 +1,4 @@
 import type { BrandKitData, BrandKitDefaults } from "../types.js";
-import { decodeFig } from "./decode.js";
-import { extractDesignSystemFromFig } from "./extract-design-system.js";
-
-export * from "./decode.js";
-export * from "./extract-design-system.js";
-export * from "./fig-to-html.js";
 
 export interface FigBrandKitPreview {
   gradients: string[];
@@ -24,6 +18,15 @@ export interface FigBrandKitExtraction {
 }
 
 export const MAX_FIG_THUMBNAIL_BYTES = 512 * 1024;
+const LEGACY_LOCAL_COPY_MAGIC = new Uint8Array([
+  0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69,
+]);
+
+function unsupportedFigImport(): never {
+  throw new Error(
+    "Legacy .fig helpers no longer process files locally. Connect Builder and use the design system indexing flow instead.",
+  );
+}
 
 export function looksLikeFigFile(data: Uint8Array): boolean {
   const isZip =
@@ -31,9 +34,10 @@ export function looksLikeFigFile(data: Uint8Array): boolean {
     data[1] === 0x4b &&
     data[2] === 0x03 &&
     data[3] === 0x04;
-  const isKiwi =
-    Buffer.from(data.subarray(0, 8)).toString("utf8") === "fig-kiwi";
-  return isZip || isKiwi;
+  const isLegacyLocalCopy = LEGACY_LOCAL_COPY_MAGIC.every(
+    (byte, index) => data[index] === byte,
+  );
+  return isZip || isLegacyLocalCopy;
 }
 
 export function figThumbnailDataUrl(thumbnail: Buffer | null): string | null {
@@ -42,39 +46,19 @@ export function figThumbnailDataUrl(thumbnail: Buffer | null): string | null {
 }
 
 export function extractFigBrandKit(
-  input: Buffer | Uint8Array,
+  _input: Buffer | Uint8Array,
 ): FigBrandKitExtraction {
-  const decoded = decodeFig(Buffer.from(input));
-  if (!decoded.document) {
-    throw new Error(
-      "Decoded the file but found no document. It may be a partial or corrupt export.",
-    );
-  }
+  return unsupportedFigImport();
+}
 
-  const extracted = extractDesignSystemFromFig(decoded.document);
-  const {
-    customInstructions,
-    gradients,
-    palette,
-    namedColors,
-    nodeCount,
-    ...data
-  } = extracted;
+export function decodeFig(_input: Buffer | Uint8Array): never {
+  return unsupportedFigImport();
+}
 
-  const thumbnailDataUrl = figThumbnailDataUrl(decoded.thumbnail);
+export function extractDesignSystemFromFig(_document: unknown): never {
+  return unsupportedFigImport();
+}
 
-  return {
-    format: decoded.format,
-    version: decoded.version ?? null,
-    data,
-    customInstructions: customInstructions ?? "",
-    preview: {
-      gradients: gradients ?? [],
-      palette: palette ?? [],
-      namedColors: namedColors ?? {},
-      thumbnailDataUrl,
-      nodeCount: nodeCount ?? 0,
-      imageCount: decoded.images.length,
-    },
-  };
+export function figToHtml(_node: unknown): never {
+  return unsupportedFigImport();
 }

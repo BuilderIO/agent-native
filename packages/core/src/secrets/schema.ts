@@ -22,6 +22,8 @@ export const appSecrets = table("app_secrets", {
   key: text("key").notNull(),
   /** Encrypted value — never return this through any API. */
   encryptedValue: text("encrypted_value").notNull(),
+  /** Preferred workspace-shared ciphertext; nullable during key migration. */
+  sharedEncryptedValue: text("shared_encrypted_value"),
   /** Optional human-readable description (used for ad-hoc keys). */
   description: text("description"),
   /** JSON array of allowed URL origins. Null = allow all. */
@@ -41,6 +43,7 @@ export const APP_SECRETS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS app_secrets (
   scope_id TEXT NOT NULL,
   key TEXT NOT NULL,
   encrypted_value TEXT NOT NULL,
+  shared_encrypted_value TEXT,
   description TEXT,
   url_allowlist TEXT,
   created_at INTEGER NOT NULL,

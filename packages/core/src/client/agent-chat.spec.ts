@@ -3,7 +3,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // We need to set up a minimal window/postMessage before importing
 const parentPostMessageSpy = vi.fn();
 const selfPostMessageSpy = vi.fn();
-const dispatchEventSpy = vi.fn();
+const windowListeners = new Map<
+  string,
+  Set<EventListenerOrEventListenerObject>
+>();
+const addEventListenerSpy = vi.fn(
+  (type: string, listener: EventListenerOrEventListenerObject) => {
+    const listeners = windowListeners.get(type) ?? new Set();
+    listeners.add(listener);
+    windowListeners.set(type, listeners);
+  },
+);
+const removeEventListenerSpy = vi.fn(
+  (type: string, listener: EventListenerOrEventListenerObject) => {
+    windowListeners.get(type)?.delete(listener);
+  },
+);
+const dispatchEventSpy = vi.fn((event: Event) => {
+  for (const listener of windowListeners.get(event.type) ?? []) {
+    if (typeof listener === "function") listener(event);
+    else listener.handleEvent(event);
+  }
+  return true;
+});
 const fetchSpy = vi.fn(() =>
   Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve("") }),
 );
@@ -21,28 +43,39 @@ vi.mock("./mcp-app-host.js", () => ({
   sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
-vi.stubGlobal("window", {
+const windowStub = {
   parent: { postMessage: parentPostMessageSpy },
-  addEventListener: vi.fn(),
+  addEventListener: addEventListenerSpy,
+  removeEventListener: removeEventListenerSpy,
   dispatchEvent: dispatchEventSpy,
   postMessage: selfPostMessageSpy,
+  setTimeout: (...args: Parameters<typeof setTimeout>) => setTimeout(...args),
+  clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
   location: {
     origin: "http://localhost:3000",
     pathname: "/",
     search: "",
   },
-});
+};
+vi.stubGlobal("window", windowStub);
 vi.stubGlobal("fetch", fetchSpy);
 
 const {
   _resetAgentChatContextForTests,
+  _resetAgentChatSubmitBufferForTests,
   addContextToAgentChat,
+  claimAgentChatSubmit,
   clearAgentChatContext,
+  drainBufferedAgentChatSubmits,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   removeAgentChatContextItem,
+  reportAgentChatSubmitResult,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   setAgentChatContextItem,
   setContextToAgentChat,
 } = await import("./agent-chat.js");
@@ -53,12 +86,39 @@ async function flushMicrotasks() {
   await Promise.resolve();
 }
 
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: vi.fn(() => values.clear()),
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    key: vi.fn((index: number) => Array.from(values.keys())[index] ?? null),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key);
+    }),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    }),
+  };
+}
+
 describe("sendToAgentChat", () => {
   beforeEach(() => {
+    windowListeners.clear();
     frameState.inBuilderFrame = false;
     (window as unknown as { parent: unknown }).parent = {
       postMessage: parentPostMessageSpy,
     };
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
     parentPostMessageSpy.mockClear();
     selfPostMessageSpy.mockClear();
     dispatchEventSpy.mockClear();
@@ -67,9 +127,11 @@ describe("sendToAgentChat", () => {
     sendMcpAppHostMessageMock.mockReturnValue(false);
     fetchSpy.mockClear();
     window.location.search = "";
+    window.localStorage?.clear();
     window.sessionStorage?.clear();
     _resetEmbedAuthForTests();
     _resetAgentChatContextForTests();
+    _resetAgentChatSubmitBufferForTests();
   });
 
   afterEach(() => {
@@ -101,6 +163,63 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
+  });
+
+  it("snapshots stored plan mode into the postMessage payload", () => {
+    window.localStorage.setItem("agent-native-exec-mode", "plan");
+
+    sendToAgentChat({
+      message: "plan this dashboard",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
+  });
+
+  it("snapshots namespaced stored plan mode into the postMessage payload", () => {
+    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
+
+    sendToAgentChat({
+      message: "plan this workspace app",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
+  });
+
+  it("does not guess from ambiguous namespaced stored modes", () => {
+    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
+    window.localStorage.setItem("agent-native-exec-mode:builder", "build");
+
+    sendToAgentChat({
+      message: "use the current explicit mode only",
+      submit: true,
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBeUndefined();
+    expect(payload.data.requestMode).toBeUndefined();
+  });
+
+  it("lets an explicit submitted mode override stored mode", () => {
+    window.localStorage.setItem("agent-native-exec-mode", "build");
+
+    sendToAgentChat({
+      message: "plan this dashboard",
+      mode: "plan",
+      submit: true,
+    });
+
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(payload.data.mode).toBe("plan");
+    expect(payload.data.requestMode).toBe("plan");
   });
 
   it("opens the local sidebar before posting to a top-level chat listener", () => {
@@ -160,6 +279,7 @@ describe("sendToAgentChat", () => {
 
   it("routes Builder-frame code prompts to Builder chat", () => {
     frameState.inBuilderFrame = true;
+    window.localStorage.setItem("agent-native-exec-mode:builder", "plan");
 
     sendToAgentChat({
       message: "change this app",
@@ -174,6 +294,8 @@ describe("sendToAgentChat", () => {
       message: "change this app",
       context: "code context",
       submit: true,
+      mode: "plan",
+      requestMode: "plan",
     });
   });
 
@@ -229,6 +351,7 @@ describe("sendToAgentChat", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+    window.localStorage.setItem("agent-native-exec-mode:mcp-app", "plan");
 
     sendToAgentChat({
       message: "rewrite this",
@@ -239,6 +362,8 @@ describe("sendToAgentChat", () => {
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
       message: "rewrite this",
       context: "Hidden draft context",
+      mode: "plan",
+      requestMode: "plan",
     });
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
   });
@@ -270,6 +395,38 @@ describe("sendToAgentChat", () => {
         detail: { isRunning: false },
       }),
     );
+  });
+
+  it("can force MCP App embeds to use the local app chat", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    const tabId = sendToAgentChat({
+      message: "apply plan feedback",
+      context: "Open comments: 2",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("apply plan feedback");
+    expect(payload.data.context).toBe("Open comments: 2");
+    expect(payload.data.chatTarget).toBe("local");
   });
 
   it("falls back to the wrapper relay if direct MCP App host messaging rejects the send", async () => {
@@ -355,9 +512,197 @@ describe("sendToAgentChat", () => {
     expect(id1).not.toBe(id2);
   });
 
+  it("confirms a local submit after the receiving chat accepts it", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "apply these annotations",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    vi.advanceTimersByTime(0);
+    const payload = selfPostMessageSpy.mock.calls.at(-1)?.[0];
+    expect(payload?.data?.submitMessageId).toEqual(expect.any(String));
+    reportAgentChatSubmitResult(payload.data.submitMessageId, true);
+
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
+  it("preserves an explicit local rejection reason", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "apply these annotations",
+      submit: true,
+      chatTarget: "local",
+    });
+    vi.advanceTimersByTime(0);
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
+
+    await expect(resultPromise).resolves.toMatchObject({
+      delivered: false,
+      reason: "missing-engine",
+    });
+  });
+
+  it("rejects non-local confirmation targets without sending", async () => {
+    const result = await sendToAgentChatAndConfirm({
+      message: "route to a parent chat",
+      submit: true,
+    });
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "unsupported-target",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits safely without window", async () => {
+    vi.stubGlobal("window", undefined);
+    const result = await sendToAgentChatAndConfirm({
+      message: "server render",
+      submit: true,
+      chatTarget: "local",
+    });
+    vi.stubGlobal("window", windowStub);
+
+    expect(result).toMatchObject({
+      delivered: false,
+      reason: "no-window",
+    });
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it("tombstones a timed-out submit so a late receiver cannot claim it", async () => {
+    vi.useFakeTimers();
+    const resultPromise = sendToAgentChatAndConfirm(
+      {
+        message: "do not arrive late",
+        submit: true,
+        chatTarget: "local",
+      },
+      { timeoutMs: 5 },
+    );
+    vi.advanceTimersByTime(0);
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+
+    vi.advanceTimersByTime(5);
+    await expect(resultPromise).resolves.toMatchObject({
+      delivered: false,
+      reason: "timeout",
+    });
+    expect(drainBufferedAgentChatSubmits()).toEqual([]);
+    expect(claimAgentChatSubmit(submitMessageId)).toBe(false);
+  });
+
+  it("keeps the default confirmation alive beyond the replay buffer TTL", async () => {
+    vi.useFakeTimers();
+    let settled = false;
+    const resultPromise = sendToAgentChatAndConfirm({
+      message: "wait for the lazy panel",
+      submit: true,
+      chatTarget: "local",
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    vi.advanceTimersByTime(8001);
+    await flushMicrotasks();
+    expect(settled).toBe(false);
+
+    const submitMessageId = selfPostMessageSpy.mock.calls.at(-1)?.[0]?.data
+      ?.submitMessageId as string;
+    reportAgentChatSubmitResult(submitMessageId, true);
+    await expect(resultPromise).resolves.toMatchObject({ delivered: true });
+  });
+
   it("keeps legacy context helper names as aliases", () => {
     expect(setContextToAgentChat).toBe(setAgentChatContextItem);
     expect(addContextToAgentChat).toBe(setAgentChatContextItem);
+  });
+
+  it("normalizes composer references", () => {
+    expect(
+      normalizeAgentComposerReference({
+        label: " Product shots ",
+        icon: "folder",
+        source: "assets",
+        refType: " brand-kit ",
+        refId: " lib_123 ",
+        refPath: " /library/lib_123 ",
+        slotKey: " brand-kit ",
+        slotLabel: " Brand kit ",
+        metadata: { libraryId: "lib_123" },
+        clearsSlots: [" preset ", "", 123],
+        relatedReferences: [
+          {
+            label: " Library preset ",
+            refType: " preset ",
+            refId: " preset_123 ",
+            slotKey: " preset ",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      metadata: { libraryId: "lib_123" },
+      clearsSlots: ["preset"],
+      relatedReferences: [
+        {
+          label: "Library preset",
+          refType: "preset",
+          refId: "preset_123",
+          refPath: null,
+          slotKey: "preset",
+        },
+      ],
+    });
+    expect(
+      normalizeAgentComposerReference({ label: "", refType: "preset" }),
+    ).toBeNull();
+  });
+
+  it("posts composer references without submitting", () => {
+    insertAgentComposerReference({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.insertComposerReference");
+    expect(payload.data).toEqual(
+      expect.objectContaining({
+        label: "Product shots",
+        icon: "folder",
+        source: "assets",
+        refType: "brand-kit",
+        refId: "lib_123",
+        refPath: "/library/lib_123",
+      }),
+    );
+    expect(payload.data.insertMessageId).toMatch(/^reference-/);
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:prepare",
+      "agentNative:insert-composer-reference",
+    ]);
   });
 
   it("posts keyed context to the active chat without submitting", () => {
@@ -401,9 +746,15 @@ describe("sendToAgentChat", () => {
     });
 
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    expect(parentPostMessageSpy.mock.calls[0][0].type).toBe(
-      "agentNative.setChatContext",
-    );
+    expect(parentPostMessageSpy.mock.calls[0][0]).toEqual({
+      type: "agentNative.setChatContext",
+      data: {
+        key: "cart",
+        title: "Cart",
+        context: "Line item A",
+        openSidebar: false,
+      },
+    });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
       "agentNative.chatContextChanged",
       "agent-panel:prepare",

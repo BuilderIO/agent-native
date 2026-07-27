@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
+
 import { searchPeopleForUser } from "../server/lib/people-search.js";
 
 export default defineAction({

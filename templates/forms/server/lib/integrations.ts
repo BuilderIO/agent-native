@@ -1,7 +1,10 @@
 import {
-  isBlockedToolUrl,
-  ssrfSafeToolFetch,
-} from "@agent-native/core/tools/url-safety";
+  deliverJsonWebhook,
+  escapeSlackMrkdwn,
+  isWebhookUrlAllowed,
+} from "@agent-native/core/integrations";
+
+import { publicSubmitterEmail } from "../../shared/submitter-email.js";
 import type {
   FormIntegration,
   FormField,
@@ -25,7 +28,7 @@ export function assertIntegrationUrlsAllowed(settings: FormSettings): void {
   const list = settings.integrations ?? [];
   for (const integration of list) {
     if (!integration.url) continue;
-    if (isBlockedToolUrl(integration.url)) {
+    if (!isWebhookUrlAllowed(integration.url)) {
       throw new Error(
         `Integration "${integration.name || integration.type}" URL is not allowed (private/internal/non-http(s) URL).`,
       );
@@ -48,6 +51,61 @@ interface SubmissionPayload {
   activeRunId?: string | null;
   /** Page URL where the feedback was submitted, when available. */
   pageUrl?: string | null;
+  /** Client surface (web/electron/tauri) the feedback came from, when known. */
+  clientSurface?: string | null;
+}
+
+/** Human-readable label for a client-surface token. */
+function clientSurfaceLabel(surface: string): string {
+  switch (surface) {
+    case "electron":
+      return "Desktop (Electron)";
+    case "tauri":
+      return "Desktop (Tauri)";
+    case "web":
+      return "Web";
+    default:
+      return surface;
+  }
+}
+
+/**
+ * Friendly app name derived from a feedback page URL, so a reviewer can tell at
+ * a glance which app the feedback came from. `plan.agent-native.com` → "Plan",
+ * `analytics.agent-native.com` → "Analytics". Returns null when the host isn't a
+ * recognizable per-app subdomain (the full URL still carries the page).
+ */
+function appLabelFromUrl(pageUrl: string): string | null {
+  try {
+    const { hostname } = new URL(pageUrl);
+    const match = hostname.match(/^([a-z0-9-]+)\.agent-native\.com$/i);
+    const sub = match?.[1];
+    if (!sub || sub === "www") return null;
+    return sub
+      .split("-")
+      .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+      .join(" ");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Readable host+path label for a feedback page URL, used as the visible text of
+ * the Slack link so the app/page is legible inline instead of hidden behind a
+ * bare "open". The full (already client-scrubbed) URL stays the link target.
+ */
+function pageLabelFromUrl(pageUrl: string): string {
+  let label = pageUrl;
+  try {
+    const url = new URL(pageUrl);
+    label = `${url.hostname}${url.pathname}`.replace(/\/$/, "") || url.hostname;
+  } catch {
+    // fall back to the raw string below
+  }
+  if (label.length > 80) label = `${label.slice(0, 79)}…`;
+  // Escape Slack mrkdwn link-text control characters.
+  return escapeSlackMrkdwn(label);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,9 +118,14 @@ function formatFields(
   data: Record<string, unknown>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
+  const usedLabels = new Set<string>();
   for (const field of fields) {
     if (data[field.id] !== undefined) {
-      out[field.label] = data[field.id];
+      const label = field.label.trim() || field.id;
+      let key = label;
+      if (usedLabels.has(key)) key = `${label} (${field.id})`;
+      usedLabels.add(key);
+      out[key] = data[field.id];
     }
   }
   return out;
@@ -82,24 +145,32 @@ function formatDebugContext(submission: SubmissionPayload): string[] {
     lines.push(`Run: \`${submission.activeRunId}\``);
   }
   if (submission.pageUrl) {
-    lines.push(`Page: <${submission.pageUrl}|open>`);
+    const appLabel = appLabelFromUrl(submission.pageUrl);
+    if (appLabel) lines.push(`App: ${appLabel}`);
+    lines.push(
+      `Page: <${submission.pageUrl}|${pageLabelFromUrl(submission.pageUrl)}>`,
+    );
+  }
+  if (submission.clientSurface) {
+    lines.push(`Source: ${clientSurfaceLabel(submission.clientSurface)}`);
   }
   return lines;
 }
 
 /** Slack Block Kit message */
-function buildSlackPayload(submission: SubmissionPayload) {
+export function buildSlackPayload(submission: SubmissionPayload) {
+  const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const fieldLines = submission.fields
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
       const val = submission.data[f.id];
       const display = Array.isArray(val) ? val.join(", ") : String(val);
-      return `*${f.label}:* ${display}`;
+      return `*${escapeSlackMrkdwn(f.label)}:* ${escapeSlackMrkdwn(display)}`;
     });
 
   const tsContext = `Submitted <!date^${Math.floor(new Date(submission.submittedAt).getTime() / 1000)}^{date_short_pretty} at {time}|${submission.submittedAt}>`;
-  const contextText = submission.submitterEmail
-    ? `${tsContext} by *${submission.submitterEmail}*`
+  const contextText = submitterEmail
+    ? `${tsContext} by *${submitterEmail}*`
     : tsContext;
   const debugContext = formatDebugContext(submission);
 
@@ -135,6 +206,7 @@ function buildSlackPayload(submission: SubmissionPayload) {
 
 /** Discord webhook embed */
 function buildDiscordPayload(submission: SubmissionPayload) {
+  const submitterEmail = publicSubmitterEmail(submission.submitterEmail);
   const discordFields = submission.fields
     .filter((f) => submission.data[f.id] !== undefined)
     .map((f) => {
@@ -142,10 +214,10 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       const display = Array.isArray(val) ? val.join(", ") : String(val);
       return { name: f.label, value: display, inline: true };
     });
-  if (submission.submitterEmail) {
+  if (submitterEmail) {
     discordFields.push({
       name: "Submitted by",
-      value: submission.submitterEmail,
+      value: submitterEmail,
       inline: true,
     });
   }
@@ -170,6 +242,13 @@ function buildDiscordPayload(submission: SubmissionPayload) {
       inline: false,
     });
   }
+  if (submission.clientSurface) {
+    discordFields.push({
+      name: "Source",
+      value: clientSurfaceLabel(submission.clientSurface),
+      inline: true,
+    });
+  }
 
   return {
     embeds: [
@@ -184,14 +263,19 @@ function buildDiscordPayload(submission: SubmissionPayload) {
 }
 
 /** Google Sheets (Apps Script web app) — flat key/value pairs */
-function buildGoogleSheetsPayload(submission: SubmissionPayload) {
+export function buildGoogleSheetsPayload(submission: SubmissionPayload) {
   return {
+    event: "form_submission",
+    eventVersion: 1,
+    formId: submission.formId,
     formTitle: submission.formTitle,
+    responseId: submission.responseId,
     submittedAt: submission.submittedAt,
-    submitterEmail: submission.submitterEmail ?? "",
+    submitterEmail: publicSubmitterEmail(submission.submitterEmail) ?? "",
     chatSessionIds: (submission.chatSessionIds ?? []).join(", "),
     activeRunId: submission.activeRunId ?? "",
     pageUrl: submission.pageUrl ?? "",
+    clientSurface: submission.clientSurface ?? "",
     ...formatFields(submission.fields, submission.data),
   };
 }
@@ -204,10 +288,11 @@ function buildWebhookPayload(submission: SubmissionPayload) {
     formTitle: submission.formTitle,
     responseId: submission.responseId,
     submittedAt: submission.submittedAt,
-    submitterEmail: submission.submitterEmail ?? null,
+    submitterEmail: publicSubmitterEmail(submission.submitterEmail),
     chatSessionIds: submission.chatSessionIds ?? [],
     activeRunId: submission.activeRunId ?? null,
     pageUrl: submission.pageUrl ?? null,
+    clientSurface: submission.clientSurface ?? null,
     data: formatFields(submission.fields, submission.data),
     rawData: submission.data,
   };
@@ -241,7 +326,7 @@ export async function fireIntegrations(
       // config. Anonymous submissions then trigger a server-side POST. Block
       // private IPs, cloud-metadata endpoints, and non-http(s) schemes
       // before the fetch fires.
-      if (isBlockedToolUrl(integration.url)) {
+      if (!isWebhookUrlAllowed(integration.url)) {
         console.warn(
           `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
         );
@@ -253,19 +338,22 @@ export async function fireIntegrations(
       const payload = buildPayload(submission);
 
       try {
-        const res = await ssrfSafeToolFetch(
-          integration.url,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(10_000),
-          },
-          { maxRedirects: 3 },
-        );
-        if (!res.ok) {
+        const result = await deliverJsonWebhook({
+          url: integration.url,
+          payload,
+        });
+        if (!result.ok) {
+          if (result.blocked) {
+            console.warn(
+              `[integrations] ${integration.type} "${integration.name}" rejected: blocked URL`,
+            );
+            return;
+          }
           console.warn(
-            `[integrations] ${integration.type} "${integration.name}" returned ${res.status}`,
+            result.status
+              ? `[integrations] ${integration.type} "${integration.name}" returned ${result.status}`
+              : `[integrations] ${integration.type} "${integration.name}" failed:`,
+            result.error,
           );
         }
       } catch (err) {

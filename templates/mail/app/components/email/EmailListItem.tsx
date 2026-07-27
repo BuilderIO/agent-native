@@ -1,5 +1,5 @@
-import { memo, useRef, useState, useCallback } from "react";
-import { cn, formatEmailDate, truncate } from "@/lib/utils";
+import { useT } from "@agent-native/core/client/i18n";
+import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
   IconStarFilled,
@@ -13,14 +13,16 @@ import {
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import type { EmailMessage } from "@shared/types";
-import type { ThreadSummary } from "@/lib/threads";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { memo, useRef, useState, useCallback } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAccountFilter } from "@/hooks/use-account-filter";
+import type { ThreadSummary } from "@/lib/threads";
+import { cn, formatEmailDate, truncate } from "@/lib/utils";
 
 interface EmailListItemProps {
   email: EmailMessage;
@@ -28,20 +30,29 @@ interface EmailListItemProps {
   isSelected: boolean;
   isFocused: boolean;
   isMultiSelected?: boolean;
-  onSelect: () => void;
-  onToggleMultiSelect: (e: React.SyntheticEvent) => void;
-  onStar: (e: React.MouseEvent) => void;
-  onToggleRead?: (e: React.MouseEvent) => void;
-  onArchive?: (e: React.MouseEvent) => void;
-  onSnooze?: (e: React.MouseEvent) => void;
-  onTrash?: (e: React.MouseEvent) => void;
-  onSendNow?: (e: React.MouseEvent) => void;
-  onCancelSchedule?: (e: React.MouseEvent) => void;
-  onHover: () => void;
+  /** Whether archive/snooze/trash row actions apply in the current view
+   *  (e.g. hidden in the trash/sent/drafts views). Passed as booleans instead
+   *  of `undefined`-vs-closure so the handler props below stay referentially
+   *  stable across rows and renders. */
+  canArchive?: boolean;
+  canSnooze?: boolean;
+  canTrash?: boolean;
+  /** Present only for scheduled-send rows; drives the send-now/cancel actions. */
+  scheduledJobId?: string | null;
+  onSelect: (thread: ThreadSummary) => void;
+  onToggleMultiSelect: (e: React.SyntheticEvent, thread: ThreadSummary) => void;
+  onStar: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onToggleRead?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onArchive?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onSnooze?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onTrash?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onSendNow?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onCancelSchedule?: (e: React.MouseEvent, thread: ThreadSummary) => void;
+  onHover: (thread: ThreadSummary) => void;
   /** Called after a left-swipe past the threshold (archive). */
-  onSwipeArchive?: () => void;
+  onSwipeArchive?: (thread: ThreadSummary) => void;
   /** Called after a right-swipe past the threshold (snooze). */
-  onSwipeSnooze?: () => void;
+  onSwipeSnooze?: (thread: ThreadSummary) => void;
   /** Optional search term to highlight in subject and snippet. */
   highlight?: string;
 }
@@ -72,6 +83,8 @@ const SWIPE_SLOP = 10;
 const SWIPE_COMMIT_THRESHOLD = 80;
 // Distance past which the action icon "snaps" to filled state.
 const SWIPE_ICON_SNAP = 56;
+// Release velocity (px/ms) past which a swipe commits regardless of distance.
+const SWIPE_COMMIT_VELOCITY = 0.11;
 
 /** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
 function formatParticipants(participants: string[], maxWidth = 3): string {
@@ -144,6 +157,10 @@ export const EmailListItem = memo(function EmailListItem({
   isSelected,
   isFocused,
   isMultiSelected,
+  canArchive,
+  canSnooze,
+  canTrash,
+  scheduledJobId,
   onSelect,
   onToggleMultiSelect,
   onStar,
@@ -158,8 +175,15 @@ export const EmailListItem = memo(function EmailListItem({
   onSwipeSnooze,
   highlight,
 }: EmailListItemProps) {
+  const t = useT();
   const { allAccounts } = useAccountFilter();
   const isMultiAccount = allAccounts.length > 1;
+
+  const showArchive = Boolean(onArchive && canArchive);
+  const showSnooze = Boolean(onSnooze && canSnooze);
+  const showTrash = Boolean(onTrash && canTrash);
+  const showSendNow = Boolean(onSendNow && scheduledJobId);
+  const showCancelSchedule = Boolean(onCancelSchedule && scheduledJobId);
 
   // ── Swipe state ─────────────────────────────────────────────────────────
   // `dragX` drives the row's translateX. `isDragging` disables the snap
@@ -174,6 +198,12 @@ export const EmailListItem = memo(function EmailListItem({
     locked: "none" | "h" | "v";
     // Set to true once we commit an action — blocks the trailing click.
     committed: boolean;
+    // Two-sample window for release-velocity calculation (px/ms). Updated on
+    // each touchmove; not an accumulating history.
+    lastX: number;
+    lastT: number;
+    prevX: number;
+    prevT: number;
   } | null>(null);
   const didSwipeRef = useRef(false);
 
@@ -189,11 +219,16 @@ export const EmailListItem = memo(function EmailListItem({
     (e: React.TouchEvent) => {
       if (!canSwipe) return;
       const t = e.touches[0];
+      const now = performance.now();
       gestureRef.current = {
         startX: t.clientX,
         startY: t.clientY,
         locked: "none",
         committed: false,
+        lastX: t.clientX,
+        lastT: now,
+        prevX: t.clientX,
+        prevT: now,
       };
       didSwipeRef.current = false;
     },
@@ -225,6 +260,12 @@ export const EmailListItem = memo(function EmailListItem({
       }
 
       if (g.locked === "h") {
+        // Slide the two-sample window forward for release-velocity math.
+        g.prevX = g.lastX;
+        g.prevT = g.lastT;
+        g.lastX = t.clientX;
+        g.lastT = performance.now();
+
         // Only one side may be active at a time.
         if (dx < 0 && !onSwipeArchive) {
           setDragX(0);
@@ -247,8 +288,18 @@ export const EmailListItem = memo(function EmailListItem({
       return;
     }
 
+    const velocity = (g.lastX - g.prevX) / Math.max(1, g.lastT - g.prevT);
+    const flungLeft =
+      velocity <= -SWIPE_COMMIT_VELOCITY && dragX <= -SWIPE_ICON_SNAP;
+    const flungRight =
+      velocity >= SWIPE_COMMIT_VELOCITY && dragX >= SWIPE_ICON_SNAP;
+
     // Left swipe → archive.
-    if (dragX <= -SWIPE_COMMIT_THRESHOLD && onSwipeArchive) {
+    if (
+      (dragX <= -SWIPE_COMMIT_THRESHOLD || flungLeft) &&
+      onSwipeArchive &&
+      thread
+    ) {
       g.committed = true;
       // Fly the row off-screen, then hand off to the parent to actually
       // remove it from the list. The snap transition makes this feel fluid
@@ -256,7 +307,7 @@ export const EmailListItem = memo(function EmailListItem({
       setIsDragging(false);
       setDragX(-window.innerWidth);
       setTimeout(() => {
-        onSwipeArchive();
+        onSwipeArchive(thread);
         // Parent will unmount us; reset defensively if it doesn't.
         resetSwipe();
       }, 180);
@@ -264,9 +315,13 @@ export const EmailListItem = memo(function EmailListItem({
     }
 
     // Right swipe → snooze. We don't remove the row — the modal takes over.
-    if (dragX >= SWIPE_COMMIT_THRESHOLD && onSwipeSnooze) {
+    if (
+      (dragX >= SWIPE_COMMIT_THRESHOLD || flungRight) &&
+      onSwipeSnooze &&
+      thread
+    ) {
       g.committed = true;
-      onSwipeSnooze();
+      onSwipeSnooze(thread);
       // Snap back so the row is in place when the modal closes.
       resetSwipe();
       return;
@@ -274,7 +329,7 @@ export const EmailListItem = memo(function EmailListItem({
 
     // Not enough — snap back.
     resetSwipe();
-  }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe]);
+  }, [dragX, onSwipeArchive, onSwipeSnooze, resetSwipe, thread]);
 
   const handleTouchCancel = useCallback(() => {
     resetSwipe();
@@ -286,8 +341,80 @@ export const EmailListItem = memo(function EmailListItem({
       didSwipeRef.current = false;
       return;
     }
-    onSelect();
-  }, [onSelect]);
+    if (thread) onSelect(thread);
+  }, [onSelect, thread]);
+
+  const handleRowHover = useCallback(() => {
+    if (thread) onHover(thread);
+  }, [onHover, thread]);
+
+  const handleRowKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!thread) return;
+      if (e.key === "Enter") onSelect(thread);
+      if (e.key === " ") {
+        e.preventDefault();
+        onToggleMultiSelect(e, thread);
+      }
+    },
+    [onSelect, onToggleMultiSelect, thread],
+  );
+
+  const handleToggleMultiSelectClick = useCallback(
+    (e: React.SyntheticEvent) => {
+      if (thread) onToggleMultiSelect(e, thread);
+    },
+    [onToggleMultiSelect, thread],
+  );
+
+  const handleStarClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onStar(e, thread);
+    },
+    [onStar, thread],
+  );
+
+  const handleToggleReadClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onToggleRead?.(e, thread);
+    },
+    [onToggleRead, thread],
+  );
+
+  const handleArchiveClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onArchive?.(e, thread);
+    },
+    [onArchive, thread],
+  );
+
+  const handleSnoozeClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onSnooze?.(e, thread);
+    },
+    [onSnooze, thread],
+  );
+
+  const handleTrashClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onTrash?.(e, thread);
+    },
+    [onTrash, thread],
+  );
+
+  const handleSendNowClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onSendNow?.(e, thread);
+    },
+    [onSendNow, thread],
+  );
+
+  const handleCancelScheduleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (thread) onCancelSchedule?.(e, thread);
+    },
+    [onCancelSchedule, thread],
+  );
 
   const isThread = thread && thread.messageCount > 1;
   const senderName = isThread
@@ -387,14 +514,8 @@ export const EmailListItem = memo(function EmailListItem({
         // `mouseenter` can fire when layout moves under a stationary cursor.
         // `mousemove` only follows the pointer after the user actually moves it,
         // so keyboard navigation keeps ownership during list/header changes.
-        onMouseMove={onHover}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onSelect();
-          if (e.key === " ") {
-            e.preventDefault();
-            onToggleMultiSelect(e);
-          }
-        }}
+        onMouseMove={handleRowHover}
+        onKeyDown={handleRowKeyDown}
         onTouchStart={canSwipe ? handleTouchStart : undefined}
         onTouchMove={canSwipe ? handleTouchMove : undefined}
         onTouchEnd={canSwipe ? handleTouchEnd : undefined}
@@ -432,15 +553,15 @@ export const EmailListItem = memo(function EmailListItem({
       >
         {/* Multi-select left border indicator */}
         {isMultiSelected && (
-          <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-r" />
+          <div className="absolute start-0 top-0 bottom-0 w-[3px] bg-primary rounded-e" />
         )}
 
         {/* Selection / unread / account dot */}
-        <div className="relative mr-2 flex h-full w-5 shrink-0 items-center justify-center">
+        <div className="relative me-2 flex h-full w-5 shrink-0 items-center justify-center">
           <button
             type="button"
             aria-label={isMultiSelected ? "Deselect email" : "Select email"}
-            onClick={onToggleMultiSelect}
+            onClick={handleToggleMultiSelectClick}
             className={cn(
               "absolute inset-y-0 left-1/2 flex w-6 -translate-x-1/2 items-center justify-center rounded text-muted-foreground transition-opacity hover:text-foreground",
               isMultiSelected
@@ -478,7 +599,7 @@ export const EmailListItem = memo(function EmailListItem({
         {/* Sender name — fixed width column */}
         <span
           className={cn(
-            "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate mr-3",
+            "w-[100px] sm:w-[160px] shrink-0 text-sm sm:text-[13px] truncate me-3",
             isUnread
               ? "font-semibold text-foreground"
               : "font-normal text-foreground/90",
@@ -494,7 +615,7 @@ export const EmailListItem = memo(function EmailListItem({
 
         {/* Label badges */}
         {displayLabels.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0 mr-2">
+          <div className="flex items-center gap-1 shrink-0 me-2">
             {displayLabels.slice(0, 2).map((labelId) => {
               const style = getLabelStyle(labelId);
               const displayName = labelId
@@ -543,7 +664,7 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onToggleRead}
+                    onClick={handleToggleReadClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     {isUnread ? (
@@ -558,12 +679,12 @@ export const EmailListItem = memo(function EmailListItem({
                 </TooltipContent>
               </Tooltip>
             )}
-            {onArchive && (
+            {showArchive && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onArchive}
+                    onClick={handleArchiveClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400"
                   >
                     <IconArchive className="h-3.5 w-3.5" />
@@ -572,12 +693,12 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>Archive</TooltipContent>
               </Tooltip>
             )}
-            {onSnooze && (
+            {showSnooze && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onSnooze}
+                    onClick={handleSnoozeClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400"
                   >
                     <IconClock className="h-3.5 w-3.5" />
@@ -586,53 +707,55 @@ export const EmailListItem = memo(function EmailListItem({
                 <TooltipContent>Snooze</TooltipContent>
               </Tooltip>
             )}
-            {onSendNow && (
+            {showSendNow && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onSendNow}
+                    onClick={handleSendNowClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
-                    <IconSend className="h-3.5 w-3.5" />
+                    <IconSend className="h-3.5 w-3.5 rtl:-scale-x-100" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Send now</TooltipContent>
+                <TooltipContent>{t("mail.sendLater.sendNow")}</TooltipContent>
               </Tooltip>
             )}
-            {onCancelSchedule && (
+            {showCancelSchedule && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onCancelSchedule}
+                    onClick={handleCancelScheduleClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <IconX className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Cancel scheduled send</TooltipContent>
+                <TooltipContent>
+                  {t("mail.sendLater.cancelScheduledSend")}
+                </TooltipContent>
               </Tooltip>
             )}
-            {onTrash && (
+            {showTrash && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={onTrash}
+                    onClick={handleTrashClick}
                     className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                   >
                     <IconTrash className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Move to Trash</TooltipContent>
+                <TooltipContent>{t("mail.actions.moveToTrash")}</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={onStar}
+                  onClick={handleStarClick}
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded transition-colors",
                     isStarred

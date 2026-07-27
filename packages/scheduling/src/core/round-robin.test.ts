@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { assignRoundRobin, type HostMetrics } from "./round-robin.js";
+
 import type { Host } from "../shared/index.js";
+import { assignRoundRobin, type HostMetrics } from "./round-robin.js";
 
 const host = (email: string, overrides: Partial<Host> = {}): Host => ({
   userEmail: email,

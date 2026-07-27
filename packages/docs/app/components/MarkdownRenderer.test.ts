@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   renderMarkdownToHtml,
   resolveRenderedMarkdownHtml,
@@ -73,6 +74,72 @@ describe("renderMarkdownToHtml", () => {
     expect(
       resolveCodeBlockLanguage('ts title="example.ts"', "const x = 1"),
     ).toBe("typescript");
+    expect(
+      resolveCodeBlockLanguage("yaml maxLines=12", "services:\n  app:"),
+    ).toBe("yaml");
+  });
+
+  it("collapses long code fences by default", () => {
+    const code = Array.from(
+      { length: 32 },
+      (_, index) => `line ${index + 1}`,
+    ).join("\n");
+    const html = renderMarkdownToHtml(`\`\`\`text\n${code}\n\`\`\``);
+
+    expect(html).toContain('data-collapsed="true"');
+    expect(html).toContain('data-code-max-lines="30"');
+    expect(html).toContain("Show 2 more lines");
+  });
+
+  it("renders a filename label bar for fences with a filename attribute", () => {
+    const html = renderMarkdownToHtml(
+      '```ts filename="actions/foo.ts"\nexport const foo = 1;\n```',
+    );
+
+    expect(html).toContain('data-filename="true"');
+    expect(html).toContain('class="code-block-filename"');
+    expect(html).toContain("actions/foo.ts");
+    expect(html).toContain('class="language-typescript"');
+  });
+
+  it("supports bare (unquoted) filename attribute values", () => {
+    const html = renderMarkdownToHtml(
+      "```bash filename=scripts/setup.sh\necho hi\n```",
+    );
+
+    expect(html).toContain("scripts/setup.sh");
+    expect(html).toContain('class="code-block-filename"');
+  });
+
+  it("omits the filename bar when no filename attribute is present", () => {
+    const html = renderMarkdownToHtml("```ts\nconst x = 1;\n```");
+
+    expect(html).not.toContain("code-block-filename");
+    expect(html).not.toContain('data-filename="true"');
+  });
+
+  it("does not confuse filename with the language token", () => {
+    expect(
+      resolveCodeBlockLanguage('tsx filename="app/root.tsx"', "const x = 1"),
+    ).toBe("tsx");
+  });
+
+  it("supports per-fence max line overrides and showAll", () => {
+    const code = Array.from(
+      { length: 12 },
+      (_, index) => `line ${index + 1}`,
+    ).join("\n");
+
+    const collapsed = renderMarkdownToHtml(
+      `\`\`\`bash maxLines=5\n${code}\n\`\`\``,
+    );
+    const expanded = renderMarkdownToHtml(
+      `\`\`\`bash showAll\n${code}\n\`\`\``,
+    );
+
+    expect(collapsed).toContain('data-code-max-lines="5"');
+    expect(collapsed).toContain("Show 7 more lines");
+    expect(expanded).not.toContain("code-block-toggle");
   });
 });
 

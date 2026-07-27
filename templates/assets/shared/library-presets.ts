@@ -50,7 +50,7 @@ export const DEFAULT_LIBRARY_PRESETS = [
       ],
     },
     customInstructions:
-      "Use modern travel-marketplace 3D cues only as broad inspiration: tactile forms, warm hospitality, premium object clarity, and subtle motion-ready staging. Never mention or imitate a named brand in the output.",
+      "Use modern travel-marketplace 3D cues only as broad reference: tactile forms, warm hospitality, premium object clarity, and subtle motion-ready staging. Never mention or imitate a named brand in the output.",
     samplePrompts: [
       "A cozy mountain cabin key beside a ceramic coffee cup",
       "A chef service icon with folded linen, herbs, and a warm plate",

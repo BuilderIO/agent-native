@@ -1,15 +1,13 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
+import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { useRef } from "react";
-import { useAgentRouteState, callAction } from "@agent-native/core/client";
+
 import {
   useCalendarContext,
   type ViewMode,
 } from "@/components/layout/AppLayout";
-import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
-import { agentNativePath } from "@agent-native/core/client";
-import { format, parseISO } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
-import { useSettings } from "@/hooks/use-settings";
-import { getLocalTimezone } from "@/lib/event-form-utils";
 
 interface NavigationState {
   view: string;
@@ -77,8 +75,6 @@ async function loadEventDraft(
 }
 
 export function useNavigationState() {
-  const { data: settings } = useSettings();
-  const calendarTimezone = settings?.timezone || getLocalTimezone();
   const {
     selectedDate,
     viewMode,
@@ -130,7 +126,7 @@ export function useNavigationState() {
 
       // Include the currently selected date
       if (selectedDate) {
-        state.date = format(selectedDate, "yyyy-MM-dd");
+        state.date = selectedDate.toISOString().split("T")[0];
       }
 
       // Include the selected event if one is open
@@ -191,9 +187,7 @@ export function useNavigationState() {
             );
             if (!evt || evt.error || !evt.id) return;
             if (!cmd.date && typeof evt.start === "string" && evt.start) {
-              const startDate = evt.allDay
-                ? parseISO(evt.start)
-                : toZonedTime(evt.start, calendarTimezone);
+              const startDate = new Date(evt.start);
               if (!Number.isNaN(startDate.getTime())) {
                 setSelectedDateRef.current(startDate);
               }
@@ -215,9 +209,7 @@ export function useNavigationState() {
           const draft = await loadEventDraft(cmd);
           if (!draft) return;
           if (draft.start) {
-            const startDate = draft.allDay
-              ? parseISO(draft.start)
-              : toZonedTime(draft.start, calendarTimezone);
+            const startDate = new Date(draft.start);
             if (!Number.isNaN(startDate.getTime())) {
               setSelectedDateRef.current(startDate);
             }

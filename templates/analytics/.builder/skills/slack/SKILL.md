@@ -35,13 +35,13 @@ description: >
 Use `slack-messages` for agent-facing Slack reads. Do not call
 `/api/slack/*` directly from the agent.
 
-| Mode | Args | Description |
-| --- | --- | --- |
-| `team` | `workspace` | Get workspace info |
-| `channels` | `workspace` | List channels |
-| `history` | `workspace`, `channel`, `limit`, `cursor` | Read channel history |
+| Mode            | Args                                                 | Description            |
+| --------------- | ---------------------------------------------------- | ---------------------- |
+| `team`          | `workspace`                                          | Get workspace info     |
+| `channels`      | `workspace`                                          | List channels          |
+| `history`       | `workspace`, `channel`, `limit`, `cursor`            | Read channel history   |
 | `multi-history` | `workspace`, `channels`, `names`, `limit`, `cursors` | Read multiple channels |
-| `search` | `workspace`, `query` | Search messages |
+| `search`        | `workspace`, `query`                                 | Search messages        |
 
 ## Key Patterns & Gotchas
 

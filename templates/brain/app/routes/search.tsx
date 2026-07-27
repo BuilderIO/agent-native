@@ -1,6 +1,5 @@
-import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBook2,
   IconCircleCheck,
@@ -13,18 +12,19 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
+import { useMemo } from "react";
+import { Link, useSearchParams } from "react-router";
+
 import {
-  type KnowledgeRow,
-  type SearchEverythingResponse,
-  type SearchEverythingResult,
-  formatPercent,
-  statusLabel,
-} from "@/lib/brain";
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
   Sheet,
   SheetContent,
@@ -41,11 +42,13 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type BrainProjectsResponse,
+  type KnowledgeRow,
+  type SearchEverythingResponse,
+  type SearchEverythingResult,
+  formatPercent,
+  statusLabel,
+} from "@/lib/brain";
 
 const typeOptions = ["all", "knowledge", "capture", "source"];
 const providerOptions = [
@@ -75,11 +78,13 @@ const limitOptions = ["10", "25", "50", "100"];
 const groupOrder = ["knowledge", "capture", "source"];
 
 export default function SearchRoute() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const type = params.get("type") ?? "all";
   const provider = params.get("provider") ?? "all";
   const status = params.get("status") ?? "all";
+  const projectId = params.get("projectId") ?? "all";
   const limit = params.get("limit") ?? "25";
 
   const actionParams = useMemo(
@@ -87,16 +92,21 @@ export default function SearchRoute() {
       query: query.trim() || undefined,
       type: type === "all" ? undefined : type,
       provider: provider === "all" ? undefined : provider,
+      projectId: projectId === "all" ? undefined : projectId,
       status: status === "all" ? undefined : status,
       limit: Number.parseInt(limit, 10) || 25,
     }),
-    [limit, provider, query, status, type],
+    [limit, projectId, provider, query, status, type],
   );
 
   const searchQuery = useActionQuery<SearchEverythingResponse>(
     "search-everything" as any,
     actionParams as any,
     { enabled: Boolean(query.trim()), retry: false },
+  );
+  const projectsQuery = useActionQuery<BrainProjectsResponse>(
+    "list-projects" as any,
+    {} as any,
   );
 
   const results = useMemo(
@@ -107,9 +117,18 @@ export default function SearchRoute() {
     Boolean(query.trim()) ||
     type !== "all" ||
     provider !== "all" ||
+    projectId !== "all" ||
     status !== "all";
   const groupedResults = useMemo(() => groupResults(results), [results]);
-  const resultFacets = useMemo(() => buildResultFacets(results), [results]);
+  const resultFacets = useMemo(
+    () =>
+      buildResultFacets(results, {
+        type: t("searchPage.type"),
+        source: t("searchPage.source"),
+        status: t("searchPage.status"),
+      }),
+    [results, t],
+  );
   const resultCount = results.length;
 
   function updateParam(key: string, value: string) {
@@ -129,13 +148,15 @@ export default function SearchRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow="Search"
-        title="Search company knowledge"
-        description="Search reviewed knowledge, raw captures, and source records, then open the cited Brain record or original source."
+        eyebrow={t("searchPage.eyebrow")}
+        title={t("searchPage.title")}
+        description={t("searchPage.description")}
         actions={
           <Badge variant="outline" className="gap-2">
             <IconSearch className="size-4" />
-            {searchQuery.isFetching ? "Searching" : `${resultCount} results`}
+            {searchQuery.isFetching
+              ? t("searchPage.searching")
+              : t("searchPage.results", { count: resultCount })}
           </Badge>
         }
       />
@@ -144,28 +165,48 @@ export default function SearchRoute() {
         <Card>
           <CardContent className="grid gap-3 p-4">
             <div className="relative">
-              <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => updateParam("q", event.target.value)}
-                placeholder="Search decisions, customer facts, source names, transcripts, or policy snippets..."
-                className="h-11 pl-9 text-base"
+                placeholder={t("searchPage.searchPlaceholder")}
+                className="h-11 ps-9 text-base"
                 autoFocus
               />
             </div>
 
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_120px_auto]">
+            <div className="brain-search-filter-grid grid gap-2">
+              <Select
+                value={projectId}
+                onValueChange={(value) => updateParam("projectId", value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("searchPage.project")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    {t("searchPage.allProjects")}
+                  </SelectItem>
+                  {(projectsQuery.data?.projects ?? []).map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select
                 value={type}
                 onValueChange={(value) => updateParam("type", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Type" />
+                  <SelectValue placeholder={t("searchPage.type")} />
                 </SelectTrigger>
                 <SelectContent>
                   {typeOptions.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {option === "all" ? "All types" : statusLabel(option)}
+                      {option === "all"
+                        ? t("searchPage.allTypes")
+                        : statusLabel(option)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -176,12 +217,14 @@ export default function SearchRoute() {
                 onValueChange={(value) => updateParam("provider", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Source" />
+                  <SelectValue placeholder={t("searchPage.source")} />
                 </SelectTrigger>
                 <SelectContent>
                   {providerOptions.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {option === "all" ? "All sources" : displayLabel(option)}
+                      {option === "all"
+                        ? t("searchPage.allSources")
+                        : displayLabel(option)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -192,12 +235,14 @@ export default function SearchRoute() {
                 onValueChange={(value) => updateParam("status", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Status" />
+                  <SelectValue placeholder={t("searchPage.status")} />
                 </SelectTrigger>
                 <SelectContent>
                   {statusOptions.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {option === "all" ? "All statuses" : statusLabel(option)}
+                      {option === "all"
+                        ? t("searchPage.allStatuses")
+                        : statusLabel(option)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -208,7 +253,7 @@ export default function SearchRoute() {
                 onValueChange={(value) => updateParam("limit", value)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Limit" />
+                  <SelectValue placeholder={t("searchPage.limit")} />
                 </SelectTrigger>
                 <SelectContent>
                   {limitOptions.map((option) => (
@@ -226,7 +271,7 @@ export default function SearchRoute() {
                 disabled={!hasFilters && limit === "25"}
               >
                 <IconRefresh className="size-4" />
-                Reset
+                {t("searchPage.reset")}
               </Button>
             </div>
 
@@ -243,8 +288,8 @@ export default function SearchRoute() {
           <LoadingRows rows={5} />
         ) : searchQuery.isError ? (
           <EmptyActionState
-            title="Search is unavailable"
-            detail="Refresh the page and try again once Brain has finished loading."
+            title={t("searchPage.unavailableTitle")}
+            detail={t("searchPage.unavailableDetail")}
           />
         ) : results.length ? (
           <div className="grid gap-5">
@@ -278,13 +323,13 @@ export default function SearchRoute() {
           <EmptyActionState
             title={
               hasFilters
-                ? "No knowledge matches these filters"
-                : "Start with a company knowledge search"
+                ? t("searchPage.noMatchesTitle")
+                : t("searchPage.startTitle")
             }
             detail={
               hasFilters
-                ? "Broaden the query or clear a filter."
-                : "Enter a phrase to search cited company knowledge."
+                ? t("searchPage.noMatchesDetail")
+                : t("searchPage.startDetail")
             }
           />
         )}
@@ -300,14 +345,15 @@ function SearchResultRow({
   result: SearchEverythingResult;
   query: string;
 }) {
-  const body = result.snippet ?? result.summary ?? "No excerpt is available.";
+  const t = useT();
+  const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const whyMatched = explainMatch(result, query);
   const sourceLabel =
     result.sourceTitle ??
     result.source?.title ??
     result.sourceProvider ??
     result.provider ??
-    "Company knowledge";
+    t("searchPage.companyKnowledge");
   const internalHref = internalResultHref(result);
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
@@ -326,9 +372,12 @@ function SearchResultRow({
                 {displayLabel(sourceProvider)}
               </Badge>
             ) : null}
+            {result.matchLane ? (
+              <Badge variant="outline">{result.matchLane}</Badge>
+            ) : null}
           </div>
           <h3 className="mt-3 text-base font-semibold leading-6 text-foreground">
-            {result.title}
+            {result.title || t("searchPage.untitledResult")}
           </h3>
           <p className="mt-2 line-clamp-3 max-w-4xl text-sm leading-6 text-muted-foreground">
             {body}
@@ -336,7 +385,9 @@ function SearchResultRow({
           {whyMatched ? (
             <div className="mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
               <IconCircleCheck className="size-3.5 shrink-0 text-foreground" />
-              <span className="truncate">{whyMatched}</span>
+              <span className="truncate">
+                {result.retrievalReason ?? whyMatched}
+              </span>
             </div>
           ) : null}
         </div>
@@ -344,32 +395,40 @@ function SearchResultRow({
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           {typeof result.confidence === "number" ? (
             <Badge variant="outline">
-              Confidence {formatPercent(result.confidence)}
+              {t("searchPage.confidence")} {formatPercent(result.confidence)}
             </Badge>
           ) : null}
           {typeof result.score === "number" ? (
-            <Badge variant="outline">Score {formatScore(result.score)}</Badge>
+            <Badge variant="outline">
+              {t("searchPage.score")} {formatScore(result.score)}
+            </Badge>
           ) : null}
         </div>
       </div>
 
       <div className="flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate">Citation: {sourceLabel}</span>
-          {result.updatedAt ? <span>Updated {result.updatedAt}</span> : null}
+          <span className="truncate">
+            {t("searchPage.citation")}: {sourceLabel}
+          </span>
+          {result.updatedAt ? (
+            <span>
+              {t("searchPage.updated")} {result.updatedAt}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <SearchResultDetails result={result} query={query} />
           {internalHref ? (
             <Button asChild variant="ghost" size="sm">
-              <Link to={internalHref}>View in Brain</Link>
+              <Link to={internalHref}>{t("searchPage.viewInBrain")}</Link>
             </Button>
           ) : null}
           {sourceUrl ? (
             <Button asChild variant="outline" size="sm">
               <a href={sourceUrl} target="_blank" rel="noreferrer">
                 <IconExternalLink className="size-4" />
-                Open source
+                {t("searchPage.openSource")}
               </a>
             </Button>
           ) : null}
@@ -386,7 +445,8 @@ function SearchResultDetails({
   result: SearchEverythingResult;
   query: string;
 }) {
-  const body = result.snippet ?? result.summary ?? "No excerpt is available.";
+  const t = useT();
+  const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
   const summary = result.summary ?? result.snippet ?? null;
   const sourceProvider =
     result.sourceProvider ?? result.provider ?? result.source?.provider ?? null;
@@ -394,7 +454,7 @@ function SearchResultDetails({
     result.sourceTitle ??
     result.source?.title ??
     result.citation?.captureTitle ??
-    "Company knowledge";
+    t("searchPage.companyKnowledge");
   const sourceUrl =
     result.url ?? result.sourceUrl ?? result.citation?.sourceUrl ?? null;
   const internalHref = internalResultHref(result);
@@ -406,7 +466,7 @@ function SearchResultDetails({
       <SheetTrigger asChild>
         <Button type="button" variant="ghost" size="sm">
           <IconInfoCircle className="size-4" />
-          Details
+          {t("searchPage.details")}
         </Button>
       </SheetTrigger>
       <SheetContent className="flex w-full max-w-full flex-col overflow-y-auto p-0 sm:max-w-xl">
@@ -420,10 +480,10 @@ function SearchResultDetails({
               </Badge>
             ) : null}
           </div>
-          <SheetTitle className="text-left text-xl leading-7">
-            {result.title}
+          <SheetTitle className="text-start text-xl leading-7">
+            {result.title || t("searchPage.untitledResult")}
           </SheetTitle>
-          <SheetDescription className="text-left leading-6">
+          <SheetDescription className="text-start leading-6">
             {body}
           </SheetDescription>
         </SheetHeader>
@@ -431,26 +491,28 @@ function SearchResultDetails({
         <div className="grid gap-5 px-5 py-5">
           <section className="grid gap-2">
             <h3 className="text-sm font-semibold text-foreground">
-              Why this matched
+              {t("searchPage.whyMatched")}
             </h3>
             <p className="text-sm leading-6 text-muted-foreground">
-              {whyMatched ?? "This result matched the current search index."}
+              {whyMatched ?? t("searchPage.matchedIndex")}
             </p>
           </section>
 
           <Separator />
 
           <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-foreground">Summary</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t("searchPage.summary")}
+            </h3>
             <p className="text-sm leading-6 text-muted-foreground">
-              {summary ?? "No summary is available for this result."}
+              {summary ?? t("searchPage.noSummary")}
             </p>
           </section>
 
           <section className="grid gap-3">
             <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <IconQuote className="size-4" />
-              Citation quote
+              {t("searchPage.citationQuote")}
             </h3>
             {quote ? (
               <blockquote className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
@@ -458,25 +520,27 @@ function SearchResultDetails({
               </blockquote>
             ) : (
               <p className="text-sm leading-6 text-muted-foreground">
-                No citation quote is available.
+                {t("searchPage.noCitationQuote")}
               </p>
             )}
           </section>
 
           <section className="grid gap-3">
-            <h3 className="text-sm font-semibold text-foreground">Details</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t("searchPage.details")}
+            </h3>
             <dl className="grid gap-3 rounded-md border border-border p-3 text-sm sm:grid-cols-2">
-              <DetailItem label="Source" value={sourceTitle} />
+              <DetailItem label={t("searchPage.source")} value={sourceTitle} />
               <DetailItem
-                label="Provider"
+                label={t("searchPage.provider")}
                 value={sourceProvider ? displayLabel(sourceProvider) : null}
               />
               <DetailItem
-                label="Status"
+                label={t("searchPage.status")}
                 value={result.status ? statusLabel(result.status) : null}
               />
               <DetailItem
-                label="Confidence"
+                label={t("searchPage.confidence")}
                 value={
                   typeof result.confidence === "number"
                     ? formatPercent(result.confidence)
@@ -484,7 +548,7 @@ function SearchResultDetails({
                 }
               />
               <DetailItem
-                label="Score"
+                label={t("searchPage.score")}
                 value={
                   typeof result.score === "number"
                     ? formatScore(result.score)
@@ -492,7 +556,7 @@ function SearchResultDetails({
                 }
               />
               <DetailItem
-                label="Updated"
+                label={t("searchPage.updated")}
                 value={formatDateTime(result.updatedAt)}
               />
             </dl>
@@ -503,7 +567,9 @@ function SearchResultDetails({
               <Button asChild variant="outline" className="justify-start">
                 <a href={sourceUrl} target="_blank" rel="noreferrer">
                   <IconExternalLink className="size-4" />
-                  <span className="truncate">Open source URL</span>
+                  <span className="truncate">
+                    {t("searchPage.openSourceUrl")}
+                  </span>
                 </a>
               </Button>
             ) : null}
@@ -511,14 +577,18 @@ function SearchResultDetails({
               <Button asChild variant="ghost" className="justify-start">
                 <Link to={internalHref}>
                   <IconLink className="size-4" />
-                  <span className="truncate">Open Brain record</span>
+                  <span className="truncate">
+                    {t("searchPage.openBrainRecord")}
+                  </span>
                 </Link>
               </Button>
             ) : result.source?.id ? (
               <Button asChild variant="ghost" className="justify-start">
                 <Link to={`/sources?sourceId=${result.source.id}`}>
                   <IconLink className="size-4" />
-                  <span className="truncate">Open related source</span>
+                  <span className="truncate">
+                    {t("searchPage.openRelatedSource")}
+                  </span>
                 </Link>
               </Button>
             ) : null}
@@ -536,13 +606,15 @@ function DetailItem({
   label: string;
   value?: string | null;
 }) {
+  const t = useT();
+
   return (
     <div className="min-w-0">
       <dt className="text-xs font-medium uppercase text-muted-foreground">
         {label}
       </dt>
       <dd className="mt-1 truncate text-foreground">
-        {value || "Not available"}
+        {value || t("searchPage.notAvailable")}
       </dd>
     </div>
   );
@@ -555,13 +627,14 @@ function ResultFacets({
   facets: ResultFacetGroup[];
   onSelect: (key: string, value: string) => void;
 }) {
+  const t = useT();
   const visibleFacets = facets.filter((facet) => facet.items.length);
   if (!visibleFacets.length) return null;
 
   return (
     <div className="grid gap-2 border-t border-border pt-3">
       <div className="text-xs font-medium uppercase text-muted-foreground">
-        In these results
+        {t("searchPage.inTheseResults")}
       </div>
       <div className="flex flex-wrap gap-2">
         {visibleFacets.flatMap((facet) =>
@@ -610,16 +683,17 @@ type ResultFacetGroup = {
 
 function buildResultFacets(
   results: SearchEverythingResult[],
+  labels: { type: string; source: string; status: string },
 ): ResultFacetGroup[] {
   return [
     {
       key: "type",
-      label: "Type",
+      label: labels.type,
       items: countFacet(results, (result) => result.type || "knowledge"),
     },
     {
       key: "provider",
-      label: "Source",
+      label: labels.source,
       items: countFacet(
         results,
         (result) =>
@@ -628,7 +702,7 @@ function buildResultFacets(
     },
     {
       key: "status",
-      label: "Status",
+      label: labels.status,
       items: countFacet(results, (result) => result.status),
     },
   ];
@@ -671,7 +745,7 @@ function normalizeResult(
   return {
     id: result.id,
     type: result.type ?? "knowledge",
-    title: result.title || "Untitled result",
+    title: result.title || "",
     snippet: result.snippet,
     summary: result.summary,
     provider: result.provider,

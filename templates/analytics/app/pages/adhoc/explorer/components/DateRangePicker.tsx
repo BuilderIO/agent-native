@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
 import type { DateRange } from "../types";
 
 const OPTIONS: { value: DateRange; label: string }[] = [
@@ -16,7 +17,7 @@ interface DateRangePickerProps {
 
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   return (
-    <div className="flex items-center border rounded-md p-0.5 gap-0.5">
+    <div className="flex items-center gap-0.5 rounded-md bg-card p-0.5">
       {OPTIONS.map((opt) => (
         <Button
           key={opt.value}

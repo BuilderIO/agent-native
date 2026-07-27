@@ -11,10 +11,15 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+  sameOwnerEmail,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -35,7 +40,7 @@ export default defineAction({
         title: schema.recordings.title,
       })
       .from(schema.recordings)
-      .where(eq(schema.recordings.ownerEmail, me));
+      .where(ownerEmailMatches(schema.recordings.ownerEmail, me));
     if (myRecordings.length === 0) {
       return { items: [], count: 0 };
     }
@@ -81,7 +86,7 @@ export default defineAction({
 
     const items = [
       ...comments
-        .filter((c) => c.authorEmail !== me)
+        .filter((c) => !sameOwnerEmail(c.authorEmail, me))
         .map((c) => ({
           id: `c:${c.id}`,
           kind: (mentionRegex.test(c.content) ? "mention" : "comment") as
@@ -94,7 +99,7 @@ export default defineAction({
           createdAt: c.createdAt,
         })),
       ...reactions
-        .filter((r) => r.viewerEmail !== me)
+        .filter((r) => !sameOwnerEmail(r.viewerEmail, me))
         .map((r) => ({
           id: `r:${r.id}`,
           kind: "reaction" as const,

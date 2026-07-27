@@ -2,6 +2,9 @@ import {
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
 } from "../shared/agent-sidebar-url.js";
+import { hasChatThreadDeepLink } from "./chat-thread-url.js";
+
+export { hasChatThreadDeepLink } from "./chat-thread-url.js";
 
 export const SIDEBAR_OPEN_KEY = "agent-native-sidebar-open";
 export const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
@@ -21,6 +24,13 @@ export interface AgentSidebarStateChangeDetail {
   mode: AgentSidebarStateMode;
 }
 
+export function getAgentSidebarOpenPreferenceKey(
+  storageKey?: string | null,
+): string {
+  const suffix = storageKey?.trim();
+  return suffix ? `agent-native.${suffix}.sidebar-open` : SIDEBAR_OPEN_KEY;
+}
+
 export function dispatchAgentSidebarStateChange(
   detail: AgentSidebarStateChangeDetail,
 ): void {
@@ -30,6 +40,24 @@ export function dispatchAgentSidebarStateChange(
       detail,
     }),
   );
+}
+
+export function setAgentSidebarOpenPreference(
+  open: boolean,
+  storageKey?: string | null,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+      String(open),
+    );
+  } catch {}
+}
+
+export function requestAgentSidebarOpen(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("agent-panel:open"));
 }
 
 export function getAgentSidebarUrlOpenOverride(): boolean | null {
@@ -42,13 +70,13 @@ export function getAgentSidebarUrlOpenOverride(): boolean | null {
   return null;
 }
 
-export function consumeAgentSidebarUrlOpenOverride(): boolean | null {
+export function consumeAgentSidebarUrlOpenOverride(
+  storageKey?: string | null,
+): boolean | null {
   const override = getAgentSidebarUrlOpenOverride();
   if (override === null || typeof window === "undefined") return override;
 
-  try {
-    localStorage.setItem(SIDEBAR_OPEN_KEY, String(override));
-  } catch {}
+  setAgentSidebarOpenPreference(override, storageKey);
 
   try {
     const url = new URL(window.location.href);
@@ -108,9 +136,13 @@ export function subscribeAgentSidebarUrlChanges(
   };
 }
 
-export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
+export function getInitialAgentSidebarOpen(
+  defaultOpen: boolean,
+  storageKey?: string | null,
+): boolean {
   const urlOverride = getAgentSidebarUrlOpenOverride();
   if (urlOverride !== null) return urlOverride;
+  if (hasChatThreadDeepLink()) return true;
 
   // On mobile viewports the sidebar would cover most of the screen, so
   // always start closed regardless of any persisted desktop preference.
@@ -122,8 +154,13 @@ export function getInitialAgentSidebarOpen(defaultOpen: boolean): boolean {
   }
 
   try {
-    const saved = localStorage.getItem(SIDEBAR_OPEN_KEY);
-    if (saved !== null) return saved === "true";
+    const saved = localStorage.getItem(
+      getAgentSidebarOpenPreferenceKey(storageKey),
+    );
+    if (saved === "false") return false;
+    // Never let durable storage turn on a sidebar that is default-closed.
+    // Programmatic chat handoffs open the current sidebar transiently instead.
+    if (defaultOpen && saved === "true") return true;
   } catch {}
   return defaultOpen;
 }

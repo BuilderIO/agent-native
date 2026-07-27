@@ -1,23 +1,24 @@
-import { defineAction, embedApp } from "@agent-native/core";
+import { defineAction } from "@agent-native/core";
+import {
+  getRequestUserEmail,
+  getRequestUserName,
+} from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   currentAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
 import {
   isAnonymousPublicViewer,
   isGuestAuthorIdentity,
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
-import { notifyPlanCommentRecipients } from "../server/lib/comment-notifications.js";
-import {
-  getRequestUserEmail,
-  getRequestUserName,
-} from "@agent-native/core/server/request-context";
 import {
   buildUpdatedPlanCommentRows,
   emitPlanCommented,
@@ -62,14 +63,6 @@ export default defineAction({
   },
   mcpApp: {
     compactCatalog: true,
-    resource: embedApp({
-      title: "Reply to Comment",
-      description:
-        "Open the Agent-Native Plan surface to view and reply to comment threads.",
-      iframeTitle: "Agent-Native Plan",
-      openLabel: "Open Plan",
-      height: 860,
-    }),
   },
   run: async (args) => {
     const requesterEmail = getRequestUserEmail();
@@ -102,6 +95,9 @@ export default defineAction({
       resolvePlanAccessContext(currentAccess()),
     );
     if (!access) throw new Error(`Plan ${args.planId} not found`);
+    if ((access.resource as typeof schema.plans.$inferSelect).deletedAt) {
+      throw new ForbiddenError(`Plan ${args.planId} not found`);
+    }
 
     const db = getDb();
     const now = nowIso();
@@ -123,6 +119,7 @@ export default defineAction({
         and(
           eq(schema.planComments.id, args.commentId),
           eq(schema.planComments.planId, args.planId),
+          isNull(schema.planComments.deletedAt),
         ),
       );
 

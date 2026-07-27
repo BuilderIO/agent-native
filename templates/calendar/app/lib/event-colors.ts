@@ -3,7 +3,10 @@ export {
   GOOGLE_EVENT_COLOR_OPTIONS,
   getGoogleEventColorHex,
 } from "@shared/google-event-colors";
-import type { CalendarColorMode } from "./calendar-view-preferences";
+import type {
+  CalendarColorMode,
+  CalendarColorSourceKey,
+} from "./calendar-view-preferences";
 
 // ─── Palette (dark-mode editor inspired) ─────────────────────────────────────
 
@@ -20,8 +23,12 @@ export const EVENT_CATEGORY_COLORS = {
 export type EventCategory = keyof typeof EVENT_CATEGORY_COLORS;
 
 export interface CalendarColorPreferences {
+  /** @deprecated legacy global fallback, used only when no per-account entry exists */
   colorMode?: CalendarColorMode;
+  /** @deprecated legacy global fallback, used only when no per-account entry exists */
   singleColor?: string;
+  accountColorModes?: Record<CalendarColorSourceKey, CalendarColorMode>;
+  accountColors?: Record<CalendarColorSourceKey, string>;
 }
 
 // ─── Free email providers (skip internal/external when user is on one) ───────
@@ -107,15 +114,12 @@ export function allOtherDeclined(event: CalendarEvent): boolean {
 
 /**
  * Returns a hex color for a calendar event based on its meeting type.
- * Respects user-set colors and overlay colors first.
+ * Respects user-set colors first.
  * For local (non-Google) events without a color, returns CSS var.
  */
 export function getEventAutoColor(event: CalendarEvent): string {
   // User/Google-set color takes priority
   if (event.color) return event.color;
-
-  // Overlay events keep their overlay-assigned color
-  if (event.overlayEmail) return EVENT_CATEGORY_COLORS.fallback;
 
   // Local events without a color use the theme primary
   if (event.source !== "google") return "hsl(var(--primary))";
@@ -129,13 +133,27 @@ export function getEventDisplayColor(
   event: CalendarEvent,
   preferences?: CalendarColorPreferences,
 ): string {
-  if (
-    preferences?.colorMode === "single" &&
-    preferences.singleColor &&
-    event.source === "google" &&
-    !event.overlayEmail
-  ) {
-    return preferences.singleColor;
+  if (event.overlayEmail && event.ownerColor) {
+    return event.ownerColor;
+  }
+
+  if (event.source === "google" && !event.overlayEmail && preferences) {
+    const accountKey = event.accountEmail;
+    const accountMode = accountKey
+      ? preferences.accountColorModes?.[accountKey]
+      : undefined;
+    const accountColor = accountKey
+      ? preferences.accountColors?.[accountKey]
+      : undefined;
+
+    if (accountMode) {
+      // A per-account choice exists — honor it even if it's "multi" (auto).
+      if (accountMode === "single" && accountColor) return accountColor;
+    } else if (preferences.colorMode === "single" && preferences.singleColor) {
+      // No per-account choice yet — fall back to the legacy global setting so
+      // existing single-account users keep their color after the upgrade.
+      return accountColor ?? preferences.singleColor;
+    }
   }
   return getEventAutoColor(event);
 }

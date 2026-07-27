@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyExtensionContentUpdate } from "./content-patch.js";
 
 describe("extension content patching", () => {
@@ -47,6 +48,32 @@ describe("extension content patching", () => {
     expect(result.content).toContain("<!-- agent-native:section metrics -->");
     expect(result.content).toContain("<div>New</div>");
     expect(result.content).not.toContain("<div>Old</div>");
+  });
+
+  it("preserves unrelated design during a focused data-loading repair", async () => {
+    const content = [
+      "<style>.risk-card { color: red; }</style>",
+      '<main class="risk-card">',
+      '  <script>const endpoint = "/api/old-risk";</script>',
+      "</main>",
+    ].join("\n");
+
+    const result = await applyExtensionContentUpdate(content, {
+      edits: [
+        {
+          op: "replace",
+          find: "/api/old-risk",
+          replace: "/api/current-risk",
+        },
+      ],
+    });
+
+    expect(result.content).toContain(
+      "<style>.risk-card { color: red; }</style>",
+    );
+    expect(result.content).toContain('class="risk-card"');
+    expect(result.content).toContain("/api/current-risk");
+    expect(result.content).not.toContain("/api/old-risk");
   });
 
   it("wraps a marked section for small structural edits", async () => {

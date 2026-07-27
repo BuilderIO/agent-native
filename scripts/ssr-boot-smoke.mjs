@@ -2,7 +2,7 @@
 /**
  * SSR cold-start smoke test.
  *
- * Imports a template's built Netlify SSR handler (`main.mjs`) and asserts the
+ * Imports a template's built serverless SSR handler and asserts the
  * server module graph evaluates without throwing. This reproduces the serverless
  * cold-start: the runtime imports the handler at first invocation, and any code
  * that runs browser-only / SSR-incompatible logic at module scope throws here
@@ -25,12 +25,13 @@
  * lingering runtime init. The CI step also wraps this in an external `timeout`
  * as a backstop against a pathological synchronous hang during evaluation.
  *
- * `main.mjs` is the pure function handler (it does NOT call `.listen()`), so
+ * Each configured entry is the pure function handler (it does NOT call
+ * `.listen()`), so
  * importing it evaluates the full server module graph without starting a server,
  * and needs no DATABASE_URL/env — the crash happens before any request.
  *
- * Usage (after `NITRO_PRESET=netlify pnpm --filter <template> build`):
- *   node scripts/ssr-boot-smoke.mjs <template> [<template> ...]
+ * Usage (after `NITRO_PRESET=<preset> pnpm --filter <template> build`):
+ *   node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>] <template> [<template> ...]
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -40,25 +41,38 @@ import { pathToFileURL } from "node:url";
 // thus any `window is not defined`-style throw) happens almost immediately; if
 // we get this far without a rejection, the dangerous code did not run.
 const EVAL_WINDOW_MS = 30_000;
-const HANDLER_REL = ".netlify/functions-internal/server/main.mjs";
+const HANDLER_REL_BY_PRESET = {
+  netlify: ".netlify/functions-internal/server/main.mjs",
+  vercel: ".vercel/output/functions/__server.func/index.mjs",
+  "aws-lambda": ".output/server/index.mjs",
+};
 
-const templates = process.argv.slice(2);
-if (templates.length === 0) {
+let args = process.argv.slice(2);
+let preset = "netlify";
+if (args[0] === "--preset") {
+  preset = args[1] ?? "";
+  args = args.slice(2);
+}
+const handlerRel = HANDLER_REL_BY_PRESET[preset];
+
+if (!handlerRel || args.length === 0) {
   console.error(
-    "[ssr-smoke] Usage: node scripts/ssr-boot-smoke.mjs <template> [<template> ...]",
+    "[ssr-smoke] Usage: node scripts/ssr-boot-smoke.mjs [--preset <netlify|vercel|aws-lambda>] <template> [<template> ...]",
   );
   process.exit(2);
 }
 
+const templates = args;
+
 let failed = false;
 
 for (const template of templates) {
-  const entry = path.resolve("templates", template, HANDLER_REL);
+  const entry = path.resolve("templates", template, handlerRel);
 
   if (!existsSync(entry)) {
     console.error(
       `[ssr-smoke] ${template}: MISSING built handler at ${entry}\n` +
-        `            Run \`NITRO_PRESET=netlify pnpm --filter ${template} build\` first.`,
+        `            Run \`NITRO_PRESET=${preset} pnpm --filter ${template} build\` first.`,
     );
     failed = true;
     continue;

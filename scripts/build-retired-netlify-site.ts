@@ -24,6 +24,10 @@ const replacements = {
     label: "Assets",
     url: "https://assets.agent-native.com",
   },
+  videos: {
+    label: "Clips",
+    url: "https://clips.agent-native.com",
+  },
   scheduling: {
     label: "Calendar",
     url: "https://calendar.agent-native.com",

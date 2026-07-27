@@ -1,20 +1,25 @@
-import { useEffect, useRef, useState } from "react";
-import type { FocusEvent } from "react";
-import { LogicalSize } from "@tauri-apps/api/dpi";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  IconAlertTriangle,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
 
 const OVERLAY_SHADOW_GUTTER = 18;
 const TOOLBAR_CONTENT_WIDTH = 72;
 const TOOLBAR_COLLAPSED_HEIGHT = 150;
-const TOOLBAR_EXPANDED_HEIGHT = 234;
+// Collapsed content box (150 − 20 padding = 130) holds the centered primary
+// zone; the expanded height must fit that fixed 130 zone + the 88px hover
+// actions (+2 margin) + 20 vertical padding so nothing clips on hover.
+const TOOLBAR_EXPANDED_HEIGHT = 240;
 const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
 const TOOLBAR_COLLAPSED_WINDOW_HEIGHT =
   TOOLBAR_COLLAPSED_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
@@ -54,8 +59,25 @@ export function Toolbar() {
   // Stop / Pause are disabled until the recorder actually begins, at which
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [popoverVisible, setPopoverVisible] = useState(true);
+  const [diskSpaceLevel, setDiskSpaceLevel] = useState<
+    "ok" | "warning" | "critical"
+  >("ok");
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandedRef = useRef(false);
+  const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
+  const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  function clearPauseTransition() {
+    pauseTransitionRef.current = null;
+    if (pauseTransitionTimerRef.current) {
+      clearTimeout(pauseTransitionTimerRef.current);
+      pauseTransitionTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -83,7 +105,18 @@ export function Toolbar() {
       listen<{ paused: boolean; elapsedMs: number }>(
         "clips:recorder-state",
         (ev) => {
-          setPaused(!!ev.payload.paused);
+          const nextPaused = !!ev.payload.paused;
+          const pendingTransition = pauseTransitionRef.current;
+          const transitionReached =
+            (pendingTransition === "pause" && nextPaused) ||
+            (pendingTransition === "resume" && !nextPaused);
+          // Native pause/resume can take a beat. Keep the first click's
+          // optimistic state instead of letting an in-flight timer tick briefly
+          // flip the button back and invite duplicate clicks.
+          if (!pendingTransition || transitionReached) {
+            setPaused(nextPaused);
+          }
+          if (transitionReached) clearPauseTransition();
           setElapsed(ev.payload.elapsedMs ?? 0);
         },
       ),
@@ -91,6 +124,40 @@ export function Toolbar() {
     trackListen(
       listen<boolean>("clips:toolbar-enabled", (ev) => {
         setEnabled(!!ev.payload);
+        setPreparing(false);
+        setPendingAction(null);
+        if (!ev.payload) {
+          setDiskSpaceLevel("ok");
+          setPaused(false);
+          setElapsed(0);
+        }
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:toolbar-preparing", (ev) => {
+        setPreparing(!!ev.payload);
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:popover-visible", (ev) => {
+        setPopoverVisible(!!ev.payload);
+      }),
+    );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-warning", () => {
+        setDiskSpaceLevel((prev) =>
+          prev === "critical" ? "critical" : "warning",
+        );
+      }),
+    );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-critical", () => {
+        setDiskSpaceLevel("critical");
+      }),
+    );
+    trackListen(
+      listen<{ freeMb: number }>("clips:disk-space-ok", () => {
+        setDiskSpaceLevel("ok");
       }),
     );
     return () => {
@@ -107,6 +174,7 @@ export function Toolbar() {
         clearTimeout(fallbackTimer.current);
         fallbackTimer.current = null;
       }
+      clearPauseTransition();
     };
   }, []);
 
@@ -151,11 +219,31 @@ export function Toolbar() {
     // left with a zombie pill floating over their screen. The recorder
     // closing us first is a no-op on the already-closed window.
   }
+
+  const isPreparing = preparing || (!enabled && !popoverVisible);
   function togglePause() {
     if (!enabled || pendingAction) return;
-    emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(
-      () => {},
-    );
+    const transition = paused ? "resume" : "pause";
+    clearPauseTransition();
+    pauseTransitionRef.current = transition;
+    setPaused(transition === "pause");
+    pauseTransitionTimerRef.current = setTimeout(clearPauseTransition, 3_000);
+    emit(`clips:recorder-${transition}`).catch((err) => {
+      console.error(
+        `[clips-toolbar] emit clips:recorder-${transition} failed:`,
+        err,
+      );
+      clearPauseTransition();
+      setPaused(paused);
+    });
+  }
+  function activatePauseFromPointer(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    // The native toolbar resizes as the pointer enters it. Dispatch on
+    // pointer-down so that resize/focus changes cannot cancel the subsequent
+    // click, while the click handler below remains available to keyboards.
+    e.preventDefault();
+    togglePause();
   }
   function restart() {
     if (pendingAction || !enabled) return;
@@ -218,58 +306,90 @@ export function Toolbar() {
 
   return (
     <div
-      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"}`}
+      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"} ${diskSpaceLevel !== "ok" ? `toolbar-v-disk-${diskSpaceLevel}` : ""}`}
       onMouseDown={handleToolbarMouseDown}
       onMouseEnter={() => resizeToolbarWindow(true)}
       onMouseLeave={() => resizeToolbarWindow(false)}
       onFocusCapture={() => resizeToolbarWindow(true)}
       onBlurCapture={handleToolbarBlur}
     >
-      <button
-        className="toolbar-v-stop"
-        onClick={stop}
-        disabled={!!pendingAction || !enabled}
-        aria-label={
-          pendingAction === "stop" ? "Stopping recording" : "Stop recording"
-        }
-        title={
-          pendingAction === "stop"
-            ? pendingActionLabel
-            : enabled
-              ? "Stop recording"
-              : "Recording not started yet"
-        }
-        data-no-drag
-      >
-        {pendingAction === "stop" ? (
-          <IconLoader2 className="toolbar-v-spinner" size={18} />
-        ) : (
-          <span className="toolbar-v-stop-square" />
+      {/* Primary controls live in a fixed-height zone so they stay pinned
+          to the same vertical position whether or not the pill is hovered.
+          Centering happens INSIDE this zone (not on the pill), so the
+          collapsed→expanded `justify-content` change can't nudge the Stop
+          button up — only the hover actions below grow into the new space. */}
+      <div className="toolbar-v-primary">
+        <button
+          className="toolbar-v-stop"
+          onClick={stop}
+          disabled={!!pendingAction || !enabled}
+          aria-label={
+            pendingAction === "stop" ? "Stopping recording" : "Stop recording"
+          }
+          title={
+            pendingAction === "stop"
+              ? pendingActionLabel
+              : enabled
+                ? "Stop recording"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {pendingAction === "stop" || isPreparing ? (
+            <IconLoader2 className="toolbar-v-spinner" size={18} />
+          ) : (
+            <span className="toolbar-v-stop-square" />
+          )}
+        </button>
+        <button
+          type="button"
+          className={`toolbar-v-time ${isPreparing ? "toolbar-v-time-preparing" : ""}`}
+          onClick={() => invoke("show_popover").catch(() => {})}
+          aria-label="Open Clips"
+          title="Open Clips"
+          data-no-drag
+        >
+          {isPreparing ? "Preparing…" : formatTime(elapsed)}
+        </button>
+        {diskSpaceLevel !== "ok" && (
+          <div
+            className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}
+            title={
+              diskSpaceLevel === "critical"
+                ? "Disk almost full — stop recording now to avoid losing your clip"
+                : "Low disk space — save your recording soon"
+            }
+            data-no-drag
+          >
+            <IconAlertTriangle size={12} />
+          </div>
         )}
-      </button>
-      <div className="toolbar-v-time">{formatTime(elapsed)}</div>
-      <button
-        className="toolbar-v-pause"
-        onClick={togglePause}
-        disabled={!enabled || !!pendingAction}
-        aria-label={paused ? "Resume" : "Pause"}
-        title={
-          pendingAction
-            ? pendingActionLabel
-            : enabled
-              ? paused
-                ? "Resume"
-                : "Pause"
-              : "Recording not started yet"
-        }
-        data-no-drag
-      >
-        {paused ? (
-          <IconPlayerPlayFilled size={18} />
-        ) : (
-          <IconPlayerPauseFilled size={18} />
-        )}
-      </button>
+        <button
+          className="toolbar-v-pause"
+          onPointerDown={activatePauseFromPointer}
+          onClick={(e) => {
+            if (e.detail === 0) togglePause();
+          }}
+          disabled={!enabled || !!pendingAction}
+          aria-label={paused ? "Resume" : "Pause"}
+          title={
+            pendingAction
+              ? pendingActionLabel
+              : enabled
+                ? paused
+                  ? "Resume"
+                  : "Pause"
+                : "Recording not started yet"
+          }
+          data-no-drag
+        >
+          {paused ? (
+            <IconPlayerPlayFilled size={18} />
+          ) : (
+            <IconPlayerPauseFilled size={18} />
+          )}
+        </button>
+      </div>
       <div
         className="toolbar-v-hover-actions"
         role="group"

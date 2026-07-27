@@ -45,7 +45,7 @@ export interface TemplateMeta {
   hidden?: boolean;
   /** Include as a built-in connected A2A agent even when hidden from pickers */
   defaultAgent?: boolean;
-  /** Always scaffold without prompting (e.g. starter as fallback) */
+  /** Always scaffold without prompting (e.g. chat as fallback) */
   alwaysAvailable?: boolean;
   /** Internal workspace packages this template depends on (e.g. "scheduling") */
   requiredPackages?: string[];
@@ -70,20 +70,21 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "content",
     label: "Content",
-    hint: "Agent-native Notion/Google Docs — write and organize with agent assistance",
+    hint: "Open-source Obsidian for MDX — edit local docs with agent assistance",
     icon: "FileText",
     color: "#10B981",
     colorRgb: "16 185 129",
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
     name: "plan",
     label: "Plan",
     hint: "Structured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing",
-    icon: "FileText",
+    icon: "LayoutBoard",
     color: "#52525B",
     colorRgb: "82 82 91",
     devPort: 8105,
@@ -101,20 +102,8 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "creative-context"],
     core: true,
-  },
-  {
-    name: "videos",
-    label: "Video",
-    hint: "Agent-native video editing with Remotion",
-    icon: "Video",
-    color: "#EF4444",
-    colorRgb: "239 68 68",
-    devPort: 8087,
-    prodUrl: "https://videos.agent-native.com",
-    defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
   },
   {
     name: "clips",
@@ -151,6 +140,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -169,7 +159,7 @@ export const TEMPLATES: TemplateMeta[] = [
     name: "dispatch",
     label: "Dispatch",
     hint: "Central Slack/Telegram router with jobs, memory, approvals, and A2A delegation",
-    icon: "MessageCircle",
+    icon: "Route",
     color: "#14B8A6",
     colorRgb: "20 184 166",
     devPort: 8092,
@@ -199,7 +189,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "embedding"],
+    requiredPackages: ["pinpoint", "embedding", "creative-context"],
     core: true,
   },
   {
@@ -213,21 +203,46 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     defaultAgent: true,
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
   },
   {
-    name: "starter",
-    label: "Starter",
-    hint: "Minimal scaffold with the agent chat and core architecture wired up",
-    icon: "Code",
-    color: "#71717A",
-    colorRgb: "113 113 122",
+    name: "chat",
+    label: "Chat",
+    hint: "Minimal chat-first app with durable threads, actions, and the app-agent loop",
+    icon: "MessageCircle",
+    color: "#18181B",
+    colorRgb: "24 24 27",
     devPort: 8089,
-    prodUrl: "https://starter.agent-native.com",
+    prodUrl: "https://chat.agent-native.com",
     defaultMode: "prod",
     alwaysAvailable: true,
     core: true,
+  },
+  {
+    name: "tasks",
+    label: "Tasks",
+    hint: "Task-list-first workspace — inbox capture, custom fields, and drag-and-drop ordering",
+    icon: "ListCheck",
+    color: "#6366F1",
+    colorRgb: "99 102 241",
+    devPort: 8091,
+    prodUrl: "https://tasks.agent-native.com",
+    defaultMode: "prod",
     hidden: true,
+    core: false,
+  },
+  {
+    name: "crm",
+    label: "CRM",
+    hint: "Agent-native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
+    icon: "Users",
+    color: "#2563EB",
+    colorRgb: "37 99 235",
+    devPort: 8107,
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
   },
   {
     name: "macros",
@@ -256,7 +271,7 @@ export function coreTemplates(): TemplateMeta[] {
 /** Lookup by name. Returns undefined for unknown names. */
 export function getTemplate(name: string): TemplateMeta | undefined {
   // Tolerate legacy / renamed aliases.
-  if (name === "video") name = "videos";
+  if (name === "starter") name = "chat";
   if (name === "image" || name === "images" || name === "asset") {
     name = "assets";
   }

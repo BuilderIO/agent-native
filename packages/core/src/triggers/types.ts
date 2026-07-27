@@ -15,10 +15,21 @@ export interface TriggerFrontmatter {
   event?: string;
   /** Natural-language condition evaluated by Haiku before dispatch. */
   condition?: string;
-  /** "agentic" = full runAgentLoop. "deterministic" = fixed action set. */
+  /**
+   * "agentic" = full runAgentLoop; the only mode `manage-automations` will
+   * define/update going forward. "deterministic" was removed from the
+   * advertised surface (never implemented) and is legacy-only: rows created
+   * before the removal may still carry it, and the dispatcher's
+   * warn-and-skip branch keeps them inert by design — do not make them fire.
+   */
   mode: "agentic" | "deterministic";
   /** Domain tag for filtering in per-template UIs. */
   domain?: string;
+  /**
+   * Optional application-owned policy id carried into actions by the trusted
+   * trigger dispatcher. It is not model-supplied action input.
+   */
+  delegatedPolicyId?: string;
   createdBy?: string;
   orgId?: string;
   runAs?: "creator" | "shared";

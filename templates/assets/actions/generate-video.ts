@@ -1,19 +1,26 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import { assertAccess } from "@agent-native/core/sharing";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   DEFAULT_GENERATION_REFERENCE_LIMIT,
   selectReferences,
 } from "../server/lib/generation.js";
-import { getObject } from "../server/lib/storage.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
+import { getObject } from "../server/lib/storage.js";
+import {
+  compileVideoPrompt,
+  startGeminiVideoGeneration,
+  type VideoReferenceImage,
+} from "../server/lib/video-generation.js";
+import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import {
   IMAGE_CATEGORIES,
   VIDEO_ASPECT_RATIOS,
@@ -21,20 +28,19 @@ import {
   VIDEO_RESOLUTIONS,
   type StyleBrief,
 } from "../shared/api.js";
-import {
-  compileVideoPrompt,
-  startGeminiVideoGeneration,
-  type VideoReferenceImage,
-} from "../server/lib/video-generation.js";
-import { completeVideoGenerationRun } from "../server/lib/video-runs.js";
 import { serializeAsset, serializeGenerationRun } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "Start an async Veo video generation run from an asset library. Poll the returned run with refresh-generation-run until it completes and creates a video asset.",
+    "Start an async Veo video generation run from a brand kit/library. Use a media-type @mention with refId video to choose this instead of image generation, and use a brand-kit @mention as libraryId. Poll the returned run with refresh-generation-run until it completes and creates a video asset.",
   schema: z.object({
-    libraryId: z.string(),
-    folderId: z.string().nullable().optional(),
+    libraryId: z
+      .string()
+      .optional()
+      .describe(
+        "Brand kit/library ID. Pass the refId from a brand-kit @mention, or choose a kit from view-screen/list-libraries.",
+      ),
+    folderId: z.string().min(1).nullable().optional(),
     collectionId: z.string().optional(),
     prompt: z.string().min(1),
     title: z.string().optional(),
@@ -65,7 +71,17 @@ export default defineAction({
     callerAppId: z.string().optional(),
     waitForCompletion: z.coerce.boolean().default(false),
   }),
-  run: async (args) => {
+  run: async (input) => {
+    const libraryId = input.libraryId;
+    if (!libraryId) {
+      throw new Error(
+        "No brand kit selected. Tag a brand kit with @ or pass libraryId.",
+      );
+    }
+    const args = {
+      ...input,
+      libraryId,
+    };
     await assertAccess("asset-library", args.libraryId, "editor");
     const db = getDb();
     const [library] = await db
@@ -84,7 +100,7 @@ export default defineAction({
     if (collection && collection.libraryId !== args.libraryId) {
       throw new Error("Collection does not belong to this asset library.");
     }
-    if (args.folderId) {
+    if (args.folderId !== undefined && args.folderId !== null) {
       const [folder] = await db
         .select()
         .from(schema.assetFolders)

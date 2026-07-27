@@ -1,7 +1,18 @@
 import { defineAction } from "@agent-native/core";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
 import { z } from "zod";
+
 import { scaffoldWorkspaceAppFromTemplate } from "../server/lib/app-creation-store.js";
+
+function userFacingActionError(err: unknown): Error & { statusCode: number } {
+  const message =
+    err instanceof Error && err.message ? err.message : String(err);
+  const error = new Error(
+    message || "Could not scaffold workspace app.",
+  ) as Error & { statusCode: number };
+  error.statusCode = 400;
+  return error;
+}
 
 export default defineAction({
   description:
@@ -11,7 +22,7 @@ export default defineAction({
       .string()
       .min(1)
       .describe(
-        "Template name (mail, calendar, slides, content, clips, analytics, forms, design, videos)",
+        "Template name (mail, calendar, slides, content, clips, analytics, forms, design, assets)",
       ),
     appId: z
       .string()
@@ -26,9 +37,14 @@ export default defineAction({
         "Optional override for the apps/<id>/ directory name; defaults to the template name",
       ),
   }),
-  run: async (input) =>
-    scaffoldWorkspaceAppFromTemplate({
-      template: input.template,
-      appId: input.appId ?? null,
-    }),
+  run: async (input) => {
+    try {
+      return await scaffoldWorkspaceAppFromTemplate({
+        template: input.template,
+        appId: input.appId ?? null,
+      });
+    } catch (err) {
+      throw userFacingActionError(err);
+    }
+  },
 });

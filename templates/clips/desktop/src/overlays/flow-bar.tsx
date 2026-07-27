@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
 import { IconX } from "@tabler/icons-react";
+import { emit, listen } from "@tauri-apps/api/event";
+import { useEffect, useRef, useState } from "react";
+
+import { onAudioLevel } from "../lib/transcription-engine";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -15,6 +16,7 @@ type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
  * Events:
  *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
+ *   - `voice:dictation-preview` { text: string }
  */
 export function FlowBar() {
   // Default to "recording" not "idle" — there's a race between the Rust
@@ -22,7 +24,8 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
-  const [partialTranscript, setPartialTranscript] = useState("");
+  const [transcript, setTranscript] = useState("");
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -48,30 +51,19 @@ export function FlowBar() {
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
         setState(ev.payload.state);
+        if (ev.payload.state === "recording") setTranscript("");
       }),
     );
 
     trackListen(
-      listen<{ level: number }>("voice:audio-level", (ev) => {
-        levelRef.current = Math.max(0, Math.min(1, ev.payload.level));
+      onAudioLevel(({ level }) => {
+        levelRef.current = Math.max(0, Math.min(1, level));
       }),
     );
 
     trackListen(
-      listen<{ text: string }>("voice:partial-transcript", (ev) => {
-        // Live transcript as the user speaks — rendered above the pill.
-        // Empty payload clears the display (sent at session start/end).
-        setPartialTranscript(ev.payload.text || "");
-      }),
-    );
-
-    trackListen(
-      listen<{ text: string }>("voice:final-transcript", (ev) => {
-        // Final result from the recognizer (only fires after stop is
-        // requested). Show it on the bar — the last word lingers there
-        // for ~1s before voice-dictation.ts dismisses everything.
-        const text = ev.payload.text || "";
-        if (text) setPartialTranscript(text);
+      listen<{ text: string }>("voice:dictation-preview", (ev) => {
+        setTranscript(ev.payload.text.trim());
       }),
     );
 
@@ -88,6 +80,11 @@ export function FlowBar() {
     };
   }, []);
 
+  useEffect(() => {
+    const preview = transcriptRef.current;
+    if (preview) preview.scrollTop = preview.scrollHeight;
+  }, [transcript]);
+
   // Waveform canvas rendering loop — only runs during the "recording" state.
   useEffect(() => {
     if (state !== "recording") {
@@ -101,8 +98,17 @@ export function FlowBar() {
     const BAR_COUNT = 14;
     const BAR_WIDTH = 2;
     const BAR_GAP = 3;
+    // A bar waveform reads the same well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the bar is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
+    let lastDrawMs = 0;
 
-    function draw() {
+    function draw(timestamp: number) {
+      rafRef.current = requestAnimationFrame(draw);
+      if (timestamp - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = timestamp;
+
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -137,8 +143,6 @@ export function FlowBar() {
         ctx.roundRect(x, y, BAR_WIDTH, h, 1);
         ctx.fill();
       }
-
-      rafRef.current = requestAnimationFrame(draw);
     }
 
     rafRef.current = requestAnimationFrame(draw);
@@ -153,37 +157,29 @@ export function FlowBar() {
 
   const handleCancel = () => {
     // Broadcast to the popover webview where voice-dictation.ts lives —
-    // it will abort any in-flight transcribe, stop recording, and hide
-    // the bar without pasting text.
+    // it will abort any in-flight transcribe, stop recording, hide the
+    // bar without pasting text, and own the delayed defensive re-hide
+    // (gated on no new session having started since) so a fast re-press
+    // right after cancel doesn't hide a brand-new session's bar (R21).
     emit("voice:cancel").catch(() => {});
-    window.setTimeout(() => {
-      invoke("hide_flow_bar").catch(() => {});
-    }, 250);
   };
-
-  // The transcript chip is independent of the pill — it can linger on
-  // its own after Fn release while the pill dismisses snappily. Voice-
-  // dictation.ts emits an empty payload to clear it once the linger
-  // window expires.
-  const showTranscript = partialTranscript.length > 0;
 
   return (
     <div className="flow-bar-root">
-      {showTranscript && (
-        <div className="flow-bar-transcript">
-          {/* <bdi> + unicode-bidi: plaintext (in CSS) keeps Latin text
-              in its natural LTR order while the parent's direction:rtl
-              clips overflow from the visual left. Without this, the
-              last few characters of the newest words were being pushed
-              past the visible right edge by bidi reordering. */}
-          <bdi>{partialTranscript}</bdi>
+      {transcript ? (
+        <div
+          ref={transcriptRef}
+          className="flow-bar-transcript-preview"
+          aria-live="polite"
+        >
+          {transcript}
         </div>
-      )}
+      ) : null}
+
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
-          opacity to 0 (see CSS) instead of removing it from the DOM,
-          so the transcript chip above doesn't reflow when the pill
-          "goes away". Inner content keeps its last frame rendered
-          during the fade so the canvas doesn't pop. */}
+          opacity to 0 (see CSS) instead of removing it from the DOM.
+          Inner content keeps its last frame rendered during the fade
+          so the canvas doesn't pop. */}
       <div className={`flow-bar flow-bar-${state}`}>
         {(state === "recording" || state === "idle") && (
           <div className="flow-bar-recording">

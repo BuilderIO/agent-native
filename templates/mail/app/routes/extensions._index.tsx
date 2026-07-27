@@ -1,5 +1,5 @@
-import { ExtensionsListPage } from "@agent-native/core/client/extensions";
+import { Navigate } from "react-router";
 
 export default function ExtensionsRoute() {
-  return <ExtensionsListPage />;
+  return <Navigate to="/settings#extensions" replace />;
 }

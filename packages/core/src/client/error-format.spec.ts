@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
@@ -7,6 +8,9 @@ import {
 } from "./error-format.js";
 
 describe("formatChatErrorText", () => {
+  const agentNativeUpgradeUrl =
+    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
+
   it("adds a Builder space settings CTA for disabled gateway errors", () => {
     expect(
       formatChatErrorText(
@@ -31,11 +35,11 @@ describe("formatChatErrorText", () => {
     expect(
       formatChatErrorText(
         "Monthly credits limit reached.",
-        "https://builder.io/account/billing",
+        agentNativeUpgradeUrl,
         "credits-limit-monthly",
       ),
     ).toBe(
-      "Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](https://builder.io/account/billing)",
+      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
     );
   });
 
@@ -87,5 +91,80 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toMatch(/another model/i);
     expect(normalized.message).toMatch(/gateway/i);
     expect(normalized.message).toMatch(/new chat|retry|wait/i);
+  });
+
+  it("normalizes provider rate limits without exposing raw status-only text", () => {
+    const normalized = normalizeChatError(
+      "429 status code (no body)",
+      "provider_rate_limited",
+    );
+    expect(normalized.message).toBe(
+      "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+    );
+    expect(normalized.details).toBe("429 status code (no body)");
+    expect(normalized.message).not.toContain("no body");
+  });
+
+  it("formats provider rate limits as a plain retryable user message", () => {
+    expect(
+      formatChatErrorText(
+        "429 status code (no body)",
+        undefined,
+        "provider_rate_limited",
+      ),
+    ).toBe(
+      "Error: The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+    );
+  });
+
+  it("normalizes provider API key authentication failures", () => {
+    const raw =
+      '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw, "authentication_error");
+
+    expect(normalized.message).toBe(
+      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
+      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+  });
+
+  it("normalizes bare provider 401 failures without exposing no-body status text", () => {
+    const normalized = normalizeChatError("401 status code (no body)");
+
+    expect(normalized.message).toBe(
+      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+    expect(normalized.details).toBe("401 status code (no body)");
+    expect(normalized.message).not.toContain("no body");
+    expect(formatChatErrorText("401 status code (no body)")).toBe(
+      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+    );
+  });
+
+  it("normalizes provider network failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "provider_network_error",
+      "provider_network_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("provider_network_error");
+  });
+
+  it("normalizes generic connection failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "connection_error",
+      "connection_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The agent connection was interrupted. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("connection_error");
   });
 });

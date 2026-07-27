@@ -1,7 +1,12 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { pullDocumentFromNotion } from "../server/lib/notion-sync.js";
 import { z } from "zod";
+
+import { pullDocumentFromNotion } from "../server/lib/notion-sync.js";
+import {
+  flushNotionDocumentEditor,
+  getNotionDocumentOwner,
+  resolveDocumentId,
+} from "./_notion-action-utils.js";
 
 export default defineAction({
   description: "Pull content from a linked Notion page into a local document.",
@@ -9,15 +14,11 @@ export default defineAction({
     documentId: z.string().optional().describe("Document ID (required)"),
     id: z.string().optional().describe("Alias for --documentId"),
   }),
-  http: false,
+  http: { method: "POST" },
   run: async (args) => {
-    const documentId = args.documentId || args.id;
-    if (!documentId) {
-      throw new Error("documentId is required");
-    }
-
-    const owner = getRequestUserEmail();
-    if (!owner) throw new Error("no authenticated user");
+    const documentId = resolveDocumentId(args);
+    const owner = await getNotionDocumentOwner(documentId);
+    await flushNotionDocumentEditor(documentId, owner);
     return pullDocumentFromNotion(owner, documentId, true);
   },
 });

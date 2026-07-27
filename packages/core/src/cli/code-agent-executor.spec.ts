@@ -2,9 +2,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Writable } from "node:stream";
+
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { EngineContentPart } from "../agent/engine/types.js";
+import type { AgentEngine } from "../agent/engine/types.js";
 import {
+  buildCodeAgentSystemPrompt,
+  buildRepoInstructionsBlock,
+  buildStructuredMessagesFromEvents,
+  classifyCodeAgentCommandPermission,
+  codeAgentMcpInvocationPolicy,
+  codeAgentSystemPrompt,
+  executeDenyCodeAgentApproval,
+  executeCodeAgentRun,
+  executePendingCodeAgentApproval,
+  writeCodeAgentUsageSnapshot,
+} from "./code-agent-executor.js";
+import {
+  appendCodeAgentTranscriptEvent,
   createCodeAgentRunRecord,
   codeAgentRunTranscriptPath,
   getCodeAgentRunRecord,
@@ -12,18 +28,7 @@ import {
   queueCodeAgentFollowUp,
   updateCodeAgentRunRecord,
 } from "./code-agent-runs.js";
-import {
-  buildCodeAgentSystemPrompt,
-  buildRepoInstructionsBlock,
-  buildStructuredMessagesFromEvents,
-  classifyCodeAgentCommandPermission,
-  codeAgentSystemPrompt,
-  executeCodeAgentRun,
-  executePendingCodeAgentApproval,
-} from "./code-agent-executor.js";
 import type { CodeAgentTranscriptEvent } from "./code-agent-runs.js";
-import type { EngineContentPart } from "../agent/engine/types.js";
-import type { AgentEngine } from "../agent/engine/types.js";
 
 const tmpRoots: string[] = [];
 const providerEnvKeys = [
@@ -39,10 +44,17 @@ const providerEnvKeys = [
 const originalProviderEnv = new Map(
   providerEnvKeys.map((key) => [key, process.env[key]]),
 );
+const originalPath = process.env.PATH;
+const originalAgentEngine = process.env.AGENT_ENGINE;
 
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
+  delete process.env.AGENT_NATIVE_CODE_USAGE_FILE;
+  delete process.env.AGENT_NATIVE_CODE_TOOL_PROFILE;
+  process.env.PATH = originalPath;
+  if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
+  else process.env.AGENT_ENGINE = originalAgentEngine;
   for (const key of providerEnvKeys) {
     const original = originalProviderEnv.get(key);
     if (original === undefined) delete process.env[key];
@@ -54,6 +66,25 @@ afterEach(() => {
 });
 
 describe("executeCodeAgentRun", () => {
+  it("writes the structured usage snapshot requested by CI", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-usage-"));
+    tmpRoots.push(root);
+    process.env.AGENT_NATIVE_CODE_USAGE_FILE = path.join(root, "usage.json");
+    const usage = {
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "deepseek-chat",
+    };
+
+    writeCodeAgentUsageSnapshot(root, usage);
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(root, "usage.json"), "utf8")),
+    ).toEqual(usage);
+  });
+
   it("runs a file-backed Agent-Native Code session with a fake engine", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE =
@@ -102,8 +133,298 @@ describe("executeCodeAgentRun", () => {
       phase: "missing-credentials",
       needsApproval: false,
     });
-    expect(listCodeAgentTranscriptEvents(run.id).at(-1)?.message).toContain(
-      "No LLM provider key was found",
+    const lastEvent = listCodeAgentTranscriptEvents(run.id).at(-1);
+    expect(lastEvent?.message).toContain("No LLM provider key was found");
+    // Structured marker so UI consumers don't have to regex-match the hint
+    // text (see isCredentialGapCodeAgentEvent).
+    expect(lastEvent?.signal).toBe("credential-gap");
+  });
+
+  it("runs a Codex CLI-backed session without provider API keys", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const promptPath = path.join(root, "codex-prompt.txt");
+    const argsPath = path.join(root, "codex-args.json");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "const execIndex = args.indexOf('exec');",
+        "const approvalIndex = args.indexOf('--ask-for-approval');",
+        "if (approvalIndex > execIndex) {",
+        "  process.stderr.write(\"unexpected argument '--ask-for-approval' found\");",
+        "  process.exit(2);",
+        "}",
+        "const outIndex = args.indexOf('--output-last-message');",
+        "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, input);`,
+        "  if (outPath) fs.writeFileSync(outPath, 'Codex final answer');",
+        "  process.stdout.write('Codex streamed output');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Codex",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli", model: "codex-cli" },
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: {
+        engine: "codex-cli",
+        model: "codex-default",
+      },
+    });
+    expect(output.read()).toContain("Codex streamed output");
+    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+    const args = JSON.parse(fs.readFileSync(argsPath, "utf-8")) as string[];
+    const execIndex = args.indexOf("exec");
+    expect(args.slice(0, 3)).toEqual(["--ask-for-approval", "never", "exec"]);
+    expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Codex final answer",
+          metadata: expect.objectContaining({ engine: "codex-cli" }),
+        }),
+      ]),
+    );
+  });
+
+  it("routes AGENT_ENGINE=codex-cli to the Codex CLI runner without engine metadata", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    process.env.AGENT_ENGINE = "codex-cli";
+    const binDir = path.join(root, "bin");
+    const promptPath = path.join(root, "codex-prompt.txt");
+    fs.mkdirSync(binDir, { recursive: true });
+    const codexBin = path.join(binDir, "codex");
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outIndex = args.indexOf('--output-last-message');",
+        "const outPath = outIndex === -1 ? '' : args[outIndex + 1];",
+        "let input = '';",
+        "process.stdin.on('data', (chunk) => { input += chunk.toString(); });",
+        "process.stdin.on('end', () => {",
+        `  fs.writeFileSync(${JSON.stringify(promptPath)}, input);`,
+        "  if (outPath) fs.writeFileSync(outPath, 'Codex final answer');",
+        "  process.stdout.write('Codex streamed output');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const output = createStringOutput();
+    // No `engine` in metadata — the Codex CLI runner must be selected purely
+    // from AGENT_ENGINE, the same fallback resolveExecutorEngine already uses.
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Use Codex via AGENT_ENGINE",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: {},
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "fix auth tests",
+      stdout: output.stream,
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+      metadata: { engine: "codex-cli", model: "codex-default" },
+    });
+    expect(output.read()).toContain("Codex streamed output");
+    expect(fs.readFileSync(promptPath, "utf-8")).toContain("fix auth tests");
+  });
+
+  it("pauses a canceled Codex CLI run and can recover it on a later invocation", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-started");
+    const stoppedPath = path.join(root, "codex-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Cancelable Codex run",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    const controller = new AbortController();
+    const execution = executeCodeAgentRun({
+      runId: run.id,
+      prompt: "wait until canceled",
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      progress: { failed: 0 },
+    });
+
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "const outputIndex = args.indexOf('--output-last-message');",
+        "fs.writeFileSync(args[outputIndex + 1], 'Recovered Codex run.');",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "resume after cancellation",
+    });
+
+    expect(getCodeAgentRunRecord(run.id)).toMatchObject({
+      status: "completed",
+      phase: "complete",
+    });
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "system",
+          message: "Recovered Codex run.",
+        }),
+      ]),
+    );
+  });
+
+  it("forwards cancellation through a denied approval when the Codex run resumes", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const binDir = path.join(root, "bin");
+    const codexBin = path.join(binDir, "codex");
+    const startedPath = path.join(root, "codex-resume-started");
+    const stoppedPath = path.join(root, "codex-resume-stopped");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      codexBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.writeFileSync(${JSON.stringify(startedPath)}, 'started');`,
+        "process.on('SIGTERM', () => {",
+        `  fs.writeFileSync(${JSON.stringify(stoppedPath)}, 'stopped');`,
+        "  process.exit(143);",
+        "});",
+        "setInterval(() => {}, 1_000);",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Denied approval cancellation",
+      status: "needs-approval",
+      phase: "approval-required",
+      needsApproval: true,
+      cwd: process.cwd(),
+      metadata: { engine: "codex-cli" },
+    });
+    appendCodeAgentTranscriptEvent({
+      runId: run.id,
+      kind: "user",
+      message: "resume after denying the command",
+    });
+    updateCodeAgentRunRecord(run.id, {
+      metadata: {
+        pendingApproval: {
+          id: "approval-cancel",
+          tool: "bash",
+          command: "rm -rf generated-output",
+          reason: "destructive cleanup",
+          requestedAt: new Date().toISOString(),
+          permissionMode: "ask-before-edit",
+        },
+      },
+    });
+    const controller = new AbortController();
+    const execution = executeDenyCodeAgentApproval(run.id, {
+      signal: controller.signal,
+    });
+
+    await waitForFile(startedPath);
+    controller.abort();
+    await execution;
+
+    expect(fs.readFileSync(stoppedPath, "utf8")).toBe("stopped");
+    const updated = getCodeAgentRunRecord(run.id);
+    expect(updated).toMatchObject({
+      status: "paused",
+      phase: "paused",
+      metadata: {
+        lastApproval: { id: "approval-cancel", denied: true },
+      },
+    });
+    expect(updated?.metadata?.pendingApproval).toBeUndefined();
+    expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "status",
+          message: "Codex CLI run paused.",
+          metadata: expect.objectContaining({
+            status: "paused",
+            phase: "paused",
+          }),
+        }),
+      ]),
     );
   });
 
@@ -207,6 +528,59 @@ describe("executeCodeAgentRun", () => {
         "run_command",
       ]),
     );
+  });
+
+  it("limits recap-source runs to repository reads and one output writer", async () => {
+    useTempCodeAgentsHome();
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Author recap source",
+      status: "queued",
+      cwd: process.cwd(),
+      permissionMode: "auto-edit",
+    });
+    let toolNames: string[] = [];
+    const engine = createToolCaptureEngine((names) => {
+      toolNames = names;
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write recap-source.json",
+      engine,
+    });
+
+    expect(toolNames).toEqual(["read", "write", "tool-search"]);
+  });
+
+  it("blocks recap-source runs from writing any other file", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    fs.mkdirSync(cwd, { recursive: true });
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Try another output",
+      status: "queued",
+      cwd,
+      permissionMode: "auto-edit",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "write another file",
+      engine: createWriteAttemptEngine("stolen.txt"),
+    });
+
+    expect(fs.existsSync(path.join(cwd, "stolen.txt"))).toBe(false);
+    expect(
+      listCodeAgentTranscriptEvents(run.id).some((event) =>
+        String(event.metadata?.result ?? "").includes(
+          "only recap-source.json may be written",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("runs pending follow-ups after the current execution completes", async () => {
@@ -338,6 +712,23 @@ describe("classifyCodeAgentCommandPermission", () => {
   });
 });
 
+describe("codeAgentMcpInvocationPolicy", () => {
+  it("enforces read-only MCP calls in Plan mode", () => {
+    expect(codeAgentMcpInvocationPolicy("read-only")).toEqual({
+      mode: "read-only",
+    });
+  });
+
+  it.each(["ask-before-edit", "auto-edit", "full-auto"] as const)(
+    "does not impose the Plan MCP policy in %s mode",
+    (permissionMode) => {
+      expect(codeAgentMcpInvocationPolicy(permissionMode)).toEqual({
+        mode: "allow-all",
+      });
+    },
+  );
+});
+
 function createStringOutput(): {
   stream: Writable;
   read: () => string;
@@ -381,11 +772,61 @@ function createToolCaptureEngine(
   };
 }
 
+function createWriteAttemptEngine(filePath: string): AgentEngine {
+  let turn = 0;
+  return {
+    name: "write-attempt",
+    label: "Write Attempt",
+    defaultModel: "write-attempt",
+    supportedModels: ["write-attempt"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      turn += 1;
+      if (turn === 1) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: "write-other-file",
+              name: "write",
+              input: { path: filePath, content: "secret" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
 function useTempCodeAgentsHome(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-code-exec-"));
   tmpRoots.push(root);
   process.env.AGENT_NATIVE_CODE_AGENTS_HOME = path.join(root, "code-agents");
   return root;
+}
+
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!fs.existsSync(filePath)) {
+    if (Date.now() > deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +1153,46 @@ describe("buildCodeAgentSystemPrompt", () => {
     expect(prompt).toContain("my-feature");
     expect(prompt).toContain("Explains how to add new features.");
     expect(prompt).toContain("SKILL.md");
+  });
+
+  it("includes dev-scoped skills and omits runtime-only skills", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-prompt-scope-"));
+    tmpRoots.push(root);
+    fs.mkdirSync(path.join(root, ".agents", "skills", "dev-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "dev-skill", "SKILL.md"),
+      [
+        "---",
+        "name: dev-skill",
+        "description: For connected repo agents.",
+        "scope: dev",
+        "---",
+        "# Dev Skill",
+      ].join("\n"),
+    );
+    fs.mkdirSync(path.join(root, ".agents", "skills", "runtime-skill"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, ".agents", "skills", "runtime-skill", "SKILL.md"),
+      [
+        "---",
+        "name: runtime-skill",
+        "description: For deployed app agents.",
+        "scope: runtime",
+        "---",
+        "# Runtime Skill",
+      ].join("\n"),
+    );
+
+    const prompt = await buildCodeAgentSystemPrompt(root, "full-auto");
+
+    expect(prompt).toContain("dev-skill");
+    expect(prompt).toContain("For connected repo agents.");
+    expect(prompt).not.toContain("runtime-skill");
+    expect(prompt).not.toContain("For deployed app agents.");
   });
 
   it("omits skills section when no skills directory exists", async () => {

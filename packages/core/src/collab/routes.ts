@@ -11,10 +11,11 @@ import {
   getQuery,
 } from "h3";
 import type { H3Event } from "h3";
+
+import { readBody } from "../server/h3-helpers.js";
+import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
-import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
-import { readBody } from "../server/h3-helpers.js";
 
 /** Default maximum payload size (2 MB). Overridden by plugin via event.context. */
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;

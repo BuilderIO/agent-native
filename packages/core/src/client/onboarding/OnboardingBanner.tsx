@@ -5,8 +5,9 @@
  * full <OnboardingPanel />. Use when you want the panel collapsed by default.
  */
 
-import React from "react";
 import { IconChecklist, IconChevronRight } from "@tabler/icons-react";
+import React from "react";
+
 import { useOnboarding } from "./use-onboarding.js";
 
 interface OnboardingBannerProps {
@@ -38,7 +39,7 @@ export function OnboardingBanner({
       </span>
       <span style={styles.cta}>
         Continue
-        <IconChevronRight size={12} />
+        <IconChevronRight size={12} className="rtl:-scale-x-100" />
       </span>
     </button>
   );
@@ -52,16 +53,16 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     padding: "8px 12px",
     border: "none",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    background: "rgba(59,130,246,0.06)",
+    borderBottom: "1px solid hsl(var(--border) / 0.7)",
+    background: "hsl(var(--primary) / 0.06)",
     color: "inherit",
     fontSize: 12,
     cursor: "pointer",
-    textAlign: "left" as const,
+    textAlign: "start" as const,
   },
   left: { display: "flex", alignItems: "center", gap: 6 },
   title: { fontWeight: 600 },
-  counter: { opacity: 0.65, marginLeft: 4 },
+  counter: { opacity: 0.65, marginInlineStart: 4 },
   cta: {
     display: "flex",
     alignItems: "center",

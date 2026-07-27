@@ -1,3 +1,26 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
+import {
+  enterStyleEditing as coreEnterStyleEditing,
+  enterTextEditing as coreEnterTextEditing,
+  exitSelectionMode as coreExitSelectionMode,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -5,31 +28,20 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { DeckProvider } from "@/context/DeckContext";
-import { Toaster } from "@/components/ui/toaster";
-import {
-  AppProviders,
-  CommandMenu,
-  appPath,
-  createAgentNativeQueryClient,
-  enterStyleEditing as coreEnterStyleEditing,
-  enterTextEditing as coreEnterTextEditing,
-  exitSelectionMode as coreExitSelectionMode,
-  useCommandMenuShortcut,
-  useDbSync,
-} from "@agent-native/core/client";
-import { Layout as AppLayout } from "@/components/layout/Layout";
-import { IconSun, IconMoon } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-import { useQueryClient } from "@tanstack/react-query";
 import type { LinksFunction } from "react-router";
-import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
-import { getThemeInitScript } from "@agent-native/core/client";
+
+import { Layout as AppLayout } from "@/components/layout/Layout";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { DeckProvider } from "@/context/DeckContext";
+import { useNavigationState } from "@/hooks/use-navigation-state";
 import { TAB_ID } from "@/lib/tab-id";
+
+import changelog from "../CHANGELOG.md?raw";
+import { i18nCatalog } from "./i18n";
+
+import stylesheet from "./global.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -89,11 +101,35 @@ function useExitSelectionOnOutsideClick() {
   }, []);
 }
 
-const THEME_INIT_SCRIPT = getThemeInitScript("dark", true);
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript("dark", true);
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en-US" dir="ltr" data-locale="en-US" suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -101,8 +137,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="manifest" href={appPath("/manifest.json")} />
@@ -144,6 +186,8 @@ function AppContent() {
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const t = useT();
+  const navigate = useNavigate();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const location = useLocation();
 
@@ -162,17 +206,31 @@ function AppContent() {
 
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Presentations">
-          <CommandMenu.Item onSelect={() => {}}>Search decks</CommandMenu.Item>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="slides"
+      >
+        <CommandMenu.Group heading={t("root.commandPresentations")}>
+          <CommandMenu.Item onSelect={() => {}}>
+            {t("root.searchDecks")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
+        <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
             onSelect={() => setTheme(isDark ? "light" : "dark")}
             keywords={["theme", "dark", "light", "mode"]}
           >
             {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-            Toggle {isDark ? "light" : "dark"} mode
+            {t("root.toggleTheme")}
           </CommandMenu.Item>
         </CommandMenu.Group>
       </CommandMenu>
@@ -194,14 +252,16 @@ export default function Root() {
   }
 
   return (
-    <AppProviders queryClient={queryClient} defaultTheme="dark">
-      <AppContent />
-      {/* useToast-based Toaster — separate from AppProviders' sonner Toaster.
-          Components throughout the app call toast() from @/hooks/use-toast,
-          which requires this Toaster to be mounted. */}
-      <Toaster />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        defaultTheme="dark"
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

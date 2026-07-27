@@ -1,3 +1,17 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -8,17 +22,10 @@ import {
   Link,
   useRouteError,
 } from "react-router";
-import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useDbSync } from "@agent-native/core";
-import {
-  AppProviders,
-  appPath,
-  getThemeInitScript,
-  createAgentNativeQueryClient,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+
+import { AppToolkitProvider } from "./components/ui/toolkit-provider";
 import { useNavigationState } from "./hooks/use-navigation-state";
+import { i18nCatalog } from "./i18n";
 import { TAB_ID } from "./lib/tab-id";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -29,6 +36,7 @@ configureTracking({
 import "./global.css";
 
 const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 function getHydrationStableThemeInitScript() {
   if (typeof document !== "undefined") {
@@ -40,7 +48,162 @@ function getHydrationStableThemeInitScript() {
   return getThemeInitScript();
 }
 
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
+
+const ERROR_COPY = {
+  "en-US": {
+    genericTitle: "Something went wrong",
+    genericDetails: "An unexpected error occurred.",
+    notFoundTitle: "Page not found",
+    notFoundDetails:
+      "This page doesn't exist. It may have been moved or deleted.",
+    statusTitle: (status: number) => `${status} Error`,
+    goHome: "Go home",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder: "Describe what happened before this error appeared.",
+    openGitHubIssue: "Open GitHub issue",
+  },
+  "zh-CN": {
+    genericTitle: "出了点问题",
+    genericDetails: "发生了意外错误。",
+    notFoundTitle: "页面未找到",
+    notFoundDetails: "此页面不存在。它可能已被移动或删除。",
+    statusTitle: (status: number) => `${status} 错误`,
+    goHome: "返回首页",
+    sendFeedback: "发送反馈",
+    feedbackPlaceholder: "描述此错误出现前发生了什么。",
+    openGitHubIssue: "打开 GitHub issue",
+  },
+  "zh-TW": {
+    genericTitle: "發生錯誤",
+    genericDetails: "發生未預期的錯誤。",
+    notFoundTitle: "找不到頁面",
+    notFoundDetails: "此頁面不存在，可能已被移動或刪除。",
+    statusTitle: (status: number) => `${status} 錯誤`,
+    goHome: "返回首頁",
+    sendFeedback: "傳送意見回饋",
+    feedbackPlaceholder: "描述此錯誤出現前發生了什麼。",
+    openGitHubIssue: "開啟 GitHub issue",
+  },
+  "es-ES": {
+    genericTitle: "Algo salió mal",
+    genericDetails: "Se produjo un error inesperado.",
+    notFoundTitle: "Página no encontrada",
+    notFoundDetails:
+      "Esta página no existe. Puede que se haya movido o eliminado.",
+    statusTitle: (status: number) => `Error ${status}`,
+    goHome: "Ir al inicio",
+    sendFeedback: "Enviar comentarios",
+    feedbackPlaceholder:
+      "Describe qué pasó antes de que apareciera este error.",
+    openGitHubIssue: "Abrir issue en GitHub",
+  },
+  "fr-FR": {
+    genericTitle: "Une erreur est survenue",
+    genericDetails: "Une erreur inattendue s'est produite.",
+    notFoundTitle: "Page introuvable",
+    notFoundDetails:
+      "Cette page n'existe pas. Elle a peut-être été déplacée ou supprimée.",
+    statusTitle: (status: number) => `Erreur ${status}`,
+    goHome: "Retour à l'accueil",
+    sendFeedback: "Envoyer un retour",
+    feedbackPlaceholder: "Décrivez ce qui s'est passé avant cette erreur.",
+    openGitHubIssue: "Ouvrir une issue GitHub",
+  },
+  "de-DE": {
+    genericTitle: "Etwas ist schiefgelaufen",
+    genericDetails: "Ein unerwarteter Fehler ist aufgetreten.",
+    notFoundTitle: "Seite nicht gefunden",
+    notFoundDetails:
+      "Diese Seite existiert nicht. Sie wurde möglicherweise verschoben oder gelöscht.",
+    statusTitle: (status: number) => `${status} Fehler`,
+    goHome: "Zur Startseite",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder: "Beschreiben Sie, was vor diesem Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
+  },
+  "ja-JP": {
+    genericTitle: "問題が発生しました",
+    genericDetails: "予期しないエラーが発生しました。",
+    notFoundTitle: "ページが見つかりません",
+    notFoundDetails:
+      "このページは存在しません。移動または削除された可能性があります。",
+    statusTitle: (status: number) => `${status} エラー`,
+    goHome: "ホームへ",
+    sendFeedback: "フィードバックを送信",
+    feedbackPlaceholder: "このエラーの直前に起きたことを説明してください。",
+    openGitHubIssue: "GitHub issue を開く",
+  },
+  "ko-KR": {
+    genericTitle: "문제가 발생했습니다",
+    genericDetails: "예상치 못한 오류가 발생했습니다.",
+    notFoundTitle: "페이지를 찾을 수 없음",
+    notFoundDetails:
+      "이 페이지는 존재하지 않습니다. 이동되었거나 삭제되었을 수 있습니다.",
+    statusTitle: (status: number) => `${status} 오류`,
+    goHome: "홈으로 이동",
+    sendFeedback: "피드백 보내기",
+    feedbackPlaceholder:
+      "이 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+    openGitHubIssue: "GitHub issue 열기",
+  },
+  "pt-BR": {
+    genericTitle: "Algo deu errado",
+    genericDetails: "Ocorreu um erro inesperado.",
+    notFoundTitle: "Página não encontrada",
+    notFoundDetails:
+      "Esta página não existe. Ela pode ter sido movida ou excluída.",
+    statusTitle: (status: number) => `Erro ${status}`,
+    goHome: "Ir para o início",
+    sendFeedback: "Enviar feedback",
+    feedbackPlaceholder: "Descreva o que aconteceu antes deste erro aparecer.",
+    openGitHubIssue: "Abrir issue no GitHub",
+  },
+  "hi-IN": {
+    genericTitle: "कुछ गलत हुआ",
+    genericDetails: "एक अनपेक्षित त्रुटि हुई।",
+    notFoundTitle: "पेज नहीं मिला",
+    notFoundDetails: "यह पेज मौजूद नहीं है। इसे स्थानांतरित या हटाया गया हो सकता है।",
+    statusTitle: (status: number) => `${status} त्रुटि`,
+    goHome: "होम जाएं",
+    sendFeedback: "फ़ीडबैक भेजें",
+    feedbackPlaceholder: "इस त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+    openGitHubIssue: "GitHub issue खोलें",
+  },
+  "ar-SA": {
+    genericTitle: "حدث خطأ",
+    genericDetails: "حدث خطأ غير متوقع.",
+    notFoundTitle: "الصفحة غير موجودة",
+    notFoundDetails: "هذه الصفحة غير موجودة. ربما تم نقلها أو حذفها.",
+    statusTitle: (status: number) => `خطأ ${status}`,
+    goHome: "الذهاب إلى الرئيسية",
+    sendFeedback: "إرسال الملاحظات",
+    feedbackPlaceholder: "صف ما حدث قبل ظهور هذا الخطأ.",
+    openGitHubIssue: "فتح مشكلة في GitHub",
+  },
+};
+
+function errorCopy() {
+  const lang =
+    typeof document !== "undefined"
+      ? document.documentElement.getAttribute("lang")
+      : null;
+  return (
+    ERROR_COPY[(lang as keyof typeof ERROR_COPY) || "en-US"] ??
+    ERROR_COPY["en-US"]
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -55,6 +218,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
           data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
@@ -88,9 +256,11 @@ function DbSyncSetup() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient}>
-      <DbSyncSetup />
-      <Outlet />
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppToolkitProvider>
+        <DbSyncSetup />
+        <Outlet />
+      </AppToolkitProvider>
     </AppProviders>
   );
 }
@@ -116,18 +286,19 @@ function useApplyThemeClass() {
 export function ErrorBoundary() {
   useApplyThemeClass();
   const error = useRouteError();
+  const copy = errorCopy();
   let status: number | null = null;
-  let title = "Something went wrong";
-  let details = "An unexpected error occurred.";
+  let title = copy.genericTitle;
+  let details = copy.genericDetails;
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
     status = error.status;
     if (error.status === 404) {
-      title = "Page not found";
-      details = "This page doesn't exist. It may have been moved or deleted.";
+      title = copy.notFoundTitle;
+      details = copy.notFoundDetails;
     } else {
-      title = `${error.status} Error`;
+      title = copy.statusTitle(error.status);
       details = error.statusText || details;
     }
   } else if (
@@ -153,8 +324,19 @@ export function ErrorBoundary() {
           to="/"
           className="mt-6 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer"
         >
-          Go home
+          {copy.goHome}
         </Link>
+        <ErrorReportActions
+          appName="{{APP_TITLE}}"
+          title={title}
+          details={details}
+          status={status}
+          issueTitle={`Error screen: ${title}`}
+          feedbackLabel={copy.sendFeedback}
+          feedbackPlaceholder={copy.feedbackPlaceholder}
+          githubLabel={copy.openGitHubIssue}
+          className="mt-4"
+        />
         {stack && (
           <pre className="mt-6 w-full text-left text-xs overflow-auto p-4 bg-muted rounded">
             <code>{stack}</code>

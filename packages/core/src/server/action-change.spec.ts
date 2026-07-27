@@ -96,4 +96,24 @@ describe("notifyActionChange", () => {
     );
     expect(mockAppStatePut.mock.calls[0][2]).not.toHaveProperty("orgId");
   });
+
+  it("preserves a frontend tab source so the originating tab can ignore the echo", async () => {
+    const { notifyActionChange } = await import("./action-change.js");
+
+    await notifyActionChange({
+      actionName: "update-project",
+      owner: "owner@example.com",
+      requestSource: "tab-123",
+    });
+
+    expect(mockRecordChange).toHaveBeenCalledWith(
+      expect.objectContaining({ requestSource: "tab-123" }),
+    );
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "__action_change__",
+      expect.objectContaining({ requestSource: "tab-123" }),
+      { requestSource: "tab-123" },
+    );
+  });
 });

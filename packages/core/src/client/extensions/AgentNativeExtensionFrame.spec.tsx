@@ -2,6 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   AgentNativeExtensionFrame,
   AgentNativeExtensionSlot,
@@ -39,7 +40,9 @@ describe("AgentNativeExtensionFrame", () => {
 
     const iframe = container.querySelector("iframe");
     expect(iframe).toBeTruthy();
-    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-popups");
+    expect(iframe?.getAttribute("sandbox")).toBe(
+      "allow-scripts allow-popups allow-downloads",
+    );
     expect(iframe?.getAttribute("srcdoc")).toContain(
       "<section>Customer health</section>",
     );

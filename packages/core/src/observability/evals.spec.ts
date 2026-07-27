@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { TraceSummary, EvalCriteria } from "./types.js";
+
 import type { AgentEngine } from "../agent/engine/types.js";
+import type { TraceSummary, EvalCriteria } from "./types.js";
 
 // evals.ts has three layers:
 //  1. Automated deterministic scorers (tool success, step efficiency,
@@ -27,6 +28,10 @@ const runStore = vi.hoisted(() => ({
 const engineMod = vi.hoisted(() => ({
   resolveEngine: vi.fn(),
   getStoredModelForEngine: vi.fn(),
+  normalizeModelForEngine: vi.fn(
+    (engine: { defaultModel?: string }, model?: string | null) =>
+      model ?? engine.defaultModel,
+  ),
 }));
 
 vi.mock("./store.js", () => ({
@@ -42,6 +47,8 @@ vi.mock("../agent/engine/index.js", () => ({
   resolveEngine: (...a: unknown[]) => engineMod.resolveEngine(...a),
   getStoredModelForEngine: (...a: unknown[]) =>
     engineMod.getStoredModelForEngine(...a),
+  normalizeModelForEngine: (...a: unknown[]) =>
+    engineMod.normalizeModelForEngine(...a),
 }));
 
 const { runAutomatedEvals, runLlmJudgeEval, runDatasetEval, evaluateRun } =
@@ -204,6 +211,24 @@ describe("runAutomatedEvals deterministic scorers", () => {
     expect(r.error_recovery.metadata).toMatchObject({
       hadErrors: true,
       runStatus: "failed",
+    });
+  });
+
+  it("error_recovery: failures + a truncated run scores 0, not the 1 it scored when truncations were stored as completed", async () => {
+    store.getTraceSummary.mockResolvedValue(
+      summary({ toolCalls: 2, successfulTools: 1, failedTools: 1 }),
+    );
+    runStore.getRunById.mockResolvedValue({
+      id: "run-1",
+      threadId: "thread-1",
+      status: "truncated",
+      startedAt: 0,
+    });
+    const r = byCriteria(await runAutomatedEvals("run-1"));
+    expect(r.error_recovery.score).toBe(0);
+    expect(r.error_recovery.metadata).toMatchObject({
+      hadErrors: true,
+      runStatus: "truncated",
     });
   });
 

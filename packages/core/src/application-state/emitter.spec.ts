@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+
 import {
   getAppStateEmitter,
   emitAppStateChange,

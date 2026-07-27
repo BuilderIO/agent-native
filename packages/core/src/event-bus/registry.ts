@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+
 import type { EventDefinition } from "./types.js";
 
 // Pin to globalThis so multiple ESM graphs (dev-mode Vite + Nitro, symlinks,

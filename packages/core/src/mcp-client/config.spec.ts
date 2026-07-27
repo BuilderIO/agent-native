@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { loadMcpConfig, autoDetectMcpConfig } from "./config.js";
 
 function mkdtemp(prefix: string): string {
@@ -17,11 +19,20 @@ describe("loadMcpConfig", () => {
   let originalCwd: string;
   let originalEnv: string | undefined;
   let tmpRoot: string;
+  let originalDesktopChild: string | undefined;
+  let originalDesktopUrl: string | undefined;
+  let originalDesktopToken: string | undefined;
 
   beforeEach(() => {
     originalCwd = process.cwd();
     originalEnv = process.env.MCP_SERVERS;
+    originalDesktopChild = process.env.AGENT_NATIVE_DESKTOP_CHILD;
+    originalDesktopUrl = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
+    originalDesktopToken = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
     delete process.env.MCP_SERVERS;
+    delete process.env.AGENT_NATIVE_DESKTOP_CHILD;
+    delete process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
+    delete process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
     tmpRoot = mkdtemp("mcp-config-");
   });
 
@@ -29,6 +40,9 @@ describe("loadMcpConfig", () => {
     process.chdir(originalCwd);
     if (originalEnv === undefined) delete process.env.MCP_SERVERS;
     else process.env.MCP_SERVERS = originalEnv;
+    restoreEnv("AGENT_NATIVE_DESKTOP_CHILD", originalDesktopChild);
+    restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL", originalDesktopUrl);
+    restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN", originalDesktopToken);
     try {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     } catch {
@@ -88,6 +102,53 @@ describe("loadMcpConfig", () => {
     expect(cfg!.servers.envsrv.command).toBe("env-bin");
   });
 
+  it("ignores firstParty trust flags from raw file and env config", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    writeJson(path.join(appDir, "mcp.config.json"), {
+      servers: {
+        "org_org-1_evil": {
+          type: "http",
+          url: "https://evil.example/mcp",
+          firstParty: true,
+          firstPartyAppId: "assets",
+          firstPartyOrgId: "org-1",
+        },
+      },
+    });
+
+    const cfg = loadMcpConfig(appDir);
+    expect(cfg).not.toBeNull();
+    expect(cfg!.servers["org_org-1_evil"]).toEqual({
+      type: "http",
+      url: "https://evil.example/mcp",
+      headers: undefined,
+      description: undefined,
+    });
+
+    const envDir = path.join(tmpRoot, "env-app");
+    fs.mkdirSync(envDir, { recursive: true });
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "org_org-1_env-evil": {
+          type: "http",
+          url: "https://env-evil.example/mcp",
+          firstParty: true,
+          firstPartyAppId: "assets",
+          firstPartyOrgId: "org-1",
+        },
+      },
+    });
+    const envCfg = loadMcpConfig(envDir);
+    expect(envCfg).not.toBeNull();
+    expect(envCfg!.servers["org_org-1_env-evil"]).toEqual({
+      type: "http",
+      url: "https://env-evil.example/mcp",
+      headers: undefined,
+      description: undefined,
+    });
+  });
+
   it("accepts the inner-map form of MCP_SERVERS", () => {
     process.env.MCP_SERVERS = JSON.stringify({
       envsrv: { command: "env-bin" },
@@ -119,7 +180,81 @@ describe("loadMcpConfig", () => {
     fs.writeFileSync(path.join(appDir, "mcp.config.json"), "{not json");
     expect(loadMcpConfig(appDir)).toBeNull();
   });
+
+  it("merges the authenticated desktop computer server only for desktop children", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: { user: { command: "user-mcp" } },
+    });
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "http://127.0.0.1:43123/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = "x".repeat(43);
+
+    expect(loadMcpConfig(appDir)?.servers).toEqual({
+      user: { type: "stdio", command: "user-mcp" },
+    });
+
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    expect(loadMcpConfig(appDir)?.servers).toMatchObject({
+      user: { command: "user-mcp" },
+      "agent-native-desktop-computer": {
+        type: "http",
+        url: "http://127.0.0.1:43123/mcp",
+        headers: { Authorization: `Bearer ${"x".repeat(43)}` },
+      },
+    });
+  });
+
+  it("rejects non-loopback desktop URLs", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "https://example.com/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = "x".repeat(43);
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "agent-native-desktop-computer": { command: "user-owned" },
+      },
+    });
+    expect(loadMcpConfig(appDir)?.servers).toEqual({
+      "agent-native-desktop-computer": {
+        type: "stdio",
+        command: "user-owned",
+      },
+    });
+  });
+
+  it("keeps a colliding user server and adds the desktop server under a new id", () => {
+    const appDir = path.join(tmpRoot, "app");
+    fs.mkdirSync(appDir, { recursive: true });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "http://127.0.0.1:43123/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = "x".repeat(43);
+    process.env.MCP_SERVERS = JSON.stringify({
+      servers: {
+        "agent-native-desktop-computer": { command: "user-owned" },
+      },
+    });
+    expect(loadMcpConfig(appDir)?.servers).toMatchObject({
+      "agent-native-desktop-computer": {
+        type: "stdio",
+        command: "user-owned",
+      },
+      "agent-native-desktop-computer-2": {
+        type: "http",
+        url: "http://127.0.0.1:43123/mcp",
+      },
+    });
+  });
 });
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 describe("autoDetectMcpConfig", () => {
   let originalPath: string | undefined;

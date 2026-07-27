@@ -13,10 +13,11 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { orgInvitations, orgMembers } from "@agent-native/core/org";
 import { putUserSetting } from "@agent-native/core/settings";
-import { z } from "zod";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb } from "../server/db/index.js";
+import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
@@ -35,6 +36,7 @@ export default defineAction({
         orgId: orgInvitations.orgId,
         role: orgInvitations.role,
         status: orgInvitations.status,
+        email: orgInvitations.email,
       })
       .from(orgInvitations)
       .where(eq(orgInvitations.id, args.token))
@@ -44,6 +46,8 @@ export default defineAction({
       throw new Error("Invite already accepted.");
     if (invite.status === "rejected" || invite.status === "canceled")
       throw new Error("Invite is no longer valid.");
+    if (invite.email.trim().toLowerCase() !== meLower)
+      throw new Error("This invite was sent to a different email address.");
 
     const role: "admin" | "member" =
       invite.role === "admin" ? "admin" : "member";

@@ -1,4 +1,12 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
   IconPalette,
@@ -10,15 +18,12 @@ import {
   IconFileDescription,
   IconPhoto,
   IconCheck,
+  IconExternalLink,
 } from "@tabler/icons-react";
-import {
-  useActionQuery,
-  useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-} from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,17 +31,17 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+
 import {
-  MAX_FIG_UPLOAD_BYTES,
+  MAX_BUILDER_INDEX_UPLOAD_BYTES,
+  readBuilderIndexResponse,
   formatFileSize,
-  readFigImportResponse,
-  type FigImportResult,
-} from "./fig-import-response";
+  type BuilderIndexResult,
+} from "./builder-index-response";
 
 interface DesignSystemSetupProps {
   open: boolean;
@@ -83,12 +88,18 @@ function normalizeWebsiteUrlInput(input: string): string | null {
   }
 }
 
+function isDesignMdFile(file: UploadedFile) {
+  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  return name === "design.md" || name === "design.mdx";
+}
+
 export function DesignSystemSetup({
   open,
   onClose,
   onComplete,
   editingId,
 }: DesignSystemSetupProps) {
+  const t = useT();
   const [companyName, setCompanyName] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [websiteUrls, setWebsiteUrls] = useState<string[]>([]);
@@ -100,17 +111,17 @@ export function DesignSystemSetup({
   const [brandNotes, setBrandNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [figParsing, setFigParsing] = useState(false);
-  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
-  const [figError, setFigError] = useState<string | null>(null);
-  const [figTitle, setFigTitle] = useState("");
-  const [figCreating, setFigCreating] = useState(false);
+  const [builderIndexing, setBuilderIndexing] = useState(false);
+  const [builderIndexResult, setBuilderIndexResult] =
+    useState<BuilderIndexResult | null>(null);
+  const [builderIndexError, setBuilderIndexError] = useState<string | null>(
+    null,
+  );
 
   const codeInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const figInputRef = useRef<HTMLInputElement>(null);
-  const createSystemMutation = useActionMutation("create-design-system");
   const updateSystemMutation = useActionMutation("update-design-system");
 
   const { data: existingDs } = useActionQuery<{
@@ -156,11 +167,9 @@ export function DesignSystemSetup({
       setBrandNotes("");
       setCustomInstructions("");
       setSelectedSystemId("");
-      setFigParsing(false);
-      setFigResult(null);
-      setFigError(null);
-      setFigTitle("");
-      setFigCreating(false);
+      setBuilderIndexing(false);
+      setBuilderIndexResult(null);
+      setBuilderIndexError(null);
     }
   }, [open]);
 
@@ -170,6 +179,7 @@ export function DesignSystemSetup({
       websiteUrls.length > 0 ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
+      builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       selectedSystemId ||
@@ -181,6 +191,7 @@ export function DesignSystemSetup({
     websiteUrls,
     githubLinks,
     codeFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     selectedSystemId,
@@ -235,76 +246,54 @@ export function DesignSystemSetup({
         setter((prev) => [...prev, ...newFiles]);
       });
     },
-    [],
+    [t],
   );
 
-  const handleFigImport = useCallback(
+  const handleBuilderIndexUpload = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
-        setFigError(
-          "Please choose a .fig file (in Figma: File > Save local copy).",
-        );
+        setBuilderIndexError(t("designSystemSetup.figFileRequired"));
         return;
       }
-      if (file.size > MAX_FIG_UPLOAD_BYTES) {
-        setFigError(
-          `File too large (max ${formatFileSize(MAX_FIG_UPLOAD_BYTES)}).`,
+      if (file.size > MAX_BUILDER_INDEX_UPLOAD_BYTES) {
+        setBuilderIndexError(
+          t("designSystemSetup.figFileTooLarge", {
+            maxSize: formatFileSize(MAX_BUILDER_INDEX_UPLOAD_BYTES),
+          }),
         );
         return;
       }
 
-      setFigError(null);
-      setFigResult(null);
-      setFigParsing(true);
+      setBuilderIndexError(null);
+      setBuilderIndexResult(null);
+      setBuilderIndexing(true);
       try {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch(appApiPath("/api/import-figma-system"), {
-          method: "POST",
-          body,
-        });
-        const parsed = await readFigImportResponse(res);
-        setFigResult(parsed);
-        setFigTitle(parsed.suggestedTitle || "Imported brand");
+        const res = await fetch(
+          appApiPath("/api/index-design-system-with-builder"),
+          {
+            method: "POST",
+            body,
+          },
+        );
+        const parsed = await readBuilderIndexResponse(res);
+        setBuilderIndexResult(parsed);
       } catch (err) {
-        setFigError(
+        setBuilderIndexError(
           err instanceof Error
             ? err.message
-            : "Could not parse that Figma file.",
+            : t("designSystemSetup.figParseFailed"),
         );
       } finally {
-        setFigParsing(false);
+        setBuilderIndexing(false);
       }
     },
-    [],
+    [t],
   );
-
-  const handleCreateFromFig = useCallback(async () => {
-    if (!figResult) return;
-    const title =
-      figTitle.trim() || figResult.suggestedTitle || "Imported brand";
-    setFigCreating(true);
-    try {
-      await createSystemMutation.mutateAsync({
-        title,
-        data: JSON.stringify(figResult.data),
-        customInstructions: figResult.customInstructions || "",
-      } as any);
-      toast({ title: "Design system created from Figma" });
-      onComplete();
-    } catch (err) {
-      setFigCreating(false);
-      toast({
-        title: "Could not create the design system",
-        description:
-          err instanceof Error ? err.message : "Something went wrong",
-        variant: "destructive",
-      });
-    }
-  }, [figResult, figTitle, createSystemMutation, onComplete]);
 
   const handleEditSave = async () => {
     if (!editingId) return;
@@ -317,12 +306,9 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: "Design system updated" });
+      toast.success(t("designSystemSetup.updated"));
     } catch {
-      toast({
-        title: "Failed to update",
-        variant: "destructive",
-      });
+      toast.error(t("designSystemSetup.updateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -345,7 +331,7 @@ export function DesignSystemSetup({
 
     const parts: string[] = [];
     parts.push(
-      "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system for my slide decks.",
+      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system for my slide decks.",
     );
 
     if (companyName.trim()) {
@@ -360,15 +346,21 @@ export function DesignSystemSetup({
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nExtract design tokens from code. Call \`import-github\` for each:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
       );
     }
 
+    const designMdFiles = [...codeFiles, ...docFiles].filter(
+      (file) => file.textContent && isDesignMdFile(file),
+    );
+
     if (codeFiles.length > 0) {
-      const withContent = codeFiles.filter((f) => f.textContent);
+      const withContent = codeFiles.filter(
+        (f) => f.textContent && !isDesignMdFile(f),
+      );
       if (withContent.length > 0) {
         parts.push(
-          `\n## Code Files (${withContent.length} files)\nCall \`import-code\` with these files:`,
+          `\n## Connect Code: Code Files (${withContent.length} files)\nStart Builder DSI indexing with \`index-design-system-with-builder\` using these files as the \`codeFiles\` argument:`,
         );
         for (const f of withContent) {
           parts.push(
@@ -378,8 +370,27 @@ export function DesignSystemSetup({
       }
     }
 
+    if (designMdFiles.length > 0) {
+      parts.push(
+        `\n## Optional design.md (${designMdFiles.length} file${designMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+      );
+      for (const f of designMdFiles) {
+        parts.push(
+          `\n### ${f.name}\n\`\`\`md\n${inlineText(f.textContent!)}\n\`\`\``,
+        );
+      }
+    }
+
+    if (builderIndexResult) {
+      parts.push(
+        `\n## Connect Figma: Builder-Indexed Figma File\nBuilder DSI indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for indexed tokens, assets, components, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
+      );
+    }
+
     if (docFiles.length > 0) {
-      const inlined = docFiles.filter((f) => f.textContent);
+      const inlined = docFiles.filter(
+        (f) => f.textContent && !isDesignMdFile(f),
+      );
       const binary = docFiles.filter((f) => !f.textContent);
       if (inlined.length > 0) {
         parts.push(
@@ -419,12 +430,12 @@ export function DesignSystemSetup({
 
     if (customInstructions.trim()) {
       parts.push(
-        `\n## Custom Instructions (durable — store on the design system)\nWhen you call \`create-design-system\`, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate slides:\n\n${customInstructions.trim()}`,
+        `\n## Custom Instructions (durable — store on the design system)\nIf you create a local design system from non-Builder sources, pass these verbatim as the \`customInstructions\` argument. They will be re-applied every time the design system is used to generate slides:\n\n${customInstructions.trim()}`,
       );
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -433,10 +444,8 @@ export function DesignSystemSetup({
 
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
-    toast({
-      title: "Design system generation started",
-      description:
-        "You can keep working while the agent processes the sources.",
+    toast(t("designSystemSetup.generationStarted"), {
+      description: t("designSystemSetup.generationStartedDescription"),
     });
     onComplete();
   }, [
@@ -445,6 +454,7 @@ export function DesignSystemSetup({
     websiteUrls,
     githubLinks,
     codeFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     selectedSystemId,
@@ -452,6 +462,7 @@ export function DesignSystemSetup({
     brandNotes,
     customInstructions,
     onComplete,
+    t,
   ]);
 
   return (
@@ -460,12 +471,14 @@ export function DesignSystemSetup({
         <DialogHeader className="px-6 pt-6 pb-0">
           <DialogTitle className="text-foreground flex items-center gap-2">
             <IconPalette className="w-5 h-5 text-[#609FF8]" />
-            {editingId ? "Edit Design System" : "New Design System"}
+            {editingId
+              ? t("designSystemSetup.editTitle")
+              : t("designSystemSetup.newTitle")}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             {editingId
-              ? "Update your brand identity."
-              : "Provide any combination of sources — the more context, the better the result."}
+              ? t("designSystemSetup.editDescription")
+              : t("designSystemSetup.newDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -473,11 +486,13 @@ export function DesignSystemSetup({
           <div className="space-y-5 py-4">
             {/* Company Name */}
             <div className="space-y-2">
-              <Label className="text-foreground/80">Company / Brand</Label>
+              <Label className="text-foreground/80">
+                {t("designSystemSetup.companyBrand")}
+              </Label>
               <Input
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
-                placeholder="Acme Inc. — We build developer tools..."
+                placeholder={t("designSystemSetup.companyBrandPlaceholder")}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
               />
             </div>
@@ -488,25 +503,24 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconBrandFigma className="w-3.5 h-3.5" />
-                    Figma file
+                    {t("designSystemSetup.figmaFile")}
                   </Label>
-                  {!figResult ? (
+                  {!builderIndexResult ? (
                     <>
                       <button
                         type="button"
                         onClick={() => figInputRef.current?.click()}
-                        disabled={figParsing}
+                        disabled={builderIndexing}
                         className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                       >
-                        {figParsing ? (
+                        {builderIndexing ? (
                           <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                             <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-                            Parsing Figma file...
+                            {t("designSystemSetup.parsingFigmaFile")}
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground">
-                            Upload a .fig local copy to create a slide design
-                            system
+                            {t("designSystemSetup.uploadFigDescription")}
                           </span>
                         )}
                       </button>
@@ -514,29 +528,24 @@ export function DesignSystemSetup({
                         ref={figInputRef}
                         type="file"
                         accept=".fig"
-                        onChange={handleFigImport}
+                        onChange={handleBuilderIndexUpload}
                         className="hidden"
                       />
-                      {figError && (
+                      {builderIndexError && (
                         <div
                           role="alert"
                           className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                         >
-                          {figError}
+                          {builderIndexError}
                         </div>
                       )}
                     </>
                   ) : (
-                    <FigImportPreview
-                      result={figResult}
-                      title={figTitle}
-                      onTitleChange={setFigTitle}
-                      creating={figCreating}
-                      onCreate={handleCreateFromFig}
+                    <BuilderIndexPreview
+                      result={builderIndexResult}
                       onReset={() => {
-                        setFigResult(null);
-                        setFigError(null);
-                        setFigTitle("");
+                        setBuilderIndexResult(null);
+                        setBuilderIndexError(null);
                       }}
                     />
                   )}
@@ -546,13 +555,13 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconWorld className="w-3.5 h-3.5" />
-                    Website URL
+                    {t("designSystemSetup.websiteUrl")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
                       value={websiteUrl}
                       onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="example.com or Nike"
+                      placeholder={t("designSystemSetup.websitePlaceholder")}
                       className="bg-accent border-border text-foreground placeholder:text-muted-foreground"
                       onBlur={() => {
                         const normalized = normalizeWebsiteUrlInput(websiteUrl);
@@ -568,7 +577,7 @@ export function DesignSystemSetup({
                       onClick={addWebsiteUrl}
                       className="shrink-0 cursor-pointer"
                     >
-                      Add
+                      {t("designSystemSetup.add")}
                     </Button>
                   </div>
                   <TagList
@@ -583,7 +592,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconBrandGithub className="w-3.5 h-3.5" />
-                    GitHub Repository
+                    {t("designSystemSetup.githubRepository")}
                   </Label>
                   <div className="flex gap-2">
                     <Input
@@ -601,7 +610,7 @@ export function DesignSystemSetup({
                       onClick={addGithubLink}
                       className="shrink-0 cursor-pointer"
                     >
-                      Add
+                      {t("designSystemSetup.add")}
                     </Button>
                   </div>
                   <TagList
@@ -616,7 +625,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFolder className="w-3.5 h-3.5" />
-                    Code Files
+                    {t("designSystemSetup.codeFiles")}
                   </Label>
                   <button
                     onClick={() => codeInputRef.current?.click()}
@@ -629,14 +638,14 @@ export function DesignSystemSetup({
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      CSS, Tailwind config, theme files — drop or click
+                      {t("designSystemSetup.codeFilesDrop")}
                     </p>
                   </button>
                   <input
                     ref={codeInputRef}
                     type="file"
                     multiple
-                    accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html"
+                    accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
                     onChange={(e) => {
                       if (e.target.files)
                         readTextFiles(e.target.files, setCodeFiles);
@@ -656,7 +665,7 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconFileDescription className="w-3.5 h-3.5" />
-                    Documents & Presentations
+                    {t("designSystemSetup.documents")}
                   </Label>
                   <button
                     onClick={() => docInputRef.current?.click()}
@@ -669,7 +678,7 @@ export function DesignSystemSetup({
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      PPTX, DOCX, PDF, Markdown, TXT — brand guides, design docs
+                      {t("designSystemSetup.documentsDrop")}
                     </p>
                   </button>
                   <input
@@ -696,14 +705,14 @@ export function DesignSystemSetup({
                 <div className="space-y-2">
                   <Label className="text-foreground/80 flex items-center gap-1.5">
                     <IconPhoto className="w-3.5 h-3.5" />
-                    Screenshots & Visual References
+                    {t("designSystemSetup.visualReferences")}
                   </Label>
                   <button
                     onClick={() => imageInputRef.current?.click()}
                     className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer"
                   >
                     <p className="text-xs text-muted-foreground">
-                      Product screenshots, mood boards, logos
+                      {t("designSystemSetup.visualReferencesDrop")}
                     </p>
                   </button>
                   <input
@@ -736,7 +745,7 @@ export function DesignSystemSetup({
                 {existingSystems.length > 0 && (
                   <div className="space-y-2">
                     <Label className="text-foreground/80">
-                      Fork an existing design system
+                      {t("designSystemSetup.forkExisting")}
                     </Label>
                     <div className="grid grid-cols-2 gap-2">
                       {existingSystems
@@ -772,12 +781,14 @@ export function DesignSystemSetup({
             {/* Brand Notes */}
             <div className="space-y-2">
               <Label className="text-foreground/80">
-                {editingId ? "Brand Notes" : "Additional Notes"}
+                {editingId
+                  ? t("designSystemSetup.brandNotes")
+                  : t("designSystemSetup.additionalNotes")}
               </Label>
               <Textarea
                 value={brandNotes}
                 onChange={(e) => setBrandNotes(e.target.value)}
-                placeholder="Design preferences, constraints, brand guidelines..."
+                placeholder={t("designSystemSetup.notesPlaceholder")}
                 rows={3}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
               />
@@ -785,17 +796,20 @@ export function DesignSystemSetup({
 
             {/* Custom Instructions — durable, stored on the design system */}
             <div className="space-y-2">
-              <Label className="text-foreground/80">Custom instructions</Label>
+              <Label className="text-foreground/80">
+                {t("designSystemSetup.customInstructions")}
+              </Label>
               <Textarea
                 value={customInstructions}
                 onChange={(e) => setCustomInstructions(e.target.value)}
-                placeholder="e.g. Always open with a single-stat title slide. Never use bullet lists longer than 3 items. Keep slide titles under 6 words..."
+                placeholder={t(
+                  "designSystemSetup.customInstructionsPlaceholder",
+                )}
                 rows={4}
                 className="bg-accent border-border text-foreground placeholder:text-muted-foreground resize-none"
               />
               <p className="text-[11px] text-muted-foreground">
-                Saved with the design system. Re-applied every time the agent
-                uses it to generate slides.
+                {t("designSystemSetup.customInstructionsDescription")}
               </p>
             </div>
           </div>
@@ -809,7 +823,7 @@ export function DesignSystemSetup({
             disabled={generating}
             className="text-muted-foreground hover:text-foreground cursor-pointer"
           >
-            Cancel
+            {t("designSystemSetup.cancel")}
           </Button>
           <Button
             onClick={handleGenerate}
@@ -819,12 +833,12 @@ export function DesignSystemSetup({
             {generating ? (
               <>
                 <IconLoader2 className="w-4 h-4 animate-spin" />
-                Saving...
+                {t("designSystemSetup.saving")}
               </>
             ) : editingId ? (
-              "Save Changes"
+              t("designSystemSetup.saveChanges")
             ) : (
-              "Continue to generation"
+              t("designSystemSetup.continueToGeneration")
             )}
           </Button>
         </div>
@@ -840,6 +854,7 @@ function TagList({
   items: string[];
   onRemove: (index: number) => void;
 }) {
+  const t = useT();
   if (items.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -852,6 +867,7 @@ function TagList({
           <span className="truncate flex-1">{item}</span>
           <button
             onClick={() => onRemove(i)}
+            aria-label={t("designSystemSetup.removeItem", { item })}
             className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />
@@ -862,137 +878,69 @@ function TagList({
   );
 }
 
-function FigImportPreview({
+function BuilderIndexPreview({
   result,
-  title,
-  onTitleChange,
-  creating,
-  onCreate,
   onReset,
 }: {
-  result: FigImportResult;
-  title: string;
-  onTitleChange: (value: string) => void;
-  creating: boolean;
-  onCreate: () => void;
+  result: BuilderIndexResult;
   onReset: () => void;
 }) {
-  const colors = result.data.colors;
-  const colorEntries = (
-    [
-      ["Accent", "accent"],
-      ["Primary", "primary"],
-      ["Secondary", "secondary"],
-      ["Background", "background"],
-      ["Text", "text"],
-    ] as const
-  ).filter(([, key]) => colors[key]);
-  const typography = result.data.typography;
-  const gradients = result.preview.gradients ?? [];
-
+  const t = useT();
   return (
     <div className="space-y-4 rounded-lg border border-border bg-accent/40 p-4">
       <div className="flex items-start gap-3">
-        {result.preview.thumbnailDataUrl ? (
-          <img
-            src={result.preview.thumbnailDataUrl}
-            alt="Figma file thumbnail"
-            className="h-16 w-24 shrink-0 rounded-md border border-border object-cover"
-          />
-        ) : null}
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
+          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+        </div>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            Design system name
-          </Label>
-          <Input
-            value={title}
-            onChange={(event) => onTitleChange(event.target.value)}
-            className="bg-card border-border text-foreground"
-            placeholder="Brand name"
-          />
-          <p className="text-[11px] text-muted-foreground">
-            {result.preview.nodeCount.toLocaleString()} nodes,{" "}
-            {gradients.length} gradient{gradients.length === 1 ? "" : "s"},{" "}
-            {result.preview.imageCount} image
-            {result.preview.imageCount === 1 ? "" : "s"}
+          <h4 className="text-sm font-medium text-foreground">
+            {t("designSystemSetup.builderIndexingStarted")}
+          </h4>
+          <p className="text-xs text-muted-foreground">
+            {t("designSystemSetup.builderIndexingDescription", {
+              title:
+                result.suggestedTitle || t("designSystemSetup.importedBrand"),
+            })}
           </p>
         </div>
       </div>
 
-      {colorEntries.length > 0 && (
-        <div className="flex flex-wrap gap-3">
-          {colorEntries.map(([label, key]) => (
-            <div key={key} className="flex items-center gap-2">
-              <div
-                className="h-7 w-7 rounded-md border border-border"
-                style={{ backgroundColor: colors[key] }}
-              />
-              <div className="text-xs">
-                <div className="text-foreground/80">{label}</div>
-                <div className="font-mono text-[10px] text-muted-foreground">
-                  {colors[key]}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {gradients.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {gradients.slice(0, 4).map((gradient, index) => (
-            <div
-              key={index}
-              className="h-8 w-24 rounded-md border border-border"
-              style={{ backgroundImage: gradient }}
-              title={gradient}
-            />
-          ))}
-        </div>
-      )}
-
-      {(typography.headingFont || typography.bodyFont) && (
-        <div className="text-xs text-foreground/80">
-          {typography.headingFont && (
-            <span>
-              <span className="text-muted-foreground">Headings:</span>{" "}
-              {typography.headingFont}
-              {typography.headingWeight ? ` ${typography.headingWeight}` : ""}
-            </span>
-          )}
-          {typography.bodyFont && (
-            <span className="ml-3">
-              <span className="text-muted-foreground">Body:</span>{" "}
-              {typography.bodyFont}
-            </span>
-          )}
-        </div>
-      )}
+      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-md border border-border bg-card/50 p-3 text-xs">
+        <dt className="text-muted-foreground">
+          {t("designSystemSetup.builderDesignSystemId")}
+        </dt>
+        <dd className="truncate font-mono text-foreground/80">
+          {result.designSystemId}
+        </dd>
+        <dt className="text-muted-foreground">
+          {t("designSystemSetup.builderJobId")}
+        </dt>
+        <dd className="truncate font-mono text-foreground/80">
+          {result.jobId}
+        </dd>
+      </dl>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-        <Button
-          size="sm"
-          onClick={onCreate}
-          disabled={creating || !title.trim()}
-          className="cursor-pointer"
-        >
-          {creating ? (
-            <>
-              <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-              Creating...
-            </>
-          ) : (
-            "Create design system"
-          )}
+        <Button size="sm" asChild className="cursor-pointer">
+          <a
+            href={withBuilderUtmTrackingParams(result.builderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <IconExternalLink className="w-3.5 h-3.5" />
+            {t("designSystemSetup.openInBuilder")}
+          </a>
         </Button>
         <Button
           size="sm"
           variant="ghost"
           onClick={onReset}
-          disabled={creating}
           className="cursor-pointer"
         >
-          Choose another file
+          {t("designSystemSetup.chooseAnotherFile")}
         </Button>
       </div>
     </div>
@@ -1006,6 +954,7 @@ function FileList({
   files: UploadedFile[];
   onRemove: (id: string) => void;
 }) {
+  const t = useT();
   if (files.length === 0) return null;
   return (
     <div className="space-y-1">
@@ -1021,6 +970,7 @@ function FileList({
           </span>
           <button
             onClick={() => onRemove(f.id)}
+            aria-label={t("designSystemSetup.removeItem", { item: f.name })}
             className="text-muted-foreground hover:text-foreground/70 shrink-0 cursor-pointer"
           >
             <IconX className="w-3.5 h-3.5" />

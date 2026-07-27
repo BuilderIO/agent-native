@@ -1,5 +1,22 @@
 import { table, text, integer } from "@agent-native/core/db/schema";
 
+/**
+ * Short-lived, owner-scoped continuation state for the external Mail
+ * inventory. It intentionally contains compact metadata only; credentials,
+ * bodies, HTML and attachments never enter this table.
+ */
+export const mailInventoryCursors = table("mail_inventory_cursors", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  queryFingerprint: text("query_fingerprint").notNull(),
+  state: text("state").notNull(),
+  version: integer("version").notNull().default(1),
+  claimId: text("claim_id"),
+  claimedAt: integer("claimed_at"),
+  expiresAt: integer("expires_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const scheduledJobs = table("scheduled_jobs", {
   id: text("id").primaryKey(),
   type: text("type", { enum: ["snooze", "send_later"] }).notNull(),
@@ -59,6 +76,15 @@ export const emailLinkTracking = table("email_link_tracking", {
   lastClickedAt: integer("last_clicked_at"),
 });
 
+export const snippets = table("snippets", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  name: text("name").notNull(),
+  body: text("body").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const queuedEmailDrafts = table("queued_email_drafts", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),
@@ -76,6 +102,8 @@ export const queuedEmailDrafts = table("queued_email_drafts", {
   accountEmail: text("account_email"),
   composeId: text("compose_id"),
   sentMessageId: text("sent_message_id"),
+  sendClaimId: text("send_claim_id"),
+  sendClaimedAt: integer("send_claimed_at"),
   status: text("status", {
     enum: ["queued", "in_review", "sent", "dismissed"],
   })

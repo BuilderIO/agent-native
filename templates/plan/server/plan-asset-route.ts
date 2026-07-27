@@ -1,3 +1,6 @@
+import { getSession } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 /**
  * Serving route for plan asset images stored in the `plan_assets` table.
  *
@@ -17,10 +20,8 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
+
 import { getDb, schema } from "./db/index.js";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { getSession } from "@agent-native/core/server";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
 
 /** Allowed image MIME types. SVG is intentionally served as octet-stream to
@@ -95,7 +96,10 @@ export function createPlanAssetHandler() {
       () => null,
     );
 
-    if (!access) {
+    if (
+      !access ||
+      (access.resource as typeof schema.plans.$inferSelect).deletedAt
+    ) {
       // Could not resolve access — either plan not found or requester has no
       // rights. Return 404 to avoid leaking plan existence.
       setResponseStatus(event, 404);

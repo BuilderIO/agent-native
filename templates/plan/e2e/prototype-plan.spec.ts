@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   test,
   expect,
@@ -5,7 +7,11 @@ import {
   type Page,
   type Locator,
 } from "@playwright/test";
-import { readFileSync } from "node:fs";
+
+import {
+  expectedPlanCommentAuthorEmail,
+  planE2eAuthEmailPath,
+} from "./auth-state";
 
 /*
  * PROTOTYPE PLAN — deep, adversarial E2E for the prototype-first plan feature
@@ -22,11 +28,11 @@ import { readFileSync } from "node:fs";
  *    frame's data-style flips), dark<->light, and POPOUT (a real new browser
  *    page opens to ?prototype=1) without stacking a second prototype toolbar.
  *  - TABS: a prototype plan always derives a canvas, so the surface shows
- *    Prototype / Wireframes tabs ([data-plan-visual-tabs]); flipping the tab
- *    swaps the top surface (viewer <-> canvas board) and back.
+ *    Prototype / Wireframes tabs ([data-plan-visual-tabs]); Wireframes is the
+ *    default, and flipping the tab swaps the top surface (canvas <-> viewer).
  *  - The standalone popout (?prototype=1): viewer only, no tabs, no document
  *    header, "Open full plan" control, navigation still works.
- *  - COMMENTS on the prototype: a UI-dropped Figma-dot pin persists with the
+ *  - COMMENTS on the prototype: a UI-dropped comment pin persists with the
  *    real reviewer identity; an API-dropped prototype pin keeps its prototype
  *    anchor, survives reload, and routes to the agent (actionableThreads) vs a
  *    human (humanReviewThreads) per resolutionTarget — the "send to agent" path.
@@ -61,11 +67,13 @@ const REVIEWER_EMAIL =
   (() => {
     try {
       // global-setup writes the actual per-run authed identity here.
-      return readFileSync("e2e/.auth/email.txt", "utf8").trim();
+      return readFileSync(planE2eAuthEmailPath(), "utf8").trim();
     } catch {
       return "e2e-tester@plan.test";
     }
   })();
+const EXPECTED_COMMENT_AUTHOR_EMAIL =
+  expectedPlanCommentAuthorEmail(REVIEWER_EMAIL);
 
 type ActionResult = Record<string, any>;
 
@@ -197,11 +205,28 @@ async function createOnboardingPrototype(
   return { planId: planId as string, body: res.body };
 }
 
-/** Open a plan and wait for the prototype viewer to mount. */
-async function openPrototype(page: Page, planId: string): Promise<Locator> {
+/** Open a plan, optionally activate Prototype, and return its viewer. */
+async function openPrototype(
+  page: Page,
+  planId: string,
+  activatePrototype = true,
+): Promise<Locator> {
   await page.goto(`/plans/${planId}`);
   await page.waitForLoadState("domcontentloaded");
+  const tabs = page.locator("[data-plan-visual-tabs]");
   const viewer = page.locator("[data-plan-prototype-viewer]");
+  await expect(
+    page
+      .locator("[data-plan-visual-tabs], [data-plan-prototype-viewer]")
+      .first(),
+    "the prototype plan visual surface must mount",
+  ).toBeVisible({
+    timeout: 20000,
+  });
+  if (activatePrototype && (await tabs.isVisible())) {
+    await page.getByRole("tab", { name: "Prototype" }).click();
+  }
+  if (!activatePrototype) return viewer;
   await expect(viewer, "the prototype viewer must mount").toBeVisible({
     timeout: 20000,
   });
@@ -562,7 +587,7 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
 }) => {
   const req = page.request;
   const { planId } = await createOnboardingPrototype(req, "tabs");
-  const viewer = await openPrototype(page, planId);
+  const viewer = await openPrototype(page, planId, false);
 
   // create-prototype-plan derives a canvas, so the tab chrome renders.
   const tabs = page.locator("[data-plan-visual-tabs]");
@@ -572,9 +597,9 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   await expect(prototypeTab).toBeVisible();
   await expect(wireframesTab).toBeVisible();
 
-  // Prototype tab is active by default: the live functional viewer is shown.
-  await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
-  await expect(viewer).toBeVisible();
+  // Wireframes are active by default, even when a live prototype is present.
+  await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
+  await expect(viewer).toBeHidden();
   const textNoteTool = page.getByRole("radio", { name: "Text note" });
   const arrowCalloutTool = page.getByRole("radio", { name: "Arrow callout" });
   await expect(
@@ -583,8 +608,13 @@ test("a prototype plan exposes Prototype/Wireframes tabs that flip the top surfa
   ).toBeVisible();
   await expect(arrowCalloutTool).toBeVisible();
 
-  // Choosing a drawing tool from Prototype switches back to the wireframe canvas,
-  // because freeform notes and arrow callouts are authored on the canvas layer.
+  // The Prototype tab remains available for interactive review.
+  await prototypeTab.click();
+  await expect(prototypeTab).toHaveAttribute("aria-selected", "true");
+  await expect(viewer).toBeVisible();
+
+  // Choosing a drawing tool from Prototype switches back to the wireframe
+  // canvas, because freeform notes and arrow callouts are authored there.
   await textNoteTool.click();
   await expect(wireframesTab).toHaveAttribute("aria-selected", "true");
   await expect(
@@ -771,7 +801,7 @@ test("comments work in prototype mode: a UI pin on a live screen persists with t
       (c: any) => c.createdBy === "human",
     );
     expect(human.length).toBeGreaterThanOrEqual(1);
-    expect(human[0].authorEmail).toBe(REVIEWER_EMAIL);
+    expect(human[0].authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
     expect(
       String(human[0].anchor ?? ""),
       "the persisted pin anchors to the prototype surface",
@@ -818,7 +848,7 @@ test("prototype comments route to the agent or a human by resolutionTarget and s
     ).toBeGreaterThanOrEqual(2);
     // Reviewer identity stamped on every human pin.
     for (const c of comments) {
-      expect(c.authorEmail).toBe(REVIEWER_EMAIL);
+      expect(c.authorEmail).toBe(EXPECTED_COMMENT_AUTHOR_EMAIL);
       expect(
         String(c.anchor ?? ""),
         "every prototype pin keeps a prototype anchor",

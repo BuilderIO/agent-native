@@ -1,25 +1,47 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
+import { appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconCheck,
   IconClock,
   IconCopy,
   IconDeviceDesktop,
-  IconDots,
+  IconDotsVertical,
   IconEdit,
   IconExternalLink,
   IconLoader2,
   IconNotes,
+  IconPlayerStop,
+  IconRefresh,
   IconShare3,
   IconTrash,
   IconUsers,
-  IconWand,
 } from "@tabler/icons-react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { NavLink, useNavigate, useParams } from "react-router";
+import { toast } from "sonner";
+
+import { CaptureInstallButton } from "@/components/capture-install-options";
+import { PageHeader } from "@/components/library/page-header";
+import {
+  AttendeeStack,
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "@/components/meetings/attendee-stack";
+import { BulletLink } from "@/components/meetings/bullet-link";
+import { CanvasEditor } from "@/components/meetings/canvas-editor";
+import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
+import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
+import {
+  TranscriptBubbles,
+  type TranscriptSegment,
+} from "@/components/meetings/transcript-bubbles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,6 +52,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,31 +62,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
-import {
-  AttendeeStack,
-  attendeeInitials,
-  type AttendeeStackParticipant,
-} from "@/components/meetings/attendee-stack";
-import { PageHeader } from "@/components/library/page-header";
-import { ShareMeetingPopover } from "@/components/meetings/share-meeting-dialog";
-import {
-  TranscriptBubbles,
-  type TranscriptSegment,
-} from "@/components/meetings/transcript-bubbles";
-import { BulletLink } from "@/components/meetings/bullet-link";
-import { CanvasEditor } from "@/components/meetings/canvas-editor";
-import { QuickAskSidebar } from "@/components/meetings/quick-ask-sidebar";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDesktopPromo } from "@/hooks/use-desktop-promo";
+import enMessages from "@/i18n/en-US";
+import { cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: "Meeting · Clips" }];
+  return [{ title: enMessages.meetingDetailRoute.pageTitle }];
 }
 
 interface ActionItem {
@@ -92,6 +101,8 @@ interface Meeting {
   recordingId?: string | null;
   recordingDurationMs?: number | null;
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  visibility?: "private" | "org" | "public" | null;
+  shareTranscript?: boolean | null;
   summaryMd?: string | null;
   userNotesMd?: string | null;
   bulletsJson?: Bullet[] | null;
@@ -115,14 +126,6 @@ function formatDateTime(iso?: string | null): string {
   }
 }
 
-function formatDurationMs(ms?: number | null): string {
-  if (!ms || ms <= 0) return "";
-  const total = Math.round(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 function TitleEditor({
   value,
   onChange,
@@ -134,6 +137,7 @@ function TitleEditor({
   compact?: boolean;
   readOnly?: boolean;
 }) {
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -153,7 +157,9 @@ function TitleEditor({
 
   if (readOnly) {
     return (
-      <h1 className={cn(textCls, "min-w-0")}>{value || "Untitled meeting"}</h1>
+      <h1 className={cn(textCls, "min-w-0")}>
+        {value || t("meetingDetail.untitledMeeting")}
+      </h1>
     );
   }
 
@@ -164,7 +170,9 @@ function TitleEditor({
         onClick={() => setEditing(true)}
         className="group flex min-w-0 items-center gap-2 text-left cursor-pointer"
       >
-        <h1 className={textCls}>{value || "Untitled meeting"}</h1>
+        <h1 className={textCls}>
+          {value || t("meetingDetail.untitledMeeting")}
+        </h1>
         <IconEdit
           className={cn(
             editIconCls,
@@ -300,6 +308,7 @@ function ActionItemsByPerson({
 }
 
 export default function MeetingDetailRoute() {
+  const t = useT();
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -308,7 +317,10 @@ export default function MeetingDetailRoute() {
     meeting?: Omit<Meeting, "participants" | "segmentsJson"> | null;
     participants?: Participant[];
     actionItems?: ActionItem[];
-    transcript?: { segmentsJson?: TranscriptSegment[] | null } | null;
+    transcript?: {
+      fullText?: string | null;
+      segmentsJson?: TranscriptSegment[] | null;
+    } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "viewer";
   };
@@ -334,9 +346,13 @@ export default function MeetingDetailRoute() {
   const updateMeeting = useActionMutation<any, any>("update-meeting");
   const deleteMeeting = useActionMutation<any, any>("delete-meeting");
   const finalize = useActionMutation<any, any>("finalize-meeting");
+  const stopMeetingRecording = useActionMutation<any, any>(
+    "stop-meeting-recording",
+  );
   const { isDesktopApp } = useDesktopPromo();
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [endMeetingOpen, setEndMeetingOpen] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const previousHasNotesRef = useRef(false);
   const autoFinalizedRef = useRef(false);
@@ -414,6 +430,26 @@ export default function MeetingDetailRoute() {
     previousHasNotesRef.current = hasNotes;
   }, [hasNotes]);
 
+  // Live "time remaining" countdown (Granola parity) — ticks every 30s so it
+  // never needs to be exact to the second; hidden once scheduledEnd passes.
+  const [nowForCountdown, setNowForCountdown] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLive || !meeting?.scheduledEnd) return;
+    const interval = window.setInterval(
+      () => setNowForCountdown(Date.now()),
+      30_000,
+    );
+    return () => window.clearInterval(interval);
+  }, [isLive, meeting?.scheduledEnd]);
+  const minutesRemaining = useMemo(() => {
+    if (!isLive || !meeting?.scheduledEnd) return null;
+    const endMs = Date.parse(meeting.scheduledEnd);
+    if (Number.isNaN(endMs)) return null;
+    const diffMs = endMs - nowForCountdown;
+    if (diffMs <= 0) return null;
+    return Math.max(1, Math.round(diffMs / 60_000));
+  }, [isLive, meeting?.scheduledEnd, nowForCountdown]);
+
   const patchCachedMeeting = (
     patch: Partial<Meeting> & { actionItemsJson?: ActionItem[] },
   ) => {
@@ -444,12 +480,6 @@ export default function MeetingDetailRoute() {
     updateMeeting.mutate({ id: meeting.id, summaryMd: next });
   };
 
-  const handleUserNotesChange = (next: string) => {
-    if (!meeting) return;
-    patchCachedMeeting({ userNotesMd: next });
-    updateMeeting.mutate({ id: meeting.id, userNotesMd: next });
-  };
-
   const handleToggleActionItem = (index: number, completed: boolean) => {
     if (!meeting) return;
     const items = meeting.actionItemsJson ?? [];
@@ -467,9 +497,10 @@ export default function MeetingDetailRoute() {
 
   const handleSeek = (ms: number) => {
     if (!meeting?.recordingId) return;
-    if (typeof window !== "undefined") {
-      window.location.assign(`/r/${meeting.recordingId}?t=${ms}`);
-    }
+    // /r/:recordingId's `t` param is seconds (see parseTimeParam in
+    // r.$recordingId.tsx), while transcript segments use ms timestamps.
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    navigate(`/r/${meeting.recordingId}?t=${seconds}`);
   };
 
   const handleJumpToSegment = (segmentIndex: number) => {
@@ -478,14 +509,17 @@ export default function MeetingDetailRoute() {
 
   const handleFinalize = () => {
     if (!meeting) return;
-    // "My notes" (userNotesMd) is a separate field and is untouched by
+    // User-authored notes (userNotesMd) are separate and untouched by
     // regeneration; only the AI summary/bullets are overwritten. Reassure
     // the user their own notes are kept.
     if (hasNotes) {
-      toast.info("Regenerating notes — your own notes are kept");
+      toast.info(t("meetingDetail.regeneratingNotes"));
     }
     autoFinalizedRef.current = true;
-    finalize.mutate({ meetingId: meeting.id });
+    // force:true — manual regenerate must overwrite even if the server
+    // considers the current notes fresh (contract with finalize-meeting's
+    // concurrent `force` param). Auto-finalize stays without force.
+    finalize.mutate({ meetingId: meeting.id, force: true });
   };
 
   const handleDeleteMeeting = () => {
@@ -494,13 +528,65 @@ export default function MeetingDetailRoute() {
       { id: meeting.id },
       {
         onSuccess: () => {
-          toast.success("Meeting removed");
+          toast.success(t("meetingDetail.meetingRemoved"));
           qc.invalidateQueries({ queryKey: ["action", "list-meetings"] });
           navigate("/meetings", { replace: true });
         },
         onError: (err: unknown) => {
           toast.error(
-            err instanceof Error ? err.message : "Couldn't remove meeting",
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotRemoveMeeting"),
+          );
+        },
+      },
+    );
+  };
+
+  const handleEndMeeting = () => {
+    if (!meeting) return;
+    // The meeting share link is valid independently of the stop call, so copy
+    // it while the user's click still counts as activation instead of waiting
+    // on the mutation. The public meeting page resolves `visibility = public`
+    // rows only — anything else would hand the user a link that 404s for the
+    // people they send it to.
+    if (meeting.visibility === "public" && typeof window !== "undefined") {
+      const shareUrl = `${window.location.origin}${appPath(
+        `/share/meeting/${meeting.id}`,
+      )}`;
+      void writeClipboardText(shareUrl).then((copied) => {
+        if (copied) {
+          toast.success(t("recordRoute.linkCopied"));
+          return;
+        }
+        toast(t("meetingDetail.share"), {
+          action: {
+            label: t("recordRoute.copyLinkAction"),
+            onClick: () => {
+              void writeClipboardText(shareUrl);
+            },
+          },
+        });
+      });
+    }
+    // Optimistic: flip the live badge off immediately rather than waiting
+    // for the next 2s poll — stop-meeting-recording stamps actualEnd and
+    // flips transcriptStatus server-side.
+    patchCachedMeeting({
+      actualEnd: new Date().toISOString(),
+      transcriptStatus:
+        meeting.transcriptStatus === "in_progress"
+          ? "ready"
+          : meeting.transcriptStatus,
+    });
+    stopMeetingRecording.mutate(
+      { meetingId: meeting.id },
+      {
+        onError: (err: unknown) => {
+          toast.error(
+            err instanceof Error
+              ? err.message
+              : t("meetingDetail.couldNotEndMeeting"),
           );
         },
       },
@@ -535,7 +621,7 @@ export default function MeetingDetailRoute() {
         <Skeleton className="h-6 w-32 mb-4" />
         <Skeleton className="h-9 w-96 mb-2" />
         <Skeleton className="h-4 w-64 mb-6" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="clips-meeting-detail-skeleton-grid grid grid-cols-1 gap-6">
           <Skeleton className="h-[480px] w-full" />
           <Skeleton className="h-[480px] w-full" />
         </div>
@@ -547,7 +633,7 @@ export default function MeetingDetailRoute() {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Couldn't load this meeting.
+          {t("meetingDetail.couldNotLoadMeeting")}
         </div>
       </div>
     );
@@ -556,7 +642,8 @@ export default function MeetingDetailRoute() {
   const bullets = meeting.bulletsJson ?? [];
   const actionItems = meeting.actionItemsJson ?? [];
   const segments = meeting.segmentsJson ?? [];
-  const recordingDuration = formatDurationMs(meeting.recordingDurationMs);
+  const hasSummary =
+    !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
 
   const handleCopyTranscript = async () => {
     if (!segments.length) return;
@@ -569,27 +656,27 @@ export default function MeetingDetailRoute() {
     try {
       await navigator.clipboard.writeText(text);
       setTranscriptCopied(true);
-      toast.success("Transcript copied");
+      toast.success(t("meetingDetail.transcriptCopied"));
       setTimeout(() => setTranscriptCopied(false), 1500);
     } catch {
-      toast.error("Couldn't copy transcript");
+      toast.error(t("meetingDetail.couldNotCopyTranscript"));
     }
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto w-full flex flex-col min-h-0 flex-1">
+    <div className="p-6 max-w-6xl mx-auto w-full flex flex-col min-h-0 flex-1 lg:h-full lg:overflow-hidden">
       <PageHeader>
         <Tooltip>
           <TooltipTrigger asChild>
             <NavLink
               to="/meetings"
-              aria-label="All meetings"
+              aria-label={t("meetingDetail.allMeetings")}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >
               <IconArrowLeft className="h-4 w-4" />
             </NavLink>
           </TooltipTrigger>
-          <TooltipContent>All meetings</TooltipContent>
+          <TooltipContent>{t("meetingDetail.allMeetings")}</TooltipContent>
         </Tooltip>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <TitleEditor
@@ -610,30 +697,32 @@ export default function MeetingDetailRoute() {
               Live
             </Badge>
           )}
+          {minutesRemaining != null && (
+            <span className="text-xs text-muted-foreground shrink-0">
+              {t("meetingDetail.timeRemaining", { count: minutesRemaining })}
+            </span>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {!canEdit ? null : finalize.isPending ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              Generating notes…
+              {t("meetingDetail.generatingNotesInline")}
             </span>
-          ) : hasNotes ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleFinalize}
-              className="cursor-pointer h-8"
-            >
-              Regenerate notes
-            </Button>
           ) : null}
           <ShareMeetingPopover
             meetingId={meeting.id}
             meetingTitle={meeting.title}
+            shareTranscript={meeting.shareTranscript === true}
+            transcriptReady={
+              meeting.transcriptStatus === "ready" &&
+              (segments.length > 0 ||
+                Boolean(data?.transcript?.fullText?.trim()))
+            }
           >
             <Button size="sm" className="shrink-0 gap-1.5">
               <IconShare3 className="h-4 w-4" />
-              Share
+              {t("meetingDetail.share")}
             </Button>
           </ShareMeetingPopover>
           {canEdit && (
@@ -644,12 +733,33 @@ export default function MeetingDetailRoute() {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8 cursor-pointer"
-                    aria-label="Meeting options"
+                    aria-label={t("meetingDetail.meetingOptions")}
                   >
-                    <IconDots className="h-4 w-4" />
+                    <IconDotsVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
+                  {hasSummary && !finalize.isPending && (
+                    <DropdownMenuItem onSelect={handleFinalize}>
+                      <IconRefresh className="mr-2 h-4 w-4" />
+                      {t("meetingDetail.regenerateNotes")}
+                    </DropdownMenuItem>
+                  )}
+                  {isLive && (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        // Defer opening the second AlertDialog until after
+                        // the dropdown's own close animation/unmount so Radix
+                        // doesn't fight over focus/pointer state between the
+                        // two overlays.
+                        setTimeout(() => setEndMeetingOpen(true), 0);
+                      }}
+                    >
+                      <IconPlayerStop className="mr-2 h-4 w-4" />
+                      {t("meetingDetail.endMeeting")}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
@@ -658,16 +768,17 @@ export default function MeetingDetailRoute() {
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="mr-2 h-4 w-4" />
-                    Remove meeting
+                    {t("meetingDetail.removeMeeting")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Remove this meeting?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.removeThisMeeting")}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This removes the meeting from Clips. It will not delete any
-                    linked transcript or change your Google Calendar.
+                    {t("meetingDetail.removeDescription")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -682,7 +793,38 @@ export default function MeetingDetailRoute() {
                     disabled={deleteMeeting.isPending}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
-                    {deleteMeeting.isPending ? "Removing..." : "Remove"}
+                    {deleteMeeting.isPending
+                      ? t("meetingDetail.removing")
+                      : t("meetingDetail.remove")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+          {canEdit && isLive && (
+            <AlertDialog open={endMeetingOpen} onOpenChange={setEndMeetingOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t("meetingDetail.endThisMeeting")}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t("meetingDetail.endMeetingDescription")}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={stopMeetingRecording.isPending}>
+                    {t("meetingDetail.cancel")}
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setEndMeetingOpen(false);
+                      handleEndMeeting();
+                    }}
+                    disabled={stopMeetingRecording.isPending}
+                  >
+                    {t("meetingDetail.endMeeting")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -692,32 +834,18 @@ export default function MeetingDetailRoute() {
       </PageHeader>
 
       {showDesktopRecordHint && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
-          <IconDeviceDesktop className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm">
-            Record live notes for this meeting from the Clips desktop app — the
-            transcript and AI notes will appear here automatically.
+        <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
+          <IconDeviceDesktop className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 text-sm">
+            {t("meetingDetail.desktopHint")}
           </span>
-          {!isDesktopApp && (
-            <Button
-              asChild
-              size="sm"
-              variant="secondary"
-              className="ml-auto h-8 gap-1.5 cursor-pointer"
-            >
-              <NavLink to="/download">
-                <IconExternalLink className="h-3.5 w-3.5" />
-                Get desktop app
-              </NavLink>
-            </Button>
-          )}
         </div>
       )}
 
       {finalize.isError && (
         <div className="mb-4 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {(finalize.error as Error)?.message ||
-            "Couldn't generate notes. Try again."}
+            t("meetingDetail.generateNotesFailed")}
         </div>
       )}
 
@@ -748,99 +876,56 @@ export default function MeetingDetailRoute() {
             className="inline-flex items-center gap-1.5 rounded border border-border px-2 py-0.5 hover:text-foreground hover:bg-accent/40 cursor-pointer"
           >
             <IconExternalLink className="h-3.5 w-3.5" />
-            Join call
+            {t("meetingDetail.joinCall")}
           </a>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] lg:grid-rows-[minmax(0,1fr)] gap-6 flex-1 min-h-0">
-        {/* Two-tone canvas: user notes (black) + AI summary/bullets (gray) */}
+      <div className="clips-meeting-detail-grid grid grid-cols-1 gap-6 flex-1 min-h-0 lg:overflow-hidden">
+        {/* Summary canvas with generated bullets and action items. */}
         <div
           className={cn(
-            "rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col",
+            "clips-meeting-notes-panel rounded-lg border border-border bg-background min-h-[480px] overflow-hidden flex flex-col",
             notesJustArrived && "animate-in fade-in duration-500",
           )}
         >
-          <Tabs
-            defaultValue="notes"
-            className="flex min-h-0 flex-1 flex-col gap-0"
-          >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-              <TabsList className="h-8 gap-1 bg-transparent p-0">
-                <TabsTrigger
-                  value="notes"
-                  className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
-                >
-                  My notes
-                </TabsTrigger>
-                <TabsTrigger
-                  value="ai"
-                  className="h-7 gap-1 px-2.5 text-xs data-[state=active]:bg-muted"
-                >
-                  <IconWand className="h-3 w-3" />
-                  AI notes
-                </TabsTrigger>
-                <TabsTrigger
-                  value="actions"
-                  className="h-7 px-2.5 text-xs data-[state=active]:bg-muted"
-                >
-                  Action items
-                  {actionItems.length > 0 && (
-                    <span className="ml-1 text-muted-foreground">
-                      {actionItems.length}
-                    </span>
-                  )}
-                </TabsTrigger>
-              </TabsList>
-              {finalize.isPending && (
-                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <IconLoader2 className="h-3 w-3 animate-spin" />
-                  Working…
-                </span>
-              )}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+            <div className="text-xs font-medium">
+              {t("meetingDetail.summary")}
             </div>
+            {finalize.isPending && (
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <IconLoader2 className="h-3 w-3 animate-spin" />
+                {t("meetingDetail.working")}
+              </span>
+            )}
+          </div>
 
-            <TabsContent
-              value="notes"
-              className="mt-0 min-h-0 flex-1 overflow-y-auto"
-            >
-              <CanvasEditor
-                view="user"
-                userNotesMd={meeting.userNotesMd ?? ""}
-                onUserNotesChange={handleUserNotesChange}
-                readOnly={!canEdit}
-              />
-            </TabsContent>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <CanvasEditor
+              view="ai"
+              summaryMd={meeting.summaryMd ?? ""}
+              bullets={bullets.map((b) => b.text)}
+              onSummaryChange={handleSummaryChange}
+              readOnly={!canEdit}
+              renderBullet={(b) => (
+                <BulletLink
+                  bullet={b}
+                  segments={segments}
+                  onJumpTo={handleJumpToSegment}
+                >
+                  <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                    <span>•</span>
+                    <span className="flex-1">{b}</span>
+                  </div>
+                </BulletLink>
+              )}
+            />
 
-            <TabsContent
-              value="ai"
-              className="mt-0 min-h-0 flex-1 overflow-y-auto"
-            >
-              <CanvasEditor
-                view="ai"
-                summaryMd={meeting.summaryMd ?? ""}
-                bullets={bullets.map((b) => b.text)}
-                onSummaryChange={handleSummaryChange}
-                readOnly={!canEdit}
-                renderBullet={(b) => (
-                  <BulletLink
-                    bullet={b}
-                    segments={segments}
-                    onJumpTo={handleJumpToSegment}
-                  >
-                    <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
-                      <span>•</span>
-                      <span className="flex-1">{b}</span>
-                    </div>
-                  </BulletLink>
-                )}
-              />
-            </TabsContent>
-
-            <TabsContent
-              value="actions"
-              className="mt-0 min-h-0 flex-1 overflow-y-auto px-6 py-4"
-            >
+            <div className="max-w-2xl px-6 pb-6">
+              <div className="mb-3 text-xs font-medium">
+                {t("meetingDetail.actionItems")}
+              </div>
               {actionItems.length > 0 ? (
                 <ActionItemsByPerson
                   items={actionItems}
@@ -849,27 +934,21 @@ export default function MeetingDetailRoute() {
                 />
               ) : (
                 <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
-                  No action items yet. They appear here after notes are
-                  generated from a transcript.
+                  {t("meetingDetail.noActionItems")}
                 </p>
               )}
-            </TabsContent>
-          </Tabs>
+            </div>
+          </div>
         </div>
 
-        {/* Transcript pane — chat-bubble layout */}
+        {/* Transcript pane — plain agent-chat-style text layout */}
         <div className="rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 bg-background">
             <div className="flex items-center gap-1.5 text-xs font-medium">
               <IconNotes className="h-3.5 w-3.5" />
-              Transcript
+              {t("meetingDetail.transcript")}
             </div>
             <div className="flex items-center gap-2">
-              {meeting.transcriptStatus === "ready" && (
-                <span className="text-[10px] text-muted-foreground">
-                  {segments.length} segments
-                </span>
-              )}
               {segments.length > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -877,7 +956,7 @@ export default function MeetingDetailRoute() {
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 cursor-pointer"
-                      aria-label="Copy transcript"
+                      aria-label={t("meetingDetail.copyTranscript")}
                       onClick={handleCopyTranscript}
                     >
                       {transcriptCopied ? (
@@ -887,7 +966,9 @@ export default function MeetingDetailRoute() {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Copy full transcript</TooltipContent>
+                  <TooltipContent>
+                    {t("meetingDetail.copyFullTranscript")}
+                  </TooltipContent>
                 </Tooltip>
               )}
             </div>

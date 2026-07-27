@@ -1,13 +1,19 @@
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 import { useLocation } from "react-router";
-import { AgentToggleButton, useActionQuery } from "@agent-native/core/client";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
-const pageTitles: Record<string, string> = {
-  "/": "Create",
-  "/library": "Library",
-  "/brand-kits": "Brand Kits",
-  "/extensions": "Extensions",
-  "/settings": "Settings",
+const pageTitleKeys: Record<string, string> = {
+  "/": "navigation.create",
+  "/library": "navigation.library",
+  "/brand-kits": "navigation.brandKits",
+  "/agent": "settings.agentTitle",
+  "/extensions": "navigation.extensions",
+  "/settings": "navigation.settings",
 };
 
 function LibraryTitle({ id }: { id: string }) {
@@ -19,7 +25,10 @@ function LibraryTitle({ id }: { id: string }) {
 }
 
 function StaticTitle({ pathname }: { pathname: string }) {
-  const title = pageTitles[pathname] ?? "Assets";
+  const t = useT();
+  const title = pageTitleKeys[pathname]
+    ? t(pageTitleKeys[pathname])
+    : t("navigation.brand");
   return (
     <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
   );
@@ -27,7 +36,9 @@ function StaticTitle({ pathname }: { pathname: string }) {
 
 function ResolvedTitle() {
   const location = useLocation();
-  const libraryMatch = location.pathname.match(/^\/brand-kits\/([^/]+)/);
+  const libraryMatch = location.pathname.match(
+    /^\/(?:library|brand-kits)\/([^/]+)/,
+  );
   if (libraryMatch) {
     return <LibraryTitle id={libraryMatch[1]} />;
   }
@@ -35,17 +46,19 @@ function ResolvedTitle() {
 }
 
 export function Header() {
+  const location = useLocation();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
+  const showAgentToggle = location.pathname !== "/";
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
+    <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {title ?? <ResolvedTitle />}
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <AgentToggleButton />
+        {showAgentToggle ? <AgentToggleButton /> : null}
       </div>
     </header>
   );

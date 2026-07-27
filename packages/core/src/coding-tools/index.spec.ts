@@ -1,10 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
+import { createDbScriptEntries } from "../server/agent-chat/script-entries.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
@@ -54,6 +56,23 @@ describe("shared coding tools", () => {
     );
   });
 
+  it("omits bridge-only actions from engine tool lists", () => {
+    const registry = createCodingToolRegistry({
+      cwd: tempDir(),
+      restrictToCwd: true,
+    });
+
+    expect(
+      actionsToEngineTools({
+        ...registry,
+        bridgeOnly: {
+          ...registry.read,
+          agentTool: false,
+        },
+      }).map((tool) => tool.name),
+    ).toEqual(["bash", "read", "edit", "write"]);
+  });
+
   it("keeps sidebar dev mode on the shared tools and hides legacy aliases by default", async () => {
     const registry = await createDevScriptRegistry();
 
@@ -66,6 +85,95 @@ describe("shared coding tools", () => {
     expect(registry["write-file"]).toBeUndefined();
     expect(registry["list-files"]).toBeUndefined();
     expect(registry["search-files"]).toBeUndefined();
+  });
+
+  it("defaults raw database tools to read-only in dev mode", async () => {
+    const registry = await createDevScriptRegistry();
+
+    expect(registry["db-schema"]).toBeDefined();
+    expect(registry["db-query"]).toBeDefined();
+    expect(registry["db-check-scoping"]).toBeDefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-exec --sql "UPDATE forms SET status = 1"',
+      }),
+    ).resolves.toContain("raw database write tools are disabled");
+  });
+
+  it("uses an exclusive db-exec schema when write mode is explicit", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: "write" });
+
+    expect(registry["db-exec"]?.tool.parameters).toMatchObject({
+      additionalProperties: false,
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+    });
+  });
+
+  it("can disable raw database tools without removing coding tools", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    expect(registry.bash).toBeDefined();
+    expect(registry.read).toBeDefined();
+    expect(registry.edit).toBeDefined();
+    expect(registry.write).toBeDefined();
+    expect(registry["db-query"]).toBeUndefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    expect(registry["db-schema"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-query --sql "SELECT 1"',
+      }),
+    ).resolves.toContain("raw database tools are disabled");
+  });
+
+  it("can expose read-only database tools without raw SQL write tools", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: "read" });
+
+    expect(registry["db-schema"]).toBeDefined();
+    expect(registry["db-query"]).toBeDefined();
+    expect(registry["db-check-scoping"]).toBeDefined();
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+    await expect(
+      registry.bash.run({
+        command: 'pnpm action db-exec --sql "UPDATE forms SET status = 1"',
+      }),
+    ).resolves.toContain("raw database write tools are disabled");
+  });
+
+  it("keeps core read-only database tools out of automatic external exposure", async () => {
+    const registry = await createDbScriptEntries("read", {
+      extensionTools: false,
+    });
+
+    for (const name of ["db-schema", "db-query"]) {
+      expect(registry[name]).toMatchObject({
+        readOnly: true,
+      });
+      expect(registry[name].http).toBeUndefined();
+      expect(registry[name].publicAgent).toBeUndefined();
+    }
+    expect(registry["db-exec"]).toBeUndefined();
+    expect(registry["db-patch"]).toBeUndefined();
+  });
+
+  it("rejects CLI-only database flags from native DB read tools", async () => {
+    const registry = await createDbScriptEntries("read", {
+      extensionTools: false,
+    });
+
+    await expect(
+      registry["db-query"].run({
+        sql: "SELECT 1",
+        db: "/tmp/other-app.db",
+      }),
+    ).rejects.toThrow("Unknown argument: db");
+    await expect(
+      registry["db-schema"].run({ db: "/tmp/other-app.db" }),
+    ).rejects.toThrow("Unknown argument: db");
   });
 
   it("can expose legacy aliases explicitly for compatibility callers", async () => {

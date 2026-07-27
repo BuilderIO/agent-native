@@ -11,12 +11,22 @@
  * dedicated actions which also use the same per-deck lock.
  */
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import { assertAccess } from "@agent-native/core/sharing";
-import { notifyClients } from "../server/handlers/decks.js";
+import {
+  getGenerationCreativeContext,
+  mergeCreativeContextReuseLabels,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { getDb, schema } from "../server/db/index.js";
+import { notifyClients } from "../server/handlers/decks.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
@@ -75,6 +85,7 @@ const PatchSlideOp = z.object({
 const DeleteSlideOp = z.object({
   op: z.literal("delete-slide"),
   slideId: z.string(),
+  allowEmpty: z.boolean().optional(),
 });
 
 /**
@@ -112,7 +123,7 @@ const PatchDeckFieldsOp = z.object({
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .optional(),
-      aspectRatio: z.string().optional(),
+      aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
     })
@@ -128,6 +139,42 @@ export const OperationSchema = z.discriminatedUnion("op", [
 ]);
 
 export type Operation = z.infer<typeof OperationSchema>;
+
+const CreativeContextReuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
+
+function storedCreativeContext(value: unknown): {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.contextMode !== "off" &&
+    record.contextMode !== "auto" &&
+    record.contextMode !== "pinned"
+  ) {
+    return null;
+  }
+  return {
+    contextMode: record.contextMode,
+    contextPackId:
+      typeof record.contextPackId === "string" ? record.contextPackId : null,
+    reuseLabels: Array.isArray(record.reuseLabels)
+      ? (record.reuseLabels as CreativeContextReuseLabel[])
+      : [],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Core merge logic (exported for unit tests)
@@ -165,8 +212,9 @@ export function applyOperation(deck: any, op: Operation): void {
     case "delete-slide": {
       const idx = slides.findIndex((s: { id: string }) => s.id === op.slideId);
       if (idx !== -1) slides.splice(idx, 1);
-      // Ensure at least one slide remains (mirrors client-side behaviour)
-      if (slides.length === 0) {
+      // Ensure at least one slide remains for direct user deletes. Undoing an
+      // add-slide from a legitimately empty deck opts into preserving empty.
+      if (slides.length === 0 && !op.allowEmpty) {
         slides.push({
           id: `slide-${Date.now()}-fallback`,
           content: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4);">Double-click to edit</div></div>`,
@@ -256,8 +304,21 @@ export default defineAction({
       .array(OperationSchema)
       .min(1)
       .describe("Ordered list of granular operations to apply"),
+    creativeContext: z
+      .object({
+        contextPackId: z.string().optional(),
+        contextModeOverride: z.literal("off").optional(),
+        reuseLabels: z
+          .array(CreativeContextReuseLabelSchema)
+          .optional()
+          .default([]),
+      })
+      .optional()
+      .describe(
+        "Optional exact Creative Context provenance for context-backed slide patch operations.",
+      ),
   }),
-  run: async ({ deckId, operations }) => {
+  run: async ({ deckId, operations, creativeContext }) => {
     await assertAccess("deck", deckId, "editor");
 
     return withDeckLock(deckId, async () => {
@@ -272,6 +333,7 @@ export default defineAction({
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const deck: any = JSON.parse(row.data);
+      const existingContext = storedCreativeContext(deck.creativeContext);
 
       for (const op of operations) {
         applyOperation(deck, op);
@@ -298,15 +360,147 @@ export default defineAction({
         ? (dsOp.fields.designSystemId ?? null)
         : row.designSystemId;
 
-      await db
-        .update(schema.decks)
-        .set({
-          title: sqlTitle,
-          data: JSON.stringify(deck),
-          designSystemId: sqlDesignSystemId,
-          updatedAt: now,
-        })
-        .where(eq(schema.decks.id, deckId));
+      let generationRecord:
+        | {
+            contextMode: "off" | "auto" | "pinned";
+            contextPackId: string | null;
+            reuseLabels: CreativeContextReuseLabel[];
+            elementProvenance: Array<{
+              elementId: string;
+              influence:
+                | "reused"
+                | "adapted"
+                | "reference-conditioned"
+                | "generated";
+              itemId?: string;
+              itemVersionId?: string;
+              label?: string;
+            }>;
+          }
+        | undefined;
+      if (creativeContext) {
+        const affectedSlideIds = [
+          ...new Set(
+            operations.flatMap((operation) =>
+              operation.op === "patch-slide" || operation.op === "add-slide"
+                ? [operation.slideId]
+                : [],
+            ),
+          ),
+        ];
+        if (!affectedSlideIds.length) {
+          throw new Error(
+            "Creative Context provenance requires a patch-slide or add-slide operation",
+          );
+        }
+        if (
+          existingContext &&
+          creativeContext.contextPackId !== undefined &&
+          creativeContext.contextPackId !== existingContext.contextPackId
+        ) {
+          throw new Error(
+            "The deck patch must use the deck's existing creative-context pack",
+          );
+        }
+        const effectivePackId =
+          creativeContext.contextPackId ?? existingContext?.contextPackId;
+        const requestedLabels = affectedSlideIds.flatMap((slideId) => {
+          const labels = creativeContext.reuseLabels.filter(
+            (label) => !label.elementId || label.elementId === slideId,
+          );
+          return labels.length
+            ? labels.map((label) => ({ ...label, elementId: slideId }))
+            : [
+                {
+                  kind: "slide",
+                  label: "Net-new deck patch",
+                  dataRole: "untrusted-reference" as const,
+                  elementId: slideId,
+                  influence: "generated" as const,
+                },
+              ];
+        });
+        const validated = await validateGenerationCreativeContext({
+          contextPackId: effectivePackId,
+          contextPackSource:
+            creativeContext.contextPackId === undefined
+              ? "inherited"
+              : "explicit",
+          contextModeOverride: creativeContext.contextModeOverride,
+          reuseLabels: requestedLabels,
+          reuseLabelsSource: creativeContext.reuseLabels.length
+            ? "explicit"
+            : "inherited",
+        });
+        const contextMode =
+          validated.contextMode === "off"
+            ? "off"
+            : (existingContext?.contextMode ?? validated.contextMode);
+        const previous =
+          contextMode === "off"
+            ? null
+            : await getGenerationCreativeContext({
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+              });
+        const nextElementProvenance = validated.reuseLabels.map((label) => ({
+          elementId: label.elementId!,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const mergedReuseLabels = mergeCreativeContextReuseLabels(
+          existingContext?.reuseLabels ?? [],
+          validated.reuseLabels,
+        );
+        generationRecord = {
+          contextMode,
+          contextPackId: validated.contextPackId,
+          reuseLabels:
+            contextMode === "off" ? validated.reuseLabels : mergedReuseLabels,
+          elementProvenance:
+            contextMode === "off"
+              ? nextElementProvenance
+              : replaceCreativeContextElementProvenance(
+                  previous?.elementProvenance ?? [],
+                  nextElementProvenance,
+                ),
+        };
+        if (!(contextMode === "off" && existingContext)) {
+          deck.creativeContext = {
+            contextMode,
+            contextPackId: validated.contextPackId,
+            reuseLabels: mergedReuseLabels,
+          };
+        }
+      }
+
+      await db.transaction(async (tx: any) => {
+        await tx
+          .update(schema.decks)
+          .set({
+            title: sqlTitle,
+            data: JSON.stringify(deck),
+            designSystemId: sqlDesignSystemId,
+            updatedAt: now,
+          })
+          .where(eq(schema.decks.id, deckId));
+        if (generationRecord) {
+          await recordGenerationCreativeContext(
+            {
+              appId: "slides",
+              artifactType: "deck",
+              artifactId: deckId,
+              ...generationRecord,
+            },
+            { db: tx },
+          );
+        }
+      });
 
       notifyClients(deckId);
 

@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { serializeDatabaseViewConfig } from "./_property-utils.js";
@@ -24,12 +25,15 @@ const filterSchema = z.object({
     "less_than",
     "before",
     "after",
+    "between",
     "is_checked",
     "is_unchecked",
     "is_empty",
     "is_not_empty",
   ]),
   value: z.string(),
+  filterGroupId: z.string().optional(),
+  parentFilterGroupId: z.string().optional(),
 });
 
 const columnCalculationSchema = z.enum([
@@ -52,11 +56,27 @@ const columnCalculationSchema = z.enum([
   "date_range",
 ]);
 
+const formQuestionSchema = z.object({
+  key: z.string().min(1),
+  enabled: z.boolean().default(true),
+  required: z.boolean().default(false),
+});
+
 const viewSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z
-    .enum(["table", "board", "list", "gallery", "calendar", "timeline"])
+    .enum([
+      "table",
+      "board",
+      "list",
+      "gallery",
+      "calendar",
+      "timeline",
+      "form",
+      "sidebar",
+    ])
+    .transform((type) => (type === "sidebar" ? "table" : type))
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),
@@ -73,6 +93,7 @@ const viewSchema = z.object({
   wrapCells: z.boolean().default(false),
   rowDensity: z.enum(["compact", "default", "comfortable"]).default("default"),
   openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
+  formQuestions: z.array(formQuestionSchema).default([]),
 });
 
 export default defineAction({
@@ -95,7 +116,12 @@ export default defineAction({
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, databaseId));
+      .where(
+        and(
+          eq(schema.contentDatabases.id, databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     if (!database) throw new Error(`Database "${databaseId}" not found`);
 
     await assertAccess("document", database.documentId, "editor");

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
@@ -33,9 +34,10 @@ const refreshRows = new Map<string, any>();
 let counter = 0;
 
 vi.mock("./oauth-store.js", () => ({
-  MCP_OAUTH_ACCESS_TOKEN_TTL: "1h",
+  MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
+  MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   MCP_OAUTH_CODE_TTL_MS: 600_000,
-  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 90 * 24 * 60 * 60_000,
+  MCP_OAUTH_REFRESH_TOKEN_TTL_MS: 365 * 24 * 60 * 60_000,
   generateOpaqueToken: vi.fn(() => `opaque-${++counter}`),
   registerOAuthClient: vi.fn(async (params: any) => {
     const row = {
@@ -92,7 +94,11 @@ vi.mock("./oauth-store.js", () => ({
   }),
   touchOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
     const row = refreshRows.get(refreshToken);
-    if (row && !row.revokedAt) row.lastUsedAt = Date.now();
+    if (row && !row.revokedAt) {
+      const now = Date.now();
+      row.lastUsedAt = now;
+      row.expiresAt = now + 365 * 24 * 60 * 60_000;
+    }
   }),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
@@ -110,6 +116,7 @@ const {
   handleMcpOAuth,
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
+  getMcpOAuthAudiences,
 } = await import("./oauth-route.js");
 const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 
@@ -163,20 +170,19 @@ describe("MCP OAuth route", () => {
     const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
     expect(protectedRes.status).toBe(200);
     await expect(protectedRes.json()).resolves.toMatchObject({
-      resource: "https://mail.agent-native.com/_agent-native/mcp",
+      resource: "https://mail.agent-native.com/mcp",
       authorization_servers: ["https://mail.agent-native.com"],
-      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps"],
+      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
     });
 
     const authRes = handleMcpOAuthAuthorizationServerMetadata(event());
     await expect(authRes.json()).resolves.toMatchObject({
       issuer: "https://mail.agent-native.com",
       authorization_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
-      token_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/token",
-      registration_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/register",
+        "https://mail.agent-native.com/mcp/oauth/authorize",
+      token_endpoint: "https://mail.agent-native.com/mcp/oauth/token",
+      registration_endpoint: "https://mail.agent-native.com/mcp/oauth/register",
+      scopes_supported: expect.arrayContaining(["offline_access"]),
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     });
@@ -194,7 +200,7 @@ describe("MCP OAuth route", () => {
       }),
     );
     await expect(protectedRes.json()).resolves.toMatchObject({
-      resource: "https://plan.agent-native.com/_agent-native/mcp",
+      resource: "https://plan.agent-native.com/mcp",
       authorization_servers: ["https://plan.agent-native.com"],
     });
 
@@ -209,9 +215,15 @@ describe("MCP OAuth route", () => {
     );
     await expect(authRes.json()).resolves.toMatchObject({
       issuer: "https://plan.agent-native.com",
-      token_endpoint:
-        "https://plan.agent-native.com/_agent-native/mcp/oauth/token",
+      token_endpoint: "https://plan.agent-native.com/mcp/oauth/token",
     });
+  });
+
+  it("publishes /mcp while accepting legacy OAuth resource audiences", () => {
+    expect(getMcpOAuthAudiences(event())).toEqual([
+      "https://mail.agent-native.com/mcp",
+      "https://mail.agent-native.com/_agent-native/mcp",
+    ]);
   });
 
   it("registers public OAuth clients with safe redirect URIs", async () => {
@@ -254,6 +266,51 @@ describe("MCP OAuth route", () => {
     });
   });
 
+  it("allows private-use IDE scheme redirect URIs during registration", async () => {
+    const res = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          client_name: "Cursor",
+          redirect_uris: [
+            "cursor://anysphere.cursor-retrieval/mcp/oauth/callback",
+          ],
+          token_endpoint_auth_method: "none",
+        } as any,
+      }),
+      "/register",
+    );
+    expect(res.status).toBe(201);
+    await expect(res.json()).resolves.toMatchObject({
+      redirect_uris: ["cursor://anysphere.cursor-retrieval/mcp/oauth/callback"],
+    });
+  });
+
+  it("rejects script- and file-capable redirect schemes during registration", async () => {
+    for (const uri of [
+      "javascript:alert(1)",
+      "data:text/html,evil",
+      "file:///etc/passwd",
+      "http://evil.example.com/callback",
+    ]) {
+      const res = await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            client_name: "Bad client",
+            redirect_uris: [uri],
+            token_endpoint_auth_method: "none",
+          } as any,
+        }),
+        "/register",
+      );
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: "invalid_client_metadata",
+      });
+    }
+  });
+
   it("serves login HTML when authorize is opened without a browser session", async () => {
     const client = await (
       await handleMcpOAuth(
@@ -273,7 +330,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge("v".repeat(50)),
           code_challenge_method: "S256",
         },
@@ -304,7 +361,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-123",
           code_challenge: challenge(verifier),
@@ -326,7 +383,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-123",
           code_challenge: challenge(verifier),
@@ -359,14 +416,14 @@ describe("MCP OAuth route", () => {
     const body = await token.json();
     expect(body).toMatchObject({
       token_type: "Bearer",
-      expires_in: 3600,
+      expires_in: 30 * 86400,
       scope: "mcp:read mcp:apps",
     });
     expect(body.refresh_token).toBeTruthy();
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -375,6 +432,77 @@ describe("MCP OAuth route", () => {
       scopes: ["mcp:read", "mcp:apps"],
       clientId: client.client_id,
     });
+  });
+
+  it("renders a friendly confirmation page (not a bare 302) for deep-link clients", async () => {
+    const deepLink = "cursor://anysphere.cursor-retrieval/mcp/oauth/callback";
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            client_name: "Cursor",
+            redirect_uris: [deepLink],
+            token_endpoint_auth_method: "none",
+          } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: deepLink,
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-xyz",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: deepLink,
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read mcp:apps",
+          state: "state-xyz",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+    // The browser tab gets a real HTML page instead of dangling on cursor://…
+    expect(authorize.status).toBe(200);
+    expect(authorize.headers.get("content-type")).toContain("text/html");
+    const page = await authorize.text();
+    expect(page).toContain("You're all set");
+    expect(page).toContain("Open Cursor");
+    // The deep link (carrying the auth code + state) is still handed to the client.
+    const link = (
+      page.match(/id="return-link" href="([^"]+)"/)?.[1] ?? ""
+    ).replace(/&amp;/g, "&");
+    expect(link).toContain("cursor://");
+    const linkUrl = new URL(link);
+    expect(linkUrl.searchParams.get("code")).toBeTruthy();
+    expect(linkUrl.searchParams.get("state")).toBe("state-xyz");
   });
 
   it("preserves org_id in OAuth access tokens even when the org has no domain", async () => {
@@ -397,7 +525,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -416,7 +544,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -446,7 +574,7 @@ describe("MCP OAuth route", () => {
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -474,7 +602,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:typo",
           code_challenge: challenge("v".repeat(50)),
           code_challenge_method: "S256",
@@ -502,7 +630,7 @@ describe("MCP OAuth route", () => {
       )
     ).json();
     const verifier = "v".repeat(50);
-    const resource = "https://mail.agent-native.com/dispatch/_agent-native/mcp";
+    const resource = "https://mail.agent-native.com/dispatch/mcp";
     const consent = await handleMcpOAuth(
       event({
         query: {
@@ -564,7 +692,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -584,7 +712,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -627,7 +755,7 @@ describe("MCP OAuth route", () => {
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -673,7 +801,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -692,7 +820,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -756,7 +884,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -775,7 +903,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -841,5 +969,238 @@ describe("MCP OAuth route", () => {
       "/token",
     );
     expect(retry.status).toBe(200);
+  });
+
+  it("expires_in in token response matches the access-token TTL (not hard-coded 3600)", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const tokenRes = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "authorization_code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          code,
+          code_verifier: verifier,
+        },
+      }),
+      "/token",
+    );
+    const body = await tokenRes.json();
+    // expires_in must equal the TTL seconds constant (30d = 2592000s), not 3600.
+    expect(body.expires_in).toBe(30 * 86400);
+    expect(body.expires_in).not.toBe(3600);
+  });
+
+  it("refresh grant expires_in also matches TTL (not hard-coded 3600)", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const firstToken = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+
+    const refreshRes = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: firstToken.refresh_token,
+        },
+      }),
+      "/token",
+    );
+    const refreshBody = await refreshRes.json();
+    expect(refreshBody.expires_in).toBe(30 * 86400);
+    expect(refreshBody.expires_in).not.toBe(3600);
+  });
+
+  it("sliding refresh: touchOAuthRefreshToken extends expiry on each use", async () => {
+    const client = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: { redirect_uris: ["http://localhost:5555/callback"] } as any,
+        }),
+        "/register",
+      )
+    ).json();
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+    const consentToken =
+      (await consent.text()).match(
+        /name="consent_token" value="([^"]+)"/,
+      )?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: client.client_id,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+    );
+    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+      "code",
+    )!;
+    const firstToken = await (
+      await handleMcpOAuth(
+        event({
+          method: "POST",
+          body: {
+            grant_type: "authorization_code",
+            client_id: client.client_id,
+            redirect_uri: "http://localhost:5555/callback",
+            code,
+            code_verifier: verifier,
+          },
+        }),
+        "/token",
+      )
+    ).json();
+
+    const rowBefore = refreshRows.get(firstToken.refresh_token);
+    expect(rowBefore).toBeTruthy();
+    const expiryBefore = rowBefore.expiresAt;
+
+    // Simulate time passing and use the refresh token.
+    const laterTime = Date.now() + 1000;
+    vi.spyOn(Date, "now").mockReturnValue(laterTime);
+    await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          grant_type: "refresh_token",
+          client_id: client.client_id,
+          refresh_token: firstToken.refresh_token,
+        },
+      }),
+      "/token",
+    );
+
+    const rowAfter = refreshRows.get(firstToken.refresh_token);
+    // Expiry must have slid forward from the original creation expiry.
+    expect(rowAfter.expiresAt).toBeGreaterThan(expiryBefore);
+    expect(rowAfter.lastUsedAt).toBe(laterTime);
   });
 });

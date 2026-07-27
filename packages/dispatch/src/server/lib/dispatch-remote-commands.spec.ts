@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
 import type {
   IncomingMessage,
   PlatformAdapter,
 } from "@agent-native/core/server";
+import { describe, expect, it, vi } from "vitest";
+
 import {
   handleRemoteCodeCommand,
   parseTelegramCodeCommand,

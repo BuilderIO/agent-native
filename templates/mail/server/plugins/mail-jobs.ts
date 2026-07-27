@@ -1,3 +1,9 @@
+import { registerEvent } from "@agent-native/core/event-bus";
+import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+import { z } from "zod";
+
+import { processAutomations } from "../lib/automation-engine.js";
+import { getClientForAccount, startWatch } from "../lib/google-auth.js";
 import {
   getDuePendingJobs,
   getSnoozeThreadId,
@@ -9,11 +15,6 @@ import {
   shouldResurfaceSnoozedThread,
   type SendLaterPayload,
 } from "../lib/jobs.js";
-import { processAutomations } from "../lib/automation-engine.js";
-import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
-import { getClientForAccount, startWatch } from "../lib/google-auth.js";
-import { registerEvent } from "@agent-native/core/event-bus";
-import { z } from "zod";
 
 const INTERVAL_MS = 60_000; // 1 minute
 const WATCH_RENEW_INTERVAL_MS = 12 * 60 * 60_000;
@@ -47,7 +48,7 @@ async function processJobs(): Promise<void> {
   const due = await getDuePendingJobs(now);
 
   for (const job of due) {
-    await markJobProcessing(job.id);
+    if (!(await markJobProcessing(job.id))) continue;
 
     try {
       const ownerEmail = job.ownerEmail || job.accountEmail;

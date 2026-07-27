@@ -1,9 +1,9 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   DEFAULT_APPS,
   TEMPLATES,
   type AppConfig,
 } from "@agent-native/shared-app-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "agent-native:apps";
 
@@ -29,6 +29,10 @@ function migrateApps(apps: AppConfig[]): {
   const firstPartyIds = new Set(TEMPLATES.map((template) => template.name));
 
   const migrated = apps.filter((app) => {
+    if (app.id === "starter" && app.isBuiltIn !== false) {
+      changed = true;
+      return false;
+    }
     const isStaleFirstParty =
       firstPartyIds.has(app.id) &&
       !defaultsById.has(app.id) &&

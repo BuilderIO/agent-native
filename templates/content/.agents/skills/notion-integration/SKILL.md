@@ -9,6 +9,14 @@ description: >-
 
 The content app can sync documents bidirectionally with Notion. Documents can be linked to Notion pages, pulled from Notion, or pushed to Notion.
 
+Notion sync is not creative-context retrieval. When drafting new copy from a
+synced page, read the `creative-context` skill first and retrieve voice,
+terminology, audience guidance, and factual evidence as separate roles. Apply
+its exact reuse ladder, respect opt-out/pinned packs, and use app-local Notion
+content as the fallback when the shared corpus has no relevant evidence. Keep
+the resulting immutable `contextPackId` and reuse labels with document
+generation provenance; never infer them from a later Notion sync snapshot.
+
 ## Scripts
 
 ### connect-notion-status
@@ -26,7 +34,29 @@ Returns whether a Notion integration is connected and which workspace it belongs
 Link a local document to a Notion page for syncing.
 
 ```bash
-pnpm action link-notion-page --documentId abc123 --notionPageId notion-page-id
+pnpm action link-notion-page --documentId abc123 --pageId <notion-page-id-or-url>
+```
+
+`--pageIdOrUrl` and `--url` are accepted aliases for `--pageId`. There is no
+`--notionPageId` flag — passing it is silently dropped by the action's schema
+and the action fails with "documentId and pageId are required".
+
+### create-and-link-notion-page
+
+Create a brand-new Notion page from a Content document's current content and
+link it in one step (instead of creating in Notion first and linking after).
+
+```bash
+pnpm action create-and-link-notion-page --documentId abc123 [--parentPageIdOrUrl <id-or-url>]
+```
+
+### unlink-notion-page
+
+Remove the sync link between a document and its Notion page without deleting
+either side's content.
+
+```bash
+pnpm action unlink-notion-page --documentId abc123
 ```
 
 ### list-notion-links
@@ -56,6 +86,74 @@ pnpm action push-notion-page --documentId abc123
 ```
 
 This overwrites the Notion page's content with the local document's markdown, converted to Notion blocks.
+
+### refresh-notion-sync-status
+
+Check (and optionally auto-sync) the current sync status of a linked document.
+This is what the editor UI polls every few seconds while a document is open.
+
+```bash
+pnpm action refresh-notion-sync-status --documentId abc123 [--autoSync true]
+```
+
+### resolve-notion-sync-conflict
+
+Resolve a document whose link is in the `conflict` state (both sides changed
+since the last sync) by picking a direction.
+
+```bash
+pnpm action resolve-notion-sync-conflict --documentId abc123 --direction pull|push
+```
+
+### sync-notion-comments
+
+Sync comments bidirectionally between a document and its linked Notion page.
+
+```bash
+pnpm action sync-notion-comments --documentId abc123
+```
+
+### search-notion-pages
+
+Search Notion pages visible to the current user's connected workspace (used to
+find a page to link to).
+
+```bash
+pnpm action search-notion-pages --query "meeting notes"
+```
+
+### list-notion-database-sources
+
+List Notion data sources visible to the current user's OAuth connection before
+attaching one to a Content database:
+
+```bash
+pnpm action list-notion-database-sources --query "projects"
+```
+
+The database-source pilot is read-only and uses the same per-user OAuth
+connection as page sync. Choose a returned data-source ID, run
+`suggest-source-join-key`, then attach it with
+`attach-content-database-source --sourceType notion-database
+--relationshipMode details`. Use `refresh-content-database-source` to pull a
+new bounded snapshot. Never use a pasted token or claim Notion write-back.
+
+### disconnect-notion
+
+Disconnect the current user's Notion OAuth connection.
+
+```bash
+pnpm action disconnect-notion
+```
+
+## Raw Notion Provider API
+
+Treat the Notion workflow actions above as shortcuts, not capability limits.
+When the exact Notion endpoint, filter, pagination mode, or API version matters,
+use `provider-api-catalog`, `provider-api-docs`, and `provider-api-request`
+against the real Notion API. The provider API resolves auth from the user's
+Notion OAuth connection, never from `NOTION_API_KEY`. For large scans, stage
+results with `stageAs` and analyze them with `query-staged-dataset`.
 
 ## How Sync Works (Architecture)
 
@@ -116,7 +214,7 @@ the two copies from drifting.
 | User says                      | What to do                                             |
 | ------------------------------ | ------------------------------------------------------ |
 | "Is Notion connected?"         | `connect-notion-status`                                |
-| "Link this doc to Notion"      | `link-notion-page --documentId ... --notionPageId ...` |
+| "Link this doc to Notion"      | `link-notion-page --documentId ... --pageId ...`       |
 | "Pull from Notion"             | `pull-notion-page --documentId ...`                    |
 | "Push to Notion"               | `push-notion-page --documentId ...`                    |
 | "Show Notion-linked documents" | `list-notion-links`                                    |
@@ -124,7 +222,9 @@ the two copies from drifting.
 ## Important Notes
 
 - Notion access is **per-user OAuth only**. Never read `NOTION_API_KEY` from the
-  environment or accept a user-pasted token; require editor access for pull/push.
+  environment or `process.env`, never accept a user-pasted token or save a
+  user-entered Notion token through `/_agent-native/env-vars`, and require
+  editor access for routes that pull or push Notion content.
 - Pull replaces local content with Notion's; push replaces Notion's with local.
   When both sides changed since the last sync the link enters `conflict` state and
   the user resolves it (pull-wins or push-wins) — there is no line-level merge.

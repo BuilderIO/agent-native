@@ -144,9 +144,10 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
           : `unknown-block-${Math.random().toString(36).slice(2, 9)}`;
       const errorSummary = singleResult.success
         ? "Block data was missing"
-        : String(
-            singleResult.error?.issues?.[0]?.message ?? "Parse error",
-          ).slice(0, 200);
+        : summarizePlanBlockValidationIssues(
+            singleResult.error?.issues,
+            originalType,
+          );
       return {
         id: blockId,
         type: "callout",
@@ -163,6 +164,55 @@ function parsePlanContentWithSalvage(migrated: unknown): PlanContent | null {
   return sanitizePlanContent({ ...envelope, blocks: salvaged });
 }
 
+function summarizePlanBlockValidationIssues(
+  issues: unknown,
+  originalType: string,
+): string {
+  if (!Array.isArray(issues) || issues.length === 0) return "Parse error";
+
+  const lines = issues
+    .slice(0, 4)
+    .map((issue) => {
+      if (!issue || typeof issue !== "object") return null;
+      const record = issue as { message?: unknown; path?: unknown };
+      const message =
+        typeof record.message === "string" && record.message.trim()
+          ? record.message.trim()
+          : "Invalid input";
+      const path = formatValidationPath(record.path);
+      return path ? `${path}: ${message}` : message;
+    })
+    .filter(Boolean) as string[];
+
+  const summary = lines.join("\n").slice(0, 800) || "Parse error";
+  const hint = validationHintForIssues(issues, originalType);
+  return hint ? `${summary}\n\n${hint}` : summary;
+}
+
+function formatValidationPath(path: unknown): string {
+  if (!Array.isArray(path) || path.length === 0) return "";
+  const parts = path
+    .filter((part) => typeof part === "string" || typeof part === "number")
+    .map(String);
+  if (parts.length >= 2 && parts[0] === "blocks" && parts[1] === "0") {
+    parts.splice(0, 2);
+  }
+  return parts.length > 0 ? parts.join(".") : "block";
+}
+
+function validationHintForIssues(issues: unknown[], originalType: string) {
+  if (originalType !== "tabs") return "";
+  const serialized = JSON.stringify(issues);
+  if (
+    serialized.includes('"line"') ||
+    serialized.includes('"lines"') ||
+    serialized.includes("annotations")
+  ) {
+    return 'Hint: nested diff and annotated-code annotations use `lines`, e.g. { lines: "3" }, not `line`.';
+  }
+  return "Hint: each tab needs an id, label, and recursively valid child blocks.";
+}
+
 export function serializePlanContent(content: PlanContentInput): string {
   return JSON.stringify(
     sanitizePlanContent(
@@ -173,11 +223,27 @@ export function serializePlanContent(content: PlanContentInput): string {
 
 export function normalizePlanContent(
   content: PlanContentInput | undefined,
+  options: { salvageInvalidBlocks?: boolean } = {},
 ): PlanContent | null {
   if (!content) return null;
-  return sanitizePlanContent(
-    planContentSchema.parse(migratePlanContent(content)),
-  );
+  const migrated = migratePlanContent(content);
+  // Recaps degrade gracefully: rather than failing the whole import when one
+  // block the agent authored is invalid, salvage per-block — keep the valid
+  // blocks and substitute an "Unsupported block" placeholder for the bad ones
+  // (same battle-tested path the read flow uses). A few imperfect blocks must
+  // never sink an entire recap, which is informational. Plans stay strict.
+  if (options.salvageInvalidBlocks) {
+    const result = planContentSchema.safeParse(
+      preSanitizePlanContentInput(migrated),
+    );
+    if (result.success) return sanitizePlanContent(result.data);
+    console.warn(
+      "[plan-content] recap import: full parse failed; salvaging per-block so the rest publishes:",
+      result.error.issues.slice(0, 4),
+    );
+    return parsePlanContentWithSalvage(migrated);
+  }
+  return sanitizePlanContent(planContentSchema.parse(migrated));
 }
 
 export function normalizePlanDesignContent(
@@ -408,6 +474,17 @@ function sanitizeMaybeBlocks(blocks: unknown) {
         sanitizeMaybeBlocks((tab as Record<string, unknown>).blocks);
       }
     }
+    // `columns` is the recommended before/after recap primitive and nests child
+    // blocks (commonly wireframes). It must recurse like `tabs` does — otherwise
+    // a nested wireframe authored as a full HTML document never gets its
+    // scaffold stripped and the whole columns block degrades to an "Unsupported
+    // block" card at validation time.
+    if (record.type === "columns" && data && Array.isArray(data.columns)) {
+      for (const column of data.columns) {
+        if (!column || typeof column !== "object") continue;
+        sanitizeMaybeBlocks((column as Record<string, unknown>).blocks);
+      }
+    }
   }
 }
 
@@ -438,9 +515,29 @@ function preSanitizePlanContentInput(input: unknown): unknown {
   return content;
 }
 
+/**
+ * Coerce a full HTML document into a bounded fragment. Wireframe, custom-html,
+ * and diagram blocks must be bounded fragments (the renderer owns the
+ * surrounding document, theme, and styling), so the schema rejects any value
+ * carrying document scaffolding. Agents frequently author one of these blocks
+ * as a standalone page anyway; rather than degrade the whole block to an
+ * "Unsupported block" card, drop the scaffold and keep the body content. The
+ * `<head>` is removed wholesale because its `<style>`/`<meta>`/`<link>` are
+ * renderer-owned and stripped elsewhere regardless. Fragments without
+ * scaffolding pass through untouched.
+ */
+function stripDocumentScaffold(value: string): string {
+  if (!/<!doctype|<\s*\/?\s*(?:html|head|body)\b/i.test(value)) return value;
+  return value
+    .replace(/<!doctype[^>]*>/gi, "")
+    .replace(/<head\b[^>]*>[\s\S]*?<\/\s*head\s*>/gi, "")
+    .replace(/<\/?\s*(?:html|head|body)\b[^>]*>/gi, "")
+    .trim();
+}
+
 /** Strip the dangerous surface from a stored custom-html / css string. */
 export function sanitizeCustomHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   // Iterate element-stripping so nested / sequential cases collapse fully.
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(FORBIDDEN_ELEMENT, "");
@@ -463,7 +560,7 @@ export function sanitizeCustomHtml(value: string): string {
 }
 
 export function sanitizeDiagramHtml(value: string): string {
-  let out = value;
+  let out = stripDocumentScaffold(value);
   for (let i = 0; i < 4; i += 1) {
     const next = out.replace(DIAGRAM_FORBIDDEN_ELEMENT, "");
     if (next === out) break;
@@ -535,6 +632,62 @@ export function sanitizeStoredPlanHtml(value: string): string {
     .replace(/\bdata\s*:\s*text\/html/gi, "");
 }
 
+const TAILWIND_THEME_COLORS =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-(?:inherit|current|transparent|black|white|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-\d{2,3})?(?:\/[\d.]+)?$/;
+const TAILWIND_ARBITRARY_THEME_COLOR =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-\[/;
+const TAILWIND_SHADOW = /^shadow(?:$|-)/;
+
+function baseClassName(className: string): string {
+  let bracketDepth = 0;
+  let lastVariantSeparator = -1;
+  for (let index = 0; index < className.length; index += 1) {
+    const char = className[index];
+    if (char === "[") bracketDepth += 1;
+    if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    if (char === ":" && bracketDepth === 0) lastVariantSeparator = index;
+  }
+  return className.slice(lastVariantSeparator + 1);
+}
+
+function isWireframeThemeClass(className: string): boolean {
+  const base = baseClassName(className);
+  return (
+    TAILWIND_THEME_COLORS.test(base) ||
+    TAILWIND_ARBITRARY_THEME_COLOR.test(base) ||
+    TAILWIND_SHADOW.test(base)
+  );
+}
+
+function stripWireframeThemeClasses(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((className) => !isWireframeThemeClass(className))
+    .join(" ");
+}
+
+function sanitizeWireframeHtmlClasses(value: string): string {
+  return value.replace(
+    /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (_match, doubleQuoted, singleQuoted, bare) => {
+      const next = stripWireframeThemeClasses(
+        doubleQuoted ?? singleQuoted ?? bare ?? "",
+      );
+      return next ? ` class="${next}"` : "";
+    },
+  );
+}
+
+function sanitizeStoredWireframeHtml(
+  value: string,
+  renderMode?: PlanWireframeBlock["data"]["renderMode"],
+): string {
+  const sanitized = sanitizeCustomHtml(value);
+  if (renderMode === "design") return sanitized;
+  return sanitizeWireframeHtmlClasses(sanitized);
+}
+
 function sanitizeBlock(block: PlanBlock): PlanBlock {
   if (block.type === "wireframe") {
     return {
@@ -544,7 +697,10 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
         html:
           block.data.html === undefined
             ? undefined
-            : sanitizeCustomHtml(block.data.html),
+            : sanitizeStoredWireframeHtml(
+                block.data.html,
+                block.data.renderMode,
+              ),
         css:
           block.data.css === undefined
             ? undefined
@@ -599,6 +755,18 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
       },
     };
   }
+  if (block.type === "columns") {
+    return {
+      ...block,
+      data: {
+        ...block.data,
+        columns: block.data.columns.map((column) => ({
+          ...column,
+          blocks: column.blocks.map(sanitizeBlock),
+        })),
+      },
+    };
+  }
   return block;
 }
 
@@ -608,7 +776,7 @@ function sanitizePrototype(prototype: PlanPrototype | undefined) {
     ...prototype,
     screens: prototype.screens.map((screen) => ({
       ...screen,
-      html: sanitizeCustomHtml(screen.html),
+      html: sanitizeStoredWireframeHtml(screen.html, screen.renderMode),
       css:
         screen.css === undefined ? undefined : sanitizeCustomHtml(screen.css),
     })),
@@ -624,7 +792,7 @@ function sanitizeWireframeData(
     html:
       wireframe.html === undefined
         ? undefined
-        : sanitizeCustomHtml(wireframe.html),
+        : sanitizeStoredWireframeHtml(wireframe.html, wireframe.renderMode),
     css:
       wireframe.css === undefined
         ? undefined
@@ -1179,7 +1347,7 @@ export function createPrototypePlanContent(
     {
       id: createPlanBlockId("prototype-plan-overview"),
       type: "rich-text",
-      title: "Prototype Plan",
+      title: "Visual Plan",
       editable: true,
       data: {
         markdown: [
@@ -1334,7 +1502,7 @@ export function createPlanDesignContent(
       data: {
         markdown: [
           `## Objective\n${input.brief}`,
-          "## Design Review\nUse the Design tab as the full-fidelity source of truth. It should contain detailed, on-brand HTML/CSS screens on the Figma-style canvas, with editable `data-design-id` targets for focused style changes. Use the Prototype tab only when interaction, flow, or state needs to be felt before implementation.",
+          "## Design Review\nUse the Design tab as the full-fidelity source of truth. It should contain detailed, on-brand HTML/CSS screens on the editable design canvas, with editable `data-design-id` targets for focused style changes. Use the Prototype tab only when interaction, flow, or state needs to be felt before implementation.",
           sourceLines.length
             ? `## Style Sources\n${sourceLines.join("\n")}`
             : "## Style Sources\nNo external brand kit was provided; infer the smallest useful design system from the inspected codebase and document the assumptions here.",
@@ -2424,7 +2592,7 @@ export function buildPlanContentHtml(input: {
   repoPath?: string | null;
 }) {
   const planLabel = input.content.prototype
-    ? "Prototype Plan"
+    ? "Visual Plan"
     : input.content.canvas?.title === "UI Flow"
       ? "UI Plan"
       : "Visual Plan";
@@ -3346,7 +3514,10 @@ function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
 function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
   const surface = escapeHtml(data.surface || "desktop");
   const screen = data.screen.map(renderKitNodeHtml).join("");
-  return `<div class="kit-wireframe surface-${surface}">${screen}</div>`;
+  const caption = data.caption
+    ? `<p class="caption">${escapeHtml(data.caption)}</p>`
+    : "";
+  return `<div class="kit-wireframe surface-${surface}">${screen}</div>${caption}`;
 }
 
 function renderKitNodeHtml(node: PlanWireframeNode): string {

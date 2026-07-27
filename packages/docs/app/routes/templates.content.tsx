@@ -1,36 +1,40 @@
-import { Link } from "react-router";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import { TemplateDocsLink } from "../components/template-docs";
-import { withDefaultSocialImage } from "../seo";
+import { templates, trackEvent } from "../components/TemplateCard";
+import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
-  withDefaultSocialImage([
-    {
-      title:
-        "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
-    },
-    {
-      name: "description",
-      content:
-        "Write and organize content with an AI agent that knows your brand. Open source alternative to Notion and Google Docs. AI-powered writing, editing, and publishing workflows you own.",
-    },
-    {
-      property: "og:title",
-      content:
-        "Agent-Native Content — Open Source Alternative to Notion & Google Docs",
-    },
-    {
-      property: "og:description",
-      content:
-        "Write and organize content with an AI agent that knows your brand.",
-    },
-    {
-      name: "keywords",
-      content:
-        "AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, AI content management, agent-native content, AI-powered CMS, AI document editor, AI content creation, open source writing app",
-    },
-  ]);
+  withTemplateSocialImage(
+    [
+      {
+        title: "Agent-Native Content — Open Source Obsidian for MDX",
+      },
+      {
+        name: "description",
+        content:
+          "Edit local Markdown/MDX files like Obsidian, generate rich interactive custom MDX blocks, and write with an AI agent that knows your docs.",
+      },
+      {
+        property: "og:title",
+        content: "Agent-Native Content — Open Source Obsidian for MDX",
+      },
+      {
+        property: "og:description",
+        content:
+          "Local MDX editing, custom interactive blocks, and agent-assisted docs.",
+      },
+      {
+        name: "keywords",
+        content:
+          "Obsidian for MDX, open source Obsidian alternative, MDX editor, local Markdown editor, AI content editor, open source Notion alternative, Google Docs alternative, AI writing tool, agent-native content, AI-powered CMS, AI document editor, custom MDX blocks",
+      },
+    ],
+    "Content",
+  );
 
 const template = templates.find((t) => t.slug === "content")!;
 
@@ -93,32 +97,12 @@ function CliCopy() {
 }
 
 export default function ContentTemplate() {
+  const t = useT();
+  const { locale } = useLocale();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
       <section className="py-12 sm:py-16 lg:py-20">
-        <div className="mb-4">
-          <Link
-            data-an-prefetch="render"
-            to="/templates"
-            className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            All Templates
-          </Link>
-        </div>
-
         <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
           <div>
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
@@ -130,12 +114,11 @@ export default function ContentTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source AI Notion alternative
+              {t("templateLanding.content.s003")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Write, organize, and publish with an AI agent that knows your
-              brand voice — and can modify the app itself.
+              {t("templateLanding.content.s004")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -151,7 +134,7 @@ export default function ContentTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.content.s005")}
                 <svg
                   width="16"
                   height="16"
@@ -175,7 +158,9 @@ export default function ContentTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Content template screenshot"
+              alt={t("templateLanding.content.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>
@@ -201,10 +186,11 @@ export default function ContentTemplate() {
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
             </div>
-            <div className="mb-1 text-sm font-semibold">Write</div>
+            <div className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s006")}
+            </div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Rich editor with formatting, headings, code blocks with syntax
-              highlighting, and media.
+              {t("templateLanding.content.s007")}
             </p>
           </div>
           <div className="bg-[var(--bg)] p-6 text-center">
@@ -222,9 +208,11 @@ export default function ContentTemplate() {
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
               </svg>
             </div>
-            <div className="mb-1 text-sm font-semibold">Refine with AI</div>
+            <div className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s008")}
+            </div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Rewrite, expand, summarize, or change tone on any selection.
+              {t("templateLanding.content.s009")}
             </p>
           </div>
           <div className="bg-[var(--bg)] p-6 text-center">
@@ -244,9 +232,11 @@ export default function ContentTemplate() {
                 <line x1="12" y1="2" x2="12" y2="15" />
               </svg>
             </div>
-            <div className="mb-1 text-sm font-semibold">Publish</div>
+            <div className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s010")}
+            </div>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Push to WordPress, Contentful, Builder, or any headless CMS.
+              {t("templateLanding.content.s011")}
             </p>
           </div>
         </div>
@@ -255,53 +245,64 @@ export default function ContentTemplate() {
       {/* Core features */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Everything you need
+          {t("templateLanding.content.s012")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A complete content workspace — like Notion, but you own the code.
+          {t("templateLanding.content.s013")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Projects & Documents</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s014")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Organize into projects with nested documents. Sidebar tree nav and
-              search.
+              {t("templateLanding.content.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Brand-Aware AI</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s016")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent learns your voice, style guide, and tone. Every draft
-              sounds like you.
+              {t("templateLanding.content.s017")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">Notion Import/Export</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Two-way Notion sync. Import pages from Notion, edit locally, and
-              push changes back.
+              {t("templateLanding.content.s018")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Code Block Syntax Highlighting
+              {t("templateLanding.content.s019")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Full syntax highlighting for code blocks. Language detection and
-              formatting built in.
+              {t("templateLanding.content.s020")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Script Automation</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s021")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Batch content generation, cross-referencing, and publishing
-              pipelines.
+              {t("templateLanding.content.s022")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Self-Improving</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s023")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              The agent modifies the app itself. Need a new workflow? Just ask.
+              {t("templateLanding.content.s024")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.content.s025")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.content.s026")}
             </p>
           </div>
         </div>
@@ -312,11 +313,10 @@ export default function ContentTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Write here, publish everywhere
+              {t("templateLanding.content.s027")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              Connect to any headless CMS via scripts. The agent handles the
-              entire workflow.
+              {t("templateLanding.content.s028")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -349,7 +349,7 @@ export default function ContentTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Agent runs publishing scripts autonomously
+                {t("templateLanding.content.s029")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -365,7 +365,7 @@ export default function ContentTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Markdown, HTML, or any format you prefer
+                {t("templateLanding.content.s030")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -381,7 +381,7 @@ export default function ContentTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                All content stored as files you own
+                {t("templateLanding.content.s031")}
               </li>
             </ul>
           </div>
@@ -393,25 +393,25 @@ export default function ContentTemplate() {
               <div>
                 <span className="text-[var(--docs-accent)]">1.</span>{" "}
                 <span className="text-[var(--fg)]">
-                  Draft content in editor
+                  {t("templateLanding.content.s032")}
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">2.</span>{" "}
                 <span className="text-[var(--fg)]">
-                  "Publish this to WordPress"
+                  {t("templateLanding.content.s033")}
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">3.</span>{" "}
                 <span className="text-[var(--fg)]">
-                  Agent runs publish script
+                  {t("templateLanding.content.s034")}
                 </span>
               </div>
               <div>
                 <span className="text-[var(--docs-accent)]">4.</span>{" "}
                 <span className="text-[var(--fg)]">
-                  Content live on your site
+                  {t("templateLanding.content.s035")}
                 </span>
               </div>
             </div>
@@ -422,7 +422,7 @@ export default function ContentTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.content.s036")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -430,7 +430,7 @@ export default function ContentTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Notion / Google Docs
+                  Obsidian / Notion / Google Docs
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
                   ChatGPT / Claude
@@ -443,50 +443,84 @@ export default function ContentTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Editor UI
+                  {t("templateLanding.content.s037")}
                 </td>
-                <td className="px-5 py-3">Full, rigid</td>
-                <td className="px-5 py-3">Chat only</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s038")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s039")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Full, customizable
+                  {t("templateLanding.content.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Brand awareness
+                  {t("templateLanding.content.s041")}
                 </td>
                 <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">Per-conversation</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s042")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Persistent, trained
+                  {t("templateLanding.content.s043")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  CMS publishing
+                  {t("templateLanding.content.s044")}
                 </td>
-                <td className="px-5 py-3">Separate step</td>
-                <td className="px-5 py-3">Manual copy-paste</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s045")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s046")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Integrated workflow
+                  {t("templateLanding.content.s047")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.content.s048")}
                 </td>
-                <td className="px-5 py-3">Plugins only</td>
-                <td className="px-5 py-3">Prompt only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s049")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s046")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.content.s050")}
+                </td>
+              </tr>
+              <tr className="border-b border-[var(--docs-border)]">
+                <td className="px-5 py-3 font-medium text-[var(--fg)]">
+                  {t("templateLanding.content.s051")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s052")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s053")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.content.s054")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.content.s055")}
                 </td>
-                <td className="px-5 py-3">Per-seat</td>
-                <td className="px-5 py-3">Subscription</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s056")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.content.s057")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free & open source
+                  {t("templateLanding.content.s058")}
                 </td>
               </tr>
             </tbody>
@@ -497,10 +531,10 @@ export default function ContentTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.content.s059")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, connect your CMS, start writing with AI.
+          {t("templateLanding.content.s060")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -508,14 +542,14 @@ export default function ContentTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.content.s061")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
-            to="/templates"
+            to={sitePathForLocale("/apps", locale)}
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.content.s062")}
           </Link>
         </div>
       </section>

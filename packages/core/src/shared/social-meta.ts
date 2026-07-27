@@ -6,10 +6,16 @@ export type SocialMetaDescriptor =
 export const AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE =
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c533fed169648069bffaed652ec0897";
 export const AGENT_NATIVE_SOCIAL_IMAGE_PATH = "/_agent-native/og-image.png";
+export const AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER = "font-text-v2";
 export const AGENT_NATIVE_SOCIAL_IMAGE_WIDTH = "1200";
 export const AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT = "630";
 export const AGENT_NATIVE_SOCIAL_IMAGE_TYPE = "image/png";
 export const AGENT_NATIVE_SOCIAL_IMAGE_ALT = "Agent-Native app preview";
+
+export function withAgentNativeSocialImageCacheBuster(image: string): string {
+  const separator = image.includes("?") ? "&" : "?";
+  return `${image}${separator}v=${encodeURIComponent(AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER)}`;
+}
 
 function hasMetaProperty(meta: SocialMetaDescriptor[], property: string) {
   return meta.some((item) => "property" in item && item.property === property);

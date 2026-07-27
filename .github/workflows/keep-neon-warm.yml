@@ -1,0 +1,33 @@
+name: Audit hosted app health
+
+# Each published Netlify app now warms itself with a one-minute Scheduled
+# Function. This GitHub workflow is an independent strict audit, not the
+# latency-control mechanism: GitHub Actions schedules can be delayed too long
+# to prevent a scale-to-zero database from suspending.
+#
+# Scheduled workflows only run on the default branch, so this takes effect once
+# merged to main. Use the manual trigger to warm on demand.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: keep-neon-warm
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    name: Audit app health endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ping /_agent-native/health for every app
+        run: node scripts/keep-warm.mjs --strict

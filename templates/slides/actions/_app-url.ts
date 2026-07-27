@@ -11,8 +11,8 @@ function normalizeUrl(raw: string): string {
 
 function configuredBaseUrl(): string | undefined {
   const candidates = [
-    process.env.APP_URL,
     process.env.WORKSPACE_GATEWAY_URL,
+    process.env.APP_URL,
     process.env.URL,
     process.env.DEPLOY_URL,
     process.env.BETTER_AUTH_URL,

@@ -1,0 +1,327 @@
+---
+title: "양식"
+description: "에이전트 기본 양식 작성기 — 자연어와 시각적 편집기를 통해 양식 제출을 생성, 편집, 게시 및 라우팅합니다."
+---
+
+# 양식
+
+Forms는 에이전트 기반 양식 작성 도구입니다. 원하는 양식을 설명하고 편집기에서 수정한 후 자신의 SQL 데이터베이스에 제출물을 저장하는 공개 양식을 게시하세요.
+
+<WireframeBlock id="doc-block-snv1p5">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>베타 가입</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>공유</button><button class='primary'>게시 취소</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>편집</span><span class='wf-pill'>결과 187</span><span class='wf-pill'>설정</span><span class='wf-pill'>통합</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>베타 가입</h2><p class='wf-muted' style='margin:0'>예정된 비공개 베타 그룹의 자리를 예약하세요.</p><div class='wf-card'><strong>전체 이름</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>업무 이메일</strong><input value='you@company.com'/></div><div class='wf-card'><strong>내 역할</strong><input value='Select...'/></div><div class='wf-card'><strong>팀 규모</strong><input value='Select...'/></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+앱을 열면 양식, 현재 편집기 및 실시간 미리보기가 표시됩니다. 에이전트는 프롬프트에서 양식을 생성하고, 필드 레이블 및 옵션을 업데이트하고, 유효성 검사를 변경하고, UI가 사용하는 것과 동일한 actions를 사용하여 제출 대상을 연결할 수 있습니다.
+
+<Diagram id="doc-block-19nq67h" title={"구축, 게시, 수집"} summary={"에이전트와 시각적 편집기는 하나의 SQL-backed 양식 정의를 편집합니다. 공개 채우기 페이지는 인증되지 않으며 제출 내용은 서버 측에서 대상으로 라우팅됩니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      에이전트 프롬프트<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      비주얼 편집기<br /><small class="diagram-muted">레이블, 검증, 순서</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">필드 JSON, 설정 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle 기반 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      공개 작성 페이지<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >Slack / webhook / Sheets 추가</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 그것으로 무엇을 할 수 있나요
+
+- **대화식으로 양식을 작성하세요.** "연락처 양식 만들기", "NPS 점수 질문 추가", "이메일 필드를 필수로 설정하세요." 에이전트는 양식 스키마를 업데이트하고 SQL 지원 상태에서 미리보기를 업데이트합니다.
+- **시각적으로 세부 조정하세요.** 직접 제어하려는 경우 빌더 UI에서 라벨, 자리 표시자, 필수 상태, 옵션 및 필드 순서를 편집하세요.
+- **제공된 필드 유형을 사용하세요.** 텍스트, 이메일, 숫자, 긴 텍스트, 선택, 다중 선택, 확인란, 라디오, 날짜, 평가 및 척도 필드가 기본적으로 지원됩니다.
+- **응답을 수집합니다.** 각 제출물은 응답별 세부정보 보기 및 항목 검토용 대시보드와 함께 SQL에 저장됩니다.
+- **제출 경로 지정.** 내장된 통합 기능을 사용하여 제출 페이로드를 webhooks, Slack, Discord 또는 Google Sheets로 보냅니다.
+- **공개 양식을 게시합니다.** 공개 양식 URL를 공유하고 제출 후 감사 메시지를 표시합니다.
+
+## 시작하기
+
+라이브 데모: [forms.agent-native.com](https://forms.agent-native.com).
+
+1. **프롬프트에서 양식을 작성하세요.** 다음을 포함하여 원하는 양식을 요청하세요.
+   대상 및 제출 후 어떤 일이 일어나야 하는지
+2. **편집기에서 수정하세요.** 라벨, 유효성 검사, 선택 항목, 순서를 조정하세요.
+   직접 편집할 때 시각적 작성 도구가 더 빠릅니다.
+3. **게시 및 공유.** 응답자를 위해 공개 양식 URL를 사용한 후 시청하세요
+   결과는 응답 보기에 표시됩니다.
+4. **대상 연결.** 새로운 제출물을 Slack, Discord, Google로 라우팅
+   스프레드시트, webhooks 또는 자체 확장 포인트
+
+### 유용한 메시지
+
+- "역할, 팀 규모, 우선순위 사용 사례가 포함된 베타 가입 양식을 작성하세요."
+- "필수 NPS 질문과 자유 텍스트 후속 조치를 추가하세요."
+- "모든 새로운 응답을 Slack 제품 채널에 게시하세요."
+- "이번 주의 제출물을 요약하고 고객 부문별로 그룹화합니다."
+- "라우팅에 필요한 필드를 잃지 않고 이 양식을 더 짧게 만드세요."
+
+## 개발자용
+
+이 문서의 나머지 부분은 Forms 템플릿을 포크하거나 확장하는 모든 사람을 위한 것입니다.
+
+### 빠른 시작
+
+```bash
+npx @agent-native/core@latest create my-forms --standalone --template forms
+cd my-forms
+pnpm install
+pnpm dev
+```
+
+다른 앱과 함께 Forms가 있는 작업공간의 경우:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+작업공간 설정 중에 원하는 양식 및 기타 템플릿을 선택하세요.
+
+### 주요 기능 {#key-features}
+
+**JSON 양식 정의.** 필드는 하나의 `fields` JSON 열에 있으므로 에이전트는 모든 필드 유형에 대해 스키마 변경 없이 정밀한 편집을 수행할 수 있습니다.
+
+**공개 채우기 페이지.** 응답자는 인증되지 않은 양식을 제출할 수 있지만 개인 설정은 데이터가 브라우저에 도달하기 전에 제거됩니다.
+
+**서버 측 대상.** Slack, Discord, Google Sheets 및 웹훅 통합은 양식 설정에 적용되며 제출 후 실행됩니다.
+
+### 데이터 모델
+
+모든 데이터는 Drizzle ORM를 통해 SQL에 있습니다. 스키마: `templates/forms/server/db/schema.ts`. 양식에는 표준 `ownableColumns`와 일치하는 프레임워크 공유 테이블이 있으므로 사용자별/조직별 공유 모델에 속합니다.
+
+| 테이블        | 무엇을 담고 있는지                                                                                                                                                                            |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forms`       | 양식 정의 — `title`, `description`, 고유한 `slug`, `fields`(`FormField`의 JSON 배열), `settings`(JSON `FormSettings`), `status`(`draft` / `published` / `closed`) 및 소프트 삭제 `deleted_at` |
+| `responses`   | 행당 하나의 제출 — `form_id`, `data` (JSON `{ fieldId: value }`), `submitted_at`, 선택적 `ip` 및 `submitter_email`                                                                            |
+| `form_shares` | 프레임워크는 양식별로 주체(사용자 또는 조직)를 역할(뷰어, 편집자, 관리자)에 매핑하는 테이블을 공유합니다.                                                                                     |
+
+`fields` 및 `settings` JSON 형상은 `templates/forms/shared/types.ts`(`FormField`, `FormSettings`)에 정의됩니다. 통합 웹훅 URL 및 허용된 출처와 같은 소유자 개인 설정은 데이터가 `toPublicFormSettings`를 통해 공개 채우기 페이지에 도달하기 전에 제거됩니다.
+
+<DataModel
+  id="doc-block-15opzbi"
+  title={"양식 데이터 모델"}
+  summary={
+    "테이블 세 개. 필드 및 통합은 양식의 JSON 열이므로 에이전트의 편집 내용은 테이블 간 행 변경이 아닌 외과적 패치입니다."
+  }
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[] — 모든 필드 유형",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings — 통합 등",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "초안 | 출판됨 | 닫은",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "행당 하나의 제출",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "프레임워크 공유 테이블 - 양식당 역할에 대한 주체",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "뷰어 | 편집자 | 관리자",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+### 키 actions
+
+모든 작업은 `templates/forms/actions/`의 TypeScript 파일이며 `POST /_agent-native/actions/:name`에 자동 마운트됩니다.
+
+- `create-form` — 새 양식 만들기(제목, 설명, 필드, 설정)
+- `update-form` — 필드, 설정 또는 상태 업데이트
+- `get-form` — ID 또는 슬러그로 양식 검색
+- `list-forms` — 접근 가능한 양식 목록
+- `delete-form` — 일시 삭제(`deleted_at` 설정)
+- `restore-form` — 일시 삭제된 양식 복원
+- `list-responses` — 선택적 필터가 있는 양식 제출 목록
+- `export-responses` — 응답을 CSV 또는 JSON로 내보내기
+
+### 맞춤 설정
+
+먼저 배송된 동작에 대해 상담원에게 문의하세요.
+
+- "선호하는 연락 방법에 필요한 무선 필드를 추가하세요."
+- "모든 새로운 제출물을 Slack에 게시하세요." 먼저 [Messaging](/docs/messaging)를 통해 Slack를 연결하세요.
+- "CRM에 대한 웹훅 대상을 추가하세요."
+- "1~10점 척도와 긴 후속 조치 내용이 포함된 고객 피드백 양식을 만듭니다."
+- "어떤 양식은 공개로 만들고 다른 양식은 로그인 전용으로 만듭니다."
+
+파일 업로드, 서명 또는 사용자 정의 필드 위젯과 같은 새로운 기능이 필요한 경우 이를 템플릿 확장으로 처리하십시오. SQL 모양, actions, UI 편집기 컨트롤, 공개 렌더러 지원 및 에이전트 지침을 함께 추가하세요. 현재 빌드 패턴은 [Creating Templates](/docs/creating-templates)를 참조하세요.
+
+## 다음 단계
+
+- [**Templates**](/docs/cloneable-saas) — 복제 및 소유 모델
+- [**Actions**](/docs/actions) — 빌더를 구동하는 액션 시스템
+- [**Messaging**](/docs/messaging) — Slack 및 기타 제출 대상

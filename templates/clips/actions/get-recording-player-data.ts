@@ -7,6 +7,7 @@
  *   - reactions
  *   - chapters (parsed from recording.chaptersJson)
  *   - CTAs
+ *   - counted-view total
  *
  * This is the read endpoint the player/:id and share/:id routes use.
  * Access is gated by assertAccess at viewer level — for public-visibility
@@ -18,17 +19,70 @@
  */
 
 import { defineAction, embedApp } from "@agent-native/core";
-import { buildDeepLink, signShortLivedToken } from "@agent-native/core/server";
-import { z } from "zod";
-import { asc, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { parseSpaceIds } from "../server/lib/recordings.js";
-import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
 import { readAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
+import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { asc, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
+import { countRecordingAgentViews } from "../server/lib/agent-views.js";
+import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+} from "../server/lib/recording-page-access.js";
+import { hasExplicitRecordingShare } from "../server/lib/recording-share-grant.js";
+import {
+  countRecordingViews,
+  parseSpaceIds,
+} from "../server/lib/recordings.js";
+import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import {
+  CLIPS_BUILDER_CREDITS_STATE_KEY,
+  normalizeBuilderCreditsStatus,
+} from "../shared/builder-credits.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
+
+function safeJsonObject(raw: string | null | undefined) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function mapBugReport(row: typeof schema.recordingBugReports._.inferSelect) {
+  return {
+    recordingId: row.recordingId,
+    projectId: row.projectId,
+    title: row.title,
+    description: row.description,
+    severity: row.severity,
+    sourceUrl: row.sourceUrl,
+    pageTitle: row.pageTitle,
+    appVersion: row.appVersion,
+    environment: row.environment,
+    reporterEmail: row.reporterEmail,
+    reporterName: row.reporterName,
+    reporterId: row.reporterId,
+    metadata: safeJsonObject(row.metadataJson),
+    submittedAt: row.submittedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -41,7 +95,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, the counted-view total, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -56,7 +110,7 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {
       throw new ForbiddenError(`No access to recording ${args.recordingId}`);
@@ -65,18 +119,68 @@ export default defineAction({
     const db = getDb();
     const rec: any = access.resource;
 
+    if (isRecordingExpired(rec.expiresAt)) {
+      throw new ForbiddenError("Recording has expired");
+    }
+
+    const hasExplicitShare = await hasExplicitRecordingShare({
+      recordingId: args.recordingId,
+      role: access.role,
+      visibility: rec.visibility,
+      hasPassword: Boolean(rec.password),
+      isAgentCaller: isAgentRecordingCaller(ctx?.caller),
+    });
+
+    if (
+      !canOpenDirectRecordingPage({
+        role: access.role,
+        visibility: rec.visibility,
+        hasPassword: Boolean(rec.password),
+        hasExplicitShare,
+      })
+    ) {
+      throw new ForbiddenError(
+        "Open this recording from its share link instead of the direct recording URL",
+      );
+    }
+
     const [transcript] = await db
       .select()
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
-    const cleanupStateRaw = await readAppState(
-      `transcript-cleanup-${args.recordingId}`,
-    ).catch(() => null);
+    const canEditRecording =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
+    // This action is on a 1-3s poll from the player, so every read here shares
+    // one Promise.all instead of adding serial round-trips.
+    const [
+      cleanupStateRaw,
+      builderCreditsRaw,
+      verificationPending,
+      viewCount,
+      agentViewCount,
+    ] = await Promise.all([
+      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
+      canEditRecording
+        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+        : Promise.resolve(null),
+      isMediaVerificationPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+      }),
+      countRecordingViews(args.recordingId).catch(() => 0),
+      countRecordingAgentViews(args.recordingId).catch(() => 0),
+    ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
         : null;
+    const builderCredits = canEditRecording
+      ? normalizeBuilderCreditsStatus(builderCreditsRaw)
+      : null;
 
     const comments = await db
       .select()
@@ -98,6 +202,26 @@ export default defineAction({
       .from(schema.recordingCtas)
       .where(eq(schema.recordingCtas.recordingId, args.recordingId))
       .orderBy(asc(schema.recordingCtas.createdAt));
+
+    const [browserDiagnosticsRow] = await db
+      .select()
+      .from(schema.recordingBrowserDiagnostics)
+      .where(
+        eq(schema.recordingBrowserDiagnostics.recordingId, args.recordingId),
+      )
+      .limit(1);
+    const browserDiagnostics = parseBrowserDiagnosticsRow(
+      browserDiagnosticsRow,
+    );
+    const canInspectSensitiveContext =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
+    const [bugReportRow] = await db
+      .select()
+      .from(schema.recordingBugReports)
+      .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
+      .limit(1);
 
     // Reverse-lookup: if a meeting captured this recording, surface it so the
     // player can show a "From meeting: <title>" badge linking back to the
@@ -145,11 +269,22 @@ export default defineAction({
       transcript?.status === "ready" &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    const agentTranscript =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
+        ? boundTranscriptForAgent({
+            fullText: transcript?.fullText,
+            segments: transcriptSegments,
+          })
+        : null;
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
     //      rows keep playing after the route move.
-    //   2. For password-protected recordings, mint a short-lived HMAC token
+    //   2. Keep Loom imports behind the same-origin `/api/video/:id` access
+    //      gate. Legacy Loom rows render an iframe inside that route; reuploaded
+    //      Loom rows proxy their stored provider URL from the server.
+    //   3. For password-protected recordings, mint a short-lived HMAC token
     //      bound to this recording id and pass it via `?t=<token>` instead of
     //      the plaintext password. Sticking the password in the URL leaks it
     //      into browser history, CDN logs, the Referer header on outbound
@@ -160,29 +295,18 @@ export default defineAction({
     //      `?password=<pw>` (legacy fallback) so old share pages keep
     //      working during rollout. (audit 11 F-07)
     //      Owners are skipped — the blob route bypasses the password gate
-    //      for them, so they don't need the token. Real provider URLs
-    //      (R2/S3/Builder) are left untouched; those are already signed.
-    let resolvedVideoUrl = rec.videoUrl ?? null;
-    if (resolvedVideoUrl) {
-      const legacyMatch = resolvedVideoUrl.match(
-        /^\/api\/uploads\/([^/]+)\/blob$/,
-      );
-      if (legacyMatch) {
-        resolvedVideoUrl = `/api/video/${legacyMatch[1]}`;
-      }
-      if (
-        rec.password &&
-        access.role !== "owner" &&
-        resolvedVideoUrl.startsWith("/api/video/")
-      ) {
-        const token = signShortLivedToken({ resourceId: args.recordingId });
-        const sep = resolvedVideoUrl.includes("?") ? "&" : "?";
-        resolvedVideoUrl = `${resolvedVideoUrl}${sep}t=${encodeURIComponent(token)}`;
-      }
-    }
+    //      for them, so they don't need the token. Remote provider URLs are
+    //      still proxied through same-origin media serving so CORS, range
+    //      requests, and signed URL quirks match public share playback.
+    const resolvedVideoUrl = resolvePlayerVideoUrl(rec, {
+      addPasswordToken: access.role !== "owner",
+      proxyRemoteMedia: true,
+    });
 
     return {
       role: access.role,
+      viewCount,
+      agentViewCount,
       recording: {
         id: rec.id,
         organizationId: rec.organizationId,
@@ -190,6 +314,8 @@ export default defineAction({
         description: rec.description,
         thumbnailUrl: rec.thumbnailUrl,
         animatedThumbnailUrl: rec.animatedThumbnailUrl,
+        sourceAppName: rec.sourceAppName,
+        sourceWindowTitle: rec.sourceWindowTitle,
         durationMs: rec.durationMs,
         editsJson: rec.editsJson,
         videoUrl: resolvedVideoUrl,
@@ -199,6 +325,7 @@ export default defineAction({
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
+        verificationPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that
@@ -221,13 +348,23 @@ export default defineAction({
       },
       transcript: transcript
         ? {
-            status: transcriptReadyButEmpty ? "failed" : transcript.status,
+            status: transcriptReadyButEmpty
+              ? "failed"
+              : transcriptPresentation.status,
             language: transcript.language,
-            fullText: transcript.fullText,
+            fullText: agentTranscript?.fullText ?? transcript.fullText,
+            ...(agentTranscript
+              ? {
+                  fullTextLength: agentTranscript.fullTextLength,
+                  segmentCount: agentTranscript.segmentCount,
+                  previewTruncated: agentTranscript.previewTruncated,
+                  note: agentTranscript.note,
+                }
+              : {}),
             failureReason: transcriptReadyButEmpty
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
-              : transcript.failureReason,
-            segments: transcriptSegments,
+              : transcriptPresentation.failureReason,
+            segments: agentTranscript?.segments ?? transcriptSegments,
             cleanup: cleanupState
               ? {
                   status:
@@ -250,6 +387,7 @@ export default defineAction({
               : null,
           }
         : null,
+      builderCredits,
       comments: comments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,
@@ -280,6 +418,15 @@ export default defineAction({
         color: c.color,
         placement: c.placement,
       })),
+      browserDiagnostics: browserDiagnostics
+        ? canInspectSensitiveContext
+          ? browserDiagnostics
+          : { summary: browserDiagnostics.summary }
+        : null,
+      bugReport:
+        bugReportRow && canInspectSensitiveContext
+          ? mapBugReport(bugReportRow)
+          : null,
       meeting,
     };
   },

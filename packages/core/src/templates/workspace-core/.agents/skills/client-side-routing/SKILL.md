@@ -4,6 +4,7 @@ description: >-
   How to add routes without remounting the app shell. Use when adding a new
   route, fixing agent sidebar reloads on navigation, or choosing between
   `root.tsx` layout and pathless `_app.tsx` layout patterns.
+scope: dev
 metadata:
   internal: true
 ---
@@ -65,6 +66,15 @@ export default function Settings() {
 ```
 
 If a page needs per-route data (e.g. sidebar highlighting the active document), derive it inside the layout from `useParams()` / `useLocation()` — don't pass it as a prop through every route file.
+
+## Chat-First Routes
+
+If `/` is a full-page chat such as `AgentChatHome`, keep the app shell mounted
+around it when possible so `AgentSidebar` URL sync and route warmup stay active.
+If the chat route intentionally lives outside the shell, add a tiny app-owned
+prewarm for the routes agents commonly open from that chat. In local dev,
+React Router can update the address bar before a cold Vite route chunk commits,
+which makes navigation look broken even when the URL is correct.
 
 ## Adding a New Route
 

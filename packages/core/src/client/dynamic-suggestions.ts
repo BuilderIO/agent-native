@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+
 import { agentNativePath } from "./api-path.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-const DEFAULT_MAX_SUGGESTIONS = 4;
+const DEFAULT_MAX_SUGGESTIONS = 3;
 
 export interface AgentDynamicSuggestionContext {
   navigation: unknown;
@@ -321,7 +322,7 @@ export function mergeAgentSuggestions(options: {
 }): string[] {
   if (options.dynamicSuggestions.length === 0) {
     return options.includeStatic
-      ? dedupeSuggestions(options.staticSuggestions ?? [])
+      ? dedupeSuggestions(options.staticSuggestions ?? []).slice(0, options.max)
       : [];
   }
 
@@ -406,8 +407,13 @@ export function useAgentDynamicSuggestionsResult(
 
     void load(true);
     const interval = setInterval(() => {
+      // The useEffect deps already include appStateVersion, so app-state
+      // changes trigger an immediate event-driven refresh above. This
+      // interval is only a slow safety net for updates that don't bump
+      // that version — skip ticks while the tab isn't visible.
+      if (document.hidden) return;
       void load(false);
-    }, 2_000);
+    }, 30_000);
 
     return () => {
       cancelled = true;
@@ -418,7 +424,7 @@ export function useAgentDynamicSuggestionsResult(
   const suggestions = useMemo(() => {
     if (!enabled) {
       return options.staticSuggestions
-        ? dedupeSuggestions(options.staticSuggestions)
+        ? dedupeSuggestions(options.staticSuggestions).slice(0, config.max)
         : undefined;
     }
     if (context === null) return undefined;

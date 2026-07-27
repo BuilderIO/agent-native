@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -10,12 +10,14 @@ import {
   IconMessages,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { useMemo, useState, type ReactNode } from "react";
+
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
+import { cn } from "../../lib/utils";
 
 export function meta() {
   return [{ title: "Metrics — Dispatch" }];
@@ -215,7 +217,7 @@ function RangeSelector({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="flex rounded-md border bg-card p-0.5">
+    <div className="flex rounded-md bg-card p-0.5">
       {RANGES.map((range) => (
         <Button
           key={range}
@@ -244,7 +246,7 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4">
+    <div className="rounded-lg bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <span className="text-xs font-medium text-muted-foreground">
           {label}
@@ -273,7 +275,7 @@ function Panel({
   action?: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border bg-card">
+    <section className="rounded-lg bg-card">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-muted-foreground">{icon}</span>
@@ -293,7 +295,7 @@ function LoadingMetrics() {
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="rounded-lg border bg-card p-4">
+          <div key={index} className="rounded-lg bg-card p-4">
             <Skeleton className="mb-4 h-4 w-24" />
             <Skeleton className="h-7 w-20" />
             <Skeleton className="mt-3 h-3 w-28" />
@@ -637,11 +639,11 @@ function RecentTable({
 }
 
 export default function MetricsRoute() {
+  const t = useT();
   const [sinceDays, setSinceDays] = useState(30);
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
     { sinceDays },
-    { refetchInterval: 30_000 },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
   const billing = metrics?.billing ?? USD_BILLING;
@@ -657,11 +659,11 @@ export default function MetricsRoute() {
 
   return (
     <DispatchShell
-      title="Metrics"
+      title={t("dispatch.nav.metrics")}
       description={
         billing.unit === "builder-credits"
-          ? "Workspace-wide Builder.io credit spend, chat volume, user activity, and app access."
-          : "Workspace-wide LLM spend, chat volume, user activity, and app access."
+          ? t("dispatch.pages.metricsDescriptionBuilder")
+          : t("dispatch.pages.metricsDescriptionLlm")
       }
     >
       <div className="space-y-4">
@@ -677,9 +679,11 @@ export default function MetricsRoute() {
         {error ? (
           <Alert variant="destructive">
             <IconAlertTriangle className="h-4 w-4" />
-            <AlertTitle>Metrics unavailable</AlertTitle>
+            <AlertTitle>{t("dispatch.pages.metricsUnavailable")}</AlertTitle>
             <AlertDescription>
-              {error instanceof Error ? error.message : "Unable to load usage."}
+              {error instanceof Error
+                ? error.message
+                : t("dispatch.pages.unableToLoadUsage")}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -696,25 +700,25 @@ export default function MetricsRoute() {
                 icon={<IconCoin size={17} />}
               />
               <MetricCard
-                label="LLM calls"
+                label={t("dispatch.pages.llmCalls")}
                 value={formatNumber(metrics.totals.calls)}
                 detail={`${formatNumber(metrics.totals.chatCalls)} chat turns`}
                 icon={<IconActivity size={17} />}
               />
               <MetricCard
-                label="Active users"
+                label={t("dispatch.pages.activeUsers")}
                 value={formatNumber(metrics.totals.activeUsers)}
                 detail={`${formatNumber(metrics.access.totalUsers)} users with access`}
                 icon={<IconUsersGroup size={17} />}
               />
               <MetricCard
-                label="Workspace apps"
+                label={t("dispatch.pages.workspaceAppsStat")}
                 value={formatNumber(metrics.totals.workspaceApps)}
                 detail={`${formatNumber(metrics.byApp.length)} with usage`}
                 icon={<IconApps size={17} />}
               />
               <MetricCard
-                label="Chat threads"
+                label={t("dispatch.pages.chatThreads")}
                 value={formatNumber(metrics.totals.chatThreads)}
                 detail={`${formatNumber(metrics.totals.chatMessages)} messages`}
                 icon={<IconMessages size={17} />}

@@ -1,18 +1,19 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { nowIso, parseJson, stringifyJson } from "../server/lib/json.js";
-import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
 import { IMAGE_CATEGORIES } from "../shared/api.js";
+import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
 
 export default defineAction({
   description:
     "Update asset metadata, folder, category, role, status, title, description, or alt text. Use this to organize DAM assets and save generated candidates.",
   schema: z.object({
     id: z.string(),
-    folderId: z.string().nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
     title: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
     altText: z.string().nullable().optional(),
@@ -26,6 +27,7 @@ export default defineAction({
         "product_reference",
         "diagram_reference",
         "video_reference",
+        "background_reference",
         "subject_reference",
         "edit_target",
         "generated",
@@ -40,7 +42,7 @@ export default defineAction({
   run: async ({ id, category, isStyleAnchor, ...args }) => {
     const asset = await getAssetOrThrow(id);
     await assertAccess("asset-library", asset.libraryId, "editor");
-    if (args.folderId) {
+    if (args.folderId !== undefined && args.folderId !== null) {
       const [folder] = await getDb()
         .select()
         .from(schema.assetFolders)

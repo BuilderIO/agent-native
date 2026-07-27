@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+
 import { coreTemplates, getTemplate } from "../../cli/templates-meta.js";
 
 export interface OrgSwitcherAppLink {

@@ -13,6 +13,14 @@ describe("db/client dialect detection", () => {
 
   afterEach(() => {
     process.env = originalEnv;
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
+    );
     vi.resetModules();
   });
 
@@ -30,6 +38,16 @@ describe("db/client dialect detection", () => {
     expect(getDialect()).toBe("postgres");
     expect(isPostgres()).toBe(true);
     expect(intType()).toBe("BIGINT");
+  });
+
+  it("detects postgres dialect from opt-in pglite: URL", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:./data/pglite");
+    const { getDialect, isPostgres, intType, isLocalDatabase } =
+      await import("./client.js");
+    expect(getDialect()).toBe("postgres");
+    expect(isPostgres()).toBe(true);
+    expect(intType()).toBe("BIGINT");
+    expect(isLocalDatabase()).toBe(true);
   });
 
   it("detects sqlite dialect from file: URL", async () => {
@@ -51,6 +69,164 @@ describe("db/client dialect detection", () => {
     vi.stubEnv("DATABASE_URL", "libsql://db-name-user.turso.io");
     const { getDialect } = await import("./client.js");
     expect(getDialect()).toBe("sqlite");
+  });
+
+  it("uses Netlify's runtime database URL when DATABASE_URL is not exported", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl, getDialect } = await import("./client.js");
+    expect(getDatabaseUrl("file:./data/app.db")).toBe(
+      "postgres://netlify.example/db",
+    );
+    expect(getDialect()).toBe("postgres");
+  });
+
+  it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl } = await import("./client.js");
+    expect(getDatabaseUrl()).toBe("postgres://plan.example/db");
+  });
+
+  it("keeps the Neon foreground pool small on serverless", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(1);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
+  });
+
+  it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
+    // The marker records which URL the foreground TARGETED, not where the
+    // request landed. A misrouted worker on the ~60s sync function must NOT
+    // take the 8-connection background pool (it runs as one of many warm
+    // instances and would exhaust the Neon pooler → connection terminated →
+    // failed heartbeat → stale_run). Only proof-of-landing unlocks the big pool.
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(1);
+  });
+
+  it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(true);
+    expect(neonPoolMax()).toBe(8);
+  });
+});
+
+describe("db/client D1 execution", () => {
+  it("uses D1 batch for atomic statements instead of interactive SQL transactions", async () => {
+    const prepared: Array<{ sql: string; args: unknown[] }> = [];
+    const binding = {
+      prepare: vi.fn((sql: string) => {
+        const statement = {
+          sql,
+          args: [] as unknown[],
+          bind(...args: unknown[]) {
+            statement.args = args;
+            return statement;
+          },
+          all: vi.fn(),
+        };
+        prepared.push(statement);
+        return statement;
+      }),
+      batch: vi.fn(async () => [
+        { results: [{ matched: 1 }], meta: { changes: 0 } },
+        { results: [], meta: { changes: 1 } },
+      ]),
+    };
+    const { createDbExec } = await import("./client.js");
+    const client = await createDbExec({ d1Binding: binding });
+
+    expect(client.transaction).toBeUndefined();
+    await expect(
+      client.atomicBatch?.([
+        { sql: "SELECT value FROM state WHERE key = ?", args: ["pending"] },
+        { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+      ]),
+    ).resolves.toEqual([
+      { rows: [{ matched: 1 }], rowsAffected: 0 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    expect(binding.batch).toHaveBeenCalledTimes(1);
+    expect(prepared.map(({ sql, args }) => ({ sql, args }))).toEqual([
+      {
+        sql: "SELECT value FROM state WHERE key = ?",
+        args: ["pending"],
+      },
+      { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+    ]);
+  });
+});
+
+describe("pgliteDataDirFromUrl", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("maps pglite URLs to PGlite dataDir values", async () => {
+    const { pgliteDataDirFromUrl } = await import("./client.js");
+
+    expect(pgliteDataDirFromUrl("pglite:./data/pglite")).toBe("./data/pglite");
+    expect(pgliteDataDirFromUrl("pglite:///tmp/pglite")).toBe("/tmp/pglite");
+    expect(pgliteDataDirFromUrl("pglite:memory")).toBe("memory://");
+    expect(pgliteDataDirFromUrl("pglite:")).toBe("./data/pglite");
+  });
+
+  it("redirects relative PGlite data dirs to writable /tmp on serverless", async () => {
+    vi.stubEnv("NETLIFY", "1");
+    const { pgliteDataDirFromUrl, pgliteRuntimeDataDir } =
+      await import("./client.js");
+
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:./data/pglite")),
+    ).toBe("/tmp/data/pglite");
+    expect(pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:memory"))).toBe(
+      "memory://",
+    );
+    expect(
+      pgliteRuntimeDataDir(pgliteDataDirFromUrl("pglite:///tmp/pglite")),
+    ).toBe("/tmp/pglite");
+  });
+});
+
+describe("PGlite optional dependency", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("reports setup instructions when pglite: is selected without the package", async () => {
+    const pglitePackage = "@electric-sql/pglite";
+    try {
+      await import(pglitePackage);
+      return;
+    } catch {
+      // Continue only when the optional package is absent in this install.
+    }
+
+    const { createDbExec } = await import("./client.js");
+    await expect(createDbExec({ url: "pglite:memory" })).rejects.toThrow(
+      "PGlite database support requires the optional @electric-sql/pglite package.",
+    );
   });
 });
 
@@ -92,6 +268,37 @@ describe("getMigrationDatabaseUrl", () => {
     const { getMigrationDatabaseUrl } = await import("./client.js");
     expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
   });
+
+  it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
+    vi.stubEnv(
+      "DATABASE_URL_UNPOOLED",
+      "postgresql://old:pw@old.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+  });
+
+  it("keeps app-specific unpooled migration URLs ahead of Netlify's shared unpooled env", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv(
+      "PLAN_DATABASE_URL_UNPOOLED",
+      "postgresql://plan:pw@plan.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://netlify:pw@netlify.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://plan:pw@plan.example.com/db",
+    );
+  });
 });
 
 describe("getDbExec", () => {
@@ -117,11 +324,92 @@ describe("getDbExec", () => {
   });
 });
 
+describe("sqliteToPostgresParams", () => {
+  it("converts placeholders while preserving question marks inside SQL literals", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = ? AND path LIKE ?",
+      ),
+    ).toBe(
+      "SELECT substring(referrer from 'https?://([^/?#]+)') AS domain FROM analytics_events WHERE owner_email = $1 AND path LIKE $2",
+    );
+  });
+
+  it("ignores question marks in identifiers, comments, and dollar-quoted strings", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = ? /* block ? */ AND org_id = ?',
+      ),
+    ).toBe(
+      'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = $1 /* block ? */ AND org_id = $2',
+    );
+  });
+
+  it("converts placeholders after a backslash SQL string literal", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT * FROM org_members WHERE email LIKE ? ESCAPE '\\' AND role = ? LIMIT ? OFFSET ?",
+      ),
+    ).toBe(
+      "SELECT * FROM org_members WHERE email LIKE $1 ESCAPE '\\' AND role = $2 LIMIT $3 OFFSET $4",
+    );
+  });
+});
+
+describe("retryOnDdlRace", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("retries Postgres duplicate type races from concurrent CREATE TABLE", async () => {
+    const { retryOnDdlRace } = await import("./client.js");
+    const duplicateTypeError = Object.assign(
+      new Error('type "integration_a2a_continuations" already exists'),
+      { code: "42710", routine: "TypeCreate" },
+    );
+    const operation = vi
+      .fn()
+      .mockRejectedValueOnce(duplicateTypeError)
+      .mockResolvedValueOnce("ok");
+
+    await expect(retryOnDdlRace(operation)).resolves.toBe("ok");
+    expect(operation).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry unrelated duplicate object errors", async () => {
+    const { retryOnDdlRace } = await import("./client.js");
+    const duplicateSchemaError = Object.assign(
+      new Error('schema "public" already exists'),
+      { code: "42710", routine: "NamespaceCreate" },
+    );
+    const operation = vi.fn().mockRejectedValueOnce(duplicateSchemaError);
+
+    await expect(retryOnDdlRace(operation)).rejects.toThrow(
+      'schema "public" already exists',
+    );
+    expect(operation).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("dbOpTimeoutMs", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
   });
+
+  function stubNonServerlessEnv() {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "");
+  }
 
   it("honors a positive DB_OP_TIMEOUT_MS override", async () => {
     vi.stubEnv("DB_OP_TIMEOUT_MS", "1234");
@@ -130,10 +418,12 @@ describe("dbOpTimeoutMs", () => {
   });
 
   it("ignores a non-positive / non-numeric override", async () => {
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "0");
     const mod1 = await import("./client.js");
     expect(mod1.dbOpTimeoutMs()).toBe(30_000);
     vi.resetModules();
+    stubNonServerlessEnv();
     vi.stubEnv("DB_OP_TIMEOUT_MS", "not-a-number");
     const mod2 = await import("./client.js");
     expect(mod2.dbOpTimeoutMs()).toBe(30_000);
@@ -341,3 +631,143 @@ describe("withDbTimeout", () => {
     await new Promise((r) => setTimeout(r, 40));
   });
 });
+
+describe("dbExecQueryBudget", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("honors a caller's timeout and one-attempt read budget", async () => {
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 30_000,
+        maxAttempts: 1,
+      }),
+    ).toEqual({ timeoutMs: 30_000, maxAttempts: 1 });
+  });
+
+  it("falls back to the normal timeout and retry budget for invalid values", async () => {
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "4321");
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 0,
+        maxAttempts: 0,
+      }),
+    ).toEqual({ timeoutMs: 4321, maxAttempts: 3 });
+  });
+});
+
+describe("Neon foreground statement budgets", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.doUnmock("@neondatabase/serverless");
+    vi.resetModules();
+  });
+
+  it("uses the statement budget while acquiring a foreground connection", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "5");
+    const pool = {
+      connect: vi.fn(() => new Promise(() => {})),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      exec.execute({
+        sql: "SELECT 1",
+        timeoutMs: 25,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("DB connect timed out after 25ms");
+
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(pool.connect).toHaveBeenCalledOnce();
+  });
+});
+
+describe("isTransientDatabaseError", () => {
+  it("classifies Neon connection exhaustion as retryable", async () => {
+    const { isConnectionError, isTransientDatabaseError } =
+      await import("./client.js");
+    const error = {
+      code: "EMAXCONN",
+      message: "(EMAXCONN) max client connections reached, limit: 200",
+      stack:
+        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
+    };
+
+    expect(isConnectionError(error)).toBe(true);
+    expect(isTransientDatabaseError(error)).toBe(true);
+    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
+  });
+
+  it("classifies statement timeouts without making them connection retries", async () => {
+    const { isTransientDatabaseError, isConnectionError } =
+      await import("./client.js");
+    const error = new Error("canceling statement due to statement timeout");
+
+    expect(isTransientDatabaseError(error)).toBe(true);
+    expect(isConnectionError(error)).toBe(false);
+  });
+
+  it("classifies pool checkout timeouts", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(isTransientDatabaseError({ code: "ECHECKOUTTIMEOUT" })).toBe(true);
+  });
+
+  it("does not misclassify generic provider network failures", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(
+      isTransientDatabaseError({
+        code: "ECONNRESET",
+        stack: "Error: socket hang up\n at providerFetch (gong.ts:42:7)",
+      }),
+    ).toBe(false);
+  });
+
+  it("classifies database-driver connection failures", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(
+      isTransientDatabaseError({
+        code: "ECONNRESET",
+        stack: "Error: connection reset\n at @neondatabase/serverless/index.js",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not classify ordinary database errors as transient", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(isTransientDatabaseError(new Error("duplicate key value"))).toBe(
+      false,
+    );
+  });
+});
+
+// Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
+// (the helper moved to `./widen-columns.js`).

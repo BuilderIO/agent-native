@@ -1,13 +1,19 @@
+import messages from "@/i18n/en-US";
 import { FormsListPage } from "@/pages/FormsListPage";
 
 export function meta() {
+  const description = messages.routeDescriptions.formsIndex;
+
   return [
-    { title: "Agent-Native Forms" },
+    {
+      title: messages.routeTitles.formsIndex,
+    },
     {
       name: "description",
-      content:
-        "Your AI agent builds, publishes, and analyzes forms alongside you.",
+      content: description,
     },
+    { property: "og:description", content: description },
+    { name: "twitter:description", content: description },
   ];
 }
 

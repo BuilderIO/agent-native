@@ -1,3 +1,5 @@
+import { resolveSecret } from "@agent-native/core/server";
+
 interface ReferenceImage {
   data: string; // base64
   mimeType: string;
@@ -35,7 +37,9 @@ export async function generateWithGemini(
   context?: { slideContent?: string; deckText?: string },
 ): Promise<{ imageData: Buffer; mimeType: string }> {
   const { GoogleGenAI } = await import("@google/genai");
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = await resolveSecret("GEMINI_API_KEY");
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
+  const client = new GoogleGenAI({ apiKey });
 
   // Randomly select 4 reference images for better style matching per generation
   const shuffled = [...referenceImages].sort(() => Math.random() - 0.5);

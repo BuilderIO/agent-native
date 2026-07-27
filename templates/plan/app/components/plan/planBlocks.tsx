@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import {
   BlockRegistry,
   registerBlocks,
@@ -13,14 +12,12 @@ import {
   type NestedBlock,
   type BlockAiFieldActionProps,
 } from "@agent-native/core/blocks";
-import {
-  sendToAgentChat,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import type { PlanBlock } from "@shared/plan-content";
-import { PlanBlockView } from "./DocumentArea";
-import { PlanMarkdownEditor } from "./PlanMarkdownEditor";
-import { PlanMarkdownReader } from "./PlanMarkdownReader";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+
 import {
   Popover,
   PopoverContent,
@@ -28,8 +25,20 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
+import { PlanBlockView } from "./DocumentArea";
+import { PlanMarkdownReader } from "./PlanMarkdownReader";
+
+const LazyPlanMarkdownEditor = lazy(() =>
+  import("./PlanMarkdownEditor").then((mod) => ({
+    default: mod.PlanMarkdownEditor,
+  })),
+);
+
 type PlanBlockRenderContextExtras = {
+  textDirection?: "ltr" | "rtl";
   onQuestionFormSubmit?: (summary: string) => void;
+  showCodeAnnotationOverlays?: boolean;
+  codeAnnotationLayout?: BlockRenderContext["codeAnnotationLayout"];
 };
 
 /**
@@ -68,13 +77,13 @@ const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
       spec: JSON.stringify(
         {
           openapi: "3.0.0",
-          info: { title: "Example API", version: "1.0.0" },
-          tags: [{ name: "widgets", description: "Manage widgets" }],
+          info: { title: "Example API", version: "1.0.0" }, // i18n-ignore example OpenAPI fixture data
+          tags: [{ name: "widgets", description: "Manage widgets" }], // i18n-ignore example OpenAPI fixture data
           paths: {
             "/widgets": {
               get: {
                 tags: ["widgets"],
-                summary: "List widgets",
+                summary: "List widgets", // i18n-ignore example OpenAPI fixture data
                 responses: {
                   "200": {
                     description: "OK",
@@ -91,7 +100,7 @@ const PLAN_LIBRARY_OVERRIDES: LibraryBlockOverrides = {
               },
               post: {
                 tags: ["widgets"],
-                summary: "Create a widget",
+                summary: "Create a widget", // i18n-ignore example OpenAPI fixture data
                 requestBody: {
                   content: {
                     "application/json": {
@@ -140,6 +149,7 @@ registerLibraryBlocks(planBlockRegistry, {
  * unconverted children via the legacy switch (the coexistence seam).
  */
 export function createPlanBlockRenderContext(options: {
+  textDirection?: PlanBlockRenderContextExtras["textDirection"];
   contentUpdatedAt?: string | null;
   planId?: string | null;
   collabUser?: RichMarkdownCollabUser | null;
@@ -151,9 +161,16 @@ export function createPlanBlockRenderContext(options: {
   onVisualQuestionsSubmit?: (summary: string) => void;
   renderBlocksEditor?: BlockRenderContext["renderBlocksEditor"];
   editingDisabled?: boolean;
+  showCodeAnnotationOverlays?: boolean;
+  codeAnnotationLayout?: BlockRenderContext["codeAnnotationLayout"];
+  visualFrame?: BlockRenderContext["visualFrame"];
 }): BlockRenderContext {
   const ctx: BlockRenderContext & PlanBlockRenderContextExtras = {
     dialect: "gfm",
+    textDirection: options.textDirection,
+    visualFrame: options.visualFrame ?? "show",
+    showCodeAnnotationOverlays: options.showCodeAnnotationOverlays,
+    codeAnnotationLayout: options.codeAnnotationLayout,
     onQuestionFormSubmit: options.onVisualQuestionsSubmit,
     renderMarkdown: (markdown, options) => (
       <PlanMarkdownReader markdown={markdown} className={options?.className} />
@@ -166,17 +183,21 @@ export function createPlanBlockRenderContext(options: {
       className,
       ariaLabel,
     }) => (
-      <PlanMarkdownEditor
-        markdown={value}
-        editable={editable}
-        className={className}
-        ariaLabel={ariaLabel}
-        contentUpdatedAt={options.contentUpdatedAt}
-        planId={options.planId}
-        blockId={blockId}
-        user={options.collabUser}
-        onSave={onChange}
-      />
+      <Suspense
+        fallback={<PlanMarkdownReader markdown={value} className={className} />}
+      >
+        <LazyPlanMarkdownEditor
+          markdown={value}
+          editable={editable}
+          className={className}
+          ariaLabel={ariaLabel}
+          contentUpdatedAt={options.contentUpdatedAt}
+          planId={options.planId}
+          blockId={blockId}
+          user={options.collabUser}
+          onSave={onChange}
+        />
+      </Suspense>
     ),
     renderAiFieldAction: (props) => <PlanAiFieldAction {...props} />,
     // Recursively render a nested child block through the plan dispatcher. The
@@ -289,6 +310,7 @@ export function PlanAiBlockAction({
   blockData: unknown;
   planId?: string | null;
 }) {
+  const t = useT();
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -317,8 +339,10 @@ export function PlanAiBlockAction({
 
   return (
     <InlinePromptField
-      placeholder="Describe a change…"
-      ariaLabel={`Describe a change to ${label.toLowerCase()}`}
+      placeholder={t("raw.blocks.describeChange")}
+      ariaLabel={t("raw.blocks.describeChangeTo", {
+        label: label.toLowerCase(),
+      })}
       onSubmit={submitPrompt}
     />
   );
@@ -335,6 +359,7 @@ function PlanAiFieldAction({
   instructions,
   companionFields = [],
 }: BlockAiFieldActionProps) {
+  const t = useT();
   const submitPrompt = (prompt: string) => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -374,8 +399,10 @@ function PlanAiFieldAction({
     <InlinePromptField
       size="sm"
       subtle
-      placeholder="Describe a change…"
-      ariaLabel={`Describe a change to the ${fieldLabel.toLowerCase()}`}
+      placeholder={t("raw.blocks.describeChange")}
+      ariaLabel={t("raw.blocks.describeChangeTo", {
+        label: fieldLabel.toLowerCase(),
+      })}
       onSubmit={submitPrompt}
       disabled={disabled}
       fieldActionLabel={fieldLabel}
@@ -443,6 +470,7 @@ function InlinePromptField({
         disabled={disabled}
         aria-label={ariaLabel}
         data-ai-field-action={fieldActionLabel}
+        data-plan-block-edit-prompt
         placeholder={placeholder}
         spellCheck={false}
         onChange={(event) => setValue(event.target.value)}

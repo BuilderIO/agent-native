@@ -16,12 +16,24 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Choose The Path
 
-- Use `open-asset-picker` when a person should browse, search, generate, and
-  select an asset in UI. Pass `mediaType: "image"` by default, or
-  `mediaType: "video"` for video libraries.
+- Use `generate-asset` when a person should get newly generated, on-brand image
+  candidates and choose the winner in the inline picker. It matches a library
+  when `libraryId` is omitted, generates candidates, returns the picker filtered
+  to those run IDs, and works in in-app chat plus external MCP hosts.
+- Use `open-asset-picker` when a person should browse, search, or select an
+  existing asset inside an embedded picker, or when you want the picker to
+  handle generation itself. It still opens `/library` with the iframe/bridge
+  contract. The normal human Library workspace is `/library` and `/library/:id`.
+  Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
+  libraries.
 - Use unattended actions when the agent already knows what to do:
   `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
   `generate-video`, `refresh-generation-run`, and `export-asset`.
+- In chat, consume composer `@` references as structured generation inputs:
+  `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
+  `media-type` chooses image generation versus video generation. If no mention
+  is available, use `view-screen`, `list-libraries`, and
+  `list-generation-presets` to choose explicit args.
 - Use generation presets when the user asks for a repeatable output format
   like social image, blog hero, or diagram. Call `list-generation-presets` for
   the library and pass `presetId` through generation/refinement actions.
@@ -41,28 +53,43 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Image Workflows
 
-1. Pick or match the library with `list-libraries` or `match-library`.
+1. Read the `creative-context` skill and retrieve visual references separately
+   from factual evidence. Respect `contextMode: "off"`, pinned packs, and the
+   exact reuse ladder before generation: approved native asset unchanged,
+   compose approved pieces, lightly adapt a real example, condition generation
+   on narrow references, then net-new only when the relevant corpus is empty.
+2. For human-in-the-loop generation, call `generate-asset` first and preserve
+   the returned picker/candidate metadata. For unattended generation, pick or
+   match the library with `list-libraries` or `match-library`.
    If the user wants a default look rather than a brand library, call
    `list-library-presets` and then `create-library-from-preset`; the resulting
    library is editable and reusable like any other library.
-2. For one asset, call `generate-image`; for multiple independent slots, call
+3. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
-3. Image generation actions are synchronous. After `generate-image` or
+4. Image generation actions are synchronous. After `generate-image` or
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
-4. For preset-backed work, pass `presetId`; for handoff work, pass `sessionId`.
-5. Let the server choose a small deterministic reference set unless the user
+5. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
+   work, pass `sessionId`.
+6. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
    `assets.metadata.isStyleAnchor`.
-6. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
+7. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
-7. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-8. Use `refine-image` for feedback on an existing asset, `edit-image` for
+   - Model/ratio compatibility: Gemini image models accept any `aspectRatio`, but
+     `gpt-image-2` supports only `1:1`, `2:3`, and `3:2`. When the user needs
+     another ratio (16:9, 9:16, 4:5, 21:9, …), pick a Gemini model rather than
+     `gpt-image-2` — an unsupported pairing is rejected upstream. Source of truth
+     is `supportedAspectRatiosForModel` / `MODEL_ASPECT_RATIOS` in `shared/api.ts`.
+8. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+   Preserve the immutable `contextPackId` and reuse labels on both generation
+   run and output-asset metadata; rendered pixels are not provenance.
+9. Use `refine-image` for feedback on an existing asset, `edit-image` for
    targeted changes, and `restyle-image` with `subjectAssetId` and
    `styleStrength` for subject-preserving brand restyles.
-9. If a designer will take over, call `create-generation-session` or
+10. If a designer will take over, call `create-generation-session` or
    `update-generation-session`, then `prepare-generation-session-continuation`
    when they want a chat preloaded with the session context.
 
@@ -83,10 +110,12 @@ deferred.
 
 - Hosted default: connect `https://assets.agent-native.com/_agent-native/mcp`.
   Do not put shared secrets in skill files.
-- Local customization: run `agent-native app-skill launch --local` from the
+- Local customization: run `npx @agent-native/core@latest app-skill launch --local` from the
   Assets app-skill manifest, or pass `--into <path>` for editable source.
-- For A2A or MCP callers, include exact `assetId`, `runId`, media type, and
-  URLs in the final response so the caller can attach or embed the media.
+- For MCP callers, `generate-asset` is the portable first choice because the
+  same MCP App picker renders inline in Agent-Native chat, ChatGPT, and Claude
+  when the host supports MCP Apps. Include exact `assetId`, `runId`, media type,
+  and URLs in the final response so the caller can attach or embed the media.
   Include `presetId` and `sessionId` when present.
 
 ## Don't

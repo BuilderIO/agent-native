@@ -5,13 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { getUserSetting, readSetting } from "@agent-native/core/settings";
 import { z } from "zod";
-import type {
-  CalendarEvent,
-  FindTimeBusyBlock,
-  FindTimeParticipant,
-  FindTimeResult,
-} from "../shared/api.js";
-import * as googleCalendar from "../server/lib/google-calendar.js";
+
 import { eventBlocksAvailability } from "../server/lib/calendar-availability.js";
 import {
   computeFindTimeSlots,
@@ -19,6 +13,13 @@ import {
   normalizeTimezone,
   resolveFindTimeRange,
 } from "../server/lib/find-time.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
+import type {
+  CalendarEvent,
+  FindTimeBusyBlock,
+  FindTimeParticipant,
+  FindTimeResult,
+} from "../shared/api.js";
 import { listCalendarEvents } from "./list-events.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -250,15 +251,22 @@ export default defineAction({
     const busyByKey = new Map<string, FindTimeBusyBlock>();
     const errors: Array<{ email: string; error: string }> = [];
 
-    if (googleConnected) {
-      const freeBusy = await googleCalendar.getFreeBusy(
-        range.from,
-        range.to,
-        participantEmails,
-        ownerEmail,
-        timezone,
-        organizerEmail,
-      );
+    const [freeBusyOutcome, eventsOutcome] = await Promise.allSettled([
+      googleConnected
+        ? googleCalendar.getFreeBusy(
+            range.from,
+            range.to,
+            participantEmails,
+            ownerEmail,
+            timezone,
+            organizerEmail,
+          )
+        : Promise.resolve(null),
+      listCalendarEvents({ from: range.from, to: range.to }),
+    ]);
+
+    if (freeBusyOutcome.status === "fulfilled" && freeBusyOutcome.value) {
+      const freeBusy = freeBusyOutcome.value;
       errors.push(...freeBusy.errors);
       for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
         for (const busy of calendar.busy) {
@@ -275,13 +283,17 @@ export default defineAction({
           );
         }
       }
+    } else if (freeBusyOutcome.status === "rejected") {
+      errors.push({
+        email: organizerEmail,
+        error:
+          freeBusyOutcome.reason?.message ||
+          "Unable to load free/busy availability",
+      });
     }
 
-    try {
-      const eventResult = await listCalendarEvents({
-        from: range.from,
-        to: range.to,
-      });
+    if (eventsOutcome.status === "fulfilled") {
+      const eventResult = eventsOutcome.value;
       errors.push(...eventResult.errors);
       addCalendarEventBusyBlocks(
         busyByKey,
@@ -291,10 +303,12 @@ export default defineAction({
         args.ignoreStart,
         args.ignoreEnd,
       );
-    } catch (error: any) {
+    } else {
       errors.push({
         email: organizerEmail,
-        error: error?.message || "Unable to load local calendar conflicts",
+        error:
+          eventsOutcome.reason?.message ||
+          "Unable to load local calendar conflicts",
       });
     }
 

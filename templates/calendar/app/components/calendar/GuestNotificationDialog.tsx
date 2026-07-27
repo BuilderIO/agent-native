@@ -1,4 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,14 +12,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import type { CalendarEvent } from "@shared/api";
 
 type GuestNotificationAction = "update" | "cancellation";
 
 export interface GuestNotificationOptions {
   sendUpdates: "all" | "none";
   notificationMessage?: string;
+  scope?: UpdateEventScope;
 }
 
 type GuestPromptUpdates = Partial<CalendarEvent> & {
@@ -24,9 +28,16 @@ type GuestPromptUpdates = Partial<CalendarEvent> & {
   addZoom?: boolean;
 };
 
+interface RecurrenceScopeOptions {
+  enabled: boolean;
+  defaultScope?: UpdateEventScope;
+}
+
 interface PromptRequest {
   event: CalendarEvent;
   action: GuestNotificationAction;
+  updates?: GuestPromptUpdates;
+  recurrenceScope?: RecurrenceScopeOptions;
   resolve: (choice: GuestNotificationOptions | null) => void;
 }
 
@@ -48,23 +59,57 @@ export function shouldPromptGuests(
   return false;
 }
 
-function actionText(action: GuestNotificationAction) {
+function actionText(
+  t: ReturnType<typeof useT>,
+  action: GuestNotificationAction,
+  options: { showRecurrenceScope: boolean; canNotifyGuests: boolean },
+) {
+  if (options.showRecurrenceScope) {
+    if (action === "cancellation") {
+      return {
+        title: t("eventForm.cancelRecurringEventQuestion"),
+        description: options.canNotifyGuests
+          ? t("eventForm.cancelRecurringNotifyDescription")
+          : t("eventForm.cancelRecurringDescription"),
+        sendLabel: t("deleteEvent.sendCancellation"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.cancelEvent"),
+        textarea: t("deleteEvent.cancellationNote"),
+        placeholder: t("deleteEvent.cancellationPlaceholder"),
+      };
+    }
+
+    return {
+      title: t("eventForm.updateRecurringEventQuestion"),
+      description: options.canNotifyGuests
+        ? t("eventForm.updateRecurringNotifyDescription")
+        : t("eventForm.updateRecurringDescription"),
+      sendLabel: t("eventForm.sendUpdate"),
+      skipLabel: t("deleteEvent.dontNotify"),
+      confirmLabel: t("eventForm.updateEvent"),
+      textarea: t("eventForm.addUpdateNote"),
+      placeholder: t("eventForm.updateNotePlaceholder"),
+    };
+  }
+
   return action === "cancellation"
     ? {
-        title: "Notify guests?",
-        description: "Send a cancellation to guests with an optional note.",
-        sendLabel: "Send cancellation",
-        skipLabel: "Don't notify",
-        textarea: "Add a cancellation note",
-        placeholder: "Why the event is being cancelled...",
+        title: t("eventForm.notifyGuestsQuestion"),
+        description: t("eventForm.sendCancellationDescription"),
+        sendLabel: t("deleteEvent.sendCancellation"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.cancelEvent"),
+        textarea: t("deleteEvent.cancellationNote"),
+        placeholder: t("deleteEvent.cancellationPlaceholder"),
       }
     : {
-        title: "Notify guests?",
-        description: "Send an update to guests with an optional note.",
-        sendLabel: "Send update",
-        skipLabel: "Don't notify",
-        textarea: "Add an update note",
-        placeholder: "What changed or what guests should know...",
+        title: t("eventForm.notifyGuestsQuestion"),
+        description: t("eventForm.sendUpdateDescription"),
+        sendLabel: t("eventForm.sendUpdate"),
+        skipLabel: t("deleteEvent.dontNotify"),
+        confirmLabel: t("eventForm.updateEvent"),
+        textarea: t("eventForm.addUpdateNote"),
+        placeholder: t("eventForm.updateNotePlaceholder"),
       };
 }
 
@@ -77,16 +122,38 @@ function GuestNotificationDialog({
   onCancel: () => void;
   onConfirm: (choice: GuestNotificationOptions) => void;
 }) {
+  const t = useT();
   const [message, setMessage] = useState("");
+  const [scope, setScope] = useState<UpdateEventScope>("single");
+  const guestCount = request
+    ? getGuestAttendeeCount(request.event, request.updates?.attendees)
+    : 0;
+  const showRecurrenceScope = Boolean(request?.recurrenceScope?.enabled);
+  const canNotifyGuests = guestCount > 0;
   const copy = useMemo(
-    () => actionText(request?.action ?? "update"),
-    [request?.action],
+    () =>
+      actionText(t, request?.action ?? "update", {
+        showRecurrenceScope,
+        canNotifyGuests,
+      }),
+    [canNotifyGuests, request?.action, showRecurrenceScope, t],
   );
-  const guestCount = request ? getGuestAttendeeCount(request.event) : 0;
 
   useEffect(() => {
-    if (request) setMessage("");
+    if (!request) return;
+    setMessage("");
+    setScope(request.recurrenceScope?.defaultScope ?? "single");
   }, [request]);
+
+  function buildChoice(sendUpdates: "all" | "none"): GuestNotificationOptions {
+    return {
+      sendUpdates,
+      ...(canNotifyGuests && sendUpdates === "all" && message.trim()
+        ? { notificationMessage: message.trim() }
+        : {}),
+      ...(showRecurrenceScope ? { scope } : {}),
+    };
+  }
 
   return (
     <Dialog open={!!request} onOpenChange={(open) => !open && onCancel()}>
@@ -96,46 +163,103 @@ function GuestNotificationDialog({
           <DialogDescription>{copy.description}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-2">
-          <Label htmlFor="guest-notification-message">{copy.textarea}</Label>
-          <Textarea
-            id="guest-notification-message"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
-            placeholder={copy.placeholder}
-            rows={4}
-            autoFocus
-          />
-          <p className="text-xs text-muted-foreground">
-            {guestCount} {guestCount === 1 ? "guest" : "guests"}
-          </p>
+        <div className="space-y-4">
+          {showRecurrenceScope && (
+            <div className="space-y-2">
+              <Label>{t("eventForm.applyChangesTo")}</Label>
+              <RadioGroup
+                value={scope}
+                onValueChange={(value) => setScope(value as UpdateEventScope)}
+                className="gap-2"
+              >
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem
+                    id="guest-update-scope-single"
+                    value="single"
+                  />
+                  <Label htmlFor="guest-update-scope-single">
+                    {t("eventForm.thisEvent")}
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem id="guest-update-scope-all" value="all" />
+                  <Label htmlFor="guest-update-scope-all">
+                    {t("eventForm.allEvents")}
+                  </Label>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
+
+          {canNotifyGuests && (
+            <div className="space-y-2">
+              <Label htmlFor="guest-notification-message">
+                {copy.textarea}
+              </Label>
+              <Textarea
+                id="guest-notification-message"
+                value={message}
+                onChange={(event) => setMessage(event.target.value)}
+                placeholder={copy.placeholder}
+                rows={4}
+                autoFocus={!showRecurrenceScope}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("deleteEvent.guest", { count: guestCount })}
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="ghost" onClick={onCancel}>
-            Cancel
+            {t("eventForm.cancel")}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onConfirm({ sendUpdates: "none" })}
-          >
-            {copy.skipLabel}
-          </Button>
-          <Button
-            type="button"
-            onClick={() =>
-              onConfirm({
-                sendUpdates: "all",
-                notificationMessage: message.trim() || undefined,
-              })
-            }
-          >
-            {copy.sendLabel}
-          </Button>
+          {canNotifyGuests ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onConfirm(buildChoice("none"))}
+              >
+                {copy.skipLabel}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => onConfirm(buildChoice("all"))}
+              >
+                {copy.sendLabel}
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              onClick={() => onConfirm(buildChoice("none"))}
+            >
+              {copy.confirmLabel}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function normalizeRecurrenceScope(
+  recurrenceScope: boolean | RecurrenceScopeOptions | undefined,
+): RecurrenceScopeOptions | undefined {
+  if (recurrenceScope === true) return { enabled: true };
+  return recurrenceScope || undefined;
+}
+
+export function shouldOpenGuestNotificationPrompt(args: {
+  event: CalendarEvent;
+  updates?: GuestPromptUpdates;
+  recurrenceScope?: RecurrenceScopeOptions;
+}): boolean {
+  return (
+    shouldPromptGuests(args.event, args.updates) ||
+    Boolean(args.recurrenceScope?.enabled)
   );
 }
 
@@ -147,14 +271,28 @@ export function useGuestNotificationPrompt() {
       event: CalendarEvent;
       action: GuestNotificationAction;
       updates?: GuestPromptUpdates;
+      recurrenceScope?: boolean | RecurrenceScopeOptions;
     }) => {
-      if (!shouldPromptGuests(args.event, args.updates)) {
+      const recurrenceScope = normalizeRecurrenceScope(args.recurrenceScope);
+      if (
+        !shouldOpenGuestNotificationPrompt({
+          event: args.event,
+          updates: args.updates,
+          recurrenceScope,
+        })
+      ) {
         return Promise.resolve<GuestNotificationOptions | null>({
           sendUpdates: "none",
         });
       }
       return new Promise<GuestNotificationOptions | null>((resolve) => {
-        setRequest({ event: args.event, action: args.action, resolve });
+        setRequest({
+          event: args.event,
+          action: args.action,
+          updates: args.updates,
+          recurrenceScope,
+          resolve,
+        });
       });
     },
     [],

@@ -24,6 +24,9 @@ export {
 export {
   listRemoteServers,
   addRemoteServer,
+  addOAuthRemoteServer,
+  addFirstPartyRemoteServer,
+  isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
   validateRemoteUrl,
   normalizeServerName,
@@ -36,6 +39,19 @@ export {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+
+export {
+  finishMcpOAuthAuthorization,
+  getMcpOAuthAccessToken,
+  readMcpOAuthCredentials,
+  saveMcpOAuthCredentials,
+  startMcpOAuthAuthorization,
+  type McpOAuthCallbackResult,
+  type McpOAuthCredentialBundle,
+  type McpOAuthDiscoveryState,
+  type McpOAuthProviderOptions,
+  type McpOAuthStartResult,
+} from "./oauth-client.js";
 
 export {
   areBuiltinMcpCapabilitiesSupported,
@@ -78,17 +94,44 @@ export {
 export { fetchHubServers } from "./hub-client.js";
 
 export { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  callMcpTool,
+  listVisibleMcpTools,
+  McpAppApiError,
+  type AppMcpTool,
+  type ListVisibleMcpToolsOptions,
+} from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  classifyMcpToolCall,
+  evaluateMcpToolCallPolicy,
+  type McpToolCallClassification,
+  type McpToolEffect,
+  type McpToolFamily,
+  type McpToolInvocationPolicy,
+  type McpToolPolicyDecision,
+} from "./tool-policy.js";
+export {
+  configureScreenMemory,
+  queryScreenMemoryForAgent,
+  queryScreenMemoryContext,
+  readScreenMemoryStatus,
+  type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
+  type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
+  type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
+  type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
+} from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,
   isMcpActionResult,
-  type AgentMcpAppPayload,
-  type AgentMcpAppResourceContent,
-  type McpActionResult,
-} from "./app-result.js";
-import {
-  MCP_ACTION_RESULT_MARKER,
-  toolForMcpAppPayload,
   type AgentMcpAppPayload,
   type AgentMcpAppResourceContent,
   type McpActionResult,
@@ -98,22 +141,46 @@ import {
   isToolVisibilityAppOnly,
   isToolVisibilityModelOnly,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { MCP_APP_MIME_TYPE } from "../action.js";
 
+import { MCP_APP_MIME_TYPE } from "../action.js";
+import type { EngineToolResultImagePart } from "../agent/engine/types.js";
 /**
  * Convert MCP tools into `ActionEntry` values suitable for registration in
  * the agent's action registry. Each tool is marked `http: false` so it's
  * never auto-mounted as an HTTP endpoint — MCP tools are agent-only.
  */
 import type { ActionEntry } from "../agent/production-agent.js";
+import { normalizeToolResultImages } from "../agent/tool-result-images.js";
+import {
+  MCP_ACTION_RESULT_MARKER,
+  toolForMcpAppPayload,
+  type AgentMcpAppPayload,
+  type AgentMcpAppResourceContent,
+  type McpActionResult,
+} from "./app-result.js";
 import type { McpClientManager, McpTool } from "./manager.js";
+import {
+  evaluateMcpToolCallPolicy,
+  type McpToolInvocationPolicy,
+} from "./tool-policy.js";
+
+export interface McpActionEntryOptions {
+  invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
+}
 
 export function mcpToolsToActionEntries(
   manager: McpClientManager,
+  options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
-    entries[tool.name] = mcpToolToActionEntry(manager, tool);
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
+    entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;
 }
@@ -146,6 +213,7 @@ export function syncMcpActionEntries(
 function mcpToolToActionEntry(
   manager: McpClientManager,
   tool: McpTool,
+  options: McpActionEntryOptions = {},
 ): ActionEntry {
   return {
     tool: {
@@ -154,7 +222,7 @@ function mcpToolToActionEntry(
     },
     http: false,
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
-    run: async (args: Record<string, string>) => {
+    run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
       // into the LLM's visible tool list, reject invocation here so we never
       // execute a user's credentials on behalf of another user.
@@ -164,6 +232,20 @@ function mcpToolToActionEntry(
           args,
           `Error: MCP tool ${tool.name} is not available in the current request scope.`,
         );
+      }
+      if (options.invocationPolicy) {
+        const decision = evaluateMcpToolCallPolicy(
+          options.invocationPolicy,
+          tool,
+          args,
+        );
+        if (!decision.allowed) {
+          return buildMcpErrorActionResult(
+            tool,
+            args,
+            `Error: MCP tool ${tool.name} is unavailable in read-only mode: ${decision.reason}.`,
+          );
+        }
       }
       try {
         const result = await manager.callTool(tool.name, args);
@@ -239,6 +321,33 @@ function hasStructuredContent(result: unknown): boolean {
     typeof result === "object" &&
     Object.prototype.hasOwnProperty.call(result, "structuredContent")
   );
+}
+
+/**
+ * Extract vision images from a raw MCP tool result so the model can SEE
+ * screenshots/previews returned by external MCP tools instead of only the
+ * `[image: <mime>]` placeholder that `flattenMcpToolResult` leaves in the
+ * text. Shares the per-result caps with `_agentImages` (max count, max base64
+ * size); over-cap or unsupported images stay placeholder-only. Never throws.
+ */
+export function extractMcpToolResultImages(
+  result: unknown,
+): EngineToolResultImagePart[] {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !Array.isArray((result as any).content) ||
+    (result as any).isError
+  ) {
+    return [];
+  }
+  const candidates = ((result as any).content as Array<Record<string, any>>)
+    .filter((part) => part?.type === "image" && typeof part.data === "string")
+    .map((part) => ({
+      data: part.data as string,
+      mediaType: typeof part.mimeType === "string" ? part.mimeType : undefined,
+    }));
+  return normalizeToolResultImages(candidates).images;
 }
 
 async function buildMcpActionResult(

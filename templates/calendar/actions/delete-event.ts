@@ -1,10 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
-import * as googleCalendar from "../server/lib/google-calendar.js";
+
 import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
   normalizeGoogleEventId,
@@ -71,17 +72,24 @@ export default defineAction({
         : (args.sendUpdates ?? (shouldNotifyGuests ? "all" : "none")),
     };
     const eventForNotification = shouldNotifyGuests
-      ? await googleCalendar.getEvent(googleEventId, accountEmail)
+      ? await googleCalendar.getEvent(googleEventId, {
+          ownerEmail,
+          accountEmail,
+        })
       : undefined;
 
     if (args.removeOnly) {
       await googleCalendar.removeEventFromCalendar(
         googleEventId,
-        accountEmail,
+        { ownerEmail, accountEmail },
         options,
       );
     } else {
-      await googleCalendar.deleteEvent(googleEventId, accountEmail, options);
+      await googleCalendar.deleteEvent(
+        googleEventId,
+        { ownerEmail, accountEmail },
+        options,
+      );
     }
 
     const guestNotification =

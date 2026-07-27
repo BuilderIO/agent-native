@@ -1,18 +1,35 @@
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { A2AAgentActivitySnapshot } from "../a2a/activity.js";
+import type { ActionChatUIConfig } from "../action-ui.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+
+export interface AgentNativeJsonSchema {
+  type?: string | string[];
+  description?: string;
+  enum?: unknown[];
+  const?: unknown;
+  properties?: Record<string, AgentNativeJsonSchema>;
+  required?: string[];
+  additionalProperties?: boolean | AgentNativeJsonSchema;
+  items?: AgentNativeJsonSchema;
+  oneOf?: AgentNativeJsonSchema[];
+  anyOf?: AgentNativeJsonSchema[];
+  allOf?: AgentNativeJsonSchema[];
+  not?: AgentNativeJsonSchema;
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+}
 
 export interface ActionTool {
   description: string;
-  parameters?: {
+  parameters?: AgentNativeJsonSchema & {
     type: "object";
-    properties: Record<
-      string,
-      {
-        type: string;
-        description?: string;
-        enum?: string[];
-      }
-    >;
+    properties: Record<string, AgentNativeJsonSchema>;
     required?: string[];
   };
 }
@@ -58,6 +75,9 @@ export interface AgentChatReference {
   source: string;
   refType?: string;
   refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MentionProviderItem {
@@ -68,6 +88,25 @@ export interface MentionProviderItem {
   refType: string;
   refId?: string;
   refPath?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionProviderReference[];
+}
+
+export interface MentionProviderReference {
+  label: string;
+  icon?: string;
+  source?: string;
+  refType: string;
+  refId?: string | null;
+  refPath?: string | null;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionProviderReference[];
 }
 
 export interface MentionProvider {
@@ -114,6 +153,49 @@ export interface AgentChatRequest {
   /** Internal retry/continuation requests should not create visible user turns. */
   internalContinuation?: boolean;
   /**
+   * Internal marker set ONLY by the durable-background self-dispatch (see
+   * `AGENT_CHAT_BACKGROUND_RUN_FIELD`). Present when the agent-chat handler is
+   * re-entered as the background worker: it carries the pre-claimed `runId` and
+   * logical `turnId` so the worker runs the loop inline with the background
+   * soft-timeout instead of re-claiming the slot or re-dispatching. Untrusted
+   * on its own — the `_process-run` route HMAC-verifies the dispatch before
+   * invoking the handler. Absent on every normal client request.
+   */
+  __backgroundRun?: {
+    runId: string;
+    turnId?: string;
+    continuationReason?:
+      | "run_timeout"
+      | "loop_limit"
+      | "max_tokens"
+      | "no_progress"
+      | "stream_ended"
+      | "gateway_timeout"
+      | "network_interrupted";
+    actionPreparationTool?: string;
+    /**
+     * Number of server-driven background→background continuations already
+     * chained into this logical turn (0 on the first chunk). The worker
+     * increments this when it re-fires `_process-run` at a soft-timeout
+     * boundary and refuses to chain past `MAX_BACKGROUND_RUN_CONTINUATIONS`.
+     */
+    continuationCount?: number;
+    /**
+     * True when the dispatcher expects the self-POST to land in a real
+     * Netlify `-background` function rather than the ~60s synchronous function.
+     * This is diagnostic only; the 15-minute budget is unlocked by the worker's
+     * actual runtime marker.
+     */
+    backgroundFunctionRuntimeExpected?: boolean;
+    /**
+     * True when the dispatch body carries ONLY this marker and the worker
+     * must rehydrate the full request body from the run row's
+     * `dispatch_payload` column (`readRunDispatchPayload`). Keeps the
+     * self-POST under Netlify's 256KB background-function body cap.
+     */
+    payloadRef?: boolean;
+  };
+  /**
    * Stable identity for the logical assistant turn this request belongs to.
    * The client sends the SAME turnId for the initial POST and every
    * auto-continuation re-POST of one turn, so the server can fold each
@@ -137,25 +219,101 @@ export interface AgentChatRequest {
   scope?: AgentChatScope | null;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
+  /**
+   * Approval grants for human-in-the-loop actions. Each entry is a stable
+   * approval key (see the `approval_required` event's `approvalKey`). When the
+   * agent calls an action declared `needsApproval`, the loop pauses and emits
+   * `approval_required`; the client re-issues the turn (typically an empty
+   * continuation) with the approved call's key here so the gate lets it run.
+   * Keys not present here keep the action paused. The model never sees or sets
+   * this — it is supplied by the human's approve affordance.
+   */
+  approvedToolCalls?: string[];
 }
+
+export type AgentToolInput = Record<string, unknown>;
 
 export type AgentChatEvent =
   | { type: "text"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "activity"; label: string; tool?: string }
-  | { type: "tool_start"; tool: string; input: Record<string, string> }
+  | {
+      type: "activity";
+      label: string;
+      tool?: string;
+      id?: string;
+      progressBytes?: number;
+    }
+  | { type: "stream_keepalive" }
+  | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
       type: "tool_done";
       tool: string;
+      id?: string;
+      input?: AgentToolInput;
       result: string;
+      isError?: boolean;
+      completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
+      chatUI?: ActionChatUIConfig;
+    }
+  | {
+      /**
+       * The agent tried to call an action declared `needsApproval` and the loop
+       * paused instead of executing it. The client should surface an
+       * approve/deny affordance; on approve, re-issue the turn with
+       * `approvedToolCalls: [approvalKey]` so the gate lets this call run.
+       */
+      type: "approval_required";
+      tool: string;
+      input: Record<string, string>;
+      /** Stable key the client echoes back in `approvedToolCalls` to approve. */
+      approvalKey: string;
+      /** The model-side tool-call id for this paused call, when available. */
+      toolCallId?: string;
     }
   | {
       type: "agent_call";
       agent: string;
       status: "start" | "done" | "error";
+      agentCallId?: string;
+      durationMs?: number;
     }
-  | { type: "agent_call_text"; agent: string; text: string }
+  | {
+      /**
+       * Periodic liveness for an in-flight cross-app A2A call. Emitted by the
+       * `call-agent` action once per throttle window ONLY when a real poll
+       * round-trip to the remote agent succeeds and reports a non-terminal
+       * state — never on a timer, so a hung/dead remote emits nothing and the
+       * stuck-detector can still fire. Counts as real progress in
+       * `run-manager`'s `shouldBumpProgressForEvent` (any non-special event
+       * type does), which keeps `last_progress_at` fresh so a slow-but-healthy
+       * sub-agent call doesn't trip the client's stuck banner. A distinct
+       * event type (not an `agent_call` status) so existing `agent_call`
+       * consumers that treat "not start/done" as a failure don't render an
+       * in-flight tick as an error.
+       */
+      type: "agent_call_progress";
+      agent: string;
+      /** Remote A2A task state for this poll, e.g. "working" | "processing". */
+      state: string;
+      /** Elapsed wall-clock seconds since the cross-app call began. */
+      elapsedSeconds: number;
+      /** Optional short text surfaced from the remote poll, when present. */
+      detail?: string;
+      agentCallId?: string;
+    }
+  | {
+      type: "agent_call_text";
+      agent: string;
+      text: string;
+      agentCallId?: string;
+    }
+  | {
+      type: "agent_call_activity";
+      agent: string;
+      snapshot: A2AAgentActivitySnapshot;
+      agentCallId?: string;
+    }
   | {
       type: "agent_task";
       taskId: string;
@@ -191,24 +349,78 @@ export type AgentChatEvent =
       /** True when the user can reasonably continue/retry from partial work. */
       recoverable?: boolean;
     }
+  /**
+   * Legacy SSE terminal event. New streams emit
+   * `{ type: "error", errorCode: "missing_credentials" }` instead.
+   */
   | { type: "missing_api_key" }
   | { type: "loop_limit"; maxIterations?: number }
   | {
+      /**
+       * An in-loop `Processor` aborted the run via `abort()` (which throws a
+       * `TripWire`). The loop catches it, emits this event, stops cleanly, and
+       * surfaces the reason as a final assistant message. Structural hook for
+       * real-time guardrails and a proof-of-done / coverage gate.
+       */
+      type: "tripwire";
+      reason: string;
+      /** Name of the processor that aborted, when it declared one. */
+      processor?: string;
+    }
+  | {
       type: "auto_continue";
-      reason:
-        | "run_timeout"
-        | "loop_limit"
-        | "no_progress"
-        | "stream_ended"
-        | "gateway_timeout"
-        | "network_interrupted";
+      reason: ContinuationReason;
       maxIterations?: number;
     }
   | { type: "clear" };
+
+export const CONTINUATION_REASONS = [
+  "run_timeout",
+  "loop_limit",
+  "max_tokens",
+  "no_progress",
+  "stream_ended",
+  "gateway_timeout",
+  "network_interrupted",
+] as const;
+
+export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
+
+/**
+ * True when an `agent_runs.terminal_reason` marks a CHUNK boundary rather than
+ * the end of the turn — i.e. the run was TRUNCATED at a budget/timeout/loop/
+ * no-progress boundary and did not finish what it was asked to do.
+ *
+ * This is the single predicate for "the reason says this run did not finish".
+ * `setRunTerminalReason` (run-store) uses it to record `status='truncated'`
+ * instead of `'completed'`, so consumers should read the status rather than
+ * re-deriving truncation from the reason. It stays exported for legacy
+ * `status='completed'` rows written before the `truncated` status existed,
+ * which linger for one retention window.
+ */
+export function isContinuationTerminalReason(reason: unknown): boolean {
+  return (
+    reason === "auto_continue" ||
+    CONTINUATION_REASONS.includes(reason as ContinuationReason)
+  );
+}
 
 export interface RunEvent {
   seq: number;
   event: AgentChatEvent;
 }
 
-export type RunStatus = "running" | "completed" | "errored" | "aborted";
+/**
+ * `agent_runs.status`. `completed` means the turn actually finished (terminal
+ * reason `done`); `truncated` means it stopped at a budget/timeout/loop/
+ * no-progress boundary with work still outstanding. Truncations were previously
+ * filed as `completed`, which made them invisible to every success-rate query
+ * and — because retention keys off status — deleted them a week before the
+ * genuine failures they belong with.
+ */
+export type RunStatus =
+  | "running"
+  | "completed"
+  | "truncated"
+  | "errored"
+  | "aborted";

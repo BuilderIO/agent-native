@@ -1,5 +1,12 @@
 type DictionaryEntry = Record<string, unknown>;
 
+const MAX_INJECTED_ENTRIES = 40;
+// Per-field caps above bound a single entry to ~3-3.5K chars, so 40 entries
+// could still swell to ~130K chars riding every chat request even though the
+// entry count is capped. Bound the whole rendered block too, and truncate at
+// entry boundaries (never mid-entry) once it's hit.
+const MAX_DICTIONARY_CONTEXT_CHARS = 10_000;
+
 function compact(value: unknown, max = 240): string {
   const text = String(value ?? "")
     .replace(/\s+/g, " ")
@@ -72,6 +79,99 @@ function renderEntry(
   return lines;
 }
 
+function takeWithinBudget<T>(
+  entries: T[],
+  renderedCount: number,
+): { entries: T[]; renderedCount: number; omitted: number } {
+  const remaining = Math.max(0, MAX_INJECTED_ENTRIES - renderedCount);
+  const selected = entries.slice(0, remaining);
+  return {
+    entries: selected,
+    renderedCount: renderedCount + selected.length,
+    omitted: entries.length - selected.length,
+  };
+}
+
+function renderOmittedDictionaryEntries(omitted: number): string[] {
+  if (omitted <= 0) return [];
+  return [
+    `${omitted} additional data-dictionary entr${
+      omitted === 1 ? "y was" : "ies were"
+    } omitted from prompt context for efficiency. Call \`list-data-dictionary\` with a focused \`search\` or \`department\` filter before writing SQL or making claims that may depend on omitted definitions.`,
+    "",
+  ];
+}
+
+function renderedTextLength(lines: string[]): number {
+  // +1 per line approximates the join("\n") separators without materializing
+  // the joined string on every entry (entry counts are small, so this stays
+  // cheap even though it's O(n) per call).
+  return lines.reduce((total, line) => total + line.length + 1, 0);
+}
+
+type TrustLabel = "approved/canonical" | "unreviewed/human" | "ai-suggestion";
+
+/**
+ * Render one trust-tier group into `lines`, respecting both the per-tier
+ * count budget already applied by `takeWithinBudget` and the shared total
+ * character budget tracked in `state`. Entries are never split mid-render:
+ * once adding the next whole entry would exceed the char budget, rendering
+ * stops at that entry boundary and everything remaining (in this group and
+ * any group processed after it) is counted as omitted.
+ */
+function renderGroupWithinBudget(
+  lines: string[],
+  title: string,
+  groupEntries: DictionaryEntry[],
+  trustLabel: TrustLabel,
+  renderedCount: number,
+  state: { charBudgetExceeded: boolean; anyEntryRendered: boolean },
+): { renderedCount: number; omitted: number } {
+  if (!groupEntries.length) return { renderedCount, omitted: 0 };
+
+  const budgeted = takeWithinBudget(groupEntries, renderedCount);
+  let omitted = budgeted.omitted;
+  const bodyLines: string[] = [];
+  let includedFromGroup = 0;
+
+  for (const entry of budgeted.entries) {
+    if (state.charBudgetExceeded) {
+      omitted += 1;
+      continue;
+    }
+
+    const entryLines = renderEntry(entry, trustLabel);
+    const headerAddition = includedFromGroup === 0 ? title.length + 1 : 0;
+    const prospectiveTotal =
+      renderedTextLength(lines) +
+      headerAddition +
+      renderedTextLength(bodyLines) +
+      renderedTextLength(entryLines);
+
+    // Always keep at least one entry across the whole dictionary render so a
+    // single oversized entry can't produce an empty block; every entry after
+    // that respects the char budget at its boundary.
+    if (
+      prospectiveTotal > MAX_DICTIONARY_CONTEXT_CHARS &&
+      state.anyEntryRendered
+    ) {
+      state.charBudgetExceeded = true;
+      omitted += 1;
+      continue;
+    }
+
+    bodyLines.push(...entryLines);
+    includedFromGroup += 1;
+    state.anyEntryRendered = true;
+  }
+
+  if (includedFromGroup > 0) {
+    lines.push(title, ...bodyLines, "");
+  }
+
+  return { renderedCount: budgeted.renderedCount, omitted };
+}
+
 /**
  * Render data-dictionary entries as compact prompt context.
  *
@@ -100,6 +200,9 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     ),
   );
   const includeAiSuggestions = approved.length + humanUnreviewed.length === 0;
+  let renderedCount = 0;
+  let omittedEntries = 0;
+  const budgetState = { charBudgetExceeded: false, anyEntryRendered: false };
 
   const lines: string[] = [
     "<data-dictionary>",
@@ -109,28 +212,39 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     "",
   ];
 
-  if (approved.length) {
-    lines.push("## Approved canonical entries");
-    for (const entry of approved) {
-      lines.push(...renderEntry(entry, "approved/canonical"));
-    }
-    lines.push("");
-  }
+  const approvedResult = renderGroupWithinBudget(
+    lines,
+    "## Approved canonical entries",
+    approved,
+    "approved/canonical",
+    renderedCount,
+    budgetState,
+  );
+  renderedCount = approvedResult.renderedCount;
+  omittedEntries += approvedResult.omitted;
 
-  if (humanUnreviewed.length) {
-    lines.push("## Unreviewed human-authored entries");
-    for (const entry of humanUnreviewed) {
-      lines.push(...renderEntry(entry, "unreviewed/human"));
-    }
-    lines.push("");
-  }
+  const humanResult = renderGroupWithinBudget(
+    lines,
+    "## Unreviewed human-authored entries",
+    humanUnreviewed,
+    "unreviewed/human",
+    renderedCount,
+    budgetState,
+  );
+  renderedCount = humanResult.renderedCount;
+  omittedEntries += humanResult.omitted;
 
   if (includeAiSuggestions && aiSuggestions.length) {
-    lines.push("## AI-generated suggestions");
-    for (const entry of aiSuggestions) {
-      lines.push(...renderEntry(entry, "ai-suggestion"));
-    }
-    lines.push("");
+    const aiResult = renderGroupWithinBudget(
+      lines,
+      "## AI-generated suggestions",
+      aiSuggestions,
+      "ai-suggestion",
+      renderedCount,
+      budgetState,
+    );
+    renderedCount = aiResult.renderedCount;
+    omittedEntries += aiResult.omitted;
   } else if (aiSuggestions.length) {
     lines.push(
       `${aiSuggestions.length} AI-generated unapproved suggestion${
@@ -140,6 +254,7 @@ export function renderDataDictionary(entries: DictionaryEntry[]): string {
     );
   }
 
+  lines.push(...renderOmittedDictionaryEntries(omittedEntries));
   lines.push("</data-dictionary>");
   return lines.join("\n");
 }

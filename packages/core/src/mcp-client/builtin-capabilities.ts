@@ -3,7 +3,8 @@ import type { McpStdioServerConfig } from "./config.js";
 export type BuiltinMcpCapabilityId =
   | "browser-chrome-devtools"
   | "browser-playwright"
-  | "computer-use";
+  | "computer-use"
+  | "screen-memory";
 
 export interface BuiltinMcpCapability {
   id: BuiltinMcpCapabilityId;
@@ -52,6 +53,17 @@ export const BUILTIN_MCP_CAPABILITIES: BuiltinMcpCapability[] = [
     command: "npx",
     args: ["-y", "computer-use-mcp@1.8.0"],
     platforms: ["darwin"],
+  },
+  {
+    id: "screen-memory",
+    serverId: "screen-memory",
+    name: "Screen Memory",
+    description: "Query local Clips Screen Memory context from this machine.",
+    command: "agent-native",
+    args: ["mcp", "screen-memory"],
+    platforms: ["darwin"],
+    notes:
+      "Requires Clips desktop Screen Memory to be enabled. Local-only and disabled by default.",
   },
 ];
 

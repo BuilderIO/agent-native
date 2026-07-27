@@ -6,6 +6,7 @@
 // LERP interpolation for smooth hover animation.
 
 import { onMount, onCleanup, type Component } from "solid-js";
+
 import type {
   Pin,
   DrawStroke,

@@ -1,10 +1,16 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  applyText,
+  hasCollabState,
+  seedFromText,
+} from "@agent-native/core/collab";
+import {
   buildDeepLink,
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import {
   applyCatalogMetadata,
   cloneDashboardConfig,
@@ -12,12 +18,12 @@ import {
   getDashboardCatalogEntry,
   listDashboardCatalog,
 } from "../server/lib/dashboard-catalog";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import {
-  applyText,
-  hasCollabState,
-  seedFromText,
-} from "@agent-native/core/collab";
+  getDashboard,
+  upsertDashboard,
+  upsertDashboardWithRetry,
+  type DashboardRecord,
+} from "../server/lib/dashboards-store";
 
 async function syncToCollab(
   dashboardId: string,
@@ -41,9 +47,53 @@ function uniqueConstraintMessage(err: unknown): boolean {
   return /unique|constraint|primary key/i.test(message);
 }
 
+function filterId(filter: unknown): string | null {
+  if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+    return null;
+  }
+  const id = (filter as { id?: unknown }).id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+function mergeMissingFilters(
+  targetConfig: Record<string, unknown>,
+  seedConfig: Record<string, unknown>,
+): { config: Record<string, unknown>; addedFilterIds: string[] } {
+  const seedFilters = Array.isArray(seedConfig.filters)
+    ? (seedConfig.filters as unknown[])
+    : [];
+  if (seedFilters.length === 0) {
+    return { config: targetConfig, addedFilterIds: [] };
+  }
+
+  const targetFilters = Array.isArray(targetConfig.filters)
+    ? [...targetConfig.filters]
+    : [];
+  const existingIds = new Set(
+    targetFilters
+      .map((filter) => filterId(filter))
+      .filter((id): id is string => id !== null),
+  );
+  const addedFilterIds: string[] = [];
+  for (const filter of seedFilters) {
+    const id = filterId(filter);
+    if (id && existingIds.has(id)) continue;
+    targetFilters.push(filter);
+    if (id) {
+      existingIds.add(id);
+      addedFilterIds.push(id);
+    }
+  }
+
+  return addedFilterIds.length > 0
+    ? { config: { ...targetConfig, filters: targetFilters }, addedFilterIds }
+    : { config: targetConfig, addedFilterIds };
+}
+
 export default defineAction({
   description:
-    "Install a dashboard template from the Analytics catalog into the user's SQL-backed dashboards. Use list-dashboard-templates first when choosing a template.",
+    "Install a dashboard template from the Analytics catalog into the user's SQL-backed dashboards. Use list-dashboard-templates first when choosing a template. " +
+    "To ADD a template's panels to an EXISTING dashboard in ONE call (the preferred way to bulk-add panels), pass `mergePanels: true` with the `dashboardId` of the existing dashboard: it appends every template panel whose id is not already present, preserves all existing panels and their order, and saves once. This avoids looping update-dashboard, which times out on the ~40s hosted run budget.",
   schema: z.object({
     templateId: z
       .string()
@@ -52,7 +102,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional dashboard id to write. Omit to reuse an existing installed copy or create a unique id.",
+        "Optional dashboard id to write. Omit to reuse an existing installed copy or create a unique id. Required when mergePanels is true.",
       ),
     name: z
       .string()
@@ -69,6 +119,12 @@ export default defineAction({
       .optional()
       .describe(
         "If true, create another copy even when this template is installed.",
+      ),
+    mergePanels: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true AND a dashboard already exists at dashboardId, APPEND this template's panels (only the ones whose id is not already present) to the existing dashboard in one atomic save, preserving all existing panels and their order. Returns { addedPanelIds, skippedExistingIds, panelCount }. Non-destructive; does not change overwrite/forceNew behavior.",
       ),
   }),
   mcpApp: {
@@ -90,6 +146,130 @@ export default defineAction({
     if (!entry)
       throw new Error(`Unknown dashboard template: ${args.templateId}`);
 
+    // Append/merge mode: add this template's panels to an existing dashboard
+    // in ONE atomic save instead of looping update-dashboard (which times out
+    // on the ~40s hosted run budget). Non-destructive: existing panels and
+    // their order are preserved; only template panels with a new id are added.
+    //
+    // This is a genuine read-modify-write of an EXISTING dashboard (an agent
+    // merging a template while a human drags a panel, or two merge calls
+    // racing), so the save is fenced through `upsertDashboardWithRetry`.
+    // `computeMerge` is invoked with the freshest `DashboardRecord` on every
+    // attempt and recomputes `existingIds`/`appended`/`mergedConfig` from
+    // THAT record's config — never from a closure over the earlier `target`
+    // read — so a lost race re-merges against whatever the concurrent writer
+    // actually saved instead of clobbering it. `seedConfig`/`seedPanels` are
+    // the template's own panels and don't depend on dashboard state, so they
+    // are computed once outside the retry loop.
+    if (args.mergePanels) {
+      const targetId = args.dashboardId?.trim();
+      if (!targetId) {
+        throw new Error(
+          "mergePanels=true requires dashboardId (the existing dashboard to append the template's panels to).",
+        );
+      }
+
+      const target = await getDashboard(targetId, ctx);
+      if (!target) {
+        throw new Error(
+          `Dashboard "${targetId}" not found (or you don't have access). mergePanels appends to an existing dashboard — install the template normally first, or omit mergePanels to create a new copy.`,
+        );
+      }
+
+      const seedConfig = cloneDashboardConfig(entry) as unknown as Record<
+        string,
+        unknown
+      >;
+      const seedPanels = Array.isArray(seedConfig.panels)
+        ? (seedConfig.panels as unknown as Array<Record<string, unknown>>)
+        : [];
+
+      function computeMerge(existing: Pick<DashboardRecord, "config">) {
+        const targetConfig = existing.config as Record<string, unknown>;
+        const existingPanels = Array.isArray(targetConfig.panels)
+          ? (targetConfig.panels as Array<Record<string, unknown>>)
+          : [];
+        const existingIds = new Set(
+          existingPanels
+            .map((panel) => (typeof panel?.id === "string" ? panel.id : null))
+            .filter((id): id is string => !!id),
+        );
+
+        const addedPanelIds: string[] = [];
+        const skippedExistingIds: string[] = [];
+        const appended: Array<Record<string, unknown>> = [];
+        for (const panel of seedPanels) {
+          const id = typeof panel?.id === "string" ? panel.id : null;
+          if (id && existingIds.has(id)) {
+            skippedExistingIds.push(id);
+            continue;
+          }
+          appended.push(panel);
+          if (id) {
+            addedPanelIds.push(id);
+            existingIds.add(id);
+          }
+        }
+
+        let mergedConfig: Record<string, unknown> = {
+          ...targetConfig,
+          panels: [...existingPanels, ...appended],
+        };
+        const filterMerge = mergeMissingFilters(mergedConfig, seedConfig);
+        mergedConfig = filterMerge.config;
+
+        return {
+          mergedConfig,
+          addedPanelIds,
+          skippedExistingIds,
+          appended,
+          filterMerge,
+        };
+      }
+
+      let computed = computeMerge(target);
+      let savedTitle = target.title;
+
+      if (
+        computed.appended.length > 0 ||
+        computed.filterMerge.addedFilterIds.length > 0
+      ) {
+        const saved = await upsertDashboardWithRetry(
+          targetId,
+          ctx,
+          (existing) => {
+            computed = computeMerge(existing);
+            return { kind: existing.kind, body: computed.mergedConfig };
+          },
+        );
+        await syncToCollab(targetId, saved.config as Record<string, unknown>);
+        savedTitle = saved.title;
+      }
+
+      const panelCount = (computed.mergedConfig.panels as unknown[]).length;
+
+      return {
+        templateId: entry.id,
+        templateName: entry.name,
+        dashboardId: targetId,
+        name: savedTitle,
+        merged: true,
+        addedPanelIds: computed.addedPanelIds,
+        skippedExistingIds: computed.skippedExistingIds,
+        panelCount,
+        urlPath: `/dashboards/${targetId}`,
+        deepLink: buildDeepLink({
+          app: "analytics",
+          view: "adhoc",
+          params: { dashboardId: targetId },
+        }),
+        message:
+          computed.appended.length > 0
+            ? `Added ${computed.addedPanelIds.length} panel(s) from "${entry.name}" to "${savedTitle}"; ${computed.skippedExistingIds.length} already present. Dashboard now has ${panelCount} panel(s).`
+            : `No new panels to add from "${entry.name}" — all ${computed.skippedExistingIds.length} template panel id(s) already present. Dashboard has ${panelCount} panel(s).`,
+      };
+    }
+
     const installed = (await listDashboardCatalog(ctx)).find(
       (template) => template.id === entry.id,
     );
@@ -100,7 +280,7 @@ export default defineAction({
         dashboardId: existingInstall.id,
         name: existingInstall.name,
         alreadyInstalled: true,
-        urlPath: `/adhoc/${existingInstall.id}`,
+        urlPath: `/dashboards/${existingInstall.id}`,
         deepLink: buildDeepLink({
           app: "analytics",
           view: "adhoc",
@@ -144,7 +324,7 @@ export default defineAction({
         name: dashboard.title,
         alreadyInstalled: false,
         overwritten: !!existing,
-        urlPath: `/adhoc/${dashboardId}`,
+        urlPath: `/dashboards/${dashboardId}`,
         deepLink: buildDeepLink({
           app: "analytics",
           view: "adhoc",

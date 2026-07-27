@@ -1,6 +1,16 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { ExtensionSlot } from "@agent-native/core/client/extensions";
+import {
+  setClientAppState,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   closestCenter,
   DndContext,
@@ -16,41 +26,128 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import type { Document, DocumentTreeNode } from "@shared/api";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseResponse,
+  Document,
+  DocumentTreeNode,
+} from "@shared/api";
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
+  IconFolder,
+  IconFolderOpen,
   IconPlus,
+  IconRestore,
   IconSearch,
+  IconSettings,
   IconStar,
+  IconTrashX,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconChevronDown,
+  IconChevronRight,
+  IconDots,
+  IconTrash,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
+import { ContentFilesSidebarView } from "@/components/editor/database/sidebar";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
-import { NotionButton } from "./NotionButton";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
-  useDocuments,
-  useCreateDocument,
-  useDeleteDocument,
-  useMoveDocument,
-  useUpdateDocument,
-  buildDocumentTree,
-  filterDocumentTreeDocuments,
-} from "@/hooks/use-documents";
-import { cn } from "@/lib/utils";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  applyOptimisticItemToContentDatabase,
+  contentDatabaseByIdQueryKey,
+  removeOptimisticItemFromContentDatabase,
+  useContentDatabaseById,
+  useContentDatabasePersonalView,
+  useUpdateContentDatabasePersonalView,
+  useCreateContentDatabase,
+  useDeleteContentDatabase,
+  useRestoreContentDatabase,
+  useTrashedContentDatabases,
+} from "@/hooks/use-content-database";
+import {
+  useContentSpaces,
+  useEnsureContentSpaces,
+  type ContentSpaceSummary,
+} from "@/hooks/use-content-spaces";
+import {
+  useDocuments,
+  useCreateDocument,
+  useDeleteDocument,
+  usePermanentlyDeleteDocument,
+  useMoveDocument,
+  useRestoreDocument,
+  useTrashedDocuments,
+  useUpdateDocument,
+  buildDocumentTree,
+  filterDocumentTreeDocuments,
+} from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import {
+  markDocumentCreationPending,
+  shouldCreateDocumentOptimistically,
+} from "@/lib/optimistic-document";
+import { cn } from "@/lib/utils";
+
+import {
+  getDocumentSidebarSections,
+  isDirectLocalDocument,
+} from "./document-sidebar-sections";
+import {
+  DocumentSidebarIcon,
+  DocumentTreeItem,
+  FavoriteDocumentItem,
+} from "./DocumentTreeItem";
+import { NotionButton } from "./NotionButton";
+import {
+  contentSpaceAvailability,
+  contentSpaceForStoredSelection,
+  createContentSidebarStateWriteQueue,
+  createContentSpaceSelectionQueue,
+  ensureWorkspaceExpanded,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+  selectContentSpace,
+  toggleExpandedWorkspaceIds,
+} from "./select-content-space";
+import {
+  WorkspaceSourceMenu,
+  type CreatedWorkspace,
+} from "./WorkspaceSourceMenu";
 
 function nanoid(size = 12): string {
   const chars =
@@ -104,6 +201,146 @@ function collectDocumentSubtreeIds(documents: Document[], rootId: string) {
   return deletedIds;
 }
 
+type SidebarSectionId =
+  | "favorites"
+  | "local-files"
+  | "shared-copies"
+  | "private"
+  | "organization"
+  | "trash";
+
+type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
+
+const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
+  "content-sidebar-collapsed-sections";
+const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
+  "content-sidebar-trash-collapsed-default-v2";
+const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
+interface ContentSidebarStateSnapshot {
+  version: typeof CONTENT_SIDEBAR_STATE_VERSION;
+  expandedWorkspaceIds: string[];
+  expandedDocumentIds: string[];
+}
+const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
+  favorites: false,
+  "local-files": false,
+  "shared-copies": false,
+  private: false,
+  organization: false,
+  trash: true,
+};
+
+function normalizeCollapsedSections(
+  value: Partial<Record<SidebarSectionId, boolean>> | null | undefined,
+): CollapsedSectionsState {
+  return {
+    favorites: value?.favorites ?? false,
+    "local-files": value?.["local-files"] ?? false,
+    "shared-copies": value?.["shared-copies"] ?? false,
+    private: value?.private ?? false,
+    organization: value?.organization ?? false,
+    trash: value?.trash ?? true,
+  };
+}
+
+interface RemoveLocalFileSourceResult {
+  success: boolean;
+  deleted: number;
+}
+
+function WorkspaceFilesSection({
+  space,
+  selected,
+  activeDocumentId,
+  expandedDocumentIds,
+  onDocumentExpandedChange,
+  onActivate,
+  onCreateChildPage,
+  onCreateChildDatabase,
+  onDeleteItem,
+  onToggleFavorite,
+}: {
+  space: ContentSpaceSummary;
+  selected: boolean;
+  activeDocumentId: string | null;
+  expandedDocumentIds: ReadonlySet<string>;
+  onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
+  onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
+  onCreateChildPage: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onCreateChildDatabase: (
+    space: ContentSpaceSummary,
+    item: ContentDatabaseItem,
+  ) => void;
+  onDeleteItem: (item: ContentDatabaseItem) => void;
+  onToggleFavorite: (item: ContentDatabaseItem) => void;
+}) {
+  const t = useT();
+  const filesDatabase = useContentDatabaseById(space.filesDatabaseId);
+  const filesPersonalView = useContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
+    space.filesDatabaseId,
+  );
+  const failed = filesDatabase.isError || filesPersonalView.isError;
+
+  return (
+    <div className="ms-3 border-s border-border/70 pb-1 ps-1">
+      {failed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => {
+            void filesDatabase.refetch();
+            void filesPersonalView.refetch();
+          }}
+          retrying={filesDatabase.isFetching || filesPersonalView.isFetching}
+        />
+      ) : (
+        <ContentFilesSidebarView
+          data={filesDatabase.data}
+          overrides={filesPersonalView.data?.overrides}
+          isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+          activeDocumentId={activeDocumentId}
+          expandedDocumentIds={expandedDocumentIds}
+          onDocumentExpandedChange={onDocumentExpandedChange}
+          onSelectView={(viewId) => {
+            const current = filesPersonalView.data?.overrides;
+            updateFilesPersonalView.mutate({
+              databaseId: space.filesDatabaseId,
+              overrides: {
+                version:
+                  current?.version ??
+                  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                activeViewId: viewId,
+                views: current?.views ?? [],
+              },
+            });
+          }}
+          onOpenItem={(item: ContentDatabaseItem) => {
+            if (selected) return false;
+            onActivate(space, item.document.id);
+            return true;
+          }}
+          onCreateChildPage={(item) => onCreateChildPage(space, item)}
+          onCreateChildDatabase={(item) => onCreateChildDatabase(space, item)}
+          onDeleteItem={onDeleteItem}
+          onToggleFavorite={onToggleFavorite}
+          labels={{
+            loadingLabel: t("sidebar.loadingFiles"),
+            noMatchesLabel: t("database.noRowsMatchThisView"),
+            clearLabel: t("database.clearSearchAndFilters"),
+            navigationLabel: `${space.name} ${t("sidebar.files")}`,
+            untitledLabel: t("sidebar.untitled"),
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -113,12 +350,261 @@ export function DocumentSidebar({
   onResize,
 }: DocumentSidebarProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
-  const { data: documents = [], isLoading } = useDocuments();
+  const t = useT();
+  const documentsQuery = useDocuments();
+  const { data: documents = [], isLoading } = documentsQuery;
   const createDocument = useCreateDocument();
+  const createDatabase = useCreateContentDatabase(null);
+  const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
+  const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
   const moveDocument = useMoveDocument();
+  const restoreDocument = useRestoreDocument();
+  const { data: trashedDocuments } = useTrashedDocuments();
+  const restoreContentDatabase = useRestoreContentDatabase();
+  const { data: trashedDatabases } = useTrashedContentDatabases();
+  const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
+  const contentSpacesQuery = useContentSpaces();
+  const ensureContentSpaces = useEnsureContentSpaces();
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
+  const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
+  const workspaceCatalogDatabaseId =
+    contentSpacesQuery.data?.catalogDatabaseId ?? null;
+  const favoritesDocumentId =
+    contentSpacesQuery.data?.favoritesDocumentId ?? null;
+  const workspaceCatalogDatabase = useContentDatabaseById(
+    workspaceCatalogDatabaseId,
+  );
+  const workspaceCatalogPersonalView = useContentDatabasePersonalView(
+    workspaceCatalogDatabaseId,
+  );
+  const updateWorkspaceCatalogPersonalView =
+    useUpdateContentDatabasePersonalView(workspaceCatalogDatabaseId);
+  const spaceProvisionAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (
+      contentSpacesQuery.isSuccess &&
+      !spaceProvisionAttemptedRef.current &&
+      !ensureContentSpaces.isPending
+    ) {
+      spaceProvisionAttemptedRef.current = true;
+      ensureContentSpaces.mutate({});
+    }
+  }, [
+    contentSpacesQuery.isSuccess,
+    ensureContentSpaces,
+    ensureContentSpaces.isPending,
+  ]);
+  const [storedSpaceId, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
+  const selectedSpace = contentSpaceForStoredSelection({
+    spaces: contentSpaces,
+    storedSpaceId,
+  });
+  const sidebarStateQuery = useActionQuery("get-content-sidebar-state", {});
+  const updateSidebarState = useActionMutation("update-content-sidebar-state", {
+    skipActionQueryInvalidation: true,
+    onSuccess: (data) => {
+      queryClient.setQueryData(
+        ["action", "get-content-sidebar-state", {}],
+        data,
+      );
+    },
+  });
+  const updateSidebarStateRef = useRef(updateSidebarState);
+  updateSidebarStateRef.current = updateSidebarState;
+  const sidebarStateWriteQueueRef = useRef<
+    ((snapshot: ContentSidebarStateSnapshot) => Promise<unknown>) | null
+  >(null);
+  if (!sidebarStateWriteQueueRef.current) {
+    sidebarStateWriteQueueRef.current = createContentSidebarStateWriteQueue(
+      (snapshot: ContentSidebarStateSnapshot) =>
+        updateSidebarStateRef.current.mutateAsync(snapshot),
+    );
+  }
+  const [expandedWorkspaceIds, setExpandedWorkspaceIds] = useState<string[]>(
+    [],
+  );
+  const [expandedDocumentIds, setExpandedDocumentIds] = useState<string[]>([]);
+  const expandedDocumentIdSet = useMemo(
+    () => new Set(expandedDocumentIds),
+    [expandedDocumentIds],
+  );
+  const sidebarStateHydratedRef = useRef(false);
+  const expandedWorkspaceIdsRef = useRef<string[]>([]);
+  const expandedDocumentIdsRef = useRef<string[]>([]);
+  const contentSpaceState = contentSpaceAvailability({
+    hasSelectedSpace: Boolean(selectedSpace),
+    contentSpacesLoading: contentSpacesQuery.isLoading,
+    contentSpacesFetching: contentSpacesQuery.isFetching,
+    contentSpacesError: contentSpacesQuery.isError,
+    provisioningAttempted: spaceProvisionAttemptedRef.current,
+    provisioningPending: ensureContentSpaces.isPending,
+    provisioningError: ensureContentSpaces.isError,
+  });
+  const handleRetryContentSpaces = useCallback(() => {
+    if (contentSpacesQuery.isError) {
+      spaceProvisionAttemptedRef.current = false;
+      void contentSpacesQuery.refetch();
+      return;
+    }
+    spaceProvisionAttemptedRef.current = true;
+    ensureContentSpaces.mutate({});
+  }, [contentSpacesQuery, ensureContentSpaces]);
+  useEffect(() => {
+    if (selectedSpace && selectedSpace.id !== storedSpaceId) {
+      setStoredSpaceId(selectedSpace.id);
+    }
+  }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
+  useEffect(() => {
+    if (
+      sidebarStateHydratedRef.current ||
+      !contentSpacesQuery.isSuccess ||
+      sidebarStateQuery.isLoading
+    ) {
+      return;
+    }
+    const stored = sidebarStateQuery.data?.state;
+    const workspaceIds =
+      stored?.expandedWorkspaceIds ?? contentSpaces.map((space) => space.id);
+    const documentIds = stored?.expandedDocumentIds ?? [];
+    expandedWorkspaceIdsRef.current = workspaceIds;
+    expandedDocumentIdsRef.current = documentIds;
+    setExpandedWorkspaceIds(workspaceIds);
+    setExpandedDocumentIds(documentIds);
+    sidebarStateHydratedRef.current = true;
+  }, [
+    contentSpaces,
+    contentSpacesQuery.isSuccess,
+    sidebarStateQuery.data?.state,
+    sidebarStateQuery.isLoading,
+  ]);
+
+  const queueSidebarStateWrite = useCallback(
+    (workspaceIds: string[], documentIds: string[]) => {
+      if (!sidebarStateHydratedRef.current) return;
+      void sidebarStateWriteQueueRef
+        .current?.({
+          version: CONTENT_SIDEBAR_STATE_VERSION,
+          expandedWorkspaceIds: workspaceIds,
+          expandedDocumentIds: documentIds,
+        })
+        .catch((error) => {
+          toast.error(t("sidebar.failedSaveSidebarState"), {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        });
+    },
+    [t],
+  );
+
+  const updateExpandedWorkspaceIds = useCallback(
+    (update: (current: string[]) => string[]) => {
+      setExpandedWorkspaceIds((current) => {
+        const next = update(current);
+        if (next === current) return current;
+        expandedWorkspaceIdsRef.current = next;
+        queueSidebarStateWrite(next, expandedDocumentIdsRef.current);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  const handleDocumentExpandedChange = useCallback(
+    (documentId: string, expanded: boolean) => {
+      setExpandedDocumentIds((current) => {
+        const nextSet = new Set(current);
+        if (expanded) nextSet.add(documentId);
+        else nextSet.delete(documentId);
+        const next = [...nextSet];
+        expandedDocumentIdsRef.current = next;
+        queueSidebarStateWrite(expandedWorkspaceIdsRef.current, next);
+        return next;
+      });
+    },
+    [queueSidebarStateWrite],
+  );
+
+  const handleSelectContentSpace = useCallback(
+    async (
+      space: (typeof contentSpaces)[number],
+      targetDocumentId?: string | null,
+    ) => {
+      updateExpandedWorkspaceIds((current) =>
+        ensureWorkspaceExpanded(current, space.id),
+      );
+      try {
+        await workspaceSelectionQueueRef.current(() =>
+          selectContentSpace({
+            space,
+            syncApplicationState: (selected) =>
+              setClientAppState(
+                "content-space",
+                {
+                  spaceId: selected.id,
+                  name: selected.name,
+                  kind: selected.kind,
+                  filesDatabaseId: selected.filesDatabaseId,
+                },
+                { requestSource: "content-sidebar" },
+              ),
+            persistSelection: setStoredSpaceId,
+            openFiles: (documentId) => {
+              if (targetDocumentId === null) return;
+              navigate(`/page/${targetDocumentId ?? documentId}`, {
+                flushSync: true,
+              });
+            },
+          }),
+        );
+        return true;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    },
+    [navigate, setStoredSpaceId, updateExpandedWorkspaceIds],
+  );
+  const handleWorkspaceCreated = useCallback(
+    (created: CreatedWorkspace) =>
+      handleSelectContentSpace({
+        id: created.spaceId,
+        name: created.name,
+        kind: created.kind,
+        filesDatabaseId: created.filesDatabaseId,
+        filesDocumentId: created.filesDocumentId,
+        orgId: null,
+        role: "owner",
+        catalogItemId: created.catalogItemId,
+        catalogDocumentId: created.catalogDocumentId,
+      }),
+    [handleSelectContentSpace],
+  );
+  useEffect(() => {
+    if (!selectedSpace) return;
+    void setClientAppState(
+      "content-space",
+      {
+        spaceId: selectedSpace.id,
+        name: selectedSpace.name,
+        kind: selectedSpace.kind,
+        filesDatabaseId: selectedSpace.filesDatabaseId,
+      },
+      { requestSource: "content-sidebar" },
+    ).catch(() => {
+      // Space selection remains usable when best-effort agent context sync fails.
+    });
+  }, [selectedSpace]);
+  const removeLocalFileSource = useActionMutation<
+    RemoveLocalFileSourceResult,
+    { sourceRootPath?: string | null }
+  >("remove-local-file-source");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   // Track user-expanded nodes only; active ancestors are derived below so they
@@ -126,6 +612,31 @@ export function DocumentSidebar({
   const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
+  const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
+    Partial<Record<SidebarSectionId, boolean>>
+  >(SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY, DEFAULT_COLLAPSED_SECTIONS);
+  const collapsedSections = useMemo(
+    () => normalizeCollapsedSections(storedCollapsedSections),
+    [storedCollapsedSections],
+  );
+  useEffect(() => {
+    try {
+      if (
+        window.localStorage.getItem(TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY) ===
+        "1"
+      ) {
+        return;
+      }
+      setStoredCollapsedSections((current) => ({
+        ...normalizeCollapsedSections(current),
+        trash: true,
+      }));
+      window.localStorage.setItem(TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY, "1");
+    } catch {}
+  }, [setStoredCollapsedSections]);
+  const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
+    useState(false);
+  const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
@@ -165,10 +676,30 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const tree = buildDocumentTree(treeDocuments);
-  const privateTree = tree.filter((node) => node.visibility !== "org");
-  const organizationTree = tree.filter((node) => node.visibility === "org");
-  const favorites = documents.filter((d) => d.isFavorite);
+  const {
+    localFileMode,
+    localSourceDocuments,
+    databaseDocuments,
+    favorites,
+    showFavorites,
+  } = getDocumentSidebarSections(documents, treeDocuments);
+  const localFileTree = buildDocumentTree(localSourceDocuments);
+  const databaseTree = buildDocumentTree(databaseDocuments);
+  const importedLocalFileCount = localFileMode
+    ? 0
+    : localSourceDocuments.filter(
+        (document) => document.source?.kind !== "folder",
+      ).length;
+  const canRemoveLocalFiles = localFileMode || importedLocalFileCount > 0;
+  // Match the tree rows' right-side inset so favorite titles clip inside the
+  // visible sidebar instead of widening the scroll surface.
+  const favoriteRowWidth =
+    width === undefined ? undefined : Math.max(208, width - 24);
+  const activeDocument = activeDocumentId
+    ? documents.find((doc) => doc.id === activeDocumentId)
+    : null;
+  const trashItems = trashedDatabases?.databases ?? [];
+  const trashedPageItems = trashedDocuments?.documents ?? [];
   const parentByDocumentId = useMemo(
     () => new Map(documents.map((doc) => [doc.id, doc.parentId])),
     [documents],
@@ -210,10 +741,45 @@ export function DocumentSidebar({
   );
 
   const handleCreatePage = useCallback(
-    async (parentId?: string) => {
-      const id = nanoid();
+    async (
+      parentId?: string,
+      rootSpaceId = selectedSpace?.id,
+      optimisticId?: string,
+      rootFilesDatabaseId?: string,
+    ) => {
+      if (
+        !shouldCreateDocumentOptimistically({
+          localFileMode,
+          filesDatabaseId: rootFilesDatabaseId,
+        })
+      ) {
+        try {
+          const created = await createDocument.mutateAsync({
+            title: "",
+            parentId: parentId ?? undefined,
+            spaceId: parentId ? undefined : rootSpaceId,
+          });
+          queryClient.setQueryData(
+            ["action", "get-document", { id: created.id }],
+            created,
+          );
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          navigateToDocument(created.id);
+          onNavigate?.();
+        } catch (err) {
+          toast.error(t("sidebar.failedCreatePage"), {
+            description:
+              err instanceof Error ? err.message : t("empty.genericError"),
+          });
+        }
+        return;
+      }
+
+      const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc: Document = {
+      const tempDoc = markDocumentCreationPending({
         id,
         parentId: parentId ?? null,
         title: "",
@@ -228,7 +794,7 @@ export function DocumentSidebar({
         canManage: true,
         createdAt: now,
         updatedAt: now,
-      };
+      });
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -237,24 +803,55 @@ export function DocumentSidebar({
         return { documents: [...docs, tempDoc] };
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
+      if (rootFilesDatabaseId) {
+        const optimisticItem: ContentDatabaseItem = {
+          id: `optimistic-${id}`,
+          databaseId: rootFilesDatabaseId,
+          document: tempDoc,
+          position: tempDoc.position,
+          properties: [],
+        };
+        queryClient.setQueryData<ContentDatabaseResponse>(
+          contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          (current) =>
+            applyOptimisticItemToContentDatabase(current, optimisticItem),
+        );
+      }
 
       navigateToDocument(id);
       onNavigate?.();
 
       try {
-        await createDocument.mutateAsync({
+        const created = await createDocument.mutateAsync({
           id,
           title: "",
           parentId: parentId ?? undefined,
+          spaceId: parentId ? undefined : rootSpaceId,
         });
+        const nextId = created?.id || id;
+        queryClient.setQueryData(
+          ["action", "get-document", { id: nextId }],
+          created,
+        );
+        if (nextId !== id) {
+          queryClient.removeQueries({
+            queryKey: ["action", "get-document", { id }],
+          });
+          navigateToDocument(nextId);
+        }
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
         queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id }],
+          queryKey: ["action", "get-document", { id: nextId }],
         });
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.invalidateQueries({
+            queryKey: contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+          });
+        }
       } catch (err) {
         // Revert optimistic updates
         queryClient.invalidateQueries({
@@ -263,18 +860,80 @@ export function DocumentSidebar({
         queryClient.removeQueries({
           queryKey: ["action", "get-document", { id }],
         });
+        if (rootFilesDatabaseId) {
+          queryClient.setQueryData<ContentDatabaseResponse>(
+            contentDatabaseByIdQueryKey(rootFilesDatabaseId),
+            (current) => removeOptimisticItemFromContentDatabase(current, id),
+          );
+        }
         navigate("/");
-        toast.error("Failed to create page", {
+        toast.error(t("sidebar.failedCreatePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
-    [createDocument, navigate, navigateToDocument, onNavigate, queryClient],
+    [
+      createDocument,
+      localFileMode,
+      navigate,
+      navigateToDocument,
+      onNavigate,
+      queryClient,
+      selectedSpace?.id,
+    ],
+  );
+
+  const handleCreateDatabase = useCallback(
+    async (parentId?: string | null, rootSpaceId = selectedSpace?.id) => {
+      try {
+        const result = await createDatabase.mutateAsync({
+          parentId: parentId ?? null,
+          spaceId: parentId ? undefined : rootSpaceId,
+          title: t("editor.untitledDatabase"),
+        });
+        navigateToDocument(result.database.documentId);
+        onNavigate?.();
+      } catch (err) {
+        toast.error(t("sidebar.failedCreateDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [createDatabase, navigateToDocument, onNavigate, selectedSpace?.id, t],
+  );
+
+  const handleCreatePageInSpace = useCallback(
+    async (space: ContentSpaceSummary) => {
+      const id = nanoid();
+      if (selectedSpace?.id !== space.id) {
+        void handleSelectContentSpace(space, null);
+      }
+      await handleCreatePage(undefined, space.id, id, space.filesDatabaseId);
+    },
+    [handleCreatePage, handleSelectContentSpace, selectedSpace?.id],
+  );
+
+  const handleOpenFavorite = useCallback(
+    (document: Document) => {
+      const space = contentSpaces.find(
+        (candidate) =>
+          candidate.filesDocumentId ===
+          document.databaseMembership?.databaseDocumentId,
+      );
+      if (space) {
+        void handleSelectContentSpace(space, document.id);
+        return;
+      }
+      navigateToDocument(document.id);
+    },
+    [contentSpaces, handleSelectContentSpace, navigateToDocument],
   );
 
   const handleDelete = useCallback(
     async (id: string) => {
+      const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
       const deletedIds = collectDocumentSubtreeIds(documents, id);
       const activeDeleted = activeDocumentId
         ? deletedIds.has(activeDocumentId)
@@ -282,9 +941,12 @@ export function DocumentSidebar({
       const survivingDocuments = documents.filter(
         (doc) => !deletedIds.has(doc.id),
       );
+      const navigationCandidates = localFileMode
+        ? survivingDocuments.filter((doc) => doc.source?.kind !== "folder")
+        : survivingDocuments;
       const nextDocument =
-        survivingDocuments.find((doc) => doc.isFavorite) ??
-        [...survivingDocuments].sort(compareDocumentsByPosition)[0] ??
+        navigationCandidates.find((doc) => doc.isFavorite) ??
+        [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
         null;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
@@ -310,7 +972,13 @@ export function DocumentSidebar({
       }
 
       try {
-        await deleteDocument.mutateAsync({ id });
+        if (deletedDocument?.database) {
+          await deleteContentDatabase.mutateAsync({
+            databaseId: deletedDocument.database.id,
+          });
+        } else {
+          await deleteDocument.mutateAsync({ id });
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -324,13 +992,21 @@ export function DocumentSidebar({
             flushSync: true,
           });
         }
-        toast.error("Failed to delete page", {
+        toast.error(t("sidebar.failedDeletePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
-    [activeDocumentId, deleteDocument, documents, navigate, queryClient],
+    [
+      activeDocumentId,
+      deleteContentDatabase,
+      deleteDocument,
+      documents,
+      localFileMode,
+      navigate,
+      queryClient,
+    ],
   );
 
   const handleReorderPage = useCallback(
@@ -361,8 +1037,8 @@ export function DocumentSidebar({
       );
       if (changed.length === 0) return;
       if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error("Cannot reorder pages", {
-          description: "One of the affected pages is read-only.",
+        toast.error(t("sidebar.cannotReorderPages"), {
+          description: t("sidebar.oneAffectedPageReadOnly"),
         });
         return;
       }
@@ -393,9 +1069,9 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to move page", {
+        toast.error(t("sidebar.failedMovePage"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
       }
     },
@@ -418,10 +1094,108 @@ export function DocumentSidebar({
 
   const handleToggleFavorite = useCallback(
     (id: string, isFavorite: boolean) => {
-      updateDocument.mutate({ id, isFavorite });
+      updateDocument.mutate(
+        { id, isFavorite },
+        {
+          onError: (error) => {
+            toast.error(t("sidebar.failedUpdateFavorite"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : t("empty.genericError"),
+            });
+          },
+        },
+      );
     },
-    [updateDocument],
+    [t, updateDocument],
   );
+
+  const handleRestoreDatabase = useCallback(
+    async (databaseId: string) => {
+      try {
+        await restoreContentDatabase.mutateAsync({ databaseId });
+        toast.success(t("sidebar.databaseRestored"));
+      } catch (err) {
+        toast.error(t("sidebar.failedRestoreDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [restoreContentDatabase, t],
+  );
+
+  const handlePermanentDeleteDatabase = useCallback(
+    async (documentId: string) => {
+      try {
+        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-trashed-content-databases"],
+        });
+        toast.success(t("sidebar.databasePermanentlyDeleted"));
+      } catch (err) {
+        toast.error(t("sidebar.failedPermanentDeleteDatabase"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [permanentlyDeleteDocument, queryClient, t],
+  );
+
+  const handleRestoreDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        await restoreDocument.mutateAsync({ id: documentId });
+        toast.success(t("sidebar.pageRestored"));
+      } catch (err) {
+        toast.error(t("sidebar.failedRestorePage"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [restoreDocument, t],
+  );
+
+  const handlePermanentDeleteDocument = useCallback(
+    async (documentId: string) => {
+      try {
+        await permanentlyDeleteDocument.mutateAsync({ id: documentId });
+        toast.success(t("sidebar.pagePermanentlyDeleted"));
+      } catch (err) {
+        toast.error(t("sidebar.failedPermanentDeletePage"), {
+          description:
+            err instanceof Error ? err.message : t("empty.genericError"),
+        });
+      }
+    },
+    [permanentlyDeleteDocument, t],
+  );
+
+  const handleRemoveLocalFiles = useCallback(async () => {
+    try {
+      const result = await removeLocalFileSource.mutateAsync({});
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      setRemoveLocalFilesDialogOpen(false);
+      toast.success(t("sidebar.localFilesRemoved"), {
+        description: t("sidebar.localFilesRemovedDescription", {
+          count: result.deleted,
+        }),
+      });
+    } catch (err) {
+      toast.error(t("sidebar.failedRemoveLocalFiles"), {
+        description:
+          err instanceof Error ? err.message : t("empty.genericError"),
+      });
+    }
+  }, [queryClient, removeLocalFileSource, t]);
 
   const filteredDocuments = searchQuery
     ? documents.filter((d) =>
@@ -447,7 +1221,8 @@ export function DocumentSidebar({
             navigateToDocument(id);
             onNavigate?.();
           }}
-          onCreateChild={(parentId) => handleCreatePage(parentId)}
+          onCreateChildPage={(parentId) => handleCreatePage(parentId)}
+          onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
           onDelete={handleDelete}
           onToggleFavorite={handleToggleFavorite}
         />
@@ -455,41 +1230,661 @@ export function DocumentSidebar({
     </SortableContext>
   );
 
-  const renderNewPageButton = () => (
-    <button
-      className="flex w-full items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-      onClick={() => handleCreatePage()}
+  const renderNewButton = (space = selectedSpace) =>
+    space ? (
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-[5px] text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        disabled={createDocument.isPending}
+        onClick={() => void handleCreatePageInSpace(space)}
+      >
+        <IconPlus size={14} className="shrink-0" />
+        <span>{t("sidebar.newPage")}</span>
+      </button>
+    ) : null;
+
+  const renderCollapsedNewButton = () =>
+    selectedSpace ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+            disabled={createDocument.isPending}
+            onClick={() => void handleCreatePageInSpace(selectedSpace)}
+          >
+            <IconPlus size={16} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{t("sidebar.newPage")}</TooltipContent>
+      </Tooltip>
+    ) : null;
+
+  const renderSettingsNavButton = () => (
+    <Link
+      to="/settings"
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        settingsActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
     >
-      <IconPlus size={14} className="shrink-0" />
-      <span>New page</span>
-    </button>
+      <IconSettings size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.settings")}
+      </span>
+    </Link>
   );
+
+  const collapseButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand size={16} />
+          ) : (
+            <IconLayoutSidebarLeftCollapse size={16} />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("sidebar.search")}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setIsSearching((value) => !value)}
+        >
+          <IconSearch size={16} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "h-8 min-w-0"}
+    />
+  );
+
+  const toggleSection = (id: SidebarSectionId) => {
+    setStoredCollapsedSections((current) => {
+      const normalized = normalizeCollapsedSections(current);
+      return {
+        ...normalized,
+        [id]: !normalized[id],
+      };
+    });
+  };
+
+  const renderLocalFilesSectionActions = () => (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("sidebar.localFilesActions")}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconDots size={14} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("sidebar.localFilesActions")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem asChild>
+          <Link to="/local-files">
+            <IconFolderOpen className="me-2 size-4" />
+            {t("sidebar.manageLocalFolders")}
+          </Link>
+        </DropdownMenuItem>
+        {canRemoveLocalFiles && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={removeLocalFileSource.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                setRemoveLocalFilesDialogOpen(true);
+              }}
+            >
+              <IconTrash className="me-2 size-4" />
+              {t("sidebar.removeLocalFilesFromSidebar")}
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderSectionHeader = (
+    id: SidebarSectionId,
+    label: string,
+    actions?: ReactNode,
+  ) => {
+    const collapsed = collapsedSections[id];
+    return (
+      <div className="flex min-w-0 items-center gap-1 px-1">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          onClick={() => toggleSection(id)}
+        >
+          <IconChevronRight
+            size={12}
+            className={cn(
+              "shrink-0 transition-transform",
+              !collapsed && "rotate-90",
+              "rtl:-scale-x-100",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </button>
+        {actions}
+      </div>
+    );
+  };
+
+  const renderTreeSkeleton = () => (
+    <div className="space-y-1 px-3 py-1">
+      {[70, 55, 85, 60, 45].map((w, i) => (
+        <div key={i} className="flex items-center gap-2 px-1 py-1.5">
+          <div className="h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-muted" />
+          <div
+            className="h-3.5 animate-pulse rounded bg-muted"
+            style={{ width: `${w}%` }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderTreeSection = ({
+    id,
+    label,
+    nodes,
+    emptyLabel,
+    className,
+    headerActions,
+    footer,
+  }: {
+    id: SidebarSectionId;
+    label: string;
+    nodes: DocumentTreeNode[];
+    emptyLabel: string;
+    className?: string;
+    headerActions?: ReactNode;
+    footer?: ReactNode;
+  }) => {
+    const collapsed = collapsedSections[id];
+    return (
+      <div className={className}>
+        {renderSectionHeader(id, label, headerActions)}
+        {!collapsed && (
+          <>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              {isLoading ? (
+                renderTreeSkeleton()
+              ) : documentsQuery.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => void documentsQuery.refetch()}
+                  retrying={documentsQuery.isFetching}
+                />
+              ) : nodes.length === 0 ? (
+                <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                  {emptyLabel}
+                </div>
+              ) : (
+                renderDocumentTree(nodes)
+              )}
+            </DndContext>
+            {footer}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderWorkspaceRoot = (space: ContentSpaceSummary) => {
+    const selected = selectedSpace?.id === space.id;
+    const expanded = expandedWorkspaceIds.includes(space.id);
+    return (
+      <div className="min-w-0">
+        <div
+          className={cn(
+            "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
+            selected
+              ? "text-foreground"
+              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+          )}
+        >
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+            className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+            onClick={() =>
+              updateExpandedWorkspaceIds((current) =>
+                toggleExpandedWorkspaceIds(current, space.id),
+              )
+            }
+          >
+            <span className="group-hover/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
+              {expanded ? (
+                <IconFolderOpen size={14} />
+              ) : (
+                <IconFolder size={14} />
+              )}
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
+              {expanded ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
+            onClick={() => void handleSelectContentSpace(space)}
+          >
+            {space.name}
+          </button>
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+            disabled={createDocument.isPending}
+            aria-label={`${t("sidebar.newPage")} — ${space.name}`}
+            onClick={() => void handleCreatePageInSpace(space)}
+          >
+            <IconPlus size={14} />
+          </button>
+        </div>
+        {expanded && (
+          <WorkspaceFilesSection
+            space={space}
+            selected={selected}
+            activeDocumentId={activeDocumentId}
+            expandedDocumentIds={expandedDocumentIdSet}
+            onDocumentExpandedChange={handleDocumentExpandedChange}
+            onActivate={(nextSpace, documentId) =>
+              void handleSelectContentSpace(nextSpace, documentId)
+            }
+            onCreateChildPage={(nextSpace, item) =>
+              void handleCreatePage(
+                item.document.id,
+                nextSpace.id,
+                undefined,
+                nextSpace.filesDatabaseId,
+              )
+            }
+            onCreateChildDatabase={(nextSpace, item) =>
+              void handleCreateDatabase(item.document.id, nextSpace.id)
+            }
+            onDeleteItem={(item) => void handleDelete(item.document.id)}
+            onToggleFavorite={(item) =>
+              handleToggleFavorite(item.document.id, !item.document.isFavorite)
+            }
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderWorkspaceNavigation = () => (
+    <div className="mb-2 min-w-0 overflow-x-hidden px-2">
+      {contentSpaceState === "ready" && selectedSpace ? (
+        <div className="grid gap-1">
+          {workspaceCatalogDatabase.isError ||
+          workspaceCatalogPersonalView.isError ? (
+            <QueryErrorState
+              compact
+              onRetry={() => {
+                void workspaceCatalogDatabase.refetch();
+                void workspaceCatalogPersonalView.refetch();
+              }}
+              retrying={
+                workspaceCatalogDatabase.isFetching ||
+                workspaceCatalogPersonalView.isFetching
+              }
+            />
+          ) : (
+            <ContentFilesSidebarView
+              data={workspaceCatalogDatabase.data}
+              overrides={workspaceCatalogPersonalView.data?.overrides}
+              isLoading={
+                workspaceCatalogDatabase.isLoading ||
+                workspaceCatalogPersonalView.isLoading
+              }
+              onSelectView={(viewId) => {
+                if (!workspaceCatalogDatabaseId) return;
+                const current = workspaceCatalogPersonalView.data?.overrides;
+                updateWorkspaceCatalogPersonalView.mutate({
+                  databaseId: workspaceCatalogDatabaseId,
+                  overrides: {
+                    version:
+                      current?.version ??
+                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                    activeViewId: viewId,
+                    views: current?.views ?? [],
+                  },
+                });
+              }}
+              renderItem={(item) => {
+                const space = contentSpaces.find(
+                  (candidate) =>
+                    candidate.catalogDocumentId === item.document.id,
+                );
+                return space
+                  ? renderWorkspaceRoot({
+                      ...space,
+                      name: item.document.title || space.name,
+                    })
+                  : null;
+              }}
+              scroll={false}
+              labels={{
+                loadingLabel: t("sidebar.loadingFiles"),
+                noMatchesLabel: t("database.noRowsMatchThisView"),
+                clearLabel: t("database.clearSearchAndFilters"),
+                navigationLabel: "Content navigation",
+                untitledLabel: t("sidebar.untitled"),
+              }}
+            />
+          )}
+          <div className="px-1">
+            <WorkspaceSourceMenu onCreated={handleWorkspaceCreated}>
+              <button
+                type="button"
+                className="flex h-7 w-full min-w-0 items-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+                aria-label={t("sidebar.addWorkspace")}
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center">
+                  <IconPlus size={14} />
+                </span>
+                <span className="truncate text-start text-[10px] font-semibold uppercase tracking-wider">
+                  {t("sidebar.addWorkspace")}
+                </span>
+              </button>
+            </WorkspaceSourceMenu>
+          </div>
+        </div>
+      ) : contentSpaceState === "loading" ? (
+        <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+          {t("sidebar.loadingFiles")}
+        </div>
+      ) : (
+        <QueryErrorState
+          compact
+          onRetry={handleRetryContentSpaces}
+          retrying={
+            contentSpacesQuery.isFetching || ensureContentSpaces.isPending
+          }
+        />
+      )}
+    </div>
+  );
+
+  const renderTrashSection = () => {
+    const collapsed = collapsedSections.trash;
+
+    return (
+      <div className="mt-3 border-t border-border/60 pt-2">
+        <div className="px-2">
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.trash")}`}
+            className="group/trash flex h-7 w-full min-w-0 items-center rounded-md px-1 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            onClick={() => toggleSection("trash")}
+          >
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              <span className="relative size-3.5">
+                <IconTrash
+                  aria-hidden="true"
+                  className="absolute inset-0 size-3.5 transition-opacity group-hover/trash:opacity-0 group-focus-visible/trash:opacity-0"
+                />
+                <IconChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/trash:opacity-100 group-focus-visible/trash:opacity-100 rtl:-scale-x-100",
+                    !collapsed && "rotate-90",
+                  )}
+                />
+              </span>
+            </span>
+            <span className="min-w-0 flex-1 truncate">
+              {t("sidebar.trash")}
+            </span>
+          </button>
+        </div>
+        {!collapsed && (
+          <div className="px-1 py-1">
+            {trashedPageItems.map((document) => {
+              const title = document.title || t("sidebar.untitled");
+              return (
+                <div
+                  key={document.documentId}
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("sidebar.restorePageNamed", { title })}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                        disabled={restoreDocument.isPending}
+                        onClick={() =>
+                          void handleRestoreDocument(document.documentId)
+                        }
+                      >
+                        <IconRestore size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t("sidebar.restorePage")}</TooltipContent>
+                  </Tooltip>
+                  <AlertDialog>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <AlertDialogTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t(
+                              "sidebar.deletePageNamedPermanently",
+                              {
+                                title,
+                              },
+                            )}
+                            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                            disabled={permanentlyDeleteDocument.isPending}
+                          >
+                            <IconTrashX size={14} />
+                          </button>
+                        </AlertDialogTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("sidebar.deletePermanently")}
+                      </TooltipContent>
+                    </Tooltip>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          {t("sidebar.deletePagePermanentlyQuestion")}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {t("sidebar.deletePagePermanentlyDescription", {
+                            title,
+                          })}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>
+                          {t("comments.cancel")}
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() =>
+                            void handlePermanentDeleteDocument(
+                              document.documentId,
+                            )
+                          }
+                        >
+                          {t("sidebar.deletePermanently")}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              );
+            })}
+            {trashedPageItems.length === 0 && trashItems.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                {t("sidebar.trashEmpty")}
+              </div>
+            ) : null}
+            {trashItems.map((database) => {
+              const title = database.title || t("editor.untitledDatabase");
+              return (
+                <div
+                  key={database.databaseId}
+                  className="group flex min-w-0 items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                >
+                  <span className="min-w-0 flex-1 truncate">{title}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("sidebar.restoreDatabaseNamed", {
+                          title,
+                        })}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-50"
+                        disabled={restoreContentDatabase.isPending}
+                        onClick={() =>
+                          void handleRestoreDatabase(database.databaseId)
+                        }
+                      >
+                        <IconRestore size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("sidebar.restoreDatabase")}
+                    </TooltipContent>
+                  </Tooltip>
+                  {database.canPermanentlyDelete && (
+                    <AlertDialog>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <AlertDialogTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={t(
+                                "sidebar.deleteDatabaseNamedPermanently",
+                                { title },
+                              )}
+                              className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
+                              disabled={permanentlyDeleteDocument.isPending}
+                            >
+                              <IconTrashX size={14} />
+                            </button>
+                          </AlertDialogTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("sidebar.deletePermanently")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {t("sidebar.deleteDatabasePermanentlyQuestion")}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t("sidebar.deleteDatabasePermanentlyDescription", {
+                              title,
+                            })}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>
+                            {t("comments.cancel")}
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() =>
+                              void handlePermanentDeleteDatabase(
+                                database.documentId,
+                              )
+                            }
+                          >
+                            {t("sidebar.deletePermanently")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-r border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
+        {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={onToggleCollapsed}
+            <Link
+              to="/settings"
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                settingsActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
-              <IconLayoutSidebarLeftExpand size={18} />
-            </button>
+              <IconSettings size={16} />
+            </Link>
           </TooltipTrigger>
-          <TooltipContent>Expand sidebar</TooltipContent>
+          <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={() => handleCreatePage()}
-            >
-              <IconPlus size={16} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>New page</TooltipContent>
-        </Tooltip>
+        <SidebarFooterActions
+          collapsed
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     );
   }
@@ -497,7 +1892,8 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col border-r border-border bg-muted/30",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar",
+        !isResizing && "transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -521,30 +1917,6 @@ export function DocumentSidebar({
             Content
           </span>
         </div>
-        <div className="flex items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                onClick={() => setIsSearching(!isSearching)}
-              >
-                <IconSearch size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Search</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                onClick={onToggleCollapsed}
-              >
-                <IconLayoutSidebarLeftCollapse size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Collapse sidebar</TooltipContent>
-          </Tooltip>
-        </div>
       </div>
 
       {/* Search */}
@@ -553,7 +1925,7 @@ export function DocumentSidebar({
           <input
             autoFocus
             type="text"
-            placeholder="Search pages..."
+            placeholder={t("sidebar.searchPages")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -567,25 +1939,25 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pr-2">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="w-full min-w-0 py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
               <div>
                 <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Results
+                  {t("sidebar.results")}
                 </div>
                 {filteredDocuments.length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                    No pages found
+                    {t("sidebar.noPagesFound")}
                   </div>
                 ) : (
                   filteredDocuments.map((doc) => (
                     <button
                       key={doc.id}
                       className={cn(
-                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-left rounded-md",
+                        "w-full flex items-center gap-2 px-3 py-[5px] text-sm text-start rounded-md",
                         doc.id === activeDocumentId
                           ? "bg-accent text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -601,138 +1973,164 @@ export function DocumentSidebar({
                         <DocumentSidebarIcon document={doc} />
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                        {doc.title || t("sidebar.untitled")}
                       </span>
                     </button>
                   ))
                 )}
               </div>
-              {renderNewPageButton()}
+              {renderNewButton()}
             </>
           ) : (
             <>
               {/* Favorites */}
-              {favorites.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                    <IconStar size={10} />
-                    Favorites
-                  </div>
-                  {favorites.map((doc) => (
+              {showFavorites && (
+                <div className="mb-2 min-w-0 px-2">
+                  <div className="group/favorites flex h-7 w-full min-w-0 items-center rounded-md px-1 text-muted-foreground hover:bg-accent/40 hover:text-foreground">
                     <button
-                      key={doc.id}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-4 py-[5px] text-sm text-left rounded-md",
-                        doc.id === activeDocumentId
-                          ? "bg-accent text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      onClick={() => {
-                        navigateToDocument(doc.id);
-                        onNavigate?.();
-                      }}
+                      type="button"
+                      aria-expanded={!collapsedSections.favorites}
+                      aria-label={`${collapsedSections.favorites ? t("sidebar.expand") : t("sidebar.collapse")} ${t("sidebar.favorites")}`}
+                      className="group/favorites-toggle flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                      onClick={() => toggleSection("favorites")}
                     >
-                      <span className="flex-shrink-0 w-5 text-center">
-                        <DocumentSidebarIcon document={doc} />
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">
-                        {doc.title || "Untitled"}
+                      <span className="relative size-3.5">
+                        <IconStar
+                          aria-hidden="true"
+                          className="absolute inset-0 size-3.5 transition-opacity group-hover/favorites:opacity-0 group-focus-visible/favorites-toggle:opacity-0"
+                        />
+                        <IconChevronRight
+                          aria-hidden="true"
+                          className={cn(
+                            "absolute inset-0 size-3.5 opacity-0 transition-[opacity,transform] group-hover/favorites:opacity-100 group-focus-visible/favorites-toggle:opacity-100 rtl:-scale-x-100",
+                            !collapsedSections.favorites && "rotate-90",
+                          )}
+                        />
                       </span>
                     </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Private page tree */}
-              <div>
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Private
-                </div>
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  {isLoading ? (
-                    <div className="space-y-1 px-3 py-1">
-                      {[70, 55, 85, 60, 45].map((w, i) => (
-                        <div
-                          key={i}
-                          className="flex items-center gap-2 px-1 py-1.5"
-                        >
-                          <div className="h-3.5 w-3.5 rounded bg-muted animate-pulse flex-shrink-0" />
-                          <div
-                            className="h-3.5 rounded bg-muted animate-pulse"
-                            style={{ width: `${w}%` }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : privateTree.length === 0 ? (
-                    <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                      No private pages yet
-                    </div>
-                  ) : (
-                    renderDocumentTree(privateTree)
-                  )}
-                </DndContext>
-              </div>
-
-              {/* New page button — private pages are the default */}
-              {renderNewPageButton()}
-
-              {!isLoading && (
-                <div className="mt-3">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Organization
+                    <Link
+                      to={
+                        favoritesDocumentId
+                          ? `/page/${favoritesDocumentId}`
+                          : "/favorites"
+                      }
+                      className={cn(
+                        "h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider leading-7",
+                        (location.pathname === "/favorites" ||
+                          activeDocumentId === favoritesDocumentId) &&
+                          "text-foreground",
+                      )}
+                    >
+                      {t("sidebar.favorites")}
+                    </Link>
                   </div>
-                  <DndContext
-                    sensors={sensors}
-                    collisionDetection={closestCenter}
-                    onDragEnd={handleDragEnd}
-                  >
-                    {organizationTree.length === 0 ? (
-                      <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                        No organization pages yet
-                      </div>
-                    ) : (
-                      renderDocumentTree(organizationTree)
-                    )}
-                  </DndContext>
+                  {!collapsedSections.favorites &&
+                    favorites.map((doc) => (
+                      <FavoriteDocumentItem
+                        key={doc.id}
+                        document={doc}
+                        active={doc.id === activeDocumentId}
+                        sidebarWidth={favoriteRowWidth}
+                        onSelect={() => {
+                          handleOpenFavorite(doc);
+                          onNavigate?.();
+                        }}
+                        onCreateChildPage={() => void handleCreatePage(doc.id)}
+                        onCreateChildDatabase={() =>
+                          void handleCreateDatabase(doc.id)
+                        }
+                        onRemoveFavorite={() =>
+                          handleToggleFavorite(doc.id, false)
+                        }
+                        onDelete={() => void handleDelete(doc.id)}
+                      />
+                    ))}
                 </div>
               )}
+
+              {renderWorkspaceNavigation()}
+              {renderTrashSection()}
             </>
           )}
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border">
-        <ExtensionsSidebarSection />
+      <div className="shrink-0 px-3 py-2">
+        <div className="space-y-1">{renderSettingsNavButton()}</div>
+      </div>
+
+      <div className="shrink-0">
+        <ExtensionSlot
+          id="content.sidebar.bottom"
+          context={{
+            documentId: activeDocumentId,
+            documentTitle: activeDocument?.title ?? null,
+            documentSource: activeDocument?.source ?? null,
+            localFileMode,
+          }}
+          className="px-2 py-2"
+          toolClassName="overflow-hidden rounded-md"
+        />
+      </div>
+
+      <div className="shrink-0 px-3 py-2">
+        <OrgSwitcher reserveSpace />
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
-        <OrgSwitcher />
-        <DevDatabaseLink />
-        <div className="flex items-center gap-1">
-          <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
-          <div className="flex shrink-0 items-center gap-0.5">
-            <NotionButton />
-            <ThemeToggle />
-          </div>
+      <div className="shrink-0 space-y-2 px-3 py-2">
+        {isCodeMode ? <DevDatabaseLink /> : null}
+        <div className="flex justify-end gap-0.5">
+          <NotionButton />
+          <ThemeToggle />
         </div>
+        <SidebarFooterActions
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+          className="px-0 py-0"
+        />
       </div>
 
       {/* Resize handle */}
       {onResize && (
         <div
           className={cn(
-            "absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
+            "absolute top-0 end-0 w-1 h-full cursor-col-resize hover:bg-primary/20 active:bg-primary/30",
             isResizing && "bg-primary/30",
           )}
           onMouseDown={handleMouseDown}
         />
       )}
+      <AlertDialog
+        open={removeLocalFilesDialogOpen}
+        onOpenChange={setRemoveLocalFilesDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.removeLocalFilesQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.removeLocalFilesDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={removeLocalFileSource.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRemoveLocalFiles();
+              }}
+            >
+              {t("sidebar.removeLocalFilesFromSidebar")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

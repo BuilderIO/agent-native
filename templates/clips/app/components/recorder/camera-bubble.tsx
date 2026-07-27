@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { IconCamera } from "@tabler/icons-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
 import {
   clampToViewport,
   initialBubblePosition,

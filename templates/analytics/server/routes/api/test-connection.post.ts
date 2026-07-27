@@ -1,9 +1,44 @@
+import { readBody } from "@agent-native/core/server";
+import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 import { defineEventHandler } from "h3";
+
 import {
   resolveCredential,
   withRequestContextFromEvent,
 } from "../../lib/credentials";
-import { readBody } from "@agent-native/core/server";
+import { executeProviderApiRequest } from "../../lib/provider-api";
+import {
+  CLAY_ANALYTICS_CREDENTIAL_KEYS,
+  HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+  resolveAnalyticsGongCredentials,
+  resolveAnalyticsProviderCredential,
+} from "../../lib/provider-credentials";
+
+type ProviderApiConnectionResponse = {
+  response?: {
+    ok?: boolean;
+    status?: number;
+    text?: string;
+    json?: unknown;
+  };
+};
+
+function providerApiConnectionResult(
+  provider: string,
+  result: unknown,
+): { ok: boolean; error?: string } {
+  const response = (result as ProviderApiConnectionResponse).response;
+  if (response?.ok) return { ok: true };
+
+  const detail =
+    response?.text?.trim() ||
+    (response?.json === undefined ? "" : JSON.stringify(response.json));
+  const status = response?.status ?? "unknown";
+  return {
+    ok: false,
+    error: `${provider} API error ${status}${detail ? `: ${detail}` : ""}`,
+  };
+}
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -58,8 +93,17 @@ export default defineEventHandler(async (event) => {
           const sa = await resolveCredential("MIXPANEL_SERVICE_ACCOUNT", ctx);
           if (!projectId || !sa)
             return { ok: false, error: "Missing credentials" };
-          const { testConnection } = await import("../../lib/mixpanel");
-          return await testConnection();
+          const result = await executeProviderApiRequest({
+            provider: "mixpanel",
+            method: "GET",
+            path: "/events/top",
+            query: {
+              type: "general",
+              limit: 1,
+              project_id: "{projectId}",
+            },
+          });
+          return providerApiConnectionResult("Mixpanel", result);
         }
 
         case "posthog": {
@@ -67,8 +111,12 @@ export default defineEventHandler(async (event) => {
           const projectId = await resolveCredential("POSTHOG_PROJECT_ID", ctx);
           if (!apiKey || !projectId)
             return { ok: false, error: "Missing credentials" };
-          const { testConnection } = await import("../../lib/posthog");
-          return await testConnection();
+          const result = await executeProviderApiRequest({
+            provider: "posthog",
+            method: "GET",
+            path: "/api/projects/{projectId}/",
+          });
+          return providerApiConnectionResult("PostHog", result);
         }
 
         case "postgresql": {
@@ -88,9 +136,29 @@ export default defineEventHandler(async (event) => {
           return { ok: true };
         }
 
+        case "clay": {
+          const credential = await resolveAnalyticsProviderCredential({
+            provider: "clay",
+            keys: CLAY_ANALYTICS_CREDENTIAL_KEYS,
+            ctx,
+          });
+          const key = credential?.value;
+          if (!key) return { ok: false, error: "Missing Clay Public API key" };
+          const res = await fetch("https://api.clay.com/public/v0/me", {
+            headers: { "clay-api-key": key },
+          });
+          if (!res.ok) return { ok: false, error: "Invalid Clay API key" };
+          return { ok: true };
+        }
+
         case "hubspot": {
-          const token = await resolveCredential("HUBSPOT_ACCESS_TOKEN", ctx);
-          if (!token) return { ok: false, error: "Missing access token" };
+          const credential = await resolveAnalyticsProviderCredential({
+            provider: "hubspot",
+            keys: HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+            ctx,
+          });
+          const token = credential?.value;
+          if (!token) return { ok: false, error: "Missing HubSpot token" };
           const res = await fetch(
             "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
             {
@@ -114,6 +182,16 @@ export default defineEventHandler(async (event) => {
         }
 
         case "jira": {
+          const workspaceConnection = await resolveWorkspaceConnectionForApp({
+            appId: "analytics",
+            provider: "jira",
+            requireConnected: true,
+          });
+          if (workspaceConnection.available) {
+            const { getProjects } = await import("../../lib/jira");
+            await getProjects();
+            return { ok: true };
+          }
           const baseUrl = await resolveCredential("JIRA_BASE_URL", ctx);
           const email = await resolveCredential("JIRA_USER_EMAIL", ctx);
           const token = await resolveCredential("JIRA_API_TOKEN", ctx);
@@ -205,14 +283,14 @@ export default defineEventHandler(async (event) => {
         }
 
         case "gong": {
-          const accessKey = await resolveCredential("GONG_ACCESS_KEY", ctx);
-          const secret = await resolveCredential("GONG_ACCESS_SECRET", ctx);
+          const credentials = await resolveAnalyticsGongCredentials({ ctx });
           const apiBase =
             (await resolveCredential("GONG_API_BASE", ctx)) ||
             "https://api.gong.io/v2";
-          if (!accessKey || !secret)
-            return { ok: false, error: "Missing credentials" };
-          const auth = `Basic ${Buffer.from(`${accessKey}:${secret}`).toString("base64")}`;
+          if (!credentials) return { ok: false, error: "Missing credentials" };
+          const auth = `Basic ${Buffer.from(
+            `${credentials.accessKey}:${credentials.accessSecret}`,
+          ).toString("base64")}`;
           const res = await fetch(
             `${apiBase.replace(/\/+$/, "")}/users?limit=1`,
             {

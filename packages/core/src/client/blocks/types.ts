@@ -19,6 +19,9 @@ import type { ZodType } from "zod";
 /** Where a block can be placed in a document. */
 export type BlockPlacement = "block" | "inline";
 
+/** How visual blocks decide whether to draw an outer surface frame. */
+export type BlockVisualFrame = "auto" | "show" | "hide";
+
 /**
  * A serialized MDX/NFM attribute value before the shared `prop()` encoder runs.
  * `prop()` decides string-vs-JSON encoding; this is just the value domain.
@@ -76,10 +79,11 @@ export interface BlockMdxConfig<TData> {
    */
   childrenField?: keyof TData & string;
   /**
-   * Opt-in custom children serializer for blocks whose internals are nested MDX
-   * components rather than a single markdown string (e.g. wireframe → Screen/kit
-   * primitives). When present it overrides `childrenField`. `serializeChildren`
-   * returns the raw inner MDX; `parseChildren` receives the child MDX AST nodes.
+   * Opt-in custom children serializer/parser for blocks whose internals are
+   * nested MDX components or named child code fences rather than a single
+   * markdown string. When `serializeChildren` is present it overrides
+   * `childrenField`. `parseChildren` may also be used as a parse-only adapter
+   * for backward-compatible child forms.
    */
   serializeChildren?: (data: TData) => string;
   parseChildren?: (childNodes: unknown[], idContext: string) => Partial<TData>;
@@ -93,6 +97,14 @@ export interface BlockMdxConfig<TData> {
 export interface BlockRenderContext {
   /** Markdown dialect for the auto-editor's rich-text field. */
   dialect?: "gfm" | "nfm";
+  /** Document text direction inferred by the host app. */
+  textDirection?: "ltr" | "rtl";
+  /**
+   * Host default for visual wireframe/diagram frames when block data leaves
+   * `frame` unset or set to `auto`. Plans/recaps usually show a frame; docs can
+   * hide it by default and let individual blocks opt back in.
+   */
+  visualFrame?: Exclude<BlockVisualFrame, "auto">;
   /** Resolve an asset id → displayable URL. */
   resolveAssetSrc?: (assetId: string) => string | undefined;
   /** Open the shared asset picker (returns the chosen asset). */
@@ -112,6 +124,35 @@ export interface BlockRenderContext {
     markdown: string,
     options?: { className?: string },
   ) => React.ReactNode;
+  /**
+   * Static capture mode: render every code/diff line annotation as a visible
+   * inline overlay instead of requiring hover.
+   */
+  showCodeAnnotationOverlays?: boolean;
+  /**
+   * Optional placement policy for line-anchored code/diff annotations.
+   * Hosts can keep the default right-first hover behavior, or ask annotations to
+   * prefer a margin side and become persistent whenever that margin has room.
+   */
+  codeAnnotationLayout?: {
+    /** Preferred side for hover cards when that side has a clean gutter. */
+    hoverSide?: "left" | "right";
+    /**
+     * Final hover fallback when neither side has a clean gutter. `"below"` keeps
+     * the legacy line-below behavior; `"left"`/`"right"` overlap the card from
+     * that code edge with a small overhang.
+     */
+    hoverFallbackSide?: "left" | "right" | "below";
+    /** Show all annotation cards by default when the requested margin fits. */
+    showByDefaultWhenRoom?: boolean;
+    /**
+     * When margin annotations are enabled, choose how many cards become visible
+     * without hover. Defaults to all for callers using the legacy boolean.
+     */
+    defaultVisibleAnnotations?: "all" | "first";
+    /** Margin side for persistent cards; `"auto"` tries hoverSide, then the other side. */
+    marginSide?: "left" | "right" | "auto";
+  };
   /**
    * Render an inline, editable rich-markdown field. The auto-editor calls this
    * for a `markdown()`-tagged field so the app owns the editor wiring (collab,
@@ -276,6 +317,8 @@ export interface BlockReadProps<TData> {
   summary?: string;
   /** Injected app capabilities. */
   ctx: BlockRenderContext;
+  /** Tighten embedded visuals in dense contexts such as tabs and question cards. */
+  compactVisuals?: boolean;
 }
 
 /** Props passed to a block's editor (custom or schema-generated). */
@@ -335,12 +378,15 @@ export interface BlockSpec<TData = unknown> {
    * - `"container"` — the block renders its `Edit` in place, and that editor
    *   may call `ctx.renderBlocksEditor` for nested block regions with normal
    *   slash commands and nested structured blocks.
+   * - `"none"` — the block renders its `Read` view in edit mode and exposes no
+   *   block data form. Use for blocks whose whole-block operations live in the
+   *   editor chrome/menu rather than a custom or schema-generated editor.
    * Defaults to `"inline"` when a custom `Edit` is supplied, else `"panel"`
    * (auto-form blocks are property forms, ideal for a panel). The app must wire
    * `ctx.renderEditSurface` for `"panel"` to take effect; otherwise it falls
    * back to inline.
    */
-  editSurface?: "inline" | "panel" | "container";
+  editSurface?: "inline" | "panel" | "container" | "none";
   /**
    * Optional generic contract for content-bearing container blocks. Keep this
    * runtime-oriented: it describes editable regions over normalized block arrays;

@@ -11,6 +11,12 @@ export type ImageLibrarySummary = {
   styleBrief?: Record<string, unknown> | null;
   settings?: Record<string, unknown> | null;
   updatedAt?: string | null;
+  folders?: Array<{
+    id: string;
+    libraryId: string;
+    parentId?: string | null;
+    title: string;
+  }> | null;
 };
 
 export type LibraryPreviewAsset = {

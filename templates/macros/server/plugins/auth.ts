@@ -14,8 +14,8 @@ import {
   readBody,
   setFrameworkSessionCookie,
 } from "@agent-native/core/server";
-import { defineEventHandler, getMethod } from "h3";
 import { createClient } from "@supabase/supabase-js";
+import { defineEventHandler, getMethod } from "h3";
 
 // Above a normal Neon serverless cold-wake (~1-2s) but well under both the
 // core DB op timeout and Netlify's function limit, so a slow-but-fine lookup
@@ -38,9 +38,9 @@ function getSupabase() {
 const LOGIN_HTML = `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
-<title>Agent-Native Macros — Sign in</title>
+<title>Macros — Sign in</title>
 <meta name="description" content="Log meals, exercises, and weight by typing or voice while the agent estimates calories and macros for you."/>
-<meta property="og:title" content="Agent-Native Macros"/>
+<meta property="og:title" content="Macros"/>
 <meta property="og:description" content="Log meals, exercises, and weight by typing or voice while the agent estimates calories and macros for you."/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}

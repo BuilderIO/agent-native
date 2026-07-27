@@ -9,6 +9,7 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("set-mcp-app-access");
     expect(dispatchActions).toHaveProperty("list_apps");
     expect(dispatchActions).toHaveProperty("ask_app");
+    expect(dispatchActions).toHaveProperty("ask_app_status");
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
     expect(dispatchActions).toHaveProperty(
@@ -28,5 +29,17 @@ describe("dispatch action registry", () => {
         name.startsWith("sync-workspace-resources"),
       ),
     ).toEqual([]);
+  });
+
+  it("distinguishes mounted workspace apps from connected A2A agents", () => {
+    expect(dispatchActions["list-workspace-apps"].tool.description).toContain(
+      "not the hosted/connected A2A agent registry",
+    );
+    expect(dispatchActions["list-workspace-apps"].tool.description).toContain(
+      "list-connected-agents",
+    );
+    expect(dispatchActions["list-connected-agents"].tool.description).toContain(
+      "A2A delegation",
+    );
   });
 });

@@ -1,3 +1,40 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  AppProviders,
+  createAgentNativeQueryClient,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
+  getLocaleInitScript,
+  type LocaleCode,
+  type LocaleMessages,
+  type LocalizationPreference,
+  useT,
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
+import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import type { ListContentDatabasesResponse } from "@shared/api";
+import {
+  IconDatabase,
+  IconDeviceDesktop,
+  IconHierarchy2,
+  IconFileText,
+  IconFolderOpen,
+  IconLoader2,
+  IconMoon,
+  IconSun,
+} from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Links,
   Meta,
@@ -5,30 +42,37 @@ import {
   Scripts,
   ScrollRestoration,
   isRouteErrorResponse,
+  useLoaderData,
   useLocation,
+  useNavigate,
+  useNavigation,
+  useRouteLoaderData,
   useRouteError,
 } from "react-router";
-import { useCallback, useEffect, useState } from "react";
-import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
-import { useTheme } from "next-themes";
-// shadcn useToast-based toaster — separate from sonner, must stay inline.
-import { Toaster } from "@/components/ui/toaster";
+import type {
+  LinksFunction,
+  LoaderFunctionArgs,
+  ShouldRevalidateFunctionArgs,
+} from "react-router";
+
 // Styled sonner wrapper — passed via AppProviders `toaster` prop to avoid duplicate.
 import { Toaster as Sonner } from "@/components/ui/sonner";
-import {
-  AgentSidebar,
-  AppProviders,
-  appPath,
-  CommandMenu,
-  createAgentNativeQueryClient,
-  getThemeInitScript,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client";
+// shadcn useToast-based toaster — separate from sonner, must stay inline.
+import { Toaster } from "@/components/ui/toaster";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+
+import changelog from "../CHANGELOG.md?raw";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
-import type { LinksFunction } from "react-router";
+import { i18nCatalog } from "./i18n";
+import {
+  contentCommandDocumentPath,
+  groupContentCommandSearchResults,
+  type CommandSearchDocumentsResponse,
+} from "./lib/content-command-search";
+
 import stylesheet from "./global.css?url";
-import { configureTracking } from "@agent-native/core/client";
+import katexStylesheet from "katex/dist/katex.min.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -38,10 +82,49 @@ configureTracking({
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
+  { rel: "stylesheet", href: katexStylesheet },
 ];
+
+interface RootLoaderData {
+  locale: LocaleCode;
+  preference: LocalizationPreference;
+  dir: "ltr" | "rtl";
+  messages: LocaleMessages;
+}
+
+export async function loader({
+  request,
+}: LoaderFunctionArgs): Promise<RootLoaderData> {
+  const resolved = resolveLocaleFromRequest({ request });
+  const messages =
+    ((await i18nCatalog.loadMessages?.(resolved.locale)) as
+      | LocaleMessages
+      | null
+      | undefined) ?? i18nCatalog.messages;
+  return {
+    locale: resolved.locale,
+    preference: resolved.preference,
+    dir: resolved.dir,
+    messages,
+  };
+}
+
+export function shouldRevalidate({
+  defaultShouldRevalidate,
+  formMethod,
+}: ShouldRevalidateFunctionArgs) {
+  return formMethod ? defaultShouldRevalidate : false;
+}
 
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+const DEFAULT_LOADER_DATA: RootLoaderData = {
+  locale: "en-US",
+  preference: { locale: "system" },
+  dir: "ltr",
+  messages: i18nCatalog.messages,
+};
 
 const themeOptions = [
   { value: "system", label: "System", icon: IconDeviceDesktop },
@@ -89,8 +172,21 @@ function nextTheme(theme: ThemeOption): ThemeOption {
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
+  const loaderData =
+    useRouteLoaderData<typeof loader>("root") ?? DEFAULT_LOADER_DATA;
+  const localeInitScript = getLocaleInitScript({
+    locale: loaderData.locale,
+    preference: loaderData.preference,
+    messages: loaderData.messages,
+  });
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang={loaderData.locale}
+      dir={loaderData.dir}
+      data-locale={loaderData.locale}
+      suppressHydrationWarning
+    >
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -100,6 +196,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
@@ -129,8 +230,29 @@ function AppSetup() {
   return null;
 }
 
+function RouteTransitionIndicator() {
+  const navigation = useNavigation();
+  const pending = navigation.state !== "idle";
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
+      aria-hidden={!pending}
+      role="progressbar"
+      data-pending={pending ? "true" : undefined}
+    >
+      <div
+        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
+          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
+        }`}
+      />
+    </div>
+  );
+}
+
 function ThemeToggleItem() {
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
 
   useEffect(() => {
@@ -155,27 +277,224 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "system", "mode"]}
     >
       <ActiveIcon size={16} />
-      Toggle theme
+      {t("root.toggleTheme")}
       <span className="ml-auto text-xs text-muted-foreground">
-        {activeOption.label}
+        {t(`theme.${activeOption.value}`)}
       </span>
     </CommandMenu.Item>
   );
 }
 
-function PublicAgentShell({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
+function CommandStateMessage({
+  children,
+  icon,
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-2 py-2 text-sm text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
+      {icon}
+      <span className="min-w-0 flex-1">{children}</span>
+    </div>
+  );
+}
 
-  useEffect(() => setMounted(true), []);
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
 
   useEffect(() => {
-    if (!mounted) return;
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    const id = window.setTimeout(() => {
-      window.dispatchEvent(new Event("agent-panel:open"));
-    }, 0);
+    const id = window.setTimeout(() => setDebouncedValue(value), delayMs);
     return () => window.clearTimeout(id);
-  }, [mounted]);
+  }, [delayMs, value]);
+
+  return debouncedValue;
+}
+
+function ContentCommandSearchResults({
+  query,
+  onOpenChange,
+}: {
+  query: string;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const trimmedQuery = query.trim();
+  const debouncedQuery = useDebouncedValue(trimmedQuery, 200);
+  const searchEnabled = debouncedQuery.length > 0;
+  const documentsQuery = useActionQuery<CommandSearchDocumentsResponse>(
+    "search-documents",
+    searchEnabled ? { query: debouncedQuery, limit: 8 } : undefined,
+    { enabled: searchEnabled, retry: false },
+  );
+  const databasesQuery = useActionQuery<ListContentDatabasesResponse>(
+    "list-content-databases",
+    searchEnabled ? { query: debouncedQuery, limit: 6 } : undefined,
+    { enabled: searchEnabled, retry: false, staleTime: 60_000 },
+  );
+
+  const searchGroups = useMemo(
+    () =>
+      groupContentCommandSearchResults({
+        documents: documentsQuery.data?.documents ?? [],
+        databases: databasesQuery.data?.databases ?? [],
+        query: debouncedQuery,
+      }),
+    [
+      databasesQuery.data?.databases,
+      documentsQuery.data?.documents,
+      debouncedQuery,
+    ],
+  );
+
+  if (!trimmedQuery) return null;
+
+  const resultCount =
+    searchGroups.documents.length +
+    searchGroups.databases.length +
+    searchGroups.localFiles.length;
+  const isWaitingForDebounce = trimmedQuery !== debouncedQuery;
+  const isLoading =
+    (isWaitingForDebounce ||
+      documentsQuery.isLoading ||
+      databasesQuery.isLoading) &&
+    resultCount === 0;
+  const error = documentsQuery.error ?? databasesQuery.error;
+  const hasResults = resultCount > 0;
+
+  const openDocument = (documentId: string) => {
+    onOpenChange(false);
+    navigate(contentCommandDocumentPath(documentId));
+  };
+
+  if (isLoading) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage
+          icon={<IconLoader2 className="size-4 animate-spin" />}
+        >
+          {t("root.commandSearchLoading")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  if (error && !hasResults) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage>
+          {t("root.commandSearchError")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  if (!hasResults) {
+    return (
+      <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+        <CommandStateMessage>
+          {t("root.commandSearchEmpty")}
+        </CommandStateMessage>
+      </CommandMenu.Group>
+    );
+  }
+
+  return (
+    <>
+      {error ? (
+        <CommandMenu.Group heading={t("root.commandSearchHeading")}>
+          <CommandStateMessage>
+            {t("root.commandSearchPartialError")}
+          </CommandStateMessage>
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.documents.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandDocumentsHeading")}>
+          {searchGroups.documents.map((document) => (
+            <CommandMenu.Item
+              key={`document:${document.id}`}
+              onSelect={() => openDocument(document.id)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconFileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {document.title || t("sidebar.untitled")}
+                </span>
+                {document.snippet ? (
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                    {document.snippet}
+                  </span>
+                ) : null}
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.databases.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandDatabasesHeading")}>
+          {searchGroups.databases.map((database) => (
+            <CommandMenu.Item
+              key={`database:${database.databaseId}`}
+              onSelect={() => openDocument(database.documentId)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconDatabase className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {database.title || t("sidebar.untitled")}
+                </span>
+                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                  {t("root.commandDatabaseResultDescription")}
+                </span>
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+
+      {searchGroups.localFiles.length > 0 ? (
+        <CommandMenu.Group heading={t("root.commandLocalFilesHeading")}>
+          {searchGroups.localFiles.map((document) => (
+            <CommandMenu.Item
+              key={`local-file:${document.id}`}
+              onSelect={() => openDocument(document.id)}
+              deferSelect={false}
+              className="items-start py-2"
+            >
+              <IconFolderOpen className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {document.title || t("sidebar.untitled")}
+                </span>
+                {document.snippet ? (
+                  <span className="mt-0.5 block line-clamp-2 text-xs leading-snug text-muted-foreground">
+                    {document.snippet}
+                  </span>
+                ) : null}
+              </span>
+            </CommandMenu.Item>
+          ))}
+        </CommandMenu.Group>
+      ) : null}
+    </>
+  );
+}
+
+function PublicAgentShell({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  const t = useT();
+
+  useEffect(() => setMounted(true), []);
 
   const content = <>{children}</>;
 
@@ -192,13 +511,13 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen
+      defaultOpen={false}
       defaultSidebarWidth={420}
-      emptyStateText="Ask me anything about this document"
+      emptyStateText={t("chat.publicEmptyState")}
       suggestions={[
-        "Summarize this document",
-        "What are the key takeaways?",
-        "Turn this into an action plan",
+        t("chat.publicSuggestionSummary"),
+        t("chat.publicSuggestionTakeaways"),
+        t("chat.publicSuggestionActionPlan"),
       ]}
     >
       {content}
@@ -206,10 +525,47 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ContentCommandMenu({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  return (
+    <CommandMenu
+      open={open}
+      onOpenChange={onOpenChange}
+      placeholder={t("root.commandSearchPlaceholder")}
+      changelog={changelog}
+      changelogKey="content"
+      renderResults={(search) => (
+        <ContentCommandSearchResults
+          query={search}
+          onOpenChange={onOpenChange}
+        />
+      )}
+    >
+      <CommandMenu.Group heading={t("root.commandContent")}>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
+      <CommandMenu.Group heading={t("root.commandAppearance")}>
+        <ThemeToggleItem />
+      </CommandMenu.Group>
+    </CommandMenu>
+  );
+}
+
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const location = useLocation();
+  const loaderData = useLoaderData<typeof loader>();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   // Public document paths (/p/*) SSR real content without the ClientOnly gate
@@ -225,40 +581,49 @@ export default function Root() {
 
   if (isPublicPath) {
     return (
-      <AppProviders
-        queryClient={queryClient}
-        isPublicPath
-        disableThemeTransitions={false}
-        toaster={contentToaster}
-      >
-        <Toaster />
-        <PublicAgentShell>
-          <Outlet />
-        </PublicAgentShell>
-      </AppProviders>
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          disableThemeTransitions={false}
+          toaster={contentToaster}
+          i18n={{
+            catalog: i18nCatalog,
+            initialLocale: loaderData.locale,
+            initialPreference: loaderData.preference,
+            initialMessages: loaderData.messages,
+            persistPreference: false,
+          }}
+        >
+          <Toaster />
+          <PublicAgentShell>
+            <Outlet />
+          </PublicAgentShell>
+        </AppProviders>
+      </AppToolkitProvider>
     );
   }
 
   return (
-    <AppProviders
-      queryClient={queryClient}
-      disableThemeTransitions={false}
-      toaster={contentToaster}
-    >
-      <AppSetup />
-      <Toaster />
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Content">
-          <CommandMenu.Item onSelect={() => {}}>
-            Search documents
-          </CommandMenu.Item>
-        </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
-          <ThemeToggleItem />
-        </CommandMenu.Group>
-      </CommandMenu>
-      <Outlet />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        disableThemeTransitions={false}
+        toaster={contentToaster}
+        i18n={{
+          catalog: i18nCatalog,
+          initialLocale: loaderData.locale,
+          initialPreference: loaderData.preference,
+          initialMessages: loaderData.messages,
+        }}
+      >
+        <AppSetup />
+        <Toaster />
+        <RouteTransitionIndicator />
+        <ContentCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <Outlet />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
@@ -303,6 +668,14 @@ function ContentErrorBoundaryBody() {
         >
           Reload
         </button>
+        <ErrorReportActions
+          appName="Content"
+          title={title}
+          details={details}
+          issueTitle={`Content error: ${title}`}
+          className="mt-4"
+          align="center"
+        />
       </div>
     </main>
   );

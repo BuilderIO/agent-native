@@ -1,26 +1,42 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { createPortal } from "react-dom";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+} from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
-} from "@agent-native/embedding/react";
+} from "@agent-native/core/embedding/react";
 import {
-  appBasePath,
-  PromptComposer,
-  type PromptComposerSubmitOptions,
-} from "@agent-native/core/client";
-import {
+  IconApps,
+  IconCheck,
+  IconChevronDown,
   IconPalette,
   IconPhoto,
   IconPlus,
+  IconTemplate,
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
+
+import { TemplatePreview } from "@/components/templates/TemplatePreview";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -29,9 +45,14 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface UploadedFile {
   path: string;
@@ -41,9 +62,25 @@ export interface UploadedFile {
   size: number;
   textContent?: string;
   textTruncated?: boolean;
+  dataUrl?: string;
 }
 
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
+const RAW_CHAT_IMAGE_ATTACHMENT_BYTES = 512 * 1024;
+const MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES = 3_000_000;
+const DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES = 1_250_000;
+const CHAT_IMAGE_ATTACHMENT_TYPES = new Set([
+  "image/gif",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+]);
+const IMAGE_COMPRESSION_PASSES = [
+  { maxDimension: 1400, jpegQuality: 0.76 },
+  { maxDimension: 1024, jpegQuality: 0.7 },
+  { maxDimension: 768, jpegQuality: 0.65 },
+];
 
 interface PickedAssetImagePayload {
   url?: unknown;
@@ -102,6 +139,91 @@ function pickedAssetContext(payload: unknown, url: string) {
   return lines.join("\n");
 }
 
+function dataUrlBytes(dataUrl: string): number {
+  return new TextEncoder().encode(dataUrl).byteLength;
+}
+
+function readFileDataUrl(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : null);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to decode image"));
+    img.src = url;
+  });
+}
+
+async function compressImageAttachment(
+  file: File,
+  maxDimension: number,
+  jpegQuality: number,
+): Promise<string | null> {
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    return null;
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const ratio = Math.min(
+      maxDimension / image.naturalWidth,
+      maxDimension / image.naturalHeight,
+      1,
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+    const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", jpegQuality);
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function readChatImageAttachment(
+  file: File,
+  maxDataUrlBytes = DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+): Promise<string | null> {
+  if (!CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase())) return null;
+
+  if (file.size <= RAW_CHAT_IMAGE_ATTACHMENT_BYTES) {
+    const raw = await readFileDataUrl(file);
+    if (raw && dataUrlBytes(raw) <= maxDataUrlBytes) return raw;
+  }
+
+  let fallback: string | null = null;
+  for (const pass of IMAGE_COMPRESSION_PASSES) {
+    const compressed = await compressImageAttachment(
+      file,
+      pass.maxDimension,
+      pass.jpegQuality,
+    );
+    if (!compressed) continue;
+    fallback = compressed;
+    if (dataUrlBytes(compressed) <= maxDataUrlBytes) {
+      return compressed;
+    }
+  }
+  return fallback && dataUrlBytes(fallback) <= maxDataUrlBytes
+    ? fallback
+    : null;
+}
+
 interface AssetsPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -117,6 +239,7 @@ function AssetsPickerDialog({
   onReady,
   onMessage,
 }: AssetsPickerDialogProps) {
+  const t = useT();
   const [pickerReady, setPickerReady] = useState(false);
 
   useEffect(() => {
@@ -138,13 +261,15 @@ function AssetsPickerDialog({
         className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0"
       >
         <div className="flex h-12 shrink-0 items-center border-b px-4">
-          <DialogTitle className="text-base">Assets</DialogTitle>
+          <DialogTitle className="text-base">
+            {t("promptDialog.assetsTitle")}
+          </DialogTitle>
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
           {!pickerReady && <AssetsPickerSkeleton />}
           <EmbeddedApp
             url={url}
-            title="Assets image picker"
+            title={t("promptDialog.assetsImagePicker")}
             className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
               pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
@@ -158,11 +283,12 @@ function AssetsPickerDialog({
 }
 
 function AssetsPickerSkeleton() {
+  const t = useT();
   return (
     <div
       className="absolute inset-0 flex flex-col gap-5 p-5"
       role="status"
-      aria-label="Loading Assets picker"
+      aria-label={t("promptDialog.loadingAssetsPicker")}
     >
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 flex-1 rounded-md" />
@@ -181,18 +307,22 @@ function AssetsPickerSkeleton() {
   );
 }
 
+export type PromptCreationMode = "design" | "app";
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  onSkip?: () => void;
+  /** Return false when the caller navigates and the popover must not issue a
+   * competing close-state navigation after the handoff completes. */
+  onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -201,6 +331,28 @@ interface PromptPopoverProps {
   selectedDesignSystemId?: string | null;
   onDesignSystemChange?: (id: string | null) => void;
   onCreateDesignSystem?: () => void;
+  templateOptions?: PromptTemplateOption[];
+  templatesLoading?: boolean;
+  selectedTemplateId?: string | null;
+  onTemplateChange?: (id: string | null) => void;
+  /**
+   * "Design" (inline prototype, default) vs "Full app" (Builder Fusion cloud
+   * container). Omit both this and `onCreationModeChange` to hide the mode
+   * selector entirely — used when full-app building is flag-disabled, so the
+   * popover renders pixel-identical to the design-only version.
+   */
+  creationMode?: PromptCreationMode;
+  onCreationModeChange?: (mode: PromptCreationMode) => void;
+  /**
+   * Scopes the composer's localStorage draft key so an abandoned draft in
+   * this popover never bleeds into a different popover instance (e.g. the
+   * "generate design" and "tweak" popovers both mount unscoped composers
+   * that would otherwise share the same global draft key). Defaults to a
+   * scope derived from `title`, which is already distinct across the
+   * current call sites; pass an explicit value (e.g. including a design id)
+   * for finer isolation between instances that share the same title.
+   */
+  draftScope?: string;
 }
 
 export interface PromptDesignSystemOption {
@@ -210,13 +362,64 @@ export interface PromptDesignSystemOption {
   isDefault?: boolean;
 }
 
+export interface PromptTemplateOption {
+  id: string;
+  title: string;
+  description?: string | null;
+  category?: string;
+  width?: number | null;
+  height?: number | null;
+  previewHtml?: string | null;
+  designSystemId?: string | null;
+  isBuiltIn: boolean;
+}
+
+function isNestedPromptPopoverTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        "[data-agent-native-composer-popover],[data-assets-picker-dialog],[data-agent-native-prompt-select],[data-agent-native-template-popover]",
+      ),
+    )
+  );
+}
+
+// While a nested Radix Select/Popover/Dropdown is open, Radix locks
+// `pointer-events` on everything outside its own portalled content so only
+// that content (and its trigger) remain interactive. That lockout is what
+// lets the interaction happen at all, but it also means the pointer/focus
+// event that reaches our `onInteractOutside` handler resolves its `target`
+// to `<html>`/`document` instead of the element the user actually clicked —
+// the real target sits under a `pointer-events: none` ancestor, so the
+// browser reports the outermost still-hit-testable node. That target fails
+// any `closest()` containment check, so the click looks "outside" the
+// dialog and dismisses it even though the user never left the popover.
+//
+// Rather than pattern-match on the resolved (and unreliable) target, check
+// whether any of our nested portalled surfaces are currently open in the
+// DOM — they're stamped with the same data attributes whether or not the
+// interact-outside target correctly resolved into them. If one is open,
+// this is never a genuine outside click.
+function hasOpenNestedPromptPopoverSurface() {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(
+      '[data-agent-native-composer-popover][data-state="open"],' +
+        "[data-assets-picker-dialog]," +
+        '[data-agent-native-prompt-select][data-state="open"],' +
+        '[data-agent-native-template-popover][data-state="open"]',
+    ),
+  );
+}
+
 export default function PromptPopover({
   open,
   onOpenChange,
   title,
-  placeholder = "Describe what you want...",
+  placeholder,
   onSkip,
-  skipLabel = "Skip prompt",
+  skipLabel,
   onSubmit,
   loading = false,
   anchorRef,
@@ -226,81 +429,86 @@ export default function PromptPopover({
   selectedDesignSystemId,
   onDesignSystemChange,
   onCreateDesignSystem,
+  templateOptions = [],
+  templatesLoading = false,
+  selectedTemplateId,
+  onTemplateChange,
+  creationMode,
+  onCreationModeChange,
+  draftScope,
 }: PromptPopoverProps) {
+  const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [skipInFlight, setSkipInFlight] = useState(false);
+  const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  // Restores a typed prompt into the composer after a failed submit. The
+  // composer optimistically clears its text as soon as onSubmit is invoked
+  // (see TiptapComposer.submitComposer), so without this an upload failure or
+  // a rejected onSubmit would silently erase what the user wrote. Left
+  // `undefined` in the common case so the composer's normal mount behavior
+  // (restore the last localStorage draft for this scope) still applies —
+  // passing a defined `initialText` (even `""`) would short-circuit that.
+  const [restoredPromptText, setRestoredPromptText] = useState<
+    string | undefined
+  >(undefined);
+  const [restoredPromptKey, setRestoredPromptKey] = useState(0);
+  const restorePromptText = useCallback((text: string) => {
+    setRestoredPromptText(text);
+    setRestoredPromptKey((key) => key + 1);
+  }, []);
+  useEffect(() => {
+    if (open) return;
+    skipInFlightRef.current = false;
+    setSkipInFlight(false);
+  }, [open]);
+  // While the nested design-system Select is open, Radix disables pointer
+  // events on everything else and the click that closes the Select also
+  // moves focus back to its trigger. That focus-return is itself reported to
+  // the popover's dismissable layer as a "focus outside" interaction — and it
+  // fires *after* the Select has already unmounted its portalled content, so
+  // by then there is nothing left in the DOM for `onInteractOutside` to
+  // recognize as "still nested and open". Latch a short-lived flag the
+  // instant the Select reports closing, and have the popover's
+  // interact-outside guard also honor that flag so the popover survives the
+  // Select's own close-triggered focus shuffle. See PromptDialog R87/R91.
+  const justClosedNestedSelectRef = useRef(false);
+  const clearJustClosedNestedSelectTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const markNestedSelectJustClosed = useCallback(() => {
+    justClosedNestedSelectRef.current = true;
+    if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+      clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+    }
+    clearJustClosedNestedSelectTimeoutRef.current = setTimeout(() => {
+      justClosedNestedSelectRef.current = false;
+      clearJustClosedNestedSelectTimeoutRef.current = null;
+    }, 300);
+  }, []);
+  useEffect(
+    () => () => {
+      if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+        clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (open) return;
     setAssetsPickerOpen(false);
+    setTemplatePickerOpen(false);
     setPickedAssets([]);
     setSelectedUploadFiles([]);
+    // Only sticks for the session immediately following a failed submit; a
+    // fresh open after a real close should fall back to the composer's own
+    // localStorage draft restore for this scope, not a stale failed prompt.
+    setRestoredPromptText(undefined);
   }, [open]);
-
-  // Position the popover after render so we can measure its actual size
-  useEffect(() => {
-    if (!open || !panelRef.current) return;
-    const panel = panelRef.current;
-    const MARGIN = 12;
-
-    if (centered || !anchorRef?.current) {
-      panel.style.top = "50%";
-      panel.style.left = "50%";
-      panel.style.transform = "translate(-50%, -50%)";
-      return;
-    }
-
-    const anchor = anchorRef.current.getBoundingClientRect();
-    const panelRect = panel.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    let top = anchor.bottom + MARGIN;
-    if (top + panelRect.height > vh - MARGIN) {
-      top = Math.max(MARGIN, anchor.top - panelRect.height - MARGIN);
-    }
-
-    const anchorCenterX = anchor.left + anchor.width / 2;
-    let left = anchorCenterX - panelRect.width / 2;
-    if (left + panelRect.width > vw - MARGIN) {
-      left = vw - panelRect.width - MARGIN;
-    }
-    if (left < MARGIN) left = MARGIN;
-
-    panel.style.top = top + "px";
-    panel.style.left = left + "px";
-    panel.style.right = "auto";
-    panel.style.transform = "none";
-  });
-
-  // Close on outside click / escape
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Element | null;
-      if (target?.closest("[data-agent-native-composer-popover]")) return;
-      if (target?.closest("[data-assets-picker-dialog]")) return;
-      if (
-        panelRef.current &&
-        !panelRef.current.contains(e.target as Node) &&
-        (!anchorRef?.current || !anchorRef.current.contains(e.target as Node))
-      ) {
-        onOpenChange(false);
-      }
-    };
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !assetsPickerOpen) onOpenChange(false);
-    };
-    document.addEventListener("mousedown", handleClick);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [assetsPickerOpen, open, onOpenChange, anchorRef]);
 
   const uploadFiles = useCallback(
     async (files: File[]): Promise<UploadedFile[]> => {
@@ -321,7 +529,25 @@ export default function PromptPopover({
               : `Upload failed (${res.status})`,
           );
         }
-        return (await res.json()) as UploadedFile[];
+        const uploaded = (await res.json()) as UploadedFile[];
+        const imageFileCount =
+          files.filter((file) =>
+            CHAT_IMAGE_ATTACHMENT_TYPES.has(file.type.toLowerCase()),
+          ).length || 1;
+        const maxImageDataUrlBytes = Math.min(
+          DEFAULT_MAX_CHAT_IMAGE_DATA_URL_BYTES,
+          Math.floor(MAX_TOTAL_CHAT_IMAGE_DATA_URL_BYTES / imageFileCount),
+        );
+        const visualAttachments = await Promise.all(
+          files.map((file) =>
+            readChatImageAttachment(file, maxImageDataUrlBytes),
+          ),
+        );
+        return uploaded.map((file, index) =>
+          visualAttachments[index]
+            ? { ...file, dataUrl: visualAttachments[index] }
+            : file,
+        );
       } finally {
         setUploading(false);
       }
@@ -336,18 +562,39 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      let uploaded: UploadedFile[];
       try {
-        const uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
-        onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
+      } catch (error) {
+        restorePromptText(text);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToUploadFile"),
+        );
+        return;
+      }
+      try {
+        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
         setPickedAssets([]);
         setSelectedUploadFiles([]);
       } catch (error) {
+        restorePromptText(text);
         toast.error(
-          error instanceof Error ? error.message : "Failed to upload file",
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToSubmitPrompt"),
         );
       }
     },
-    [onSubmit, pickedAssets, selectedUploadFiles, uploadFiles],
+    [
+      onSubmit,
+      pickedAssets,
+      restorePromptText,
+      selectedUploadFiles,
+      t,
+      uploadFiles,
+    ],
   );
 
   const handleAssetsPickerReady = useCallback(
@@ -364,10 +611,10 @@ export default function PromptPopover({
         return;
       }
 
-      if (name !== "chooseImage") return;
+      if (name !== "chooseImage" && name !== "chooseAsset") return;
       const url = pickedAssetImageSource(payload);
       if (!url) {
-        toast.error("Assets did not return an image URL.");
+        toast.error(t("promptDialog.assetsNoImageUrl"));
         return;
       }
 
@@ -388,9 +635,9 @@ export default function PromptPopover({
         },
       ]);
       setAssetsPickerOpen(false);
-      toast.success("Asset added");
+      toast.success(t("promptDialog.assetAdded"));
     },
-    [],
+    [t],
   );
 
   const removePickedAsset = useCallback((path: string) => {
@@ -405,34 +652,127 @@ export default function PromptPopover({
     );
   }, []);
 
-  if (!open) return null;
+  const handlePopoverOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && assetsPickerOpen) return;
+      onOpenChange(nextOpen);
+    },
+    [assetsPickerOpen, onOpenChange],
+  );
 
-  const popover = (
-    <>
-      {centered && (
+  const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
+  // Radix keeps the closed popover mounted while the exit animation plays, but
+  // callers may clear `anchorRef` as soon as they close it. Latch the anchor
+  // mode from the last open render so the closing popover never swaps over to
+  // the static fallback anchor mid-exit (which re-anchored the fading popover
+  // to the top-left corner of the screen).
+  const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
+  if (open) {
+    anchorModeWhileOpenRef.current = hasLiveVirtualAnchor;
+  }
+  const hasVirtualAnchor = open
+    ? hasLiveVirtualAnchor
+    : anchorModeWhileOpenRef.current;
+
+  // Stable virtual anchor that measures the live anchor element while it is
+  // attached and falls back to the last good rect afterwards. The anchor
+  // element can unmount on unrelated sidebar re-renders, and the ref can be
+  // cleared during the exit animation; measuring a detached element returns a
+  // zero rect, which used to reposition the popover to the viewport origin.
+  const latestAnchorRef = useRef(anchorRef);
+  latestAnchorRef.current = anchorRef;
+  const lastAnchorRectRef = useRef<DOMRect | null>(null);
+  const [virtualAnchorRef] = useState<
+    React.RefObject<{ getBoundingClientRect: () => DOMRect }>
+  >(() => ({
+    current: {
+      getBoundingClientRect: () => {
+        const el = latestAnchorRef.current?.current;
+        if (el?.isConnected) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            lastAnchorRectRef.current = rect;
+            return rect;
+          }
+        }
+        return (
+          lastAnchorRectRef.current ??
+          new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0)
+        );
+      },
+    },
+  }));
+  const selectedDesignSystem =
+    designSystems.find((system) => system.id === selectedDesignSystemId) ??
+    null;
+
+  return (
+    <Popover open={open} onOpenChange={handlePopoverOpenChange}>
+      {open && centered && (
         <div
-          className="fixed inset-0 bg-black/40 z-[199]"
+          className="fixed inset-0 z-[199] bg-black/40"
           onClick={() => onOpenChange(false)}
         />
       )}
-      <div
-        ref={panelRef}
-        className="fixed z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60"
-        style={{ top: 0, left: 0, visibility: "visible" }}
+      {hasVirtualAnchor ? (
+        <PopoverAnchor virtualRef={virtualAnchorRef} />
+      ) : (
+        <PopoverAnchor asChild>
+          <span
+            aria-hidden="true"
+            className={
+              centered
+                ? "fixed left-1/2 top-1/2 size-px"
+                : "fixed left-3 top-3 size-px"
+            }
+          />
+        </PopoverAnchor>
+      )}
+      <PopoverContent
+        side="bottom"
+        align="center"
+        sideOffset={12}
+        collisionPadding={12}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (assetsPickerOpen) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (
+            isNestedPromptPopoverTarget(event.target) ||
+            hasOpenNestedPromptPopoverSurface() ||
+            justClosedNestedSelectRef.current
+          ) {
+            event.preventDefault();
+          }
+        }}
+        data-agent-native-prompt-popover
+        className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
-        <div className="px-3.5 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
+          {creationMode && onCreationModeChange ? (
+            <CreationModeToggle
+              mode={creationMode}
+              onChange={onCreationModeChange}
+              disabled={loading || uploading}
+            />
+          ) : null}
         </div>
 
         <div className="px-2 pb-2">
           <PromptComposer
+            key={placeholder ?? t("home.describeBuild")}
             autoFocus
             attachmentsEnabled
             disabled={loading || uploading}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
+            draftScope={draftScope ?? title}
+            initialText={restoredPromptText}
+            initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
                 disabled={loading || uploading}
@@ -445,55 +785,94 @@ export default function PromptPopover({
           />
         </div>
 
-        {(onDesignSystemChange || onCreateDesignSystem) && (
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3.5 py-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <IconPalette className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {designSystems.length > 0 ? (
-                <Select
-                  value={selectedDesignSystemId ?? "none"}
-                  onValueChange={(value) =>
-                    onDesignSystemChange?.(value === "none" ? null : value)
-                  }
-                  disabled={designSystemsLoading}
-                >
-                  <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
-                    <SelectValue placeholder="Design system" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none" className="text-xs">
-                      No design system
-                    </SelectItem>
-                    {designSystems.map((system) => (
-                      <SelectItem
-                        key={system.id}
-                        value={system.id}
-                        className="text-xs"
+        {(onTemplateChange || onDesignSystemChange || onCreateDesignSystem) && (
+          <div className="grid grid-cols-[minmax(0,1fr)_2.25rem] gap-2 border-t border-border px-3.5 py-2.5">
+            {onTemplateChange ? (
+              <>
+                <TemplatePickerControl
+                  open={templatePickerOpen}
+                  onOpenChange={setTemplatePickerOpen}
+                  options={templateOptions}
+                  loading={templatesLoading}
+                  selectedId={selectedTemplateId ?? null}
+                  onChange={onTemplateChange}
+                />
+                <span aria-hidden="true" className="size-9" />
+              </>
+            ) : null}
+            {onDesignSystemChange || onCreateDesignSystem ? (
+              <>
+                {designSystemsLoading ? (
+                  <Skeleton className="h-9 w-full rounded-md" />
+                ) : designSystems.length > 0 ? (
+                  <Select
+                    value={selectedDesignSystemId ?? "none"}
+                    onValueChange={(value) =>
+                      onDesignSystemChange?.(value === "none" ? null : value)
+                    }
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen) markNestedSelectJustClosed();
+                    }}
+                  >
+                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                      <IconPalette className="size-4 shrink-0 text-muted-foreground" />
+                      <span
+                        className="min-w-0 flex-1 truncate text-start"
+                        title={
+                          selectedDesignSystem?.title ??
+                          t("promptDialog.noDesignSystem")
+                        }
                       >
-                        {system.title}
-                        {system.isDefault ? " (default)" : ""}
+                        {selectedDesignSystem?.title ??
+                          t("promptDialog.noDesignSystem")}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent data-agent-native-prompt-select>
+                      <SelectItem value="none" className="text-xs">
+                        {t("promptDialog.noDesignSystem")}
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                  No design system
-                </span>
-              )}
-            </div>
-            {onCreateDesignSystem && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 shrink-0"
-                onClick={onCreateDesignSystem}
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-                New
-              </Button>
-            )}
+                      {designSystems.map((system) => (
+                        <SelectItem
+                          key={system.id}
+                          value={system.id}
+                          className="text-xs"
+                        >
+                          {system.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input px-2.5 text-xs text-muted-foreground">
+                    <IconPalette className="size-4 shrink-0" />
+                    <span className="truncate">
+                      {t("promptDialog.noDesignSystem")}
+                    </span>
+                  </div>
+                )}
+                {onCreateDesignSystem ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-9 shrink-0"
+                        onClick={onCreateDesignSystem}
+                        aria-label={t("promptDialog.createDesignSystem")}
+                      >
+                        <IconPlus className="size-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("promptDialog.createDesignSystem")}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <span aria-hidden="true" className="size-9" />
+                )}
+              </>
+            ) : null}
           </div>
         )}
 
@@ -508,7 +887,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${file.name}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: file.name,
+                  })}
                   onClick={() => removeSelectedUploadFile(index)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -524,7 +905,9 @@ export default function PromptPopover({
                 <button
                   type="button"
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-background hover:text-foreground"
-                  aria-label={`Remove ${asset.originalName}`}
+                  aria-label={t("promptDialog.removeAttachment", {
+                    name: asset.originalName,
+                  })}
                   onClick={() => removePickedAsset(asset.path)}
                 >
                   <IconX className="h-3.5 w-3.5" />
@@ -538,13 +921,26 @@ export default function PromptPopover({
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
+              disabled={loading || skipInFlight}
               onClick={() => {
-                onSkip();
-                onOpenChange(false);
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    const shouldClose = await onSkip();
+                    if (shouldClose !== false) onOpenChange(false);
+                  } catch {
+                    // The caller owns error presentation. Keep the prompt open
+                    // and usable so the user can retry or submit a prompt.
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
               }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
+              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {skipLabel}
+              {skipLabel ?? t("promptDialog.skipPrompt")}
             </button>
           </div>
         )}
@@ -556,11 +952,151 @@ export default function PromptPopover({
           onReady={handleAssetsPickerReady}
           onMessage={handleAssetsPickerMessage}
         />
-      </div>
-    </>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TemplatePickerControl({
+  open,
+  onOpenChange,
+  options,
+  loading,
+  selectedId,
+  onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  options: PromptTemplateOption[];
+  loading: boolean;
+  selectedId: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const t = useT();
+  const selected = options.find((option) => option.id === selectedId) ?? null;
+  const userTemplates = options.filter((option) => !option.isBuiltIn);
+  const builtInTemplates = options.filter((option) => option.isBuiltIn);
+
+  const choose = (id: string | null) => {
+    onChange(id);
+    onOpenChange(false);
+  };
+
+  const item = (template: PromptTemplateOption) => (
+    <CommandItem
+      key={template.id}
+      value={`${template.title} ${template.description ?? ""} ${template.category ?? ""}`}
+      onSelect={() => choose(template.id)}
+      data-template-option={template.id}
+      className="min-h-12 py-2"
+    >
+      <TemplatePreview
+        html={template.previewHtml}
+        title={template.title}
+        width={template.width}
+        height={template.height}
+        className="h-8 w-12 shrink-0 rounded-md border bg-muted/40"
+      />
+      <span className="min-w-0 flex-1 truncate">{template.title}</span>
+      {template.isBuiltIn ? (
+        <Badge
+          variant="secondary"
+          className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
+        >
+          {t("promptDialog.builtIn")}
+        </Badge>
+      ) : null}
+      {selectedId === template.id ? (
+        <IconCheck className="size-4 shrink-0" />
+      ) : null}
+    </CommandItem>
   );
 
-  return createPortal(popover, document.body);
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 w-full min-w-0 justify-start gap-2 px-2.5 text-xs"
+          aria-label={t("promptDialog.chooseTemplate")}
+          disabled={loading}
+          data-template-picker-trigger
+        >
+          {selected ? (
+            <TemplatePreview
+              html={selected.previewHtml}
+              title={selected.title}
+              width={selected.width}
+              height={selected.height}
+              className="h-4 w-7 shrink-0 rounded-[3px] border bg-muted/40"
+            />
+          ) : (
+            <IconTemplate className="size-4 shrink-0 text-muted-foreground" />
+          )}
+          <span
+            className={cn(
+              "min-w-0 truncate",
+              selected ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {t("promptDialog.template")} ·{" "}
+            {selected ? selected.title : t("promptDialog.blank")}
+          </span>
+          {selected?.isBuiltIn ? (
+            <Badge
+              variant="secondary"
+              className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
+            >
+              {t("promptDialog.builtIn")}
+            </Badge>
+          ) : null}
+          <IconChevronDown className="ms-auto size-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        data-agent-native-template-popover
+        className="w-[min(360px,calc(100vw-32px))] p-0"
+      >
+        <Command>
+          <CommandInput placeholder={t("promptDialog.searchTemplates")} />
+          <CommandList className="max-h-[min(420px,60vh)]">
+            <CommandEmpty>{t("promptDialog.noTemplatesFound")}</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={t("promptDialog.blank")}
+                onSelect={() => choose(null)}
+                data-template-option="blank"
+                className="min-h-11"
+              >
+                <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+                  <IconTemplate className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {t("promptDialog.blank")}
+                </span>
+                {!selectedId ? <IconCheck className="size-4 shrink-0" /> : null}
+              </CommandItem>
+            </CommandGroup>
+            {userTemplates.length > 0 ? (
+              <CommandGroup heading={t("promptDialog.yourTemplates")}>
+                {userTemplates.map(item)}
+              </CommandGroup>
+            ) : null}
+            {builtInTemplates.length > 0 ? (
+              <CommandGroup heading={t("promptDialog.builtInTemplates")}>
+                {builtInTemplates.map(item)}
+              </CommandGroup>
+            ) : null}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function PromptAttachmentMenu({
@@ -572,6 +1108,7 @@ function PromptAttachmentMenu({
   onUploadFiles: (files: File[]) => void;
   onPickAsset: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -592,7 +1129,7 @@ function PromptAttachmentMenu({
           type="button"
           disabled={disabled}
           className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          aria-label="Add"
+          aria-label={t("promptDialog.addAttachment")}
         >
           <IconPlus className="h-4 w-4" />
         </button>
@@ -612,10 +1149,10 @@ function PromptAttachmentMenu({
           <IconUpload className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Upload file
+              {t("promptDialog.uploadFile")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Images, PDFs, text/code
+              {t("promptDialog.uploadFileDescription")}
             </span>
           </span>
         </button>
@@ -630,14 +1167,73 @@ function PromptAttachmentMenu({
           <IconPhoto className="h-3.5 w-3.5 text-muted-foreground" />
           <span>
             <span className="block font-medium text-foreground">
-              Pick asset
+              {t("promptDialog.pickAsset")}
             </span>
             <span className="block text-[10px] text-muted-foreground">
-              Browse or generate images
+              {t("promptDialog.pickAssetDescription")}
             </span>
           </span>
         </button>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Compact segmented "Design" / "Full app" pill selector shown in the new-design
+ * popover title row. Only rendered by the caller when full-app building is
+ * flag-enabled by the Design page — when
+ * absent the popover renders with no mode control at all.
+ */
+function CreationModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "design" | "app";
+  onChange: (mode: "design" | "app") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={
+        "Design or full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+      }
+      className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-muted/40 p-0.5"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "design"}
+        disabled={disabled}
+        onClick={() => onChange("design")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "design"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconPalette className="h-3 w-3" />
+        {"Design" /* i18n-ignore compact new-design mode toggle, flag-gated */}
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "app"}
+        disabled={disabled}
+        onClick={() => onChange("app")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "app"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconApps className="h-3 w-3" />
+        {
+          "Full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+        }
+      </button>
+    </div>
   );
 }

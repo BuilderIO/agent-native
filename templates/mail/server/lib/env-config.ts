@@ -9,16 +9,17 @@ export const envKeys: EnvKeyConfig[] = [
   },
   {
     key: "SLACK_BOT_TOKEN",
-    label: "Slack Bot Token",
+    label: "Slack Bot Token (legacy intake)",
     required: false,
     helpText:
-      "Bot User OAuth Token for Slack draft intake. Needs chat:write and users:read.email.",
+      "Legacy single-workspace token for custom Slack draft intake. New messaging automations should connect Slack in Settings > Messaging. Needs chat:write and users:read.email.",
   },
   {
     key: "SLACK_SIGNING_SECRET",
-    label: "Slack Signing Secret",
+    label: "Slack Signing Secret (legacy intake)",
     required: false,
-    helpText: "Used to verify Slack Events API webhooks.",
+    helpText:
+      "Used only to verify webhooks for the legacy custom Slack draft intake.",
   },
   {
     key: "ANTHROPIC_API_KEY",

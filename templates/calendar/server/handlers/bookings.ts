@@ -1,3 +1,14 @@
+import { emit } from "@agent-native/core/event-bus";
+import {
+  getSession,
+  recordChange,
+  readBody,
+  runWithRequestContext,
+  verifyCaptcha,
+} from "@agent-native/core/server";
+import { getSetting, getUserSetting } from "@agent-native/core/settings";
+import { accessFilter } from "@agent-native/core/sharing";
+import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
 import {
   createError,
   defineEventHandler,
@@ -8,16 +19,7 @@ import {
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
-import { eq, and, gt, gte, lt, lte, ne, inArray } from "drizzle-orm";
-import {
-  getSession,
-  recordChange,
-  readBody,
-  runWithRequestContext,
-  verifyCaptcha,
-} from "@agent-native/core/server";
-import { emit } from "@agent-native/core/event-bus";
-import { accessFilter } from "@agent-native/core/sharing";
+
 import type {
   Booking,
   CalendarEvent,
@@ -26,24 +28,27 @@ import type {
   CustomField,
   TimeSlot,
 } from "../../shared/api.js";
-import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../db/index.js";
-import * as googleCalendar from "../lib/google-calendar.js";
-import { eventBlocksAvailability } from "../lib/calendar-availability.js";
 import {
   parseBookingLinkDurations,
   resolveAvailabilityDuration,
 } from "../lib/booking-durations.js";
-import { createZoomMeeting } from "../lib/zoom.js";
 import {
   sendBookingCancellationEmails,
   sendBookingConfirmationEmails,
 } from "../lib/booking-emails.js";
-import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
 import {
   buildBookingEventAttendees,
   buildBookingEventTitle,
 } from "../lib/booking-event-details.js";
+import {
+  getBookingLinkCoHostEmails,
+  getBookingLinkRequiredHostEmails,
+} from "../lib/booking-link-utils.js";
+import { getOwnerBookingTimeZone } from "../lib/booking-timezone.js";
+import { eventBlocksAvailability } from "../lib/calendar-availability.js";
+import * as googleCalendar from "../lib/google-calendar.js";
+import { createZoomMeeting } from "../lib/zoom.js";
 
 async function requireRequestContext<T>(
   event: H3Event,
@@ -59,15 +64,16 @@ async function requireRequestContext<T>(
   );
 }
 
-async function getBookingLinkSlugsForOwner(
-  ownerEmail: string,
+async function getBookingLinkSlugsForOwners(
+  ownerEmails: string[],
   db: ConflictDb = getDb(),
 ): Promise<string[]> {
+  if (ownerEmails.length === 0) return [];
   const rows = await db
     .select({ slug: schema.bookingLinks.slug })
     .from(schema.bookingLinks)
-    .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
-  return rows.map((row) => row.slug);
+    .where(inArray(schema.bookingLinks.ownerEmail, ownerEmails));
+  return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
 async function getBookingLinkOwnerEmail(
@@ -92,23 +98,51 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+export async function resolveBookingCalendarAccount({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "slug" | "ownerEmail" | "calendarAccountId"
+  >;
+  hostEmail?: string;
+}) {
+  const ownerEmail =
+    hostEmail ||
+    booking.ownerEmail ||
+    (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  if (booking.calendarAccountId) {
+    return {
+      ownerEmail,
+      accountEmail: booking.calendarAccountId,
+    };
+  }
+
+  return googleCalendar.getDefaultAccountSelection(ownerEmail);
+}
+
 async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
   booking: Pick<
     typeof schema.bookings.$inferSelect,
-    "id" | "slug" | "googleEventId"
+    "id" | "slug" | "googleEventId" | "ownerEmail" | "calendarAccountId"
   >;
   hostEmail?: string;
 }) {
   if (!booking.googleEventId) return;
-  const ownerEmail =
-    hostEmail ?? (await getBookingLinkOwnerEmail(booking.slug));
-  if (!ownerEmail) return;
 
   try {
-    await googleCalendar.deleteEvent(booking.googleEventId, ownerEmail, {
+    const account = await resolveBookingCalendarAccount({
+      booking,
+      hostEmail,
+    });
+    if (!account) return;
+    await googleCalendar.deleteEvent(booking.googleEventId, account, {
       sendUpdates: "none",
     });
   } catch (error) {
@@ -135,14 +169,17 @@ function recordBookingsChanged(owner?: string) {
 type AvailabilityContext = {
   effectiveConfig: AvailabilityConfig | null;
   ownerEmail?: string;
+  hostEmails: string[];
   slug: string;
   bookingLink?: BookingLinkRow;
   conflictSlugs: string[];
 };
 
 type ConflictItem = { start: string; end: string };
+type ConflictResult = { items: ConflictItem[]; unavailableReason?: string };
 type BookingLinkRow = typeof schema.bookingLinks.$inferSelect;
 type ConflictDb = Pick<ReturnType<typeof getDb>, "select">;
+const BOOKING_SLOT_STEP_MINUTES = 30;
 
 type LocalDateTimeParts = {
   year: number;
@@ -321,6 +358,27 @@ function dateEndIso(date: string, timezone: string): string {
   ).toISOString();
 }
 
+function formatAvailabilityUnavailableReason(email?: string): string {
+  return email
+    ? `Calendar availability unavailable for ${email}`
+    : "Calendar availability unavailable";
+}
+
+function unavailableAvailabilityResponse(event: H3Event) {
+  setResponseStatus(event, 503);
+  return {
+    error:
+      "The host's calendar availability could not be checked. Please try again later.",
+    code: "calendar_availability_unavailable",
+  };
+}
+
+function formatLocalTime(totalMinutes: number): string {
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 async function resolveAvailabilityContext({
   slug,
   db = getDb(),
@@ -328,33 +386,38 @@ async function resolveAvailabilityContext({
   slug: string;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
-  const config = (await getSetting(
-    "calendar-availability",
-  )) as unknown as AvailabilityConfig | null;
-  const bookingLink = slug
-    ? await db
-        .select()
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.slug, slug))
-        .then((rows) => rows[0])
-    : undefined;
+  const [configRaw, bookingLink] = await Promise.all([
+    getSetting("calendar-availability"),
+    slug
+      ? db
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, slug))
+          .then((rows) => rows[0])
+      : Promise.resolve(undefined),
+  ]);
+  const config = configRaw as unknown as AvailabilityConfig | null;
   const ownerEmail = bookingLink?.ownerEmail;
-  const ownerConfig = ownerEmail
-    ? ((await getUserSetting(
-        ownerEmail,
-        "calendar-availability",
-      )) as unknown as AvailabilityConfig | null)
-    : null;
-  const ownerSettings = ownerEmail
-    ? ((await getUserSetting(ownerEmail, "calendar-settings")) as {
-        timezone?: string;
-      } | null)
-    : null;
-  const conflictSlugs = ownerEmail
-    ? await getBookingLinkSlugsForOwner(ownerEmail, db)
-    : slug
-      ? [slug]
+  const hostEmails = bookingLink
+    ? getBookingLinkRequiredHostEmails(bookingLink)
+    : ownerEmail
+      ? [ownerEmail]
       : [];
+  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-availability")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-settings")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getBookingLinkSlugsForOwners(hostEmails, db)
+      : slug
+        ? Promise.resolve([slug])
+        : Promise.resolve([]),
+  ]);
+  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
+  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
 
   return {
     effectiveConfig:
@@ -365,34 +428,99 @@ async function resolveAvailabilityContext({
           )
         : config),
     ownerEmail,
+    hostEmails,
     slug,
     bookingLink,
     conflictSlugs,
   };
 }
 
-async function getConflictItems({
+export async function getConflictItems({
   db = getDb(),
   ownerEmail,
+  hostEmails,
   conflictSlugs,
   rangeStartIso,
   rangeEndIso,
+  timezone,
 }: {
   db?: ConflictDb;
   ownerEmail?: string;
+  hostEmails: string[];
   conflictSlugs: string[];
   rangeStartIso: string;
   rangeEndIso: string;
-}): Promise<ConflictItem[]> {
+  timezone: string;
+}): Promise<ConflictResult> {
   const conflictItems: ConflictItem[] = [];
+  const requiredHosts = Array.from(
+    new Set(
+      hostEmails
+        .map((email) => email.trim().toLowerCase())
+        .filter((email) => email.length > 0),
+    ),
+  );
+  const freeBusyResolvedHosts = new Set<string>();
 
-  if (await googleCalendar.isConnected(ownerEmail)) {
+  const ownerConnected = ownerEmail
+    ? await googleCalendar.isConnected(ownerEmail)
+    : false;
+
+  if (ownerEmail && !ownerConnected) {
+    return {
+      items: [],
+      unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+    };
+  }
+
+  if (ownerConnected) {
     try {
-      const { events: googleEvents } = await googleCalendar.listEvents(
-        rangeStartIso,
-        rangeEndIso,
-        ownerEmail,
-      );
+      const [freeBusy, googleEventsResult] = await Promise.all([
+        requiredHosts.length > 0
+          ? googleCalendar.getFreeBusy(
+              rangeStartIso,
+              rangeEndIso,
+              requiredHosts,
+              ownerEmail,
+              timezone,
+            )
+          : Promise.resolve(null),
+        googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail),
+      ]);
+
+      if (freeBusy) {
+        if (freeBusy.errors.length > 0) {
+          return {
+            items: [],
+            unavailableReason: formatAvailabilityUnavailableReason(
+              freeBusy.errors[0]?.email || ownerEmail,
+            ),
+          };
+        }
+        for (const [email, calendar] of Object.entries(freeBusy.calendars)) {
+          const normalizedEmail = email.toLowerCase();
+          if (!calendar.errors || calendar.errors.length === 0) {
+            freeBusyResolvedHosts.add(normalizedEmail);
+          }
+          conflictItems.push(
+            ...calendar.busy.map((busy) => ({
+              start: busy.start,
+              end: busy.end,
+            })),
+          );
+        }
+      }
+
+      const { events: googleEvents, errors: googleEventErrors } =
+        googleEventsResult;
+      if (googleEventErrors.length > 0) {
+        return {
+          items: [],
+          unavailableReason: formatAvailabilityUnavailableReason(
+            googleEventErrors[0]?.email || ownerEmail,
+          ),
+        };
+      }
       conflictItems.push(
         ...googleEvents.filter(eventBlocksAvailability).map((event) => ({
           start: event.start,
@@ -400,7 +528,23 @@ async function getConflictItems({
         })),
       );
     } catch {
-      // Continue without Google events if API fails
+      return {
+        items: [],
+        unavailableReason: formatAvailabilityUnavailableReason(ownerEmail),
+      };
+    }
+  }
+
+  if (requiredHosts.length > 1) {
+    const owner = ownerEmail?.toLowerCase();
+    const unresolvedCoHosts = requiredHosts.filter(
+      (email) => email !== owner && !freeBusyResolvedHosts.has(email),
+    );
+    if (unresolvedCoHosts.length > 0) {
+      return {
+        items: conflictItems,
+        unavailableReason: `Availability unavailable for ${unresolvedCoHosts.join(", ")}`,
+      };
     }
   }
 
@@ -425,10 +569,10 @@ async function getConflictItems({
     })),
   );
 
-  return conflictItems;
+  return { items: conflictItems };
 }
 
-function generateAvailableSlotsForDate({
+export function generateAvailableSlotsForDate({
   date,
   duration,
   config,
@@ -498,7 +642,17 @@ function generateAvailableSlotsForDate({
     const slotEnd = zonedTimeToUtc(date, scheduleSlot.end, timezone);
     if (slotEnd <= slotStart) continue;
 
-    let current = new Date(slotStart);
+    const scheduleStartMinutes = startHour * 60 + startMin;
+    const firstSlotStartMinutes =
+      Math.ceil(scheduleStartMinutes / BOOKING_SLOT_STEP_MINUTES) *
+      BOOKING_SLOT_STEP_MINUTES;
+    if (firstSlotStartMinutes >= 24 * 60) continue;
+
+    let current = zonedTimeToUtc(
+      date,
+      formatLocalTime(firstSlotStartMinutes),
+      timezone,
+    );
 
     while (current.getTime() + slotDuration * 60 * 1000 <= slotEnd.getTime()) {
       const candidateStart = new Date(current);
@@ -525,7 +679,9 @@ function generateAvailableSlotsForDate({
         });
       }
 
-      current = new Date(current.getTime() + slotDuration * 60 * 1000);
+      current = new Date(
+        current.getTime() + BOOKING_SLOT_STEP_MINUTES * 60 * 1000,
+      );
     }
   }
 
@@ -550,18 +706,21 @@ async function requestedSlotIsCurrentlyAvailable({
 
   const timezone = context.effectiveConfig.timezone || "UTC";
   const date = formatLocalDateInTimezone(start, timezone);
-  const conflictItems = await getConflictItems({
+  const conflictResult = await getConflictItems({
     db,
     ownerEmail: context.ownerEmail,
+    hostEmails: context.hostEmails,
     conflictSlugs: context.conflictSlugs,
     rangeStartIso: dateStartIso(date, timezone),
     rangeEndIso: dateEndIso(date, timezone),
+    timezone,
   });
+  if (conflictResult.unavailableReason) return false;
   const slots = generateAvailableSlotsForDate({
     date,
     duration,
     config: context.effectiveConfig,
-    conflictItems,
+    conflictItems: conflictResult.items,
   });
   const startMs = start.getTime();
   const endMs = end.getTime();
@@ -646,6 +805,10 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 500);
       return { error: "Booking link has no host email" };
     }
+    const coHostEmails = link ? getBookingLinkCoHostEmails(link) : [];
+    const requiredHostEmails = link
+      ? getBookingLinkRequiredHostEmails(link)
+      : [hostEmail];
     const requestedRange = requestedBookingRange(body.start, body.end);
     if (!requestedRange) {
       setResponseStatus(event, 400);
@@ -668,6 +831,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     const eventTitle = buildBookingEventTitle({
       explicitTitle: body.eventTitle,
       hostEmail,
+      hostEmails: requiredHostEmails,
       attendeeName,
     });
 
@@ -755,15 +919,17 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // Check for conflicts + insert atomically in a transaction
     const db = getDb();
     const insertResult = await db.transaction(async (tx) => {
-      // Serialize booking creation per host. The no-op write takes a row lock
-      // on all of the host's booking links without changing user-visible data.
-      await tx
-        .update(schema.bookingLinks)
-        .set({ ownerEmail: hostEmail })
-        .where(eq(schema.bookingLinks.ownerEmail, hostEmail));
+      // Serialize booking creation per required host. The no-op write takes row
+      // locks on each host's booking links without changing user-visible data.
+      for (const email of requiredHostEmails) {
+        await tx
+          .update(schema.bookingLinks)
+          .set({ ownerEmail: email })
+          .where(eq(schema.bookingLinks.ownerEmail, email));
+      }
 
       const conflictSlugs = link?.ownerEmail
-        ? await getBookingLinkSlugsForOwner(link.ownerEmail, tx)
+        ? await getBookingLinkSlugsForOwners(requiredHostEmails, tx)
         : requestedSlug
           ? [requestedSlug]
           : [];
@@ -835,6 +1001,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
+    let calendarAccountId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -878,11 +1045,16 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
+        const account =
+          await googleCalendar.getDefaultAccountSelection(hostEmail);
         const descParts: string[] = [
           `Booking by ${attendeeName} (${attendeeEmail})`,
         ];
         if (link?.title) {
           descParts.push(`Meeting type: ${link.title}`);
+        }
+        if (coHostEmails.length > 0) {
+          descParts.push(`Required hosts: ${requiredHostEmails.join(", ")}`);
         }
         if (notes) descParts.push(`Notes: ${notes}`);
         if (customFields.length > 0 && Object.keys(fieldResponses).length > 0) {
@@ -909,20 +1081,23 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           location: meetingLink || "",
           allDay: false,
           source: "google",
-          accountEmail: hostEmail,
+          accountEmail: account.accountEmail,
           attendees: buildBookingEventAttendees({
             attendeeEmail,
             attendeeName,
+            hostEmails: coHostEmails,
           }),
           createdAt: now,
           updatedAt: now,
         };
         const result = await googleCalendar.createEvent(calEvent, {
+          account,
           addGoogleMeet: conferencing?.type === "google_meet",
           sendUpdates: "all",
         });
         // Google Meet link is returned by the API when created
         googleEventId = result.id;
+        calendarAccountId = account.accountEmail;
         if (result.meetLink) {
           meetingLink = result.meetLink;
         }
@@ -940,9 +1115,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
+        calendarAccountId?: string;
       } = {};
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (googleEventId && calendarAccountId) {
+        providerUpdates.calendarAccountId = calendarAccountId;
+      }
       await getDb()
         .update(schema.bookings)
         .set(providerUpdates)
@@ -1052,12 +1231,17 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
       const rangeStart = formatDateOnly(from!);
       const rangeEnd = formatDateOnly(to!);
       const timezone = context.effectiveConfig.timezone || "UTC";
-      const conflictItems = await getConflictItems({
+      const conflictResult = await getConflictItems({
         ownerEmail: context.ownerEmail,
+        hostEmails: context.hostEmails,
         conflictSlugs: context.conflictSlugs,
         rangeStartIso: dateStartIso(rangeStart, timezone),
         rangeEndIso: dateEndIso(rangeEnd, timezone),
+        timezone,
       });
+      if (conflictResult.unavailableReason) {
+        return unavailableAvailabilityResponse(event);
+      }
       const dates: string[] = [];
       for (
         let cursor = new Date(from!);
@@ -1069,7 +1253,7 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
           date: day,
           duration,
           config: context.effectiveConfig,
-          conflictItems,
+          conflictItems: conflictResult.items,
         });
         if (slots.length > 0) {
           dates.push(day);
@@ -1079,17 +1263,22 @@ export const getAvailableSlots = defineEventHandler(async (event: H3Event) => {
     }
 
     const timezone = context.effectiveConfig.timezone || "UTC";
-    const conflictItems = await getConflictItems({
+    const conflictResult = await getConflictItems({
       ownerEmail: context.ownerEmail,
+      hostEmails: context.hostEmails,
       conflictSlugs: context.conflictSlugs,
       rangeStartIso: dateStartIso(date, timezone),
       rangeEndIso: dateEndIso(date, timezone),
+      timezone,
     });
+    if (conflictResult.unavailableReason) {
+      return unavailableAvailabilityResponse(event);
+    }
     const availableSlots = generateAvailableSlotsForDate({
       date,
       duration,
       config: context.effectiveConfig,
-      conflictItems,
+      conflictItems: conflictResult.items,
     });
 
     return { slots: availableSlots };

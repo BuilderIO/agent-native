@@ -6,10 +6,10 @@ import rough from "roughjs";
  *
  * The content is laid out with crisp flex/HTML (real labels, legible). The
  * hand-drawn look comes from rough.js: this overlay MEASURES the laid-out
- * elements (the kit's `[data-rough]` nodes, or — for HTML mockups — a broader
- * selector of bordered boxes) and redraws their outline as a hand-drawn stroke
- * into one SVG per frame. The element's own CSS border is hidden once we're
- * ready (`data-rough-ready`), so there is never a doubled border.
+ * elements (the kit's `[data-rough]` nodes, or — for HTML mockups — controls
+ * plus explicit `data-rough` opt-ins) and redraws their outline as a hand-drawn
+ * stroke into one SVG per frame. The element's own CSS border is hidden once
+ * we're ready (`data-rough-ready`), so there is never a doubled border.
  *
  * Crucially this works on ANY rendered DOM, not just the kit — which is what
  * lets HTML/Tailwind mockups get the same sketch treatment as the kit.
@@ -17,11 +17,16 @@ import rough from "roughjs";
 
 const gen = rough.generator();
 
-type RoughPath = { d: string; stroke: string; strokeWidth: number };
+export type RoughPath = { d: string; stroke: string; strokeWidth: number };
+export type RoughState = { paths: RoughPath[]; w: number; h: number };
 
-/** The default selector used for HTML mockups: bordered/box-like elements. */
+const ROUGH_READY_ATTR = "data-rough-ready";
+const ROUGH_FRAME_SELECTOR = ".plan-wf, .plan-html-frame, .plan-diagram-frame";
+const EMPTY_ROUGH_STATE: RoughState = { paths: [], w: 0, h: 0 };
+
+/** The default selector used for HTML mockups: controls plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
-  "[data-rough],button,input,textarea,select,.wf-card,.wf-box,hr,.wf-frame-target";
+  "[data-rough],button,input,textarea,select,hr";
 
 /** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {
@@ -141,11 +146,9 @@ function build(
   const zoom = base.width / layoutW || 1;
 
   const themed =
-    (scope.matches(".plan-wf, .plan-html-frame, .plan-diagram-frame")
+    (scope.matches(ROUGH_FRAME_SELECTOR)
       ? scope
-      : scope.querySelector(
-          ".plan-wf, .plan-html-frame, .plan-diagram-frame",
-        )) ?? scope;
+      : scope.querySelector(ROUGH_FRAME_SELECTOR)) ?? scope;
   const ink =
     readVar(themed, "--ink") || readVar(themed, "--wf-ink") || "#34322e";
   // Sketch stroke: prefer the dedicated --wf-sketch token (set a step more
@@ -196,6 +199,8 @@ function build(
   }
 
   scope.querySelectorAll<HTMLElement>(opts.selector).forEach((node) => {
+    if (node.getAttribute("data-rough") === "none") return;
+    if (readVar(node, "--rough-skip") === "1") return;
     const r = node.getBoundingClientRect();
     const x = (r.left - base.left) / zoom;
     const y = (r.top - base.top) / zoom;
@@ -266,21 +271,18 @@ export function RoughOverlay({
   frameRadius?: number;
   selector?: string;
 }) {
-  const [state, setState] = useState<{
-    paths: RoughPath[];
-    w: number;
-    h: number;
-  }>({ paths: [], w: 0, h: 0 });
+  const [state, setState] = useState<RoughState>(EMPTY_ROUGH_STATE);
   const rafRef = useRef(0);
 
   useEffect(() => {
     const el = scopeRef.current;
     if (!el || !enabled) {
-      el?.removeAttribute("data-rough-ready");
-      el?.querySelector(
-        ".plan-wf, .plan-html-frame, .plan-diagram-frame",
-      )?.removeAttribute("data-rough-ready");
-      setState({ paths: [], w: 0, h: 0 });
+      if (el) setRoughReadyState(el, false);
+      setState((current) =>
+        sameRoughState(current, EMPTY_ROUGH_STATE)
+          ? current
+          : EMPTY_ROUGH_STATE,
+      );
       return;
     }
     const roughness = sketchRoughness(sketch);
@@ -299,13 +301,10 @@ export function RoughOverlay({
           selector,
         });
         if (next.w && next.h) {
-          el.setAttribute("data-rough-ready", "true");
-          (
-            el.querySelector(
-              ".plan-wf, .plan-html-frame, .plan-diagram-frame",
-            ) ?? el
-          ).setAttribute("data-rough-ready", "true");
-          setState(next);
+          setRoughReadyState(el, true);
+          setState((current) =>
+            sameRoughState(current, next) ? current : next,
+          );
         }
       }, 0);
     };
@@ -336,10 +335,7 @@ export function RoughOverlay({
       mo.disconnect();
       el.removeEventListener("plan-prototype-runtime:rendered", measure);
       clearTimeout(rafRef.current);
-      el.removeAttribute("data-rough-ready");
-      el.querySelector(
-        ".plan-wf, .plan-html-frame, .plan-diagram-frame",
-      )?.removeAttribute("data-rough-ready");
+      setRoughReadyState(el, false);
     };
   }, [scopeRef, sketch, enabled, drawFrame, frameRadius, selector]);
 
@@ -375,7 +371,47 @@ export function RoughOverlay({
   );
 }
 
-function isRoughOverlayMutation(mutation: MutationRecord) {
+function setRoughReadyState(scope: HTMLElement, ready: boolean) {
+  setRoughReady(scope, ready);
+  const themed = scope.matches(ROUGH_FRAME_SELECTOR)
+    ? scope
+    : scope.querySelector(ROUGH_FRAME_SELECTOR);
+  if (themed && themed !== scope) setRoughReady(themed, ready);
+}
+
+function setRoughReady(element: Element, ready: boolean) {
+  if (ready) {
+    if (element.getAttribute(ROUGH_READY_ATTR) !== "true") {
+      element.setAttribute(ROUGH_READY_ATTR, "true");
+    }
+    return;
+  }
+  if (element.hasAttribute(ROUGH_READY_ATTR)) {
+    element.removeAttribute(ROUGH_READY_ATTR);
+  }
+}
+
+export function sameRoughState(a: RoughState, b: RoughState): boolean {
+  if (a.w !== b.w || a.h !== b.h || a.paths.length !== b.paths.length) {
+    return false;
+  }
+  return a.paths.every((path, index) => {
+    const other = b.paths[index];
+    return (
+      path.d === other.d &&
+      path.stroke === other.stroke &&
+      path.strokeWidth === other.strokeWidth
+    );
+  });
+}
+
+export function isRoughOverlayMutation(mutation: MutationRecord) {
+  if (
+    mutation.type === "attributes" &&
+    mutation.attributeName === ROUGH_READY_ATTR
+  ) {
+    return true;
+  }
   if (nodeIsRoughOverlay(mutation.target)) return true;
 
   const changedNodes = [

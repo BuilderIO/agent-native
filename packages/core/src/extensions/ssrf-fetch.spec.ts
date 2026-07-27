@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { ssrfSafeFetch } from "./url-safety.js";
 
 // A public IP literal: isBlockedExtensionUrlWithDns short-circuits for IP
@@ -26,6 +27,25 @@ describe("ssrfSafeFetch", () => {
       }),
     );
     await expect(ssrfSafeFetch(PUBLIC)).rejects.toThrow(/SSRF blocked/i);
+  });
+
+  it("allows a configured private origin for workspace calls", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+    const privateOrigin = "http://127.0.0.1:19100";
+
+    const response = await ssrfSafeFetch(
+      `${privateOrigin}/.well-known/agent-card.json`,
+      {},
+      { allowedPrivateOrigins: [privateOrigin] },
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${privateOrigin}/.well-known/agent-card.json`,
+      expect.objectContaining({ redirect: "manual" }),
+    );
   });
 
   it("returns the response for an allowed external URL", async () => {

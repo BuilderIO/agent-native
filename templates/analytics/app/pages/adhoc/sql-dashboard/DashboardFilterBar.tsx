@@ -1,15 +1,19 @@
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconChevronDown,
+  IconDeviceFloppy,
+  IconFilterOff,
+} from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { DatePicker } from "@/components/ui/date-picker";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -17,18 +21,17 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
-  IconChevronDown,
-  IconDeviceFloppy,
-  IconFilterOff,
-} from "@tabler/icons-react";
-import type { DashboardFilter, FilterType } from "./types";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+import type { DashboardFilter, FilterType } from "./types";
 
 export const FILTER_PARAM_PREFIX = "f_";
 
@@ -37,6 +40,12 @@ function daysAgo(n: number): string {
   d.setDate(d.getDate() - n);
   return d.toISOString().slice(0, 10);
 }
+
+// Keep the legacy "all" date-range sentinel out of provider queries. Analytics
+// data cannot predate the Unix epoch, so this is equivalent to an unbounded
+// lower date while remaining valid for BigQuery DATE/TIMESTAMP expressions.
+const ALL_TIME_START = "1970-01-01";
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Date-valued filters whose default may use the "Nd" / "today" shorthand. */
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -67,6 +76,18 @@ function resolveDefault(raw: string | undefined, type: FilterType): string {
   return raw;
 }
 
+function resolveDateValue(
+  raw: string | undefined,
+  allTimeValue: string,
+): string {
+  const value = raw?.trim();
+  if (!value) return "";
+  if (value.toLowerCase() === "all") return allTimeValue;
+
+  const resolved = resolveDefault(value, "date");
+  return ISO_DATE_RE.test(resolved) ? resolved : "";
+}
+
 export function resolveFilterVars(
   filters: DashboardFilter[],
   getParam: (key: string) => string,
@@ -76,17 +97,27 @@ export function resolveFilterVars(
     if (f.type === "date-range") {
       const startKey = `${f.id}Start`;
       const endKey = `${f.id}End`;
-      out[startKey] = getParam(startKey) || resolveDefault(f.default, f.type);
-      out[endKey] = getParam(endKey) || daysAgo(0);
+      out[startKey] =
+        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
+        resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START);
+      out[endKey] =
+        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
     } else if (f.type === "toggle" || f.type === "toggle-date") {
       // Toggles have no "off value" default — if the user hasn't opted in
       // via the URL, the SQL-side conditional block ({{?id}}...{{/id}})
       // must see an empty value so it doesn't emit. Otherwise the filter
       // looks "off" in the UI but still filters the data.
-      out[f.id] = getParam(f.id);
+      out[f.id] =
+        f.type === "toggle-date"
+          ? resolveDateValue(getParam(f.id), ALL_TIME_START)
+          : getParam(f.id);
     } else {
       const v = getParam(f.id);
-      out[f.id] = v || resolveDefault(f.default, f.type);
+      out[f.id] =
+        f.type === "date"
+          ? resolveDateValue(v, ALL_TIME_START) ||
+            resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START)
+          : v || resolveDefault(f.default, f.type);
     }
   }
   return out;
@@ -144,6 +175,7 @@ export function DashboardFilterBar({
   filters,
   onSaveView,
 }: DashboardFilterBarProps) {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [viewName, setViewName] = useState("");
@@ -224,18 +256,28 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="rounded-lg border border-border bg-card p-3"
+        className="group rounded-lg bg-card px-3 py-2"
       >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-baseline gap-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Filters
-            </h3>
-            <span className="text-[10px] text-muted-foreground/60">
-              auto-applied
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <span className="self-center text-xs font-medium text-muted-foreground group-data-[state=open]:hidden">
+            {t("sqlDashboard.filters")}
+          </span>
+          <CollapsibleContent className="min-w-0 flex-1">
+            <div className="flex flex-wrap gap-3 items-end">
+              {uniqueFilters.map((f) => (
+                <FilterControl
+                  key={f.id}
+                  filter={f}
+                  vars={vars}
+                  hasParam={(key) =>
+                    searchParams.has(FILTER_PARAM_PREFIX + key)
+                  }
+                  setValue={(updates) => setParam(updates)}
+                />
+              ))}
+            </div>
+          </CollapsibleContent>
+          <div className="flex shrink-0 items-center gap-1 self-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-data-[state=closed]:opacity-100">
             {onSaveView && filtersActive && (
               <Button
                 variant="ghost"
@@ -244,7 +286,7 @@ export function DashboardFilterBar({
                 onClick={() => setSaveDialogOpen(true)}
               >
                 <IconDeviceFloppy className="h-3 w-3 mr-1" />
-                Save view
+                {t("sqlDashboard.saveView")}
               </Button>
             )}
             {filtersActive && (
@@ -255,7 +297,7 @@ export function DashboardFilterBar({
                 onClick={clearAllFilters}
               >
                 <IconFilterOff className="h-3 w-3 mr-1" />
-                Clear all
+                {t("sqlDashboard.clearAll")}
               </Button>
             )}
             <CollapsibleTrigger asChild>
@@ -263,9 +305,13 @@ export function DashboardFilterBar({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                aria-label={filtersOpen ? "Collapse filters" : "Expand filters"}
+                aria-label={
+                  filtersOpen
+                    ? t("sqlDashboard.collapseFilters")
+                    : t("sqlDashboard.expandFilters")
+                }
               >
-                {filtersOpen ? "Hide" : "Show"}
+                {filtersOpen ? t("sqlDashboard.hide") : t("sqlDashboard.show")}
                 <IconChevronDown
                   className={cn(
                     "ml-1 h-3 w-3 transition-transform",
@@ -276,29 +322,16 @@ export function DashboardFilterBar({
             </CollapsibleTrigger>
           </div>
         </div>
-        <CollapsibleContent className="pt-3">
-          <div className="flex flex-wrap gap-3 items-end">
-            {uniqueFilters.map((f) => (
-              <FilterControl
-                key={f.id}
-                filter={f}
-                vars={vars}
-                hasParam={(key) => searchParams.has(FILTER_PARAM_PREFIX + key)}
-                setValue={(updates) => setParam(updates)}
-              />
-            ))}
-          </div>
-        </CollapsibleContent>
       </Collapsible>
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
-            <DialogTitle>Save as View</DialogTitle>
+            <DialogTitle>{t("sqlDashboard.saveAsView")}</DialogTitle>
           </DialogHeader>
           <div className="py-4">
             <Input
-              placeholder="View name (e.g. 'Recent articles only')"
+              placeholder={t("sqlDashboard.viewNameRecentPlaceholder")}
               value={viewName}
               onChange={(e) => setViewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSaveView()}
@@ -311,14 +344,14 @@ export function DashboardFilterBar({
               size="sm"
               onClick={() => setSaveDialogOpen(false)}
             >
-              Cancel
+              {t("sidebar.cancel")}
             </Button>
             <Button
               size="sm"
               onClick={handleSaveView}
               disabled={!viewName.trim()}
             >
-              Save
+              {t("explorer.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -344,6 +377,7 @@ function FilterControl({
   hasParam,
   setValue,
 }: FilterControlProps) {
+  const t = useT();
   if (filter.type === "date-range") {
     const startKey = `${filter.id}Start`;
     const endKey = `${filter.id}End`;
@@ -357,7 +391,9 @@ function FilterControl({
             value={vars[startKey] || ""}
             onChange={(v) => setValue({ [startKey]: v })}
           />
-          <span className="text-xs text-muted-foreground">to</span>
+          <span className="text-xs text-muted-foreground">
+            {t("sqlDashboard.to")}
+          </span>
           <DatePicker
             value={vars[endKey] || ""}
             onChange={(v) => setValue({ [endKey]: v })}
@@ -393,8 +429,8 @@ function FilterControl({
           value={current}
           onValueChange={(v) => setValue({ [filter.id]: v })}
         >
-          <SelectTrigger className="h-8 w-[140px] text-xs">
-            <SelectValue />
+          <SelectTrigger className="h-8 w-[140px] justify-start gap-2 text-xs">
+            <SelectValue className="min-w-0 flex-1 text-left" />
           </SelectTrigger>
           <SelectContent>
             {filter.options?.map((opt) => (
@@ -421,7 +457,7 @@ function FilterControl({
           className="text-xs h-8 px-3"
           onClick={() => setValue({ [filter.id]: active ? "" : "true" })}
         >
-          {active ? "On" : "Off"}
+          {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
         </Button>
       </div>
     );
@@ -451,13 +487,13 @@ function FilterControl({
               })
             }
           >
-            {active ? "On" : "Off"}
+            {active ? t("sqlDashboard.on") : t("sqlDashboard.off")}
           </Button>
         </div>
         {active && (
           <div className="flex flex-col gap-1">
             <label className="text-xs text-muted-foreground font-medium">
-              Since
+              {t("sqlDashboard.since")}
             </label>
             <DatePicker
               value={current}

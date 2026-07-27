@@ -9,20 +9,21 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
+import {
+  materializeCalendarMeetingFromVirtualId,
+  parseCalendarMeetingId,
+} from "../server/lib/calendar-event-meetings.js";
 import {
   getCurrentOwnerEmail,
   getActiveOrganizationId,
   nanoid,
 } from "../server/lib/recordings.js";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
-import {
-  materializeCalendarMeetingFromVirtualId,
-  parseCalendarMeetingId,
-} from "../server/lib/calendar-event-meetings.js";
 
 export default defineAction({
   description:
@@ -70,6 +71,7 @@ export default defineAction({
           recording: existing,
           meetingId,
           created: false,
+          scheduledEnd: meeting.scheduledEnd,
         };
       }
     }
@@ -116,6 +118,11 @@ export default defineAction({
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
-    return { recording, meetingId, created: true };
+    return {
+      recording,
+      meetingId,
+      created: true,
+      scheduledEnd: meeting.scheduledEnd,
+    };
   },
 });

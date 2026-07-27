@@ -11,6 +11,7 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
@@ -24,6 +25,11 @@ import {
   createSsrfSafeDispatcher,
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
+import {
+  formatWebContentResult,
+  parseWebContentSearchOptions,
+  processWebContent,
+} from "./web-content.js";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -72,9 +78,23 @@ export interface FetchToolOptions {
     resolved: string;
     usedKeys: string[];
     secretValues?: string[];
+    /**
+     * Optional: which scope (user/org/workspace) each used key actually
+     * resolved at. Populated by resolvers like
+     * `resolveKeyReferencesWithRequestScopes` so `validateUrl` can look up
+     * the allowlist at the scope the value came from rather than assuming
+     * user scope. Backwards compatible — callers that omit this (or a
+     * resolver that doesn't report it) are unaffected.
+     */
+    resolvedKeys?: ResolvedKeyReference[];
   }>;
   /** Validate URL against per-key allowlists. */
-  validateUrl?: (url: string, usedKeys: string[]) => Promise<boolean>;
+  validateUrl?: (
+    url: string,
+    usedKeys: string[],
+    /** Accumulated `resolvedKeys` from every `resolveKeys` call this request made, when the resolver reported them. */
+    resolvedKeys?: ResolvedKeyReference[],
+  ) => Promise<boolean>;
 }
 
 /**
@@ -86,7 +106,7 @@ export function createFetchToolEntry(
   return {
     "web-request": {
       tool: {
-        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`log-meal\`, \`bigquery\`, \`hubspot-deals\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
+        description: `Make an outbound HTTP request to any EXTERNAL URL — APIs, webhooks, and arbitrary web pages (HTML, RSS, JSON, etc.). Use this to fetch the contents of a URL the user pastes in chat. Sends realistic Chrome-on-macOS headers by default (User-Agent, Accept, Sec-Fetch-*) so most sites that block obvious bots will respond normally; pass an explicit header to override any default. Supports \${keys.NAME} placeholders in url, headers, and body — these are resolved server-side from the user's saved keys (the raw value never enters your context). Example: \${keys.SLACK_WEBHOOK} in the url field. IMPORTANT: Never use this to call internal /_agent-native/ endpoints or localhost action URLs — use the registered actions directly (e.g. \`search-records\`, \`provider-api-request\`, \`update-resource\`). Actions are already available as native tools; calling them via HTTP is slower and bypasses validation.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -119,6 +139,47 @@ export function createFetchToolEntry(
               description:
                 "Maximum response body characters to return. Default: 32000. Max: 200000. Increase when you need to read a large document, API response, or dataset.",
             },
+            responseMode: {
+              type: "string",
+              description:
+                "How to return the response. Default: auto (HTML pages become clean markdown; JSON/text stays raw). Use raw for exact bytes, markdown/text for extracted readable content, links for just links, metadata for page metadata, or matches with search.",
+              enum: [
+                "auto",
+                "raw",
+                "text",
+                "markdown",
+                "links",
+                "metadata",
+                "matches",
+              ],
+            },
+            extract: {
+              type: "string",
+              description:
+                "HTML extraction strategy. Default: readability. Use all-visible for visible body text/markdown, or none to convert the full HTML document.",
+              enum: ["readability", "all-visible", "none"],
+            },
+            includeLinks: {
+              type: "boolean",
+              description:
+                "Whether extracted HTML responses should include a compact links list. Default: true for extracted pages.",
+            },
+            search: {
+              type: "object",
+              description:
+                "Optional post-fetch search over extracted content by default. Supports {query, queries, terms, regex, regexFlags, source:'extracted'|'raw', maxMatches, contextChars, caseSensitive}. Regex is safety-checked and bounded; prefer query/terms for simple grep-like searches.",
+              properties: {
+                query: { type: "string" },
+                queries: { type: "array", items: { type: "string" } },
+                terms: { type: "array", items: { type: "string" } },
+                regex: { type: "string" },
+                regexFlags: { type: "string" },
+                source: { type: "string", enum: ["extracted", "raw"] },
+                maxMatches: { type: "number" },
+                contextChars: { type: "number" },
+                caseSensitive: { type: "boolean" },
+              },
+            } as any,
             saveToFile: {
               type: "string",
               description:
@@ -128,15 +189,23 @@ export function createFetchToolEntry(
           required: ["url"],
         },
       },
-      run: async (args: Record<string, string>) => {
+      run: async (args: Record<string, unknown>) => {
         const startTime = Date.now();
-        const rawUrl = args.url;
+        const rawUrl = String(args.url ?? "");
         const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
           return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
         }
-        const rawHeaders = args.headers || "{}";
-        const rawBody = args.body;
+        const rawHeaders =
+          typeof args.headers === "string"
+            ? args.headers
+            : JSON.stringify(args.headers ?? {});
+        const rawBody =
+          typeof args.body === "string"
+            ? args.body
+            : args.body === undefined || args.body === null
+              ? undefined
+              : JSON.stringify(args.body);
         const timeoutMs = Math.min(
           Number(args.timeout_ms) || DEFAULT_TIMEOUT_MS,
           30_000,
@@ -153,6 +222,7 @@ export function createFetchToolEntry(
         let resolvedBody = rawBody;
         const allUsedKeys: string[] = [];
         const allSecretValues: string[] = [];
+        const allResolvedKeys: ResolvedKeyReference[] = [];
 
         if (opts.resolveKeys) {
           try {
@@ -160,23 +230,29 @@ export function createFetchToolEntry(
             resolvedUrl = urlResult.resolved;
             allUsedKeys.push(...urlResult.usedKeys);
             allSecretValues.push(...(urlResult.secretValues ?? []));
+            allResolvedKeys.push(...(urlResult.resolvedKeys ?? []));
 
             const headerResult = await opts.resolveKeys(rawHeaders);
             resolvedHeaders = headerResult.resolved;
             allUsedKeys.push(...headerResult.usedKeys);
             allSecretValues.push(...(headerResult.secretValues ?? []));
+            allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
 
             if (rawBody) {
               const bodyResult = await opts.resolveKeys(rawBody);
               resolvedBody = bodyResult.resolved;
               allUsedKeys.push(...bodyResult.usedKeys);
               allSecretValues.push(...(bodyResult.secretValues ?? []));
+              allResolvedKeys.push(...(bodyResult.resolvedKeys ?? []));
             }
           } catch (err: any) {
             return `Error resolving key references: ${err?.message ?? err}`;
           }
         }
         const secretValues = collectSecretValues(allSecretValues);
+        const resolvedKeys = allResolvedKeys.length
+          ? allResolvedKeys
+          : undefined;
 
         // Block SSRF targets regardless of key usage
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
@@ -186,7 +262,11 @@ export function createFetchToolEntry(
         // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
-            const allowed = await opts.validateUrl(resolvedUrl, allUsedKeys);
+            const allowed = await opts.validateUrl(
+              resolvedUrl,
+              allUsedKeys,
+              resolvedKeys,
+            );
             if (!allowed) {
               return `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`;
             }
@@ -244,7 +324,11 @@ export function createFetchToolEntry(
               return "Redirect to private/internal address blocked.";
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
-              const allowed = await opts.validateUrl(redirectUrl, allUsedKeys);
+              const allowed = await opts.validateUrl(
+                redirectUrl,
+                allUsedKeys,
+                resolvedKeys,
+              );
               if (!allowed) {
                 return "Redirect URL is not in the allowlist for the referenced keys.";
               }
@@ -272,6 +356,30 @@ export function createFetchToolEntry(
             body = "(could not read response body)";
           }
           body = redactString(body, secretValues);
+          const contentType =
+            response.headers.get("content-type")?.split(";")[0].trim() ??
+            "text/plain";
+          let displayBody: string;
+          let processedMode = "raw";
+          try {
+            const processed = processWebContent({
+              url: resolvedUrl,
+              body,
+              contentType,
+              responseMode: String(args.responseMode ?? "auto"),
+              extract: String(args.extract ?? "readability"),
+              includeLinks:
+                args.includeLinks === undefined
+                  ? true
+                  : parseBooleanArg(args.includeLinks),
+              search: parseWebContentSearchOptions(args.search),
+              maxChars,
+            });
+            processedMode = processed.mode;
+            displayBody = formatWebContentResult(processed);
+          } catch (err: any) {
+            return `web-request post-processing error: ${err?.message ?? String(err)}`;
+          }
 
           // Audit log
           console.log(
@@ -294,9 +402,6 @@ export function createFetchToolEntry(
                   : null;
               if (!scope)
                 throw new Error("No authenticated context for saveToFile");
-              const contentType =
-                response.headers.get("content-type")?.split(";")[0].trim() ??
-                "text/plain";
               await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
@@ -307,29 +412,23 @@ export function createFetchToolEntry(
                 },
               );
               const bytes = Buffer.byteLength(body, "utf8");
-              const preview = body.slice(0, 2000);
+              const preview = displayBody.slice(0, 2000);
               return JSON.stringify({
                 savedToFile: true,
                 savedTo: saveToFilePath,
                 status: response.status,
                 bytes,
                 contentType,
-                preview: preview.length < body.length ? `${preview}…` : preview,
+                responseMode: processedMode,
+                preview:
+                  preview.length < displayBody.length ? `${preview}…` : preview,
               });
             } catch (saveErr: any) {
               return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
             }
           }
 
-          // Truncate very long responses for the agent. Default cap is 32 k
-          // chars (~8 k tokens), enough to read a full article or scrape a
-          // stats table without blowing out the model's context window. The
-          // caller may request up to 200 000 chars via the maxChars input.
-          if (body.length > maxChars) {
-            body = body.slice(0, maxChars) + "\n... (truncated)";
-          }
-
-          return `HTTP ${response.status} ${response.statusText}\n\n${body}`;
+          return `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`;
         } catch (err: any) {
           const elapsed = Date.now() - startTime;
           if (err?.name === "AbortError") {
@@ -353,4 +452,10 @@ export function createFetchToolEntry(
       readOnly: true,
     },
   };
+}
+
+function parseBooleanArg(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "true" || normalized === "1" || normalized === "yes";
 }

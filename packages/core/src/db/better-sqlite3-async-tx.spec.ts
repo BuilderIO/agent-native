@@ -1,3 +1,6 @@
+import Database from "better-sqlite3";
+import { eq } from "drizzle-orm";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 /**
  * Regression spec for async db.transaction() on the better-sqlite3 driver.
  *
@@ -8,9 +11,6 @@
  * SAVEPOINT for nested calls.
  */
 import { describe, it, expect, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { eq } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Schema used by every test
@@ -259,5 +259,71 @@ describe("better-sqlite3 async db.transaction()", () => {
     ).rejects.toThrow("bail");
 
     expect(sqlite.inTransaction).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency regression — tests the REAL patch implementation
+// ---------------------------------------------------------------------------
+
+describe("async transaction concurrency (real implementation)", () => {
+  it("serializes concurrent top-level transactions (regression: no such savepoint)", async () => {
+    const { drizzle } = await import("drizzle-orm/better-sqlite3");
+    const { patchBetterSqliteTransactions } =
+      await import("./create-get-db.js");
+    const sqlite = new Database(":memory:");
+    sqlite.exec(
+      "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
+    );
+    const db = patchBetterSqliteTransactions(
+      drizzle(sqlite, { schema: { items } }) as never,
+      sqlite,
+    ) as unknown as {
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+    };
+
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const runTx = (value: string) =>
+      db.transaction(async () => {
+        sqlite.prepare("INSERT INTO items (value) VALUES (?)").run(value);
+        await delay(15);
+        sqlite.prepare("INSERT INTO items (value) VALUES (?)").run(value);
+        return value;
+      });
+
+    // Pre-fix these interleaved: the second BEGIN saw inTransaction=true,
+    // opened a savepoint inside the first transaction, and blew up with
+    // "no such savepoint" when the first committed underneath it.
+    const results = await Promise.all([runTx("a"), runTx("b"), runTx("c")]);
+    expect(results).toEqual(["a", "b", "c"]);
+    const rows = sqlite.prepare("SELECT value FROM items ORDER BY id").all();
+    expect(rows).toHaveLength(6);
+  });
+
+  it("still supports same-task nesting via savepoints under the queue", async () => {
+    const { drizzle } = await import("drizzle-orm/better-sqlite3");
+    const { patchBetterSqliteTransactions } =
+      await import("./create-get-db.js");
+    const sqlite = new Database(":memory:");
+    sqlite.exec(
+      "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
+    );
+    const db = patchBetterSqliteTransactions(
+      drizzle(sqlite, { schema: { items } }) as never,
+      sqlite,
+    ) as unknown as {
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+    };
+
+    await db.transaction(async () => {
+      sqlite.prepare("INSERT INTO items (value) VALUES ('outer')").run();
+      // Same-task nested top-level call must take the savepoint path, not
+      // deadlock behind the queue.
+      await db.transaction(async () => {
+        sqlite.prepare("INSERT INTO items (value) VALUES ('inner')").run();
+      });
+    });
+    const rows = sqlite.prepare("SELECT value FROM items ORDER BY id").all();
+    expect(rows).toHaveLength(2);
   });
 });

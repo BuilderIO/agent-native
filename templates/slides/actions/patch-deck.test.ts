@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+
 import { applyOperation, withDeckLock, type Operation } from "./patch-deck";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,16 @@ describe("applyOperation — delete-slide", () => {
     applyOperation(deck, { op: "delete-slide", slideId: "s1" });
     expect(deck.slides).toHaveLength(1);
     expect(deck.slides[0].layout).toBe("blank");
+  });
+
+  it("can preserve an empty deck when undoing an add-slide", () => {
+    const deck = { slides: [{ id: "s1", content: "<p>Only</p>" }] };
+    applyOperation(deck, {
+      op: "delete-slide",
+      slideId: "s1",
+      allowEmpty: true,
+    });
+    expect(deck.slides).toEqual([]);
   });
 
   it("is a no-op when the slide was already deleted (idempotent)", () => {

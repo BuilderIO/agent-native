@@ -14,12 +14,13 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { createOrganization } from "@agent-native/core/org";
 import { z } from "zod";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+
 import { getDb, schema } from "../server/db/index.js";
+import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
-    "Create a new organization and add the caller as an admin member. Seeds a Clips-specific organization_settings row with default brand color #18181B and private visibility, then activates the new org for the caller. Returns the new organization id.",
+    "Create a new organization and add the caller as an admin member. Seeds a Clips-specific organization_settings row with default brand color #18181B and public visibility, then activates the new org for the caller. Returns the new organization id.",
   schema: z.object({
     name: z.string().min(1).describe("Organization name"),
   }),
@@ -39,7 +40,7 @@ export default defineAction({
       .values({
         organizationId: id,
         brandColor: "#18181B",
-        defaultVisibility: "private",
+        defaultVisibility: "public",
         createdAt: nowIso,
         updatedAt: nowIso,
       })
@@ -54,6 +55,7 @@ export default defineAction({
       name,
       brandColor: "#18181B",
       brandLogoUrl: null,
+      defaultVisibility: "public",
       createdAt: nowIso,
     };
   },

@@ -16,6 +16,11 @@
  *   Userinfo: https://www.googleapis.com/oauth2/v2/userinfo
  */
 
+import {
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  resolveGoogleProviderCredentialCandidatesWithReader,
+} from "@agent-native/core/server";
+
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_USERINFO_URL =
@@ -63,6 +68,7 @@ export interface CalendarEvent {
     email?: string;
     displayName?: string;
     responseStatus?: string;
+    self?: boolean;
   }>;
   conferenceData?: {
     entryPoints?: Array<{
@@ -80,6 +86,20 @@ export interface ExchangeCodeArgs {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+}
+
+export interface GoogleOAuthClientCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
+export async function resolveGoogleOAuthCredentialCandidates(): Promise<
+  GoogleOAuthClientCredentials[]
+> {
+  return resolveGoogleProviderCredentialCandidatesWithReader({
+    readCredential: (key) => process.env[key],
+    credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+  });
 }
 
 /** Exchange an authorization code for tokens. Throws on non-2xx. */
@@ -127,6 +147,45 @@ export async function refreshAccessToken(args: {
     throw new Error(`Google token refresh failed (${res.status}): ${text}`);
   }
   return (await res.json()) as GoogleTokenResponse;
+}
+
+/**
+ * True when a refresh-token-endpoint failure is permanent (the refresh token
+ * itself is dead — revoked, expired, or the OAuth client is wrong) rather
+ * than transient (network error, 429, 5xx, timeout). Only permanent
+ * failures should ever flip a calendar account to "needs-reauth"; transient
+ * ones should be recorded as a sync error and retried on the next poll.
+ */
+export function isPermanentRefreshFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("invalid_grant") ||
+    lower.includes("unauthorized_client") ||
+    lower.includes("invalid_client")
+  );
+}
+
+export async function refreshAccessTokenWithFallback(args: {
+  refreshToken: string;
+  credentials: GoogleOAuthClientCredentials[];
+}): Promise<GoogleTokenResponse> {
+  let lastError: unknown;
+  for (const credentials of args.credentials) {
+    try {
+      return await refreshAccessToken({
+        refreshToken: args.refreshToken,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!isPermanentRefreshFailure(error)) throw error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Google token refresh failed.");
 }
 
 /** Best-effort revoke. Returns true if Google returned 2xx, false otherwise. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { PUBLIC_PLAN_ACTION_PATHS } from "./public-action-paths.js";
 
 describe("PUBLIC_PLAN_ACTION_PATHS", () => {
@@ -25,6 +26,9 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
       "/_agent-native/actions/create-visual-questions",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/visual-answer",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
       "/_agent-native/actions/visualize-plan",
     );
     expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
@@ -32,9 +36,33 @@ describe("PUBLIC_PLAN_ACTION_PATHS", () => {
     );
   });
 
+  it("does not expose plan history snapshots to signed-out HTTP callers", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/get-plan-version",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/list-plan-versions",
+    );
+  });
+
   it("keeps local no-account publish callable so it can return needsAuth", () => {
     expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
       "/_agent-native/actions/publish-visual-plan",
+    );
+  });
+
+  it("allows signed-out public-link viewers to submit bounded abuse reports", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
+      "/_agent-native/actions/report-visual-plan",
+    );
+  });
+
+  it("allows signed-out viewers to distinguish missing URLs from private plans", () => {
+    expect(PUBLIC_PLAN_ACTION_PATHS).toContain(
+      "/_agent-native/actions/get-plan-access-status",
+    );
+    expect(PUBLIC_PLAN_ACTION_PATHS).not.toContain(
+      "/_agent-native/actions/request-plan-access",
     );
   });
 });

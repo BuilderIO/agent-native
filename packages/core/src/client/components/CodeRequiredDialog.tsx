@@ -1,5 +1,3 @@
-import { useEffect, useCallback, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconPackageExport,
   IconCode,
@@ -7,8 +5,12 @@ import {
   IconX,
   IconLoader2,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
+import { useEffect, useCallback, useState } from "react";
+import { createPortal } from "react-dom";
+
 import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
@@ -52,6 +54,7 @@ export function CodeRequiredDialog({
   onClose,
   featureLabel,
 }: CodeRequiredDialogProps) {
+  const t = useT();
   const {
     connected: builderConnected,
     cloudAgentsAvailable,
@@ -104,8 +107,7 @@ export function CodeRequiredDialog({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userMessage:
-              featureLabel || "Make the requested code changes to this app",
+            userMessage: featureLabel || t("codeRequired.defaultFeature"),
           }),
         },
       );
@@ -116,7 +118,7 @@ export function CodeRequiredDialog({
       const data = await res.json();
       setBranchUrl(data.url || null);
     } catch (err: any) {
-      setError(err?.message || "Failed to create branch");
+      setError(err?.message || t("codeRequired.branchError"));
     } finally {
       setSubmitting(false);
     }
@@ -138,11 +140,13 @@ export function CodeRequiredDialog({
             <IconPackageExport size={20} />
           </div>
           <div>
-            <h2 style={s.title}>Code changes required</h2>
+            <h2 style={s.title}>{t("codeRequired.title")}</h2>
             <p style={s.subtitle}>
               {featureLabel
-                ? `"${featureLabel}" creates or modifies source code, which needs Desktop or Builder from this surface.`
-                : "This action creates or modifies source code, which needs Desktop or Builder from this surface."}
+                ? t("codeRequired.subtitleWithFeature", {
+                    feature: featureLabel,
+                  })
+                : t("codeRequired.subtitle")}
             </p>
           </div>
         </div>
@@ -158,17 +162,20 @@ export function CodeRequiredDialog({
               Object.assign(e.currentTarget.style, s.optionCardHover)
             }
             onMouseLeave={(e) =>
-              Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
+              Object.assign(e.currentTarget.style, {
+                borderColor: "hsl(var(--border))",
+              })
             }
           >
             <div style={s.optionIcon}>
               <IconCode size={24} />
             </div>
             <div style={s.optionText}>
-              <span style={s.optionTitle}>Use Agent Native Desktop</span>
+              <span style={s.optionTitle}>
+                {t("codeRequired.desktopTitle")}
+              </span>
               <span style={s.optionDesc}>
-                Open the project in the desktop app to enable source edits and
-                CLI access.
+                {t("codeRequired.desktopDescription")}
               </span>
             </div>
           </a>
@@ -185,7 +192,9 @@ export function CodeRequiredDialog({
                 Object.assign(e.currentTarget.style, s.optionCardHover)
               }
               onMouseLeave={(e) =>
-                Object.assign(e.currentTarget.style, { borderColor: "#e5e7eb" })
+                Object.assign(e.currentTarget.style, {
+                  borderColor: "hsl(var(--border))",
+                })
               }
               onClick={handleBuilderAgent}
             >
@@ -200,10 +209,11 @@ export function CodeRequiredDialog({
                 )}
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>Use Builder.io Agent</span>
+                <span style={s.optionTitle}>
+                  {t("codeRequired.builderAgentTitle")}
+                </span>
                 <span style={s.optionDesc}>
-                  Let our cloud agent make the changes for you. You'll get a
-                  link to preview and deploy.
+                  {t("codeRequired.builderAgentDescription")}
                 </span>
               </div>
             </button>
@@ -220,14 +230,13 @@ export function CodeRequiredDialog({
               </div>
               <div style={s.optionText}>
                 <span style={s.optionTitle}>
-                  Builder Cloud Agents coming soon
+                  {t("codeRequired.codeChangeTitle")}
                 </span>
                 <span style={s.optionDesc}>
-                  You don't have access yet. Use the desktop app or your local
-                  clone for this code change.
+                  {t("codeRequired.fallbackDetail")}
                 </span>
               </div>
-              <span style={s.badge}>Coming soon</span>
+              <span style={s.badge}>{t("codeRequired.codeChangeBadge")}</span>
             </div>
           ) : (
             <a
@@ -249,7 +258,7 @@ export function CodeRequiredDialog({
               }
               onMouseLeave={(e) =>
                 Object.assign(e.currentTarget.style, {
-                  borderColor: "#e5e7eb",
+                  borderColor: "hsl(var(--border))",
                 })
               }
             >
@@ -257,13 +266,16 @@ export function CodeRequiredDialog({
                 <IconExternalLink size={24} />
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>Connect Builder.io</span>
+                <span style={s.optionTitle}>
+                  {t("codeRequired.connectBuilderTitle")}
+                </span>
                 <span style={s.optionDesc}>
-                  Connect Builder to enable cloud-based code changes from this
-                  app.
+                  {t("codeRequired.connectBuilderDescription")}
                 </span>
               </div>
-              {!connectUrl && <span style={s.badge}>Setup required</span>}
+              {!connectUrl && (
+                <span style={s.badge}>{t("codeRequired.setupRequired")}</span>
+              )}
             </a>
           )}
         </div>
@@ -272,7 +284,7 @@ export function CodeRequiredDialog({
         {branchUrl && (
           <div style={s.result}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>
-              Branch created
+              {t("codeRequired.branchCreated")}
             </span>
             <a
               href={branchUrl}
@@ -286,13 +298,23 @@ export function CodeRequiredDialog({
         )}
 
         {error && (
-          <p style={{ color: "#ef4444", fontSize: 12, marginTop: 12 }}>
+          <p
+            style={{
+              color: "hsl(var(--destructive))",
+              fontSize: 12,
+              marginTop: 12,
+            }}
+          >
             {error}
           </p>
         )}
 
         {/* Close */}
-        <button style={s.closeButton} onClick={onClose} aria-label="Close">
+        <button
+          style={s.closeButton}
+          onClick={onClose}
+          aria-label={t("codeRequired.close")}
+        >
           <IconX size={16} />
         </button>
       </div>
@@ -314,8 +336,9 @@ const s: Record<string, React.CSSProperties> = {
   },
   dialog: {
     position: "relative",
-    background: "#fff",
+    background: "hsl(var(--popover))",
     borderRadius: "12px",
+    border: "1px solid hsl(var(--border))",
     maxWidth: "460px",
     width: "100%",
     padding: "24px",
@@ -323,7 +346,7 @@ const s: Record<string, React.CSSProperties> = {
       "0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1)",
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-    color: "#111827",
+    color: "hsl(var(--popover-foreground))",
   },
   header: {
     display: "flex",
@@ -336,11 +359,11 @@ const s: Record<string, React.CSSProperties> = {
     width: "40px",
     height: "40px",
     borderRadius: "10px",
-    background: "#f3f4f6",
+    background: "hsl(var(--muted))",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
   },
   title: {
     margin: 0,
@@ -351,7 +374,7 @@ const s: Record<string, React.CSSProperties> = {
   subtitle: {
     margin: "4px 0 0",
     fontSize: "13px",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
     lineHeight: "1.5",
   },
   options: {
@@ -365,7 +388,7 @@ const s: Record<string, React.CSSProperties> = {
     alignItems: "flex-start",
     gap: "14px",
     padding: "14px",
-    border: "1px solid #e5e7eb",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "10px",
     background: "transparent",
     cursor: "pointer",
@@ -376,7 +399,7 @@ const s: Record<string, React.CSSProperties> = {
     color: "inherit",
   },
   optionCardHover: {
-    borderColor: "#a5b4fc",
+    borderColor: "hsl(var(--ring))",
   },
   optionLink: {
     textDecoration: "none",
@@ -398,7 +421,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   optionDesc: {
     fontSize: "12px",
-    color: "#6b7280",
+    color: "hsl(var(--muted-foreground))",
     lineHeight: "1.5",
   },
   badge: {
@@ -408,7 +431,7 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: "10px",
     fontWeight: 600,
     color: "#00B5FF",
-    background: "#e0f2fe",
+    background: "hsl(var(--primary) / 0.08)",
     padding: "2px 8px",
     borderRadius: "99px",
     textTransform: "uppercase",
@@ -423,7 +446,7 @@ const s: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     padding: "6px",
     borderRadius: "6px",
-    color: "#9ca3af",
+    color: "hsl(var(--muted-foreground))",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -433,7 +456,7 @@ const s: Record<string, React.CSSProperties> = {
     padding: "12px",
     borderRadius: "8px",
     border: "1px solid #22c55e40",
-    background: "#f0fdf4",
+    background: "rgba(34,197,94,0.08)",
     display: "flex",
     flexDirection: "column",
     gap: "4px",

@@ -1,3 +1,5 @@
+import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
+
 const EXTENSION_IFRAME_CSP_BASE =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
 
@@ -24,10 +26,11 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *
  *   1. The iframe MUST be rendered with a `sandbox` attribute that does NOT
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
- *      `EmbeddedExtension.tsx`) sets `sandbox="allow-scripts allow-forms"` —
- *      and that is the only acceptable shape. Adding `allow-same-origin`
- *      would give the extension full DOM access to the parent window via
- *      cross-frame script.
+ *      `EmbeddedExtension.tsx`) normalizes the sandbox through
+ *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
+ *      popups, and downloads but strips `allow-same-origin`. Adding
+ *      `allow-same-origin` would give the extension full DOM access to the
+ *      parent window via cross-frame script.
  *
  *   2. Every reachable parent action must treat the postMessage payload as
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
@@ -67,6 +70,18 @@ export interface ExtensionRenderBinding {
    * extension, audit C1). For now this is metadata only.
    */
   role: "owner" | "admin" | "editor" | "viewer";
+  /** Where the extension definition came from. Database extensions are the default. */
+  source?: "database" | "local-files";
+  /**
+   * Fine-grained helper permissions for local file extensions. Database-backed
+   * extensions keep using the role table in the parent bridge.
+   */
+  permissions?: {
+    appActions?: string[];
+    extensionData?: boolean;
+    sql?: boolean;
+    externalFetch?: boolean;
+  };
 }
 
 export function buildExtensionHtml(
@@ -127,9 +142,14 @@ export function buildExtensionHtml(
       if (_extensionErrors.indexOf(message) !== -1) return;
       _extensionErrors.push(message);
       _extensionErrorDetails.push({ message: message, stack: stack || '' });
+      _renderErrorToast();
+    }
+
+    function _renderErrorToast() {
       var toast = document.getElementById('__extension-error-toast');
       if (!toast) return;
       var msg = document.getElementById('__extension-error-msg');
+      if (!msg || _extensionErrors.length === 0) return;
       if (_extensionErrors.length === 1) {
         msg.textContent = _extensionErrors[0];
       } else {
@@ -209,11 +229,19 @@ export function buildExtensionHtml(
   </style>
 	  <style>
 	    *, *::before, *::after { border-color: hsl(var(--border)); }
+	    html, body {
+	      /* Transparent so the iframe inherits the host surface (dashboard panel,
+	         sidebar, chat) instead of painting the browser's default white canvas.
+	         The dark class still flips the theme vars; content paints its own
+	         bg-background / bg-card surfaces. */
+	      background: transparent;
+	    }
 	    body {
 	      --agent-native-extension-padding: clamp(16px, 2vw, 24px);
 	      /* Legacy alias for pre-rename extension content (do not remove). */
 	      --agent-native-tool-padding: var(--agent-native-extension-padding);
 	      box-sizing: border-box;
+	      color: hsl(var(--foreground));
 	      font-family: 'Inter', sans-serif;
 	      margin: 0;
 	      min-height: 100vh;
@@ -386,13 +414,45 @@ export function buildExtensionHtml(
 	      }
 
 	      if (!res.ok) {
-	        var err = res.body || { error: res.statusText };
-	        throw new Error(err.error || 'Action failed: ' + res.status);
+	        var err = res.body || {};
+	        var rawError = typeof err === 'string' ? err : err.error;
+	        var message = (typeof rawError === 'string' && rawError.trim())
+	          ? rawError
+	          : (res.status === 404
+	            ? "Action '" + name + "' is not available over HTTP (404). It may be agent-only (http: false); expose it with an HTTP-mounted action to call it from an extension."
+	            : "Action '" + name + "' failed (" + (res.status || 'network error') + ")");
+	        throw new Error(message);
 	      }
 	      return res.body;
 	    }
 
-	    async function appFetch(path, options) {
+    var mcp = {
+      listTools: function(serverId) {
+        var params = serverId ? { serverId: String(serverId) } : {};
+        return appAction('list-mcp-tools', params);
+      },
+      callTool: function(serverId, toolName, args) {
+        if (!serverId || !toolName) {
+          return Promise.reject(new Error('MCP serverId and toolName are required'));
+        }
+        return appAction('call-mcp-tool', {
+          serverId: String(serverId),
+          toolName: String(toolName),
+          arguments: args || {},
+        });
+      },
+    };
+
+    var providerApi = {
+      catalog: function(params) {
+        return appAction('provider-api-catalog', params || {});
+      },
+      docs: function(params) {
+        return appAction('provider-api-docs', params || {});
+      },
+    };
+
+    async function appFetch(path, options) {
 	      options = options || {};
 	      var res = await hostRequest(path, {
 	        ...options,
@@ -406,6 +466,53 @@ export function buildExtensionHtml(
 	        throw new Error(err.error || 'Request failed: ' + res.status);
 	      }
 	      return res.body;
+	    }
+
+	    function sendToChat(message, options) {
+	      options = options || {};
+	      var text = typeof message === 'string' ? message : JSON.stringify(message);
+	      window.parent.postMessage({
+	        type: 'agent-native-send-to-chat',
+	        message: text,
+	        context: options.context,
+	        submit: options.submit !== false,
+	        openSidebar: options.openSidebar !== false,
+	      }, '*');
+	      return { ok: true };
+	    }
+
+	    function inlineUiOutputKey() {
+	      var safeId = String(_extensionId || 'unknown').replace(/[^A-Za-z0-9_:-]/g, '') || 'unknown';
+	      return 'inline-ui:' + safeId + ':output';
+	    }
+
+	    async function outputToUi(value, options) {
+	      options = options || {};
+	      var key = inlineUiOutputKey();
+	      var payload = {
+	        value: value,
+	        updatedAt: new Date().toISOString(),
+	        extensionId: _extensionId,
+	        source: 'inline-ui',
+	      };
+	      if (options.label !== undefined) payload.label = options.label;
+	      if (options.context !== undefined) payload.context = options.context;
+	      if (options.meta !== undefined) payload.meta = options.meta;
+	      var output = await appFetch('/_agent-native/application-state/' + key, {
+	        method: 'PUT',
+	        headers: { 'X-Request-Source': 'inline-ui' },
+	        body: JSON.stringify(payload),
+	      });
+	      try {
+	        window.parent.postMessage({
+	          type: 'agent-native-ui-output',
+	          extensionId: _extensionId,
+	          key: key,
+	          value: value,
+	          output: output,
+	        }, '*');
+	      } catch (_) {}
+	      return { ok: true, key: key, output: output };
 	    }
 
     async function dbQuery(sql, args) {
@@ -502,6 +609,31 @@ export function buildExtensionHtml(
 	    var toolFetch = extensionFetch;
 	    var toolData = extensionData;
 	    var _toolId = _extensionId;
+	    window.agentNative = Object.assign(window.agentNative || {}, {
+	      extensionId: _extensionId,
+	      extensionBinding: _extensionBinding,
+	      appAction: appAction,
+	      appFetch: appFetch,
+	      dbQuery: dbQuery,
+	      dbExec: dbExec,
+	      extensionFetch: extensionFetch,
+	      extensionData: extensionData,
+	      data: extensionData,
+	      mcp: mcp,
+	      providerApi: providerApi,
+	      connectors: Object.assign({}, (window.agentNative && window.agentNative.connectors) || {}, {
+	        mcp: mcp,
+	        providerApi: providerApi,
+	      }),
+	      sendToChat: sendToChat,
+	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
+	        send: sendToChat,
+	      }),
+	      ui: Object.assign({}, (window.agentNative && window.agentNative.ui) || {}, {
+	        output: outputToUi,
+	      }),
+	    });
+	    window.sendToAgentChat = sendToChat;
 	  </script>
 	  <style>
 	    #__extension-error-toast {
@@ -555,9 +687,10 @@ export function buildExtensionHtml(
 	      });
 	    });
 
-	    // Auto-resize the iframe to its content when running in slot mode. The
-	    // host listens for agent-native-extension-resize and adjusts the iframe height.
-	    if (new URLSearchParams(location.search).get('slot')) {
+	    // Auto-resize iframe renders. Persisted extension slots include ?slot=;
+	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
+	    // The host listens for agent-native-extension-resize and adjusts height.
+	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _lastH = 0;
 	      var _reportHeight = function() {
 	        var h = Math.max(
@@ -623,6 +756,7 @@ export function buildExtensionHtml(
 	    });
 
 	    document.addEventListener('DOMContentLoaded', function() {
+	      _renderErrorToast();
 	      var fixBtn = document.getElementById('__extension-error-fix');
 	      if (fixBtn) {
 	        fixBtn.addEventListener('click', function() {
@@ -644,8 +778,9 @@ export function buildExtensionHtml(
 	      }
 	    });
 	  </script>
+	${buildSessionReplayIframeBootstrap()}
 	</head>
-	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="bg-background text-foreground">
+	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}
 	<div id="__extension-error-toast">
 	  <div style="display:flex;align-items:flex-start;gap:8px;">

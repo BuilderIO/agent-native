@@ -6,7 +6,21 @@ export {
 } from "./agent-chat.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export { extractOAuthStateAppId } from "./oauth-state.js";
+export {
+  SIGN_IN_CONTINUATION_MAX_LENGTH,
+  SIGN_IN_CONTINUATION_PARAM,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_RETURN_PARAM,
+  decodeContinuation,
+  encodeContinuation,
+  normalizeAppPath,
+  signInJourney,
+  signInJourneyInlineScript,
+  type SignInJourney,
+  type SignInJourneyInput,
+} from "./sign-in-journey.js";
 export { truncate } from "./truncate.js";
+export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   llmConnectionTrackingProperties,
   normalizeLlmConnection,
@@ -41,12 +55,14 @@ export {
 } from "./agent-sidebar-url.js";
 export {
   AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE,
+  AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
   defaultSocialImageMeta,
+  withAgentNativeSocialImageCacheBuster,
   withDefaultSocialImage,
   type SocialMetaDescriptor,
 } from "./social-meta.js";
@@ -56,3 +72,26 @@ export {
   EMBED_START_PATH,
   EMBED_TOKEN_QUERY_PARAM,
 } from "./embed-auth.js";
+export {
+  AGENT_ACCESS_PARAM,
+  DEFAULT_AGENT_ACCESS_TTL_SECONDS,
+  appendAgentAccessParam,
+  buildAgentAccessApiUrl,
+  buildAgentAccessUrl,
+  normalizeAgentAccessBasePath,
+  normalizeAgentAccessOrigin,
+  scopedAgentAccessResourceId,
+  toAgentAccessUrl,
+  type AgentAccessApiUrlOptions,
+  type AgentAccessResourceScope,
+  type AgentAccessUrlOptions,
+} from "./agent-access.js";
+export {
+  AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  renderAgentReadableResourceDiscoveryScript,
+  safeJsonForHtml,
+  type AgentReadableResourceDiscovery,
+  type BuildAgentReadableResourceDiscoveryOptions,
+} from "./agent-readable-resource.js";

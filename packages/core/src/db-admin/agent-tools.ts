@@ -65,7 +65,7 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
     "db-admin-rows": {
       tool: {
         description:
-          "DEV ONLY. Read rows from one table (unscoped) with pagination, sorting, and filters. Returns column metadata, the page of rows, and the total count.",
+          'DEV ONLY. Read rows from one table (unscoped) with pagination, sorting, and filters. Large text/JSON cells are previewed by default; pass includeLargeCells: "true" only when you need the full value.',
         parameters: {
           type: "object",
           properties: {
@@ -88,6 +88,11 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
               description:
                 'JSON array of filters, e.g. \'[{"column":"status","op":"eq","value":"draft"}]\'. Ops: eq, neq, lt, lte, gt, gte, like, ilike, in, is_null, not_null.',
             },
+            includeLargeCells: {
+              type: "string",
+              description:
+                'Set to "true" to return full large text/JSON cells instead of previews.',
+            },
           },
           required: ["table"],
         },
@@ -99,6 +104,7 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
           pageSize: Number(args.pageSize) || 50,
           sort: parseJson<DbAdminSort[]>(args.sort, "sort"),
           filters: parseJson<DbAdminFilter[]>(args.filters, "filters"),
+          includeLargeCells: String(args.includeLargeCells) === "true",
         });
         return JSON.stringify(result);
       },
@@ -158,7 +164,7 @@ export function createDbAdminAgentTools(): Record<string, ActionEntry> {
     "db-admin-query": {
       tool: {
         description:
-          'DEV ONLY. Run arbitrary SQL against the full database (unscoped). PREFER THIS over db-query/db-exec for database-admin work and for any table without owner_email/org_id scoping (the scoped tools match 0 rows on those). Bare SELECTs are auto-limited to 100 rows. Destructive statements (DROP / TRUNCATE / unscoped DELETE or UPDATE) require confirmDestructive: "true".',
+          'DEV ONLY. Run arbitrary SQL against the full database (unscoped). PREFER this over db-query/db-exec for database-admin work and for tables without owner_email/org_id scoping. Bare SELECTs are auto-limited to 100 rows, and large string cells are truncated in the tool result. Destructive statements require confirmDestructive: "true".',
         parameters: {
           type: "object",
           properties: {

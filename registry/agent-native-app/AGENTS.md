@@ -13,7 +13,9 @@ the agent can use.
   Do not add duplicate JSON CRUD routes under `/api/*`, and do not add routes
   whose main job is to wrap, proxy, or re-export an action. Use custom routes
   only for route-only concerns such as uploads, streaming, webhooks, OAuth
-  callbacks, public SEO/OG endpoints, or binary/static asset serving.
+  callbacks, public SEO/OG endpoints, or binary/static asset serving. If you
+  are about to create a file under `server/routes/api/`, or middleware to guard
+  one, stop and write a `defineAction` instead.
 - All AI work goes through the agent chat. Do not call LLMs directly from UI
   components.
 - Application state belongs in SQL `application_state` so the agent can know the
@@ -24,6 +26,21 @@ the agent can use.
 
 ## Implementation Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the app's existing checks — not a codebase survey, unrequested
+  tests, or browser automation.
+- Before using non-trivial Agent Native APIs, read the version-matched package
+  docs with `pnpm action docs-search --query "<topic>"` or
+  `node_modules/@agent-native/core/docs`. When implementation examples or
+  template patterns matter, use `pnpm action source-search --query "<pattern>"`
+  or search `node_modules/@agent-native/core/corpus`.
+- Before building common workspace or agent UI, read `agent-native-toolkit` to
+  inventory existing public kits and installed package seams.
+- Before overriding shared UI or integrations, read `customizing-agent-native`.
+  Use the supported ladder: configure → compose → eject the smallest unit →
+  propose a shared seam. Preview before `--apply`, commit
+  `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+  private source, or eject protected runtime contracts.
 - Use TypeScript for app source.
 - Use shadcn/ui primitives for standard controls and dialogs.
 - Do not use browser `alert`, `confirm`, or `prompt`; use app dialogs.
@@ -42,6 +59,8 @@ Read the relevant `.agents/skills/*/SKILL.md` file before changing that area:
 - `actions` for shared UI and agent operations.
 - `storing-data`, `portability`, `security`, and `sharing` for data work.
 - `frontend-design` and `shadcn-ui` for interface work.
+- `agent-native-toolkit` before building common workspace or agent UI.
+- `customizing-agent-native` for intentional app-owned shared-feature overrides.
 - `client-side-routing`, `context-awareness`, and `real-time-sync` for
   navigation, agent-visible state, and live updates.
 - `delegate-to-agent` when AI work should be handled by the agent chat.

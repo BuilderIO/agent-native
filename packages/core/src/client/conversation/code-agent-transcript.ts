@@ -1,4 +1,5 @@
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
@@ -38,6 +39,7 @@ export interface CodeAgentConversationTranscriptEvent {
   artifactPath?: string;
   artifactUrl?: string;
   metadata?: Record<string, unknown>;
+  signal?: CoreCodeAgentTranscriptEvent["signal"];
 }
 
 export interface NormalizeCodeAgentTranscriptOptions {
@@ -160,6 +162,7 @@ function toCoreTranscriptEvent(
       ...(event.artifactPath ? { artifactPath: event.artifactPath } : {}),
       ...(event.artifactUrl ? { artifactUrl: event.artifactUrl } : {}),
     },
+    ...(event.signal ? { signal: event.signal } : {}),
   };
 }
 
@@ -175,9 +178,12 @@ function toConversationTool(
         : item.state === "activity"
           ? "activity"
           : "running",
+    args: recordValue(item.input),
     input: preview(item.input),
+    resultJson: item.result,
     result: preview(item.result),
     ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
+    ...(item.chatUI ? { chatUI: item.chatUI } : {}),
     summary:
       item.state === "completed"
         ? "finished"
@@ -191,7 +197,7 @@ function toConversationNotice(
   item: NormalizedCodeAgentStatusEvent,
   options: NormalizeCodeAgentTranscriptOptions,
 ): AgentConversationNotice | null {
-  if (options.hideCredentialMessages && isCredentialText(item.text))
+  if (options.hideCredentialMessages && isCredentialGapCodeAgentEvent(item))
     return null;
   if (item.level === "info" && item.statusKind !== "note") return null;
   return {
@@ -229,6 +235,12 @@ function toConversationArtifact(
   };
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 function preview(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   const text =
@@ -244,10 +256,6 @@ function stringMetadata(
 ): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isCredentialText(value: string): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 function extractAttachments(

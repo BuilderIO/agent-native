@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+
 import {
   clearAgentChatContext,
   getAgentChatContextState,
@@ -25,7 +26,7 @@ export interface UseAgentChatContextResult extends AgentChatContextState {
  * composer's staged context chips. Simple send/prefill flows should use
  * `sendToAgentChat({ message, context, submit })` directly.
  */
-export function useAgentChatContext(): UseAgentChatContextResult {
+export function useAgentChatContext(enabled = true): UseAgentChatContextResult {
   const appStateVersion = useChangeVersion("app-state");
   const state = useSyncExternalStore(
     subscribeAgentChatContext,
@@ -34,8 +35,9 @@ export function useAgentChatContext(): UseAgentChatContextResult {
   );
 
   useEffect(() => {
+    if (!enabled) return;
     void refreshAgentChatContext();
-  }, [appStateVersion]);
+  }, [appStateVersion, enabled]);
 
   const set = useCallback((item: AgentChatContextSetOptions) => {
     setAgentChatContextItem(item);

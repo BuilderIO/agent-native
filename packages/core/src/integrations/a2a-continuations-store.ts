@@ -4,43 +4,103 @@ import {
   intType,
   retryOnDdlRace,
 } from "../db/client.js";
+import {
+  ensureTableExists,
+  ensureColumnExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 import { isDuplicateColumnError } from "../db/migrations.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 
+// Build the CREATE SQL lazily (not at module scope) so intType() runs at
+// RUNTIME, not import time — a module-scope call breaks any consumer whose
+// db/client mock doesn't stub intType (e.g. db-admin specs).
+function buildCreateSql(): string {
+  return `
+  CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
+    id TEXT PRIMARY KEY,
+    integration_task_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    external_thread_id TEXT NOT NULL,
+    incoming_payload TEXT NOT NULL,
+    placeholder_ref TEXT,
+    progress_ref TEXT,
+    progress_ref_claimed ${intType()} NOT NULL DEFAULT 0,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    agent_name TEXT NOT NULL,
+    agent_url TEXT NOT NULL,
+    dedupe_key TEXT,
+    a2a_task_id TEXT NOT NULL,
+    a2a_auth_token TEXT,
+    status TEXT NOT NULL,
+    attempts ${intType()} NOT NULL DEFAULT 0,
+    next_check_at ${intType()} NOT NULL,
+    error_message TEXT,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL,
+    completed_at ${intType()}
+  )
+`;
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-        CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
-          id TEXT PRIMARY KEY,
-          integration_task_id TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          external_thread_id TEXT NOT NULL,
-          incoming_payload TEXT NOT NULL,
-          placeholder_ref TEXT,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          agent_name TEXT NOT NULL,
-          agent_url TEXT NOT NULL,
-          dedupe_key TEXT,
-          a2a_task_id TEXT NOT NULL,
-          a2a_auth_token TEXT,
-          status TEXT NOT NULL,
-          attempts ${intType()} NOT NULL DEFAULT 0,
-          next_check_at ${intType()} NOT NULL,
-          error_message TEXT,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          completed_at ${intType()}
-        )
-      `),
-      );
+      const createSql = buildCreateSql();
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_a2a_continuations", createSql);
+        await ensureIndexExists(
+          "idx_a2a_continuations_status_next",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_integration_task",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_remote_task",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "a2a_auth_token",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "dedupe_key",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref_claimed",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await backfillProgressRefOwners(client);
+        await ensureIndexExists(
+          "idx_a2a_continuations_dedupe_key",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_one_progress_owner",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior
+      await retryOnDdlRace(() => client.execute(createSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
@@ -58,9 +118,20 @@ async function ensureTable(): Promise<void> {
       );
       await addColumnIfMissing("a2a_auth_token", "TEXT");
       await addColumnIfMissing("dedupe_key", "TEXT");
+      await addColumnIfMissing("progress_ref", "TEXT");
+      await addColumnIfMissing(
+        "progress_ref_claimed",
+        `${intType()} NOT NULL DEFAULT 0`,
+      );
+      await backfillProgressRefOwners(client);
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
         ),
       );
     })().catch((err) => {
@@ -85,6 +156,33 @@ async function addColumnIfMissing(name: string, definition: string) {
   }
 }
 
+async function backfillProgressRefOwners(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  await client.execute(`
+    UPDATE integration_a2a_continuations AS candidate
+    SET progress_ref_claimed = 1
+    WHERE candidate.progress_ref IS NOT NULL
+      AND candidate.status NOT IN ('completed', 'failed')
+      AND candidate.progress_ref_claimed = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM integration_a2a_continuations AS owner
+        WHERE owner.integration_task_id = candidate.integration_task_id
+          AND owner.progress_ref_claimed = 1
+      )
+      AND candidate.id = (
+        SELECT selected.id
+        FROM integration_a2a_continuations AS selected
+        WHERE selected.integration_task_id = candidate.integration_task_id
+          AND selected.progress_ref IS NOT NULL
+          AND selected.status NOT IN ('completed', 'failed')
+        ORDER BY selected.created_at ASC, selected.id ASC
+        LIMIT 1
+      )
+  `);
+}
+
 export type A2AContinuationStatus =
   | "pending"
   | "processing"
@@ -99,6 +197,8 @@ export interface A2AContinuation {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef: string | null;
+  progressRef: PlatformRunProgressRef | null;
+  progressRefClaimed: boolean;
   ownerEmail: string;
   orgId: string | null;
   agentName: string;
@@ -115,6 +215,44 @@ export interface A2AContinuation {
   completedAt: number | null;
 }
 
+const MAX_PROGRESS_REF_KIND_CHARS = 128;
+const MAX_PROGRESS_REF_STREAM_TS_CHARS = 256;
+
+/**
+ * Keep only the tiny, adapter-owned continuation reference. Invalid rows are
+ * treated as unavailable rather than throwing during a retry sweep.
+ */
+function parseProgressRef(value: unknown): PlatformRunProgressRef | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const { kind, streamTs } = parsed as Record<string, unknown>;
+    if (
+      typeof kind !== "string" ||
+      typeof streamTs !== "string" ||
+      kind.length === 0 ||
+      streamTs.length === 0 ||
+      kind.length > MAX_PROGRESS_REF_KIND_CHARS ||
+      streamTs.length > MAX_PROGRESS_REF_STREAM_TS_CHARS
+    ) {
+      return null;
+    }
+    return { kind, streamTs };
+  } catch {
+    return null;
+  }
+}
+
+function serializeProgressRef(value: unknown): string | null {
+  const parsed = parseProgressRef(
+    typeof value === "string" ? value : JSON.stringify(value),
+  );
+  return parsed ? JSON.stringify(parsed) : null;
+}
+
 function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
   return {
     id: row.id as string,
@@ -123,6 +261,8 @@ function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
     externalThreadId: row.external_thread_id as string,
     incoming: JSON.parse(row.incoming_payload as string) as IncomingMessage,
     placeholderRef: (row.placeholder_ref as string | null) ?? null,
+    progressRef: parseProgressRef(row.progress_ref),
+    progressRefClaimed: Number(row.progress_ref_claimed ?? 0) === 1,
     ownerEmail: row.owner_email as string,
     orgId: (row.org_id as string | null) ?? null,
     agentName: row.agent_name as string,
@@ -147,6 +287,7 @@ export async function insertA2AContinuation(input: {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef?: string | null;
+  progressRef?: PlatformRunProgressRef | null;
   ownerEmail: string;
   orgId?: string | null;
   agentName: string;
@@ -160,14 +301,15 @@ export async function insertA2AContinuation(input: {
   const now = Date.now();
   const id = `a2a-cont-${now}-${Math.random().toString(36).slice(2, 8)}`;
   const payload = JSON.stringify(input.incoming);
+  const progressRef = serializeProgressRef(input.progressRef);
 
   try {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
+         placeholder_ref, progress_ref, progress_ref_claimed, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -175,6 +317,8 @@ export async function insertA2AContinuation(input: {
         input.externalThreadId,
         payload,
         input.placeholderRef ?? null,
+        null,
+        0,
         input.ownerEmail,
         input.orgId ?? null,
         input.agentName,
@@ -189,7 +333,6 @@ export async function insertA2AContinuation(input: {
         now,
       ],
     });
-    return (await getA2AContinuation(id))!;
   } catch (err: any) {
     if (!isDuplicateContinuationError(err)) throw err;
     const existing = await findA2AContinuation(
@@ -197,7 +340,65 @@ export async function insertA2AContinuation(input: {
       input.agentUrl,
       input.a2aTaskId,
     );
-    if (existing) return existing;
+    if (existing) {
+      // A retry can reach this row after the original invocation created it
+      // without a resumable progress surface (or with one that has gone
+      // stale). Keep the most recent valid adapter reference for active work,
+      // but never resurrect short-lived delivery state after a terminal row
+      // has deliberately scrubbed it.
+      if (
+        progressRef &&
+        existing.status !== "completed" &&
+        existing.status !== "failed"
+      ) {
+        if (existing.progressRefClaimed) {
+          if (JSON.stringify(existing.progressRef) !== progressRef) {
+            await client.execute({
+              sql: `UPDATE integration_a2a_continuations
+                    SET progress_ref = ?, updated_at = ?
+                    WHERE id = ? AND status NOT IN ('completed', 'failed')
+                      AND progress_ref_claimed = 1
+                      AND (progress_ref IS NULL OR progress_ref <> ?)`,
+              args: [progressRef, now, existing.id, progressRef],
+            });
+          }
+        } else {
+          await claimA2AContinuationProgressRef(existing.id, progressRef);
+        }
+        return (await getA2AContinuation(existing.id)) ?? existing;
+      }
+      return existing;
+    }
+    throw err;
+  }
+
+  if (progressRef) {
+    await claimA2AContinuationProgressRef(id, progressRef);
+  }
+  return (await getA2AContinuation(id))!;
+}
+
+/**
+ * A native platform stream has one terminal completion. Claim it for a single
+ * downstream continuation, and retain the ownership marker after terminal
+ * cleanup scrubs the short-lived stream reference. The partial unique index
+ * makes concurrent downstream inserts safe across processes.
+ */
+async function claimA2AContinuationProgressRef(
+  id: string,
+  progressRef: string,
+): Promise<void> {
+  try {
+    await getDbExec().execute({
+      sql: `UPDATE integration_a2a_continuations
+            SET progress_ref = ?, progress_ref_claimed = 1
+            WHERE id = ? AND progress_ref_claimed = 0`,
+      args: [progressRef, id],
+    });
+  } catch (err) {
+    // A sibling continuation already owns this stream and will finalize it.
+    // This continuation still delivers through the normal response path.
+    if (isDuplicateContinuationError(err)) return;
     throw err;
   }
 }
@@ -215,6 +416,35 @@ export async function getA2AContinuationForIntegrationTask(
     args: [integrationTaskId],
   });
   return rows[0] ? rowToContinuation(rows[0] as Record<string, unknown>) : null;
+}
+
+export async function hasActiveA2AContinuationsForIntegrationTask(
+  integrationTaskId: string,
+): Promise<boolean> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT 1 AS active FROM integration_a2a_continuations
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'delivering')
+          LIMIT 1`,
+    args: [integrationTaskId],
+  });
+  return rows.length > 0;
+}
+
+export async function failA2AContinuationsForIntegrationTask(
+  integrationTaskId: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const now = Date.now();
+  await getDbExec().execute({
+    sql: `UPDATE integration_a2a_continuations
+          SET status = 'failed', error_message = ?, updated_at = ?, completed_at = ?
+          WHERE integration_task_id = ?
+            AND status IN ('pending', 'processing', 'delivering')`,
+    args: [errorMessage.slice(0, 2000), now, now, integrationTaskId],
+  });
 }
 
 export async function getA2AContinuationsForIntegrationTaskAgent(
@@ -331,40 +561,121 @@ export async function claimA2AContinuation(
 export async function claimDueA2AContinuations(
   limit = 5,
 ): Promise<A2AContinuation[]> {
+  const ids = await recoverDueA2AContinuationIds(limit);
+  const claimed: A2AContinuation[] = [];
+  for (const id of ids) {
+    const continuation = await claimA2AContinuation(id);
+    if (continuation) claimed.push(continuation);
+  }
+  return claimed;
+}
+
+/**
+ * Makes stale leases eligible again and returns a bounded set of due ids.
+ *
+ * This intentionally does not claim anything. Durable schedulers use it only
+ * to wake the normal processor, whose atomic claim remains the sole progress
+ * and delivery owner under overlapping scheduler/self-dispatch executions.
+ */
+export async function recoverDueA2AContinuationIds(
+  limit = 5,
+  integrationTaskIds?: string[],
+): Promise<string[]> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   const processingCutoff = now - PROCESSING_STUCK_AFTER_MS;
   const staleNextCheckCutoff = now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS;
+  if (integrationTaskIds && integrationTaskIds.length === 0) return [];
+  const taskFilter = integrationTaskIds?.length
+    ? ` AND integration_task_id IN (${integrationTaskIds.map(() => "?").join(", ")})`
+    : "";
+  const taskArgs = integrationTaskIds ?? [];
   // If a processor dies while holding a delivery claim, retry the final send.
   // The stale cutoff preserves the in-flight delivery guard while keeping
   // final integration replies at-least-once.
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
-          WHERE status = 'delivering' AND updated_at <= ?`,
-    args: ["pending", now, now, now - 5 * 60 * 1000],
+          WHERE status = 'delivering' AND updated_at <= ?${taskFilter}`,
+    args: ["pending", now, now, now - 5 * 60 * 1000, ...taskArgs],
   });
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
           SET status = ?, next_check_at = ?, updated_at = ?
           WHERE status = 'processing'
-            AND (updated_at <= ? OR next_check_at <= ?)`,
-    args: ["pending", now, now, processingCutoff, staleNextCheckCutoff],
+            AND (updated_at <= ? OR next_check_at <= ?)${taskFilter}`,
+    args: [
+      "pending",
+      now,
+      now,
+      processingCutoff,
+      staleNextCheckCutoff,
+      ...taskArgs,
+    ],
   });
   const { rows } = await client.execute({
     sql: `SELECT id FROM integration_a2a_continuations
-          WHERE status = 'pending' AND next_check_at <= ?
+          WHERE status = 'pending' AND next_check_at <= ?${taskFilter}
           ORDER BY next_check_at ASC
           LIMIT ?`,
-    args: [now, limit],
+    args: [now, ...taskArgs, limit],
   });
-  const claimed: A2AContinuation[] = [];
-  for (const row of rows) {
-    const continuation = await claimA2AContinuation(row.id as string);
-    if (continuation) claimed.push(continuation);
-  }
-  return claimed;
+  return rows.map((row) => row.id as string);
+}
+
+export async function listRecoverableA2AIntegrationTaskIds(
+  limit = 50,
+): Promise<string[]> {
+  const tasks = await listRecoverableA2AIntegrationTasks(limit);
+  return tasks.map((task) => task.id);
+}
+
+export interface RecoverableA2AIntegrationTask {
+  id: string;
+  platform: string;
+  externalThreadId: string;
+  dispatchScope: string | null;
+  status: string;
+}
+
+/**
+ * Read due continuation owners and their rollout scope in one query. Recovery
+ * can filter the canary in memory without an N+1 pending-task lookup loop.
+ */
+export async function listRecoverableA2AIntegrationTasks(
+  limit = 50,
+): Promise<RecoverableA2AIntegrationTask[]> {
+  await ensureTable();
+  const now = Date.now();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT DISTINCT c.integration_task_id, t.platform,
+                 t.external_thread_id, t.dispatch_scope, t.status
+          FROM integration_a2a_continuations c
+          INNER JOIN integration_pending_tasks t
+             ON t.id = c.integration_task_id
+          WHERE t.status = 'processing'
+            AND ((c.status = 'pending' AND c.next_check_at <= ?)
+             OR (c.status = 'processing' AND
+                 (c.updated_at <= ? OR c.next_check_at <= ?))
+             OR (c.status = 'delivering' AND c.updated_at <= ?))
+          ORDER BY c.integration_task_id ASC
+          LIMIT ?`,
+    args: [
+      now,
+      now - PROCESSING_STUCK_AFTER_MS,
+      now - PROCESSING_NEXT_CHECK_STALE_AFTER_MS,
+      now - 5 * 60 * 1000,
+      Math.max(1, Math.min(Math.floor(limit), 200)),
+    ],
+  });
+  return rows.map((row) => ({
+    id: String(row.integration_task_id),
+    platform: String(row.platform),
+    externalThreadId: String(row.external_thread_id),
+    dispatchScope: (row.dispatch_scope as string | null) ?? null,
+    status: String(row.status),
+  }));
 }
 
 export async function claimA2AContinuationDelivery(
@@ -418,9 +729,10 @@ export async function completeA2AContinuation(id: string): Promise<void> {
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, completed_at = ?
+          SET status = ?, updated_at = ?, completed_at = ?,
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status IN ('processing', 'delivering', 'completed')`,
-    args: ["completed", now, now, id],
+    args: ["completed", now, now, "{}", id],
   });
 }
 
@@ -433,8 +745,9 @@ export async function failA2AContinuation(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?, updated_at = ?, error_message = ?,
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), id],
+    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });
 }

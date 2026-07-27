@@ -1,11 +1,34 @@
 import {
+  EmbeddedExtension,
+  ExtensionSlot,
+} from "@agent-native/core/client/extensions";
+import { useDemoModeStatus } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowsSort,
+  IconSortAscending,
+  IconSortDescending,
+  IconChevronLeft,
+  IconChevronRight,
+  IconAlertTriangle,
+  IconInfoCircle,
+  IconRefresh,
+  IconTrendingUp,
+  IconTrendingDown,
+} from "@tabler/icons-react";
+import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -23,20 +46,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  IconArrowsSort,
-  IconSortAscending,
-  IconSortDescending,
-  IconChevronLeft,
-  IconChevronRight,
-  IconAlertTriangle,
-  IconInfoCircle,
-  IconTrendingUp,
-  IconTrendingDown,
-} from "@tabler/icons-react";
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -44,18 +61,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
-import { useChartTooltipFlip } from "@/hooks/use-chart-tooltip-flip";
+import {
+  resolveDualAxis,
+  type ChartAxisSide,
+  type ChartValueFormatter,
+  type DualAxisPlan,
+} from "@/pages/adhoc/sql-dashboard/dual-axis";
+import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
+import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
 import type {
   SqlPanel,
   ChartType,
   TableColumnConfig,
   ColumnFormat,
 } from "@/pages/adhoc/sql-dashboard/types";
-import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
-import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
+
+import { DashboardPanelSkeleton } from "./DashboardPanelSkeleton";
 
 const DEFAULT_COLORS = [
   "var(--brand-blue)",
@@ -69,13 +95,23 @@ const DEFAULT_COLORS = [
 ];
 
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  zIndex: 60,
+  zIndex: 280,
   pointerEvents: "none",
 };
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
+
+const BAR_TOOLTIP_CURSOR_PROPS = {
+  fill: "hsl(var(--muted))",
+  fillOpacity: 0.32,
+  stroke: "hsl(var(--border))",
+  strokeOpacity: 0.5,
+  strokeWidth: 1,
+  rx: 4,
+  ry: 4,
 } as const;
 
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
@@ -88,6 +124,113 @@ const CHART_LEGEND_PROPS = {
   wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
+const CHART_RESIZE_DEBOUNCE_MS = 50;
+// Recharts' default series animation duration, plus room for the debounced
+// resize callback that follows a lazy-loaded panel's first layout pass.
+const CHART_ENTRY_ANIMATION_MS = 1500 + CHART_RESIZE_DEBOUNCE_MS * 2;
+const LEGEND_ACTION_CLOSE_DELAY_MS = 600;
+
+type ChartSize = {
+  width: number;
+  height: number;
+};
+
+export function hasChartSizeChanged(
+  previous: ChartSize | null,
+  next: ChartSize,
+): boolean {
+  return (
+    previous !== null &&
+    (previous.width !== next.width || previous.height !== next.height)
+  );
+}
+
+export function shouldDisableChartAnimation(
+  entryAnimationSettled: boolean,
+  previous: ChartSize | null,
+  next: ChartSize,
+): boolean {
+  return entryAnimationSettled && hasChartSizeChanged(previous, next);
+}
+
+function useChartResizeAnimation() {
+  const [isAnimationActive, setIsAnimationActive] = useState(true);
+  const firstSizeRef = useRef<ChartSize | null>(null);
+  // Switching Recharts to isAnimationActive=false mid-flight freezes the line's
+  // stroke-dasharray at whatever partial length it reached, leaving the series
+  // invisible forever. Lazy-loaded panels reflow right after mounting, so the
+  // entry animation has to be allowed to finish before a resize can disable it.
+  const entryAnimationSettledRef = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      entryAnimationSettledRef.current = true;
+    }, CHART_ENTRY_ANIMATION_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleResize = useCallback((width: number, height: number) => {
+    const nextSize = { width, height };
+    if (
+      shouldDisableChartAnimation(
+        entryAnimationSettledRef.current,
+        firstSizeRef.current,
+        nextSize,
+      )
+    ) {
+      setIsAnimationActive(false);
+    }
+    firstSizeRef.current = nextSize;
+  }, []);
+
+  return { isAnimationActive, handleResize };
+}
+
+function ChartResponsiveContainer({
+  children,
+}: {
+  children: (isAnimationActive: boolean) => ReactNode;
+}) {
+  const { isAnimationActive, handleResize } = useChartResizeAnimation();
+
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      debounce={CHART_RESIZE_DEBOUNCE_MS}
+      onResize={handleResize}
+    >
+      {children(isAnimationActive)}
+    </ResponsiveContainer>
+  );
+}
+
+const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
+const PARTIAL_DAY_DASH = "3 5";
+const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
+const TABLE_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
+const TABLE_PANEL_SKELETON_ROWS = 10;
+
+export function formatSqlChartError(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : String(error ?? "");
+  const readableMessage = message
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
+    return "This chart took too long to load. Try again.";
+  }
+  if (/internal server error/i.test(readableMessage)) {
+    return "This chart could not be loaded. Try again.";
+  }
+  return readableMessage || "This chart could not be loaded. Try again.";
+}
+
 function formatYValue(
   value: number,
   formatter?: "number" | "currency" | "percent",
@@ -99,6 +242,149 @@ function formatYValue(
     return `${pct.toFixed(2)}%`;
   }
   return value.toLocaleString();
+}
+
+const Y_AXIS_BASE_PROPS = {
+  stroke: "hsl(var(--muted-foreground))",
+  fontSize: 12,
+  tickLine: false,
+  axisLine: false,
+} as const;
+
+function axisLabelProps(value: string, side: ChartAxisSide) {
+  return {
+    value,
+    angle: side === "left" ? -90 : 90,
+    position:
+      side === "left" ? ("insideLeft" as const) : ("insideRight" as const),
+    style: {
+      textAnchor: "middle" as const,
+      fill: "hsl(var(--muted-foreground))",
+      fontSize: 11,
+    },
+  };
+}
+
+/**
+ * Recharts only discovers axes it finds among a chart's own children, so these
+ * come back as an array rather than a wrapper component.
+ */
+function renderChartYAxes(
+  plan: DualAxisPlan,
+  yFormatter?: ChartValueFormatter,
+): ReactNode[] {
+  if (!plan.enabled) {
+    return [
+      <YAxis
+        key="y"
+        {...Y_AXIS_BASE_PROPS}
+        tickFormatter={(v) => formatYValue(v, yFormatter)}
+      />,
+    ];
+  }
+
+  return [
+    <YAxis
+      key="y-left"
+      yAxisId="left"
+      {...Y_AXIS_BASE_PROPS}
+      tickFormatter={(v) => formatYValue(v, plan.leftFormatter)}
+      label={
+        plan.leftLabel ? axisLabelProps(plan.leftLabel, "left") : undefined
+      }
+    />,
+    <YAxis
+      key="y-right"
+      yAxisId="right"
+      orientation="right"
+      {...Y_AXIS_BASE_PROPS}
+      tickFormatter={(v) => formatYValue(v, plan.rightFormatter)}
+      label={
+        plan.rightLabel ? axisLabelProps(plan.rightLabel, "right") : undefined
+      }
+    />,
+  ];
+}
+
+function seriesAxisId(plan: DualAxisPlan, key: string): string | undefined {
+  return plan.enabled ? plan.sideFor(key) : undefined;
+}
+
+/**
+ * Tooltip values follow their own axis, so a count and a rate in the same
+ * tooltip each read with the right unit. Series arrive named by their display
+ * label, which for Prometheus panels differs from the data key.
+ */
+export function seriesValueFormatter(
+  yKeys: string[],
+  plan: DualAxisPlan,
+  seriesNameFormatter: (name: string) => string,
+  fallback?: ChartValueFormatter,
+): (value: number, name?: string | number) => string {
+  if (!plan.enabled) return (value) => formatYValue(value, fallback);
+
+  const byName = new Map<string, ChartValueFormatter | undefined>();
+  for (const key of yKeys) {
+    const formatter = plan.formatterFor(key);
+    byName.set(key, formatter);
+    byName.set(seriesNameFormatter(key), formatter);
+  }
+
+  return (value, name) => {
+    const lookup = name == null ? undefined : String(name);
+    return formatYValue(
+      value,
+      lookup !== undefined && byName.has(lookup)
+        ? byName.get(lookup)
+        : fallback,
+    );
+  };
+}
+
+/**
+ * Format a single metric value for display. Coerces Postgres numeric/bigint
+ * columns (returned as strings, e.g. a rate of "0.00000000000000000000") to a
+ * number so the formatter applies — SQLite returns JS numbers, so this only
+ * bites on Postgres/Neon, where the raw high-scale decimal would otherwise be
+ * dumped verbatim. A configured `valueLabels` mapping wins; a non-numeric
+ * string falls through unformatted.
+ */
+export function formatMetricValue(
+  raw: unknown,
+  formatter?: "number" | "currency" | "percent",
+  valueLabels?: Record<string, string>,
+): string {
+  const valueLabel = valueLabels?.[String(raw)];
+  if (valueLabel !== undefined) return valueLabel;
+  const numericRaw =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" &&
+          raw.trim() !== "" &&
+          Number.isFinite(Number(raw))
+        ? Number(raw)
+        : null;
+  return numericRaw !== null
+    ? formatYValue(numericRaw, formatter)
+    : String(raw ?? "-");
+}
+
+function isNumericLikeValue(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    Number.isFinite(Number(value))
+  );
+}
+
+export function detectMetricValueColumn(
+  row: Record<string, unknown>,
+  configuredKey?: string,
+): string {
+  const cols = Object.keys(row);
+  if (configuredKey && cols.includes(configuredKey)) return configuredKey;
+  return cols.find((key) => isNumericLikeValue(row[key])) || cols[0] || "";
 }
 
 function parsePrometheusSeriesLabel(label: string): {
@@ -130,6 +416,122 @@ function truncateLabel(value: string, max = 48): string {
   return `${value.slice(0, max - 3)}...`;
 }
 
+function parseCalendarDate(value: string): Date | null {
+  const normalized = /^\d{8}$/.test(value)
+    ? `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`
+    : value;
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
+  if (dateOnly) {
+    return new Date(
+      Number(dateOnly[1]),
+      Number(dateOnly[2]) - 1,
+      Number(dateOnly[3]),
+    );
+  }
+  const parsed = new Date(normalized);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function toSqlChartDateKey(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (ymd) return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+    const compact = /^(\d{4})(\d{2})(\d{2})$/.exec(trimmed);
+    if (compact) return `${compact[1]}-${compact[2]}-${compact[3]}`;
+  }
+
+  const parsed = new Date(String(value ?? ""));
+  return Number.isNaN(parsed.getTime()) ? null : sqlChartLocalDateKey(parsed);
+}
+
+export function sqlChartLocalDateKey(
+  date = new Date(),
+  timeZone = PARTIAL_DAY_TIME_ZONE,
+): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const get = (type: string) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {}
+  return date.toISOString().slice(0, 10);
+}
+
+export interface SplitTimeSeries {
+  key: string;
+  solidKey: string;
+  partialKey: string | null;
+}
+
+export function splitCurrentDayTimeSeriesRows(
+  rows: Record<string, unknown>[],
+  xKey: string,
+  yKeys: string[],
+  todayKey = sqlChartLocalDateKey(),
+): { rows: Record<string, unknown>[]; series: SplitTimeSeries[] } {
+  const todayIndexes = rows
+    .map((row, index) => ({ index, dateKey: toSqlChartDateKey(row[xKey]) }))
+    .filter((entry) => entry.dateKey === todayKey)
+    .map((entry) => entry.index);
+  const firstTodayIndex = todayIndexes[0] ?? -1;
+
+  if (firstTodayIndex <= 0 || yKeys.length === 0) {
+    return {
+      rows,
+      series: yKeys.map((key) => ({ key, solidKey: key, partialKey: null })),
+    };
+  }
+
+  const todaySet = new Set(todayIndexes);
+  const previousIndex = firstTodayIndex - 1;
+  const series = yKeys.map((key, index) => ({
+    key,
+    solidKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_solid`,
+    partialKey: `${PARTIAL_DAY_KEY_PREFIX}_${index}_partial`,
+  }));
+  const splitRows = rows.map((row, index) => {
+    const next = { ...row };
+    const isToday = todaySet.has(index);
+    const isPartialSegmentStart = index === previousIndex;
+    for (const item of series) {
+      next[item.solidKey] = isToday ? null : row[item.key];
+      next[item.partialKey] =
+        isToday || isPartialSegmentStart ? row[item.key] : null;
+    }
+    return next;
+  });
+
+  return { rows: splitRows, series };
+}
+
+export function shouldSplitCurrentDayTimeSeries(
+  panel: Pick<SqlPanel, "source">,
+  xKey: string,
+): boolean {
+  if (panel.source === "prometheus") return false;
+
+  const normalizedKey = xKey.trim().toLowerCase();
+  if (normalizedKey === "timestamp" || normalizedKey.endsWith("_timestamp")) {
+    return false;
+  }
+
+  return (
+    normalizedKey === "date" ||
+    normalizedKey === "day" ||
+    normalizedKey.endsWith("_date") ||
+    normalizedKey.endsWith("_day")
+  );
+}
+
 function formatSeriesLabel(value: string): string {
   const { metric, labels } = parsePrometheusSeriesLabel(value);
   const target =
@@ -157,6 +559,10 @@ function formatSeriesLabel(value: string): string {
     "state",
     "collector",
     "name",
+    "route",
+    "status",
+    "phase",
+    "dependency",
     "type",
     "quantile",
     "le",
@@ -181,7 +587,7 @@ function csvEscape(value: string): string {
 }
 
 function usesPrometheusPresentation(panel: SqlPanel): boolean {
-  return panel.source === "prometheus";
+  return panel.source === "prometheus" || panel.source === "demo";
 }
 
 function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
@@ -191,11 +597,8 @@ function formatSeriesLabelForPanel(panel: SqlPanel, value: string): string {
 function formatXLabel(value: string, panel: SqlPanel): string {
   try {
     const s = String(value);
-    const normalized = /^\d{8}$/.test(s)
-      ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`
-      : s;
-    const d = new Date(normalized);
-    if (!isNaN(d.getTime()) && s.length >= 8) {
+    const d = parseCalendarDate(s);
+    if (d && s.length >= 8) {
       return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
   } catch {}
@@ -206,41 +609,286 @@ function shouldShowLegend(panel: SqlPanel, seriesCount: number): boolean {
   return panel.config?.legend !== false && seriesCount > 0;
 }
 
-function SeriesLegend({
+function numericTooltipValue(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : Number.NEGATIVE_INFINITY;
+}
+
+function tooltipItemName(item: {
+  dataKey?: string | number;
+  name?: string | number;
+}): string {
+  return String(item.name ?? item.dataKey ?? "");
+}
+
+export function sortTooltipPayloadItems<
+  T extends {
+    dataKey?: string | number;
+    name?: string | number;
+    value?: unknown;
+  },
+>(items: T[]): T[] {
+  const sorted = items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const diff =
+        numericTooltipValue(b.item.value) - numericTooltipValue(a.item.value);
+      return diff !== 0 ? diff : a.index - b.index;
+    })
+    .map(({ item }) => item);
+  const seen = new Set<string>();
+  return sorted.filter((item) => {
+    const name = tooltipItemName(item);
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+export function getHiddenSeriesKeysAfterFilter(
+  keys: string[],
+  filteredKey: string,
+): Set<string> {
+  return new Set(keys.filter((key) => key !== filteredKey));
+}
+
+function useSeriesVisibility(keys: string[]): {
+  hiddenKeys: Set<string>;
+  visibleKeys: string[];
+  toggleSeries: (key: string) => void;
+  filterSeries: (key: string) => void;
+} {
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setHiddenKeys((prev) => {
+      const next = new Set(
+        Array.from(prev).filter((key) => keys.includes(key)),
+      );
+      return next.size === prev.size ? prev : next;
+    });
+  }, [keys]);
+
+  const visibleKeys = useMemo(
+    () => keys.filter((key) => !hiddenKeys.has(key)),
+    [hiddenKeys, keys],
+  );
+
+  const toggleSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+          return next;
+        }
+        const visibleCount = keys.filter((k) => !next.has(k)).length;
+        if (visibleCount <= 1) return prev;
+        next.add(key);
+        return next;
+      });
+    },
+    [keys],
+  );
+
+  const filterSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys(getHiddenSeriesKeysAfterFilter(keys, key));
+    },
+    [keys],
+  );
+
+  return { hiddenKeys, visibleKeys, toggleSeries, filterSeries };
+}
+
+export function SeriesLegend({
   keys,
   colors,
   panel,
+  hiddenKeys,
+  onToggleKey,
+  onFilterKey,
 }: {
   keys: string[];
   colors: string[];
   panel: SqlPanel;
+  hiddenKeys?: Set<string>;
+  onToggleKey?: (key: string) => void;
+  onFilterKey?: (key: string) => void;
 }) {
-  if (
-    !usesPrometheusPresentation(panel) ||
-    !shouldShowLegend(panel, keys.length)
-  )
-    return null;
+  const t = useT();
+  const hasLegendActions = Boolean(onToggleKey || onFilterKey);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextTouchToggleRef = useRef(false);
+
+  const clearCloseTimeout = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openLegendActions = useCallback(
+    (key: string) => {
+      clearCloseTimeout();
+      setOpenKey(key);
+    },
+    [clearCloseTimeout],
+  );
+
+  const scheduleCloseLegendActions = useCallback(() => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setOpenKey(null);
+      closeTimeoutRef.current = null;
+    }, LEGEND_ACTION_CLOSE_DELAY_MS);
+  }, [clearCloseTimeout]);
+
+  useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
+
+  if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
-    <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+    <div className="mt-1 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
-        {keys.map((key, i) => (
-          <span
-            key={key}
-            className="inline-flex max-w-[14rem] items-center gap-1.5"
-            title={key}
-          >
-            <span
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ backgroundColor: colors[i % colors.length] }}
-            />
-            <span className="truncate">
-              {formatSeriesLabelForPanel(panel, key)}
-            </span>
-          </span>
-        ))}
+        {keys.map((key, i) => {
+          const hidden = hiddenKeys?.has(key) ?? false;
+          const label = formatSeriesLabelForPanel(panel, key);
+          const color = colors[i % colors.length];
+          return (
+            <Popover
+              key={key}
+              open={openKey === key}
+              onOpenChange={(open) => setOpenKey(open ? key : null)}
+            >
+              <PopoverAnchor asChild>
+                <div
+                  className="inline-flex min-h-6 max-w-[14rem] items-center"
+                  onPointerDown={(event) => {
+                    if (!hasLegendActions || event.pointerType === "mouse") {
+                      return;
+                    }
+                    skipNextTouchToggleRef.current = true;
+                    openLegendActions(key);
+                  }}
+                  onPointerCancel={() => {
+                    skipNextTouchToggleRef.current = false;
+                  }}
+                  onPointerEnter={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      openLegendActions(key);
+                    }
+                  }}
+                  onPointerLeave={(event) => {
+                    if (hasLegendActions && event.pointerType !== "touch") {
+                      scheduleCloseLegendActions();
+                    }
+                  }}
+                  onFocusCapture={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onBlurCapture={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-pressed={!hidden}
+                    aria-expanded={
+                      hasLegendActions ? openKey === key : undefined
+                    }
+                    aria-haspopup={hasLegendActions ? "menu" : undefined}
+                    data-chart-legend-item={key}
+                    className={`inline-flex min-h-6 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      hidden ? "opacity-35" : "opacity-100"
+                    } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
+                    title={label}
+                    onClick={() => {
+                      if (skipNextTouchToggleRef.current) {
+                        skipNextTouchToggleRef.current = false;
+                        return;
+                      }
+                      onToggleKey?.(key);
+                    }}
+                  >
+                    <span className="relative h-2.5 w-3 shrink-0">
+                      <span
+                        className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span
+                        className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    </span>
+                    <span className="truncate">{label}</span>
+                  </button>
+                </div>
+              </PopoverAnchor>
+              {hasLegendActions && (
+                <PopoverContent
+                  side="top"
+                  align="center"
+                  sideOffset={0}
+                  collisionPadding={12}
+                  className="w-auto max-w-[calc(100vw-1.5rem)] rounded-lg p-1 shadow-lg"
+                  onPointerEnter={clearCloseTimeout}
+                  onPointerLeave={scheduleCloseLegendActions}
+                  onFocusCapture={clearCloseTimeout}
+                >
+                  <div className="flex items-center gap-0.5">
+                    {onFilterKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="filter"
+                        aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        onClick={() => {
+                          onFilterKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.filterSeries")}
+                      </button>
+                    )}
+                    {onToggleKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="hide"
+                        aria-label={`${t("sqlDashboard.hide")} ${label}`}
+                        disabled={hidden}
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        onClick={() => {
+                          onToggleKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.hide")}
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              )}
+            </Popover>
+          );
+        })}
       </div>
     </div>
+  );
+}
+
+// When a chart renders inside the full-screen modal it should grow to fill the
+// available space rather than the fixed 250px card height. ChartFrame reads
+// this via context so we avoid threading a prop through every renderer
+// (line/area/bar/pie all share ChartFrame).
+const ChartFillHeightContext = createContext(false);
+
+export function ChartFillHeight({ children }: { children: ReactNode }) {
+  return (
+    <ChartFillHeightContext.Provider value={true}>
+      {children}
+    </ChartFillHeightContext.Provider>
   );
 }
 
@@ -248,29 +896,165 @@ function ChartFrame({
   panel,
   legendKeys,
   colors,
+  hiddenKeys,
+  onToggleLegendKey,
+  onFilterLegendKey,
+  showCustomLegend = false,
   children,
 }: {
   panel: SqlPanel;
   legendKeys: string[];
   colors: string[];
+  hiddenKeys?: Set<string>;
+  onToggleLegendKey?: (key: string) => void;
+  onFilterLegendKey?: (key: string) => void;
+  showCustomLegend?: boolean;
   children: ReactNode;
 }) {
-  if (!usesPrometheusPresentation(panel)) {
-    return <div className="h-[250px] w-full overflow-visible">{children}</div>;
+  const fill = useContext(ChartFillHeightContext);
+  const chartHeight = fill ? "h-full min-h-[250px]" : "h-[250px]";
+
+  const renderLegend = showCustomLegend || usesPrometheusPresentation(panel);
+
+  if (!renderLegend) {
+    return (
+      <div className={`${chartHeight} w-full overflow-visible`}>{children}</div>
+    );
   }
 
   return (
-    <div className="w-full overflow-hidden">
-      <div className="h-[250px] w-full overflow-visible">{children}</div>
-      <SeriesLegend keys={legendKeys} colors={colors} panel={panel} />
+    <div
+      className={`flex w-full flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <div
+        className={`${chartHeight} w-full overflow-visible ${fill ? "flex-1" : ""}`}
+      >
+        {children}
+      </div>
+      <SeriesLegend
+        keys={legendKeys}
+        colors={colors}
+        panel={panel}
+        hiddenKeys={hiddenKeys}
+        onToggleKey={onToggleLegendKey}
+        onFilterKey={onFilterLegendKey}
+      />
     </div>
   );
 }
 
-function ChartTooltip({
+function isTableLikeChartType(type: ChartType): boolean {
+  return type === "table" || type === "heatmap";
+}
+
+function chartTypeReservesLegend(panel: SqlPanel): boolean {
+  if (panel.config?.legend === false) return false;
+  const chartUsesFrame =
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    panel.chartType === "pie";
+  if (!chartUsesFrame) return false;
+  return (
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    usesPrometheusPresentation(panel)
+  );
+}
+
+function TableLoadingSkeleton() {
+  const columnWidths = ["w-24", "w-32", "w-20", "w-28"];
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`w-full flex-1 space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+    >
+      <div className="relative overflow-x-auto">
+        <div className="min-w-[480px]">
+          <div className="grid h-8 grid-cols-4 items-center border-b border-border px-2">
+            {columnWidths.map((width, index) => (
+              <DashboardPanelSkeleton key={index} className={`h-3 ${width}`} />
+            ))}
+          </div>
+          {Array.from({ length: TABLE_PANEL_SKELETON_ROWS }).map((_, row) => (
+            <div
+              key={row}
+              className="grid h-8 grid-cols-4 items-center border-b border-border/50 px-2"
+            >
+              {columnWidths.map((width, col) => (
+                <DashboardPanelSkeleton
+                  key={col}
+                  className={`h-3 ${
+                    col === 0 ? "w-36" : col === 2 ? "ml-auto w-16" : width
+                  }`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex h-8 items-center justify-between border-t border-border px-1 text-xs">
+        <DashboardPanelSkeleton className="h-3 w-28" />
+        <DashboardPanelSkeleton className="h-3 w-24" />
+      </div>
+    </div>
+  );
+}
+
+function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
+  const fill = useContext(ChartFillHeightContext);
+
+  if (panel.chartType === "metric") {
+    return (
+      <DashboardPanelSkeleton
+        data-dashboard-report-loading="true"
+        className="w-full flex-1 min-h-12"
+      />
+    );
+  }
+
+  if (isTableLikeChartType(panel.chartType)) {
+    return <TableLoadingSkeleton />;
+  }
+
+  const reserveLegend = chartTypeReservesLegend(panel);
+
+  if (!reserveLegend) {
+    return (
+      <DashboardPanelSkeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${fill ? "h-full min-h-[250px]" : "min-h-[250px]"}`}
+      />
+    );
+  }
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`flex w-full flex-1 flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <DashboardPanelSkeleton
+        className={`w-full ${fill ? "h-full min-h-[250px] flex-1" : "h-[250px]"}`}
+      />
+      <div className="mt-1 flex min-h-6 flex-wrap gap-x-3 gap-y-1 overflow-hidden pr-1">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="flex min-h-6 items-center gap-1.5">
+            <DashboardPanelSkeleton className="h-2.5 w-3 shrink-0 rounded-sm" />
+            <DashboardPanelSkeleton className="h-3 w-20 min-w-0" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ChartTooltip({
   active,
   payload,
   label,
+  coordinate,
   labelFormatter,
   seriesNameFormatter,
   valueFormatter,
@@ -283,14 +1067,24 @@ function ChartTooltip({
     value?: unknown;
   }>;
   label?: unknown;
+  coordinate?: { x?: number; y?: number };
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
-  valueFormatter?: (value: number) => string;
+  valueFormatter?: (value: number, name?: string | number) => string;
 }) {
-  const tooltipRef = useChartTooltipFlip<HTMLDivElement>();
-  const items =
-    payload?.filter((item) => item.value != null && item.value !== "") ?? [];
-  if (!active || items.length === 0) return null;
+  const items = useMemo(
+    () =>
+      sortTooltipPayloadItems(
+        payload?.filter((item) => item.value != null && item.value !== "") ??
+          [],
+      ),
+    [payload],
+  );
+  const isVisible = Boolean(active) && items.length > 0;
+  const { anchorRef, boxRef } = useChartTooltipPortalPosition(
+    isVisible,
+    coordinate,
+  );
 
   const labelText =
     label == null
@@ -299,10 +1093,13 @@ function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  return (
+  if (!isVisible) return null;
+
+  const tooltip = (
     <div
-      ref={tooltipRef}
-      className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg"
+      ref={boxRef}
+      role="tooltip"
+      className="fixed z-[280] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
     >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
@@ -313,11 +1110,11 @@ function ChartTooltip({
         {items.map((item) => {
           const raw = item.value;
           const numeric = typeof raw === "number" ? raw : Number(raw);
+          const name = String(item.name ?? item.dataKey ?? "");
           const value =
             Number.isFinite(numeric) && valueFormatter
-              ? valueFormatter(numeric)
+              ? valueFormatter(numeric, name)
               : String(raw ?? "");
-          const name = String(item.name ?? item.dataKey ?? "");
           return (
             <div key={name} className="flex items-center gap-2">
               <span
@@ -335,6 +1132,13 @@ function ChartTooltip({
         })}
       </div>
     </div>
+  );
+
+  return (
+    <>
+      <span ref={anchorRef} aria-hidden="true" />
+      {createPortal(tooltip, document.body)}
+    </>
   );
 }
 
@@ -377,7 +1181,7 @@ function detectKeys(
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
-      if (typeof sample[c] === "number") yKeys.push(c);
+      if (isNumericLikeValue(sample[c])) yKeys.push(c);
     }
   }
   if (yKeys.length === 0 && cols.length > 1) {
@@ -405,6 +1209,9 @@ function configuredKeysMissingFromRows(
     for (const key of config?.yKeys ?? []) {
       if (!rowKeys.has(key)) missing.add(key);
     }
+    for (const key of config?.rightYKeys ?? []) {
+      if (!rowKeys.has(key)) missing.add(key);
+    }
   }
 
   for (const col of config?.columns ?? []) {
@@ -429,39 +1236,76 @@ interface SqlChartProps {
   /** SQL with dashboard variables already interpolated. Falls back to panel.sql. */
   resolvedSql?: string;
   className?: string;
+  loadData?: boolean;
+  reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /** Dashboard/panel state sent to slot-backed extension boxes. */
+  extensionContext?: Record<string, unknown> | null;
 }
 
 export function SqlChart({
   panel,
   resolvedSql,
+  loadData = true,
+  reportScreenshot = false,
   onExportCsvChange,
+  extensionContext,
 }: SqlChartProps) {
+  const t = useT();
+  const { enabled: demoModeEnabled } = useDemoModeStatus();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
+  const isExtension = panel.chartType === "extension";
+  // Sections are pure layout and extensions render their own iframe — neither
+  // runs the SQL pipeline.
+  const shouldQuery = !isSection && !isExtension && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const { data: result, isLoading } = useSqlQuery(
+  const {
+    data: result,
+    isLoading,
+    isFetching,
+    error: queryError,
+    refetch,
+  } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: !isSection },
+    { enabled: shouldQuery, reportScreenshot },
   );
 
   const rawRows = result?.rows ?? [];
-  const error = result?.error;
+  const error =
+    rawRows.length === 0
+      ? (result?.error ??
+        (queryError ? formatSqlChartError(queryError) : undefined))
+      : undefined;
 
-  const { rows, forcedYKeys } = useMemo(() => {
+  const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot);
+      const pivoted = pivotRows(rawRows, panel.config.pivot, {
+        fillDateGaps: panel.chartType !== "bar",
+      });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot]);
 
   const { xKey, yKeys } = useMemo(
-    () => detectKeys(rows, panel.config, forcedYKeys),
-    [rows, panel.config, forcedYKeys],
+    () => detectKeys(queryRows, panel.config, forcedYKeys),
+    [queryRows, panel.config, forcedYKeys],
+  );
+  const shouldCreateDemoTrend =
+    demoModeEnabled &&
+    (panel.chartType === "line" ||
+      panel.chartType === "area" ||
+      (panel.chartType as string) === "stacked-area");
+  const rows = useMemo(
+    () =>
+      shouldCreateDemoTrend
+        ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
+        : queryRows,
+    [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -477,23 +1321,64 @@ export function SqlChart({
       </div>
     );
   }
+
+  // Extension panels render either a named extension-point slot or a legacy
+  // direct extension iframe instead of querying a data source.
+  if (isExtension) {
+    const extensionId = panel.config?.extensionId;
+    const slotId = panel.config?.extensionSlotId;
+    if (!extensionId && !slotId) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+          <p className="text-sm text-muted-foreground text-center">
+            {t("sqlDashboard.extensionMissingId")}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <DashboardExtensionPanel
+        extensionId={extensionId}
+        panelId={panel.id}
+        slotId={slotId}
+        context={extensionContext}
+      />
+    );
+  }
   const colors = panel.config?.colors || DEFAULT_COLORS;
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
-  const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
+  const isTableLike = isTableLikeChartType(panel.chartType);
+  const placeholderMinH = isMetric
+    ? "min-h-12"
+    : isTableLike
+      ? TABLE_PANEL_MIN_HEIGHT_CLASS
+      : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (isLoading) {
-    return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
+  if (!loadData || isLoading || isFetching) {
+    return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
   if (error) {
     return (
       <div
-        className={`flex flex-1 items-center justify-center px-4 ${placeholderPadY} ${placeholderMinH}`}
+        className={`flex flex-1 flex-col items-center justify-center gap-3 px-4 ${placeholderPadY} ${placeholderMinH}`}
+        role="alert"
       >
-        <p className="text-sm text-red-400 text-center break-all">{error}</p>
+        <p className="text-center text-sm text-red-400 break-all">
+          {formatSqlChartError(error)}
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => void refetch()}
+        >
+          <IconRefresh className="mr-2 h-3.5 w-3.5" />
+          {t("sqlDashboard.refresh")}
+        </Button>
       </div>
     );
   }
@@ -503,7 +1388,9 @@ export function SqlChart({
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -593,6 +1480,89 @@ export function SqlChart({
   );
 }
 
+function DashboardExtensionPanel({
+  extensionId,
+  panelId,
+  slotId,
+  context,
+}: {
+  extensionId?: string;
+  panelId: string;
+  slotId?: string;
+  context?: Record<string, unknown> | null;
+}) {
+  const t = useT();
+  // Hold the report-readiness marker until the extension iframe paints so
+  // dashboard report screenshots don't capture a blank extension panel.
+  const [ready, setReady] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const loadingSkeleton = !ready ? (
+    <DashboardPanelSkeleton
+      data-dashboard-extension-loading="true"
+      className="absolute inset-0 z-10 h-full min-h-[180px] w-full rounded-md"
+      aria-hidden="true"
+    />
+  ) : null;
+
+  if (slotId) {
+    return (
+      <div
+        className="relative min-h-[180px] w-full"
+        aria-busy={!ready}
+        data-dashboard-report-loading={ready ? undefined : "true"}
+      >
+        {loadingSkeleton}
+        <div className={ready ? "opacity-100" : "opacity-0"}>
+          <ExtensionSlot
+            id={slotId}
+            context={context}
+            showEmptyAffordance
+            onReady={() => setReady(true)}
+            className="min-h-[120px] w-full"
+            toolClassName="w-full"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Embedding never grants access to the extension itself (same model as
+  // ExtensionSlots). A viewer with dashboard-only access who can't see the
+  // referenced extension gets a clear message instead of a blank panel.
+  if (unavailable) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+        <p className="text-sm text-muted-foreground text-center">
+          {t("sqlDashboard.extensionUnavailable")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="relative min-h-[180px] w-full"
+      aria-busy={!ready}
+      data-dashboard-report-loading={ready ? undefined : "true"}
+    >
+      {loadingSkeleton}
+      <EmbeddedExtension
+        extensionId={extensionId!}
+        slotId={`dashboard-panel-${panelId}`}
+        context={context}
+        className={ready ? "w-full opacity-100" : "w-full opacity-0"}
+        initialHeight={180}
+        onReady={() => setReady(true)}
+        onUnavailable={() => {
+          // Clear the report-loading gate so report capture doesn't hang.
+          setReady(true);
+          setUnavailable(true);
+        }}
+      />
+    </div>
+  );
+}
+
 function MetricRenderer({
   rows,
   panel,
@@ -601,22 +1571,19 @@ function MetricRenderer({
   panel: SqlPanel;
 }) {
   const row = rows[0];
-  const cols = Object.keys(row);
-  const valueCol =
-    panel.config?.yKey ||
-    cols.find((c) => typeof row[c] === "number") ||
-    cols[0];
+  const valueCol = detectMetricValueColumn(row, panel.config?.yKey);
 
   let raw: unknown;
-  if (rows.length > 1 && typeof row[valueCol] === "number") {
+  if (rows.length > 1 && isNumericLikeValue(row[valueCol])) {
     raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
   } else {
     raw = row[valueCol];
   }
-  const value =
-    typeof raw === "number"
-      ? formatYValue(raw, panel.config?.yFormatter)
-      : String(raw ?? "-");
+  const value = formatMetricValue(
+    raw,
+    panel.config?.yFormatter,
+    panel.config?.valueLabels,
+  );
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
@@ -659,6 +1626,24 @@ function formatCell(value: unknown, format: ColumnFormat | undefined): string {
   return String(value);
 }
 
+export function safeDashboardLinkHref(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const href = value.trim();
+  if (!href) return null;
+  if (href.startsWith("//")) return null;
+
+  try {
+    const parsed = href.startsWith("/")
+      ? new URL(href, "https://agent-native.local")
+      : new URL(href);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function renderDeltaCell(value: unknown): ReactNode {
   if (value == null || typeof value !== "number" || Number.isNaN(value)) {
     return <span className="text-muted-foreground">-</span>;
@@ -689,6 +1674,35 @@ function renderDeltaCell(value: unknown): ReactNode {
   );
 }
 
+function rowString(
+  row: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function sessionReplayHref(row: Record<string, unknown>): string | null {
+  const recordingId = rowString(row, [
+    "recording_id",
+    "session_recording_id",
+    "sessionRecordingId",
+  ]);
+  if (recordingId) return `/sessions/${encodeURIComponent(recordingId)}`;
+
+  const sessionId = rowString(row, ["session_id", "sessionId"]);
+  if (!sessionId) return null;
+  const params = new URLSearchParams({ range: "all", q: sessionId });
+  return `/sessions?${params.toString()}`;
+}
+
+function isSessionColumn(key: string): boolean {
+  return key === "session_id" || key === "sessionId";
+}
+
 function TableRenderer({
   rows,
   panel,
@@ -698,6 +1712,7 @@ function TableRenderer({
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
+  const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
 
@@ -784,7 +1799,7 @@ function TableRenderer({
   }, [handleExportCsv, onExportCsvChange]);
 
   return (
-    <div className="space-y-1">
+    <div className={`space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}>
       <div className="relative overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -830,19 +1845,24 @@ function TableRenderer({
                     const href = col.linkKey
                       ? String(row[col.linkKey] ?? "")
                       : String(raw ?? "");
+                    const safeHref = safeDashboardLinkHref(href);
                     return (
                       <td
                         key={col.key}
                         className="py-1.5 px-2 whitespace-nowrap"
                       >
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {formatted}
-                        </a>
+                        {safeHref ? (
+                          <a
+                            href={safeHref}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {formatted}
+                          </a>
+                        ) : (
+                          formatted
+                        )}
                       </td>
                     );
                   }
@@ -855,6 +1875,9 @@ function TableRenderer({
                     col.format === "delta"
                       ? renderDeltaCell(raw)
                       : formatCell(raw, col.format);
+                  const replayHref = isSessionColumn(col.key)
+                    ? sessionReplayHref(row)
+                    : null;
                   return (
                     <td
                       key={col.key}
@@ -862,7 +1885,19 @@ function TableRenderer({
                         numeric ? "text-right tabular-nums" : ""
                       }`}
                     >
-                      {content}
+                      {replayHref ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <span>{content}</span>
+                          <Link
+                            to={replayHref}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {t("sessions.watchReplay")}
+                          </Link>
+                        </span>
+                      ) : (
+                        content
+                      )}
                     </td>
                   );
                 })}
@@ -874,7 +1909,7 @@ function TableRenderer({
       {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -944,41 +1979,44 @@ function PieRenderer({
 
   return (
     <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={rows}
-            dataKey={yKey}
-            nameKey={xKey}
-            cx="50%"
-            cy="50%"
-            outerRadius={80}
-            label={(props: any) =>
-              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
-            }
-            labelLine={false}
-          >
-            {rows.map((_, i) => (
-              <Cell key={i} fill={colors[i % colors.length]} />
-            ))}
-          </Pie>
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            content={
-              <ChartTooltip
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) =>
-                  formatYValue(v, panel.config?.yFormatter)
-                }
-              />
-            }
-          />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, rows.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
-        </PieChart>
-      </ResponsiveContainer>
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <PieChart>
+            <Pie
+              data={rows}
+              dataKey={yKey}
+              nameKey={xKey}
+              cx="50%"
+              cy="50%"
+              outerRadius={80}
+              label={(props: any) =>
+                `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
+              }
+              labelLine={false}
+              isAnimationActive={isAnimationActive}
+            >
+              {rows.map((_, i) => (
+                <Cell key={i} fill={colors[i % colors.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              content={
+                <ChartTooltip
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={(v) =>
+                    formatYValue(v, panel.config?.yFormatter)
+                  }
+                />
+              }
+            />
+            {!usesPrometheusPresentation(panel) &&
+              shouldShowLegend(panel, rows.length) && (
+                <Legend {...CHART_LEGEND_PROPS} />
+              )}
+          </PieChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1004,61 +2042,73 @@ function BarRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
 
   return (
-    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
-          {yKeys.map((key, i) => (
-            <Bar
-              key={key}
-              dataKey={key}
-              name={seriesNameFormatter(key)}
-              fill={colors[i % colors.length]}
-              radius={
-                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
-              }
-              stackId={stacked ? "stack" : undefined}
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <BarChart data={rows}>
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
             />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+            {renderChartYAxes(dualAxis, yFormatter)}
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              vertical={false}
+            />
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              cursor={BAR_TOOLTIP_CURSOR_PROPS}
+              labelFormatter={xLabelFormatter}
+              content={
+                <ChartTooltip
+                  labelFormatter={xLabelFormatter}
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={valueFormatter}
+                />
+              }
+              itemSorter={(item) => -(Number(item.value) || 0)}
+            />
+            {yKeys.map((key, i) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                yAxisId={seriesAxisId(dualAxis, key)}
+                fill={colors[i % colors.length]}
+                radius={
+                  stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+                }
+                stackId={stacked ? "stack" : undefined}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={isAnimationActive}
+              />
+            ))}
+          </BarChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1086,12 +2136,152 @@ function TimeSeriesRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
+  const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
+    useSeriesVisibility(yKeys);
+  const dualAxis = resolveDualAxis(yKeys, panel.config, seriesNameFormatter);
+  const valueFormatter = seriesValueFormatter(
+    yKeys,
+    dualAxis,
+    seriesNameFormatter,
+    yFormatter,
+  );
+  const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
+  const { rows: chartRows, series } = useMemo(
+    () =>
+      splitPartialDay
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys)
+        : {
+            rows,
+            series: yKeys.map((key) => ({
+              key,
+              solidKey: key,
+              partialKey: null,
+            })),
+          },
+    [rows, xKey, yKeys, splitPartialDay],
+  );
 
   if (chartType === "line") {
     return (
-      <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={rows}>
+      <ChartFrame
+        panel={panel}
+        legendKeys={yKeys}
+        colors={colors}
+        hiddenKeys={hiddenKeys}
+        onToggleLegendKey={toggleSeries}
+        onFilterLegendKey={filterSeries}
+        showCustomLegend
+      >
+        <ChartResponsiveContainer>
+          {(isAnimationActive) => (
+            <LineChart data={chartRows}>
+              <XAxis
+                dataKey={xKey}
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={xLabelFormatter}
+              />
+              {renderChartYAxes(dualAxis, yFormatter)}
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                vertical={false}
+              />
+              <Tooltip
+                {...CHART_TOOLTIP_PROPS}
+                labelFormatter={xLabelFormatter}
+                content={
+                  <ChartTooltip
+                    labelFormatter={xLabelFormatter}
+                    seriesNameFormatter={seriesNameFormatter}
+                    valueFormatter={valueFormatter}
+                  />
+                }
+                itemSorter={(item) => -(Number(item.value) || 0)}
+              />
+              {series.map((item, i) => (
+                <Line
+                  key={item.solidKey}
+                  type="monotone"
+                  dataKey={item.solidKey}
+                  name={seriesNameFormatter(item.key)}
+                  yAxisId={seriesAxisId(dualAxis, item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
+                />
+              ))}
+              {series.map((item, i) =>
+                item.partialKey ? (
+                  <Line
+                    key={item.partialKey}
+                    type="monotone"
+                    dataKey={item.partialKey}
+                    name={seriesNameFormatter(item.key)}
+                    yAxisId={seriesAxisId(dualAxis, item.key)}
+                    stroke={colors[i % colors.length]}
+                    strokeWidth={2}
+                    strokeDasharray={PARTIAL_DAY_DASH}
+                    dot={false}
+                    hide={hiddenKeys.has(item.key)}
+                    isAnimationActive={isAnimationActive}
+                  />
+                ) : null,
+              )}
+            </LineChart>
+          )}
+        </ChartResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+
+  // With multiple series, filled areas stack and obscure lines behind them,
+  // so only draw the gradient fill when there's a single series — unless
+  // the caller asked for an explicit stacked area.
+  const showFill = visibleKeys.length === 1 || stacked;
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <AreaChart data={chartRows}>
+            {showFill && (
+              <defs>
+                {yKeys.map((key, i) => (
+                  <linearGradient
+                    key={key}
+                    id={`sql-gradient-${key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
+            )}
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -1100,13 +2290,7 @@ function TimeSeriesRenderer({
               axisLine={false}
               tickFormatter={xLabelFormatter}
             />
-            <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => formatYValue(v, yFormatter)}
-            />
+            {renderChartYAxes(dualAxis, yFormatter)}
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(var(--border))"
@@ -1119,117 +2303,49 @@ function TimeSeriesRenderer({
                 <ChartTooltip
                   labelFormatter={xLabelFormatter}
                   seriesNameFormatter={seriesNameFormatter}
-                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  valueFormatter={valueFormatter}
                 />
               }
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
-            {!usesPrometheusPresentation(panel) &&
-              shouldShowLegend(panel, yKeys.length) && (
-                <Legend {...CHART_LEGEND_PROPS} />
-              )}
-            {yKeys.map((key, i) => (
-              <Line
-                key={key}
+            {series.map((item, i) => (
+              <Area
+                key={item.solidKey}
                 type="monotone"
-                dataKey={key}
-                name={seriesNameFormatter(key)}
+                dataKey={item.solidKey}
+                name={seriesNameFormatter(item.key)}
+                yAxisId={seriesAxisId(dualAxis, item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
-                dot={false}
+                fillOpacity={showFill ? 1 : 0}
+                fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
+                stackId={stacked ? "stack" : undefined}
+                hide={hiddenKeys.has(item.key)}
+                isAnimationActive={isAnimationActive}
               />
             ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartFrame>
-    );
-  }
-
-  // With multiple series, filled areas stack and obscure lines behind them,
-  // so only draw the gradient fill when there's a single series — unless
-  // the caller asked for an explicit stacked area.
-  const showFill = yKeys.length === 1 || stacked;
-
-  return (
-    <ChartFrame panel={panel} legendKeys={yKeys} colors={colors}>
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={rows}>
-          {showFill && (
-            <defs>
-              {yKeys.map((key, i) => (
-                <linearGradient
-                  key={key}
-                  id={`sql-gradient-${key}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              ))}
-            </defs>
-          )}
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, yKeys.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
+            {series.map((item, i) =>
+              item.partialKey ? (
+                <Area
+                  key={item.partialKey}
+                  type="monotone"
+                  dataKey={item.partialKey}
+                  name={seriesNameFormatter(item.key)}
+                  yAxisId={seriesAxisId(dualAxis, item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  strokeDasharray={PARTIAL_DAY_DASH}
+                  fill="none"
+                  fillOpacity={0}
+                  stackId={stacked ? "partial-stack" : undefined}
+                  hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
+                />
+              ) : null,
             )}
-          {yKeys.map((key, i) => (
-            <Area
-              key={key}
-              type="monotone"
-              dataKey={key}
-              name={seriesNameFormatter(key)}
-              stroke={colors[i % colors.length]}
-              strokeWidth={2}
-              fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${key})` : "none"}
-              stackId={stacked ? "stack" : undefined}
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
+          </AreaChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1244,6 +2360,7 @@ function HeatmapRenderer({
   rows: Record<string, unknown>[];
   panel: SqlPanel;
 }) {
+  const t = useT();
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
@@ -1324,8 +2441,12 @@ function HeatmapRenderer({
 
   if (rows.length === 0 || !valueKey) {
     return (
-      <div className="flex min-h-[250px] items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+      <div
+        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+      >
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -1343,7 +2464,7 @@ function HeatmapRenderer({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div className={`${TABLE_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

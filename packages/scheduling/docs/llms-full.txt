@@ -162,19 +162,20 @@ owned by or shared with the current user, read/write actions throw.
 
 For full customization, you can move the package source into your own repo.
 
-**Planned for v0.2:** `agent-native eject @agent-native/scheduling`.
+Preview the complete change report, then apply it explicitly:
 
-**Today (v0.1)** — do it manually:
+```bash
+agent-native package eject @agent-native/scheduling
+agent-native package eject @agent-native/scheduling --apply
+```
 
-1. `cp -r node_modules/@agent-native/scheduling/src packages/scheduling-local/src`
-2. Add `packages/scheduling-local/` to your workspaces.
-3. Replace `"@agent-native/scheduling": "^0.1"` in dependencies with
-   `"@local/scheduling": "workspace:*"` (or similar).
-4. Run a find/replace across your repo from `@agent-native/scheduling` to
-   `@local/scheduling`.
-5. Install: `pnpm install`.
+The command copies the published source into `packages/scheduling`, updates the
+consumer dependency to `workspace:*`, preserves canonical
+`@agent-native/scheduling` imports, and runs the detected package manager. It
+refuses an existing target, unsupported workspace layout, or other collision.
+All writes and lockfiles roll back if installation fails.
 
-Now you own the code and can modify freely. Upstream updates are available via
+Now you own the code and can modify it freely. Upstream updates are available via
 `npm view @agent-native/scheduling versions` — you can selectively port changes.
 
 
@@ -200,7 +201,7 @@ locally-owned scheduling stack, not an API wrapper.
   application, booking-limit bucketing, recurring-event expansion.
 - **Server layer** (`/server`) — DB repos, availability engine, booking
   service, pluggable calendar + video providers (Google Calendar, Outlook,
-  Zoom, Google Meet, built-in video), iCal generator, lifecycle hooks →
+  Zoom, Microsoft Teams, Google Meet, built-in video), iCal generator, lifecycle hooks →
   workflows.
 - **Actions** (`/actions/*`) — ~55 `defineAction` modules covering every
   operation in the product (event type CRUD, availability edit, booking
@@ -228,6 +229,7 @@ import {
   registerVideoProvider,
   createGoogleCalendarProvider,
   createDailyVideoProvider,
+  createTeamsProvider,
 } from "@agent-native/scheduling/server/providers";
 import { getDb, schema } from "./db/index.js";
 
@@ -248,12 +250,25 @@ registerCalendarProvider(createGoogleCalendarProvider({
 registerVideoProvider(createDailyVideoProvider({
   apiKey: process.env.DAILY_API_KEY!,
 }));
+
+registerVideoProvider(createTeamsProvider({
+  clientId: process.env.MICROSOFT_CLIENT_ID!,
+  clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+  getAccessToken: fetchMicrosoftToken, // your refresh-aware implementation
+}));
 ```
 
 ## Full documentation
 
 For the full bundled docs (every .md file concatenated), see
 `llms-full.txt` in this folder.
+
+## Package lifecycle
+
+The published static `agent-native.package.json` drives safe package lifecycle
+commands. Use `agent-native package inspect @agent-native/scheduling --json`
+for contribution metadata, and preview `package add` or `package eject` before
+re-running with `--apply`. Inspection never executes package code.
 
 ## Individual skills
 
@@ -282,8 +297,8 @@ Scheduling needs two kinds of providers:
 - **CalendarProvider** — reads busy intervals + writes events.
 - **VideoProvider** — creates meeting rooms when a booking is confirmed.
 
-Built-ins: Google Calendar, Office 365, Zoom, built-in video (Daily.co), Google
-Meet (piggy-backs on Google Calendar).
+Built-ins: Google Calendar, Office 365, Zoom, Microsoft Teams, built-in video
+(Daily.co), and Google Meet (piggy-backs on Google Calendar).
 
 ## CalendarProvider
 
@@ -343,6 +358,34 @@ registerVideoProvider({
 Video providers are invoked by the booking service when a booking's location
 is `builtin-video`, `zoom`, `google-meet`, or `teams`. Meeting URLs land in
 `booking_references`.
+
+### Microsoft Teams
+
+Teams uses delegated Microsoft OAuth for work or school accounts. Register the
+provider with consumer-owned token storage and refresh callbacks:
+
+```ts
+import {
+  createTeamsProvider,
+  registerVideoProvider,
+} from "@agent-native/scheduling/server/providers";
+
+registerVideoProvider(
+  createTeamsProvider({
+    clientId: process.env.MICROSOFT_CLIENT_ID!,
+    clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+    tenant: process.env.MICROSOFT_TENANT_ID,
+    getAccessToken: resolveMicrosoftAccessToken,
+    updateTokens: saveMicrosoftTokens,
+    markInvalid: markSchedulingCredentialInvalid,
+  }),
+);
+```
+
+The provider requests `offline_access`, `OnlineMeetings.ReadWrite`, and
+`User.Read`. Start the grant with `connect-video --kind teams_video` and finish
+the callback with `completeVideoOAuth()`. `getAccessToken` must refresh expired
+tokens; the package never reads a token store or environment directly.
 
 
 ---
@@ -710,7 +753,8 @@ description: Calendar + video provider integrations — Google Calendar, Office 
 - **builtin_video** — Daily.co-backed; zero OAuth; server-to-server API key.
 - **zoom_video** — OAuth; create meetings via Zoom REST API.
 - **google_meet** — piggy-backs on Google Calendar credential.
-- **teams_video** (planned) — Microsoft Teams.
+- **teams_video** — delegated Microsoft OAuth for work or school accounts;
+  creates and cancels standalone meetings through Microsoft Graph.
 
 ## Credential lifecycle
 
@@ -742,7 +786,24 @@ See `docs/providers.md` for the full interface.
 | "Connect Google Calendar" | `connect-calendar --kind google_calendar --redirectUri ...` → redirect to returned `authUrl` |
 | "Stop checking my vacation calendar" | `toggle-selected-calendar --include false` for that externalId |
 | "Default to Zoom for new bookings" | `set-default-conferencing-app --credentialId <zoom-cred>` |
+| "Connect Microsoft Teams" | `connect-video --kind teams_video --redirectUri ...` → complete the callback with `completeVideoOAuth()` |
+| "Default to Teams for new bookings" | `set-default-conferencing-app --credentialId <teams-cred>` |
 | "Refresh calendar cache" | `refresh-busy-times` |
+
+## Microsoft Teams setup
+
+Register `createTeamsProvider()` as a video provider with the deployment's
+Microsoft client id and secret plus consumer-owned `getAccessToken`,
+`updateTokens`, and `markInvalid` callbacks. The provider defaults to the
+`organizations` tenant because Graph's delegated online-meeting API supports
+work or school accounts, not personal Microsoft accounts. It requests only
+`offline_access`, `OnlineMeetings.ReadWrite`, and `User.Read`.
+
+Use `connect-video` to start OAuth and `completeVideoOAuth()` in the callback;
+inserting a `teams_video` row with `install-conferencing-app` alone does not
+grant Microsoft access. Token refresh remains the consumer's responsibility in
+`getAccessToken`. The booking service stores the returned meeting id and join
+URL in `booking_references` and calls the provider again on cancellation.
 
 
 ---

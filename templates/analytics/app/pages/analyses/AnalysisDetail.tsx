@@ -1,10 +1,34 @@
-import { useEffect } from "react";
-import { useParams } from "react-router";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  callAction,
+  useActionMutation,
+  useChangeVersions,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  IconRefresh,
+  IconTrash,
+  IconClock,
+  IconArrowLeft,
+  IconDatabase,
+  IconHistory,
+  IconLock,
+  IconUsersGroup,
+  IconWorld,
+} from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { incrementItemView } from "@/lib/item-popularity";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router";
+import { Link, useNavigate } from "react-router";
+
+import { AnalysisHistoryPanel } from "@/components/analysis/AnalysisHistoryPanel";
+import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import Markdown from "@/components/Markdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,35 +40,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  IconRefresh,
-  IconTrash,
-  IconClock,
-  IconArrowLeft,
-  IconDatabase,
-} from "@tabler/icons-react";
-import { Link, useNavigate } from "react-router";
-import {
-  ShareButton,
-  callAction,
-  useActionMutation,
-  useChangeVersions,
-} from "@agent-native/core/client";
-import { useSendToAgentChat } from "@agent-native/core/client";
-import Markdown from "@/components/Markdown";
-import LegacyFusionAnalysis, {
-  isLegacyFusionAnalysis,
-} from "./LegacyFusionAnalysis";
-import {
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
-import { cn } from "@/lib/utils";
+import { incrementItemView } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
   type PrefetchSnapshot,
@@ -54,6 +58,11 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { cn } from "@/lib/utils";
+
+import LegacyFusionAnalysis, {
+  isLegacyFusionAnalysis,
+} from "./LegacyFusionAnalysis";
 
 interface Analysis extends ResourceAccess {
   id: string;
@@ -93,10 +102,12 @@ function formatDate(iso: string): string {
 }
 
 export default function AnalysisDetail() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const analysesSync = useChangeVersions(["analyses", "action"]);
   const { data: analysis, isLoading } = useQuery({
@@ -138,14 +149,14 @@ export default function AnalysisDetail() {
   const handleRerun = () => {
     if (!analysis || !canEdit) return;
     send({
-      message: `Re-run the analysis "${analysis.name}" with the latest data and update the saved results.`,
+      message: t("analyses.rerunMessage", { name: analysis.name }),
       context:
-        `This is a re-run of a saved ad-hoc analysis. REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status, generate-chart, and save-analysis do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results.\n\n` +
+        `This is a re-run of a legacy saved ad-hoc analysis. Treat the refreshed result as a dashboard artifact: REAL_DATA_REQUIRED: run at least one real data-source query action before saving or answering; data-source-status and generate-chart do not count as data queries. If no source can answer, report the exact unavailable/error result instead of saving guessed results. If the report needs bespoke UI, create an extension and immediately embed it in a dashboard panel with config.extensionId. Only call save-analysis when the user explicitly asks to preserve this legacy analysis record.\n\n` +
         `Use these instructions to reproduce it:\n\n` +
         `Analysis ID: ${analysis.id}\n` +
         `Original question: ${analysis.question}\n\n` +
         `Instructions:\n${analysis.instructions}\n\n` +
-        `After gathering the data, call save-analysis with id="${analysis.id}" to update the results.`,
+        `After gathering the data, call update-dashboard with a new dashboardId to save the refreshed artifact. If the user explicitly asked to update this legacy record instead, call save-analysis with id="${analysis.id}".`,
       submit: true,
     });
   };
@@ -157,6 +168,11 @@ export default function AnalysisDetail() {
     queryClient.invalidateQueries({ queryKey: ["analyses-list"] });
     navigate("/analyses");
   };
+
+  const analysisShareUrl = useMemo(() => {
+    if (!analysis?.id || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/analyses/" + analysis.id);
+  }, [analysis?.id]);
 
   useSetPageTitle(
     analysis ? (
@@ -174,7 +190,16 @@ export default function AnalysisDetail() {
           resourceId={analysis.id}
           resourceTitle={analysis.name}
           variant="compact"
+          shareUrl={analysisShareUrl}
         />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setHistoryOpen(true)}
+        >
+          <IconHistory className="h-4 w-4" />
+          {t("analyses.historyTitle")}
+        </Button>
         {canEdit ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -185,13 +210,10 @@ export default function AnalysisDetail() {
                 disabled={isGenerating}
               >
                 <IconRefresh className="h-4 w-4" />
-                Re-run
+                {t("analyses.rerun")}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>
-              Re-run this analysis with the latest data and update the saved
-              results
-            </TooltipContent>
+            <TooltipContent>{t("analyses.rerunTooltip")}</TooltipContent>
           </Tooltip>
         ) : null}
         {canManage ? (
@@ -203,16 +225,15 @@ export default function AnalysisDetail() {
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete analysis?</AlertDialogTitle>
+                <AlertDialogTitle>{t("analyses.deleteTitle")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete "{analysis.name}" and its
-                  results.
+                  {t("analyses.deleteDescription", { name: analysis.name })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction onClick={handleDelete}>
-                  Delete
+                  {t("sidebar.delete")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -235,12 +256,12 @@ export default function AnalysisDetail() {
   if (!analysis) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <h3 className="text-lg font-semibold mb-2">Analysis not found</h3>
+        <h3 className="text-lg font-semibold mb-2">{t("analyses.notFound")}</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          This analysis may have been deleted.
+          {t("analyses.mayHaveBeenDeleted")}
         </p>
         <Link to="/analyses" className="text-sm text-primary hover:underline">
-          Back to analyses
+          {t("analyses.backToAnalyses")}
         </Link>
       </div>
     );
@@ -251,6 +272,12 @@ export default function AnalysisDetail() {
   return (
     <>
       {codeRequiredDialog}
+      <AnalysisHistoryPanel
+        analysisId={analysis.id}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
+      />
       <div
         className={cn(
           "space-y-6",
@@ -264,7 +291,7 @@ export default function AnalysisDetail() {
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mb-3"
           >
             <IconArrowLeft className="h-3 w-3" />
-            All analyses
+            {t("analyses.allAnalyses")}
           </Link>
           {analysis.description && (
             <p className="text-sm text-muted-foreground">
@@ -276,35 +303,31 @@ export default function AnalysisDetail() {
           <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
               <IconClock className="h-3 w-3" />
-              Updated {formatDate(analysis.updatedAt)}
+              {t("analyses.updated", { date: formatDate(analysis.updatedAt) })}
             </span>
             {analysis.createdAt !== analysis.updatedAt && (
-              <span>Created {formatDate(analysis.createdAt)}</span>
+              <span>
+                {t("analyses.created", {
+                  date: formatDate(analysis.createdAt),
+                })}
+              </span>
             )}
-            {analysis.author && <span>by {analysis.author}</span>}
-            <span
-              className={`flex items-center gap-1.5 font-medium ${
-                analysis.visibility === "public"
-                  ? "text-green-600"
-                  : analysis.visibility === "org"
-                    ? "text-blue-600"
-                    : "text-yellow-600"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  analysis.visibility === "public"
-                    ? "bg-green-500"
-                    : analysis.visibility === "org"
-                      ? "bg-blue-500"
-                      : "bg-yellow-500"
-                }`}
-              />
+            {analysis.author && (
+              <span>{t("analyses.byAuthor", { author: analysis.author })}</span>
+            )}
+            <span className="flex items-center gap-1.5">
+              {analysis.visibility === "public" ? (
+                <IconWorld className="h-3 w-3" />
+              ) : analysis.visibility === "org" ? (
+                <IconUsersGroup className="h-3 w-3" />
+              ) : (
+                <IconLock className="h-3 w-3" />
+              )}
               {analysis.visibility === "public"
-                ? "Public"
+                ? t("analyses.public")
                 : analysis.visibility === "org"
-                  ? "Shared with org"
-                  : "Private"}
+                  ? t("analyses.sharedWithOrg")
+                  : t("analyses.private")}
             </span>
           </div>
 

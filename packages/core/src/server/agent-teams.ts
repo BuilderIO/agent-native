@@ -15,14 +15,24 @@
  * serverless cold starts and works across multiple processes.
  */
 
-import type { AgentChatEvent } from "../agent/types.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
   ActionEntry,
   AgentLoopFinalResponseGuard,
 } from "../agent/production-agent.js";
-import { actionsToEngineTools } from "../agent/production-agent.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
-import { createThread } from "../chat-threads/store.js";
+import {
+  actionsToEngineTools,
+  filterInitialEngineTools,
+  resolveAgentRequestReasoningEffort,
+} from "../agent/production-agent.js";
+import {
+  runAgentLoop,
+  appendAgentLoopContinuation,
+} from "../agent/production-agent.js";
 import {
   abortRun,
   getActiveRunForThreadAsync,
@@ -32,16 +42,36 @@ import {
   type ActiveRun,
 } from "../agent/run-manager.js";
 import { getRunEventsSince } from "../agent/run-store.js";
-import {
-  runAgentLoop,
-  appendAgentLoopContinuation,
-} from "../agent/production-agent.js";
+import { resolveMaxSubagentDelegationDepth } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
+import {
+  readAppState,
+  writeAppState,
+  listAppState,
+  deleteAppState,
+} from "../application-state/script-helpers.js";
+import { createThread } from "../chat-threads/store.js";
+import type {
+  BackgroundAgentRun,
+  BackgroundAgentRunStatus,
+  BackgroundAgentTranscriptEvent,
+} from "../code-agents/background-run.js";
+import type {
+  BackgroundAgentController,
+  BackgroundAgentControlInput,
+  BackgroundAgentControlResult,
+  BackgroundAgentFollowUpInput,
+  ListBackgroundAgentRunsOptions,
+} from "../code-agents/index.js";
+import { describeDbError } from "../db/client.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 import {
   completeRun as completeProgressRun,
   startRun as startProgressRun,
@@ -61,31 +91,92 @@ import {
   RUN_PROCESSING_STUCK_AFTER_MS,
   type AgentTeamRunPayload,
 } from "./agent-teams-run-queue.js";
-import { describeDbError } from "../db/client.js";
-import { fireInternalDispatch } from "./self-dispatch.js";
-import { resolveOrgIdForEmail } from "../org/context.js";
-import type {
-  BackgroundAgentRun,
-  BackgroundAgentRunStatus,
-  BackgroundAgentTranscriptEvent,
-} from "../code-agents/background-run.js";
-import type {
-  BackgroundAgentController,
-  BackgroundAgentControlInput,
-  BackgroundAgentControlResult,
-  BackgroundAgentFollowUpInput,
-  ListBackgroundAgentRunsOptions,
-} from "../code-agents/index.js";
-import {
-  readAppState,
-  writeAppState,
-  listAppState,
-  deleteAppState,
-} from "../application-state/script-helpers.js";
 import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "./request-context.js";
+import { fireInternalDispatch } from "./self-dispatch.js";
+
+/**
+ * Ambient delegation depth for the agent whose run is currently executing.
+ *
+ * `processAgentTeamRun` runs each sub-agent inside `runWithDelegationDepth(d)`
+ * where `d` is that sub-agent's own depth. So if a sub-agent calls `spawnTask`
+ * (e.g. because tool-stripping was bypassed and it was handed the `agent-teams`
+ * tool anyway), the spawn path reads its parent's depth from here and refuses
+ * once the cap is reached — independent of any tool-level guard. The top-level
+ * chat runs outside this storage, so its ambient depth is 0.
+ */
+const delegationDepthStorage = new AsyncLocalStorage<number>();
+
+/**
+ * Run `fn` with `depth` recorded as the ambient delegation depth so any
+ * `spawnTask` call made transitively from `fn` knows the depth of the agent
+ * doing the spawning.
+ */
+function runWithDelegationDepth<T>(
+  depth: number,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return delegationDepthStorage.run(Math.max(0, Math.floor(depth || 0)), fn);
+}
+
+/** Depth of the agent currently executing (0 = top-level chat). */
+function currentAmbientDelegationDepth(): number {
+  return delegationDepthStorage.getStore() ?? 0;
+}
+
+/**
+ * Public read of the ambient sub-agent delegation depth for the currently
+ * executing agent. 0 = the top-level (user-facing) chat; 1+ = a spawned
+ * sub-agent. Used by the chat plugin to thread the depth into
+ * `buildRuntimeContextPrompt` so a sub-agent at the cap is told it can't
+ * delegate further. Mirrors `currentAmbientDelegationDepth`; exported under a
+ * descriptive name so callers outside this module don't depend on the private
+ * helper or the test-only export object.
+ */
+export function getCurrentDelegationDepth(): number {
+  return currentAmbientDelegationDepth();
+}
+
+export interface SubagentDepthDecision {
+  /** Whether the spawn is allowed under the depth cap. */
+  allowed: boolean;
+  /** Depth of the agent doing the spawning (parent). */
+  parentDepth: number;
+  /** Depth the spawned sub-agent would have (parentDepth + 1). */
+  childDepth: number;
+  /** The effective cap (resolved from env, clamped). */
+  maxDepth: number;
+  /** Human-readable refusal message when `allowed` is false. */
+  error?: string;
+}
+
+/**
+ * Decide whether an agent at `parentDepth` may spawn another sub-agent. The
+ * child would sit at `parentDepth + 1`; a child deeper than `maxDepth` is
+ * refused. Pure + exported so the enforcement is unit-testable and reusable.
+ */
+export function evaluateSubagentDepth(
+  parentDepth: number,
+  env: Record<string, string | undefined> = process.env,
+): SubagentDepthDecision {
+  const safeParentDepth = Number.isFinite(parentDepth)
+    ? Math.max(0, Math.floor(parentDepth))
+    : 0;
+  const childDepth = safeParentDepth + 1;
+  const maxDepth = resolveMaxSubagentDelegationDepth(env);
+  const allowed = childDepth <= maxDepth;
+  return {
+    allowed,
+    parentDepth: safeParentDepth,
+    childDepth,
+    maxDepth,
+    error: allowed
+      ? undefined
+      : `Delegation depth limit reached (max ${maxDepth}); cannot spawn another sub-agent.`,
+  };
+}
 
 /** Framework route the self-fire dispatch targets to run a queued sub-agent in
  * a fresh function invocation. Mounted inside the agent-chat plugin (where the
@@ -112,6 +203,12 @@ export interface AgentTask {
   completedAt?: number;
   runId?: string;
   error?: string;
+  /**
+   * Delegation depth of THIS sub-agent: 1 for a sub-agent spawned by the
+   * top-level chat, 2 for a sub-agent spawned by a depth-1 sub-agent, etc.
+   * Drives the runaway-delegation guardrail (see `evaluateSubagentDepth`).
+   */
+  delegationDepth?: number;
 }
 
 export type AgentTeamBackgroundRun = Omit<
@@ -494,6 +591,11 @@ function createTaskMessageFinalGuard(
       retryMessage: formatQueuedTaskMessages(queuedMessages),
       fallbackMessage:
         "I received an orchestrator update while finishing, but could not continue from it. Please check the task status and send the update again if needed.",
+      // A queued update can introduce a request for an action that was
+      // deferred behind tool-search. The retry is already a corrective turn,
+      // so expose the full authorized registry rather than making the
+      // sub-agent spend that turn rediscovering the same tool.
+      expandToolSurface: true,
     };
   };
 }
@@ -1068,7 +1170,11 @@ function summarizeAgentChatEvent(event: RunEvent): {
         metadata: { reason: payload.reason },
       };
     case "clear":
-      return null;
+      return {
+        kind: "status",
+        message: "",
+        metadata: { agentChatEventType: "clear" },
+      };
     case "agent_call":
       return {
         kind: "status",
@@ -1142,6 +1248,31 @@ export interface SpawnTaskOptions {
   parentThreadId?: string;
   /** Display name for the sub-agent tab (carried into the dispatch payload). */
   name?: string;
+  /**
+   * Delegation depth of the agent doing the spawning (the parent). Top-level
+   * chat is 0. When omitted, the depth is read from the ambient run context
+   * (set by `processAgentTeamRun` when a sub-agent is itself running), so a
+   * sub-agent that reaches `spawnTask` inherits its own depth automatically.
+   * The spawned sub-agent's depth is `parentDelegationDepth + 1`.
+   */
+  parentDelegationDepth?: number;
+}
+
+/**
+ * Error thrown when a spawn is refused because it would exceed the delegation
+ * depth cap. Carries the structured decision so callers (and the tool layer)
+ * can surface a precise message to the parent agent.
+ */
+export class SubagentDelegationDepthError extends Error {
+  readonly decision: SubagentDepthDecision;
+  constructor(decision: SubagentDepthDecision) {
+    super(
+      decision.error ??
+        `Delegation depth limit reached (max ${decision.maxDepth}); cannot spawn another sub-agent.`,
+    );
+    this.name = "SubagentDelegationDepthError";
+    this.decision = decision;
+  }
 }
 
 /**
@@ -1149,6 +1280,21 @@ export interface SpawnTaskOptions {
  * and emits agent_task events to the parent chat stream.
  */
 export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
+  // ── Delegation-depth guardrail ────────────────────────────────────────────
+  // Defensive, server-side enforcement that holds regardless of any tool-level
+  // stripping in the agent-chat plugin: a sub-agent cannot infinitely spawn
+  // sub-agents. The spawning agent's depth comes from the explicit option or,
+  // failing that, the ambient depth recorded while a sub-agent run executes.
+  const parentDepth =
+    typeof opts.parentDelegationDepth === "number"
+      ? opts.parentDelegationDepth
+      : currentAmbientDelegationDepth();
+  const decision = evaluateSubagentDepth(parentDepth);
+  if (!decision.allowed) {
+    throw new SubagentDelegationDepthError(decision);
+  }
+  const childDepth = decision.childDepth;
+
   const taskId = generateTaskId();
 
   // Create a dedicated thread for the sub-agent with the task as the first message
@@ -1205,6 +1351,7 @@ export async function spawnTask(opts: SpawnTaskOptions): Promise<AgentTask> {
     updatedAt: createdAt,
     startedAt: createdAt,
     runId,
+    delegationDepth: childDepth,
   };
 
   await saveTask(task);
@@ -1464,6 +1611,16 @@ export interface AgentTeamRunConfig {
   actions: Record<string, ActionEntry>;
   engine: AgentEngine;
   model: string;
+  /**
+   * Tool names to expose on the FIRST engine request for this sub-agent
+   * chunk. See `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) —
+   * same semantics: when provided, every other action in `actions` is
+   * deferred behind an attached `tool-search` entry instead of being
+   * serialized on every chunk; `runAgentLoop`'s mid-run tool expansion still
+   * lets the model discover and call them after a search. Omit to keep the
+   * full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
 }
 
 export interface ProcessAgentTeamRunOptions {
@@ -1574,11 +1731,19 @@ export async function processAgentTeamRun(
         ];
       }
 
+      const initialToolNames = config.initialToolNames;
+      // Only attach tool-search (and pay its schema cost) when the caller
+      // actually supplied an initial subset to filter down to — otherwise
+      // this is byte-for-byte the prior unfiltered behavior.
+      const baseActions = initialToolNames
+        ? attachToolSearch({ ...config.actions })
+        : config.actions;
       const messageAwareActions = createMessageAwareActions(
         opts.taskId,
-        config.actions,
+        baseActions,
       );
-      const tools = actionsToEngineTools(messageAwareActions);
+      const availableTools = actionsToEngineTools(messageAwareActions);
+      const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
       // the durable assistant message folds across chunks.
@@ -1628,7 +1793,10 @@ export async function processAgentTeamRun(
             const wrappedSend = (event: AgentChatEvent) => {
               send(event);
               if (event.type === "text") {
-                accumulatedText += event.text;
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
                 task.preview = accumulatedText.slice(-800);
                 const now = Date.now();
                 if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
@@ -1641,6 +1809,20 @@ export async function processAgentTeamRun(
                   });
                   if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
                 }
+              } else if (event.type === "clear") {
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
+                task.preview = "";
+                lastProgressSent = Date.now();
+                saveTask(task).catch((err) => {
+                  console.warn(
+                    `[agent-teams] clear save failed for task ${task.taskId}:`,
+                    describeDbError(err),
+                  );
+                });
+                if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
               } else if (event.type === "tool_start") {
                 task.currentStep = `Running ${event.tool}...`;
               } else if (event.type === "tool_done") {
@@ -1649,19 +1831,39 @@ export async function processAgentTeamRun(
             };
             await runWithRequestContext(
               { userEmail: ownerEmail || undefined, orgId: orgId ?? undefined },
-              async () => {
-                chunkUsage = await runAgentLoop({
-                  engine: config.engine,
-                  model: config.model,
-                  systemPrompt,
-                  tools,
-                  messages,
-                  actions: messageAwareActions,
-                  send: wrappedSend,
-                  signal,
-                  finalResponseGuard: createTaskMessageFinalGuard(opts.taskId),
-                });
-              },
+              // Record THIS sub-agent's own delegation depth as the ambient
+              // depth for the duration of its agent loop. If a tool call from
+              // within the loop reaches `spawnTask` (even with the team tool not
+              // stripped), the spawn path reads this depth and refuses once the
+              // cap is hit. Fall back to depth 1 for legacy tasks persisted
+              // before delegationDepth was tracked.
+              () =>
+                runWithDelegationDepth(task.delegationDepth ?? 1, async () => {
+                  chunkUsage = await runAgentLoop({
+                    engine: config.engine,
+                    model: config.model,
+                    // Agent-team runs are delegated turns too. Keep their
+                    // first attempt on the same model-aware budget as A2A /
+                    // MCP so reasoning models do not spend the old 4K
+                    // default before emitting a tool call or answer.
+                    maxOutputTokens: resolveMainChatMaxOutputTokens(
+                      config.model,
+                    ),
+                    reasoningEffort: resolveAgentRequestReasoningEffort({
+                      model: config.model,
+                    }),
+                    systemPrompt,
+                    tools,
+                    availableTools,
+                    messages,
+                    actions: messageAwareActions,
+                    send: wrappedSend,
+                    signal,
+                    finalResponseGuard: createTaskMessageFinalGuard(
+                      opts.taskId,
+                    ),
+                  });
+                }),
             );
           },
           async (run) => {
@@ -2049,4 +2251,7 @@ export const _agentTeamsQueueForTests = {
   drainQueuedTaskMessages,
   formatQueuedTaskMessages,
   resolveTaskCompletion,
+  evaluateSubagentDepth,
+  runWithDelegationDepth,
+  currentAmbientDelegationDepth,
 };

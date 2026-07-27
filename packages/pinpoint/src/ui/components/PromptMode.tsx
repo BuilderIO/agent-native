@@ -2,6 +2,7 @@
 // MIT License
 
 import { createSignal, onMount, type Component } from "solid-js";
+
 import { icons } from "../icons/index.js";
 
 interface PromptModeProps {

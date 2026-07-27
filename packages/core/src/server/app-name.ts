@@ -13,8 +13,9 @@
  *   5. `undefined` — caller should degrade gracefully
  */
 
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
+
 import { TEMPLATES } from "../cli/templates-meta.js";
 
 let cachedFromPkg: string | undefined | null = null;

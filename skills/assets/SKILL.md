@@ -33,7 +33,7 @@ but the local MCP config unwritten. Restart or reload the agent client after
 installing or connecting if the Assets tools do not appear in the live session.
 
 If this skill was installed with the Vercel/open Skills CLI
-(`npx skills add ...`), only the instructions were installed. That CLI does
+(`npx skills@latest add ...`), only the instructions were installed. That CLI does
 not run postinstall scripts or register MCP connectors, so the hosted MCP
 connector must be added separately:
 
@@ -50,7 +50,7 @@ npx @agent-native/core@latest connect https://dispatch.agent-native.com --client
 OAuth-capable hosts can add this remote MCP URL directly:
 
 ```text
-https://assets.agent-native.com/_agent-native/mcp
+https://assets.agent-native.com/mcp
 ```
 
 ## Use The Picker
@@ -105,9 +105,12 @@ dimensions, `presetId`, and `sessionId` when present.
 ## Guardrails
 
 - If an Assets tool call returns `Session terminated`, `needs auth`, or another
-  connector/session error, do not keep retrying the tool. Tell the user to
-  reconnect or authenticate the Assets MCP connector, then continue after it is
-  available.
+  connector/session error, do not keep retrying the tool. Stop and give the user
+  the reconnect step: in Claude Code run `/mcp` and choose
+  Authenticate/Reconnect for the Assets connector; from any terminal run
+  `npx -y @agent-native/core@latest reconnect https://assets.agent-native.com` — this
+  re-authenticates WITHOUT reinstalling. Never reinstall from scratch just to
+  fix auth. Continue once the connector is available.
 - Do not hand-roll MCP HTTP requests with curl from the agent session. Use the
   host-exposed Assets tools after restart/reload, or use the returned
   browser/deep-link fallback.

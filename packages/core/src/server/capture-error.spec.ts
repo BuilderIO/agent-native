@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 
 describe("server captureError", () => {

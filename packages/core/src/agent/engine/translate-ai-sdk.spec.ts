@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -50,6 +51,34 @@ describe("engineToolsToAISDK", () => {
     expect(wrapped).toHaveLength(1);
     expect(result.greet.inputSchema).toHaveProperty("_aiSdkWrapped", true);
     expect(result.greet.inputSchema.properties).toHaveProperty("name");
+  });
+
+  it("preserves full JSON Schema constraints when translating tools", () => {
+    const tools: EngineTool[] = [
+      {
+        name: "write",
+        description: "Write something",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sql: { type: "string", minLength: 1 },
+            statements: { type: "string", pattern: "^\\[" },
+          },
+          additionalProperties: false,
+          oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+        },
+      },
+    ];
+
+    const result = engineToolsToAISDK(tools);
+
+    expect(result.write.inputSchema).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      oneOf: [{ required: ["sql"] }, { required: ["statements"] }],
+    });
+    expect(result.write.inputSchema.properties.sql.minLength).toBe(1);
+    expect(result.write.inputSchema.properties.statements.pattern).toBe("^\\[");
   });
 });
 
@@ -211,6 +240,81 @@ describe("engineMessagesToAISDK", () => {
     expect(reasoning).toBeDefined();
     expect(reasoning.text).toBe("reasoning about the problem");
     expect(reasoning.providerOptions?.anthropic?.signature).toBe("sig-abc");
+  });
+});
+
+describe("engineMessagesToAISDK tool-result images", () => {
+  const messagesWithImages = (
+    images: import("./types.js").EngineToolResultImagePart[],
+    isError = false,
+  ): EngineMessage[] => [
+    {
+      role: "user",
+      content: [
+        {
+          type: "tool-result",
+          toolCallId: "tc-1",
+          toolName: "screenshot",
+          toolInput: "{}",
+          content: "Captured",
+          images,
+          ...(isError ? { isError: true } : {}),
+        },
+      ],
+    },
+  ];
+
+  const firstToolResult = (result: any[]) =>
+    (result[0].content as any[]).find((p: any) => p.type === "tool-result");
+
+  it("emits content output with image-url and image-data when enabled", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([
+        { url: "https://cdn.example.com/shot.png" },
+        { data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ]),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "content",
+      value: [
+        { type: "text", text: "Captured" },
+        { type: "image-url", url: "https://cdn.example.com/shot.png" },
+        { type: "image-data", data: "aGVsbG8=", mediaType: "image/jpeg" },
+      ],
+    });
+  });
+
+  it("degrades to plain text output when the flag is off (default)", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ url: "https://cdn.example.com/shot.png" }]),
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "text",
+      value: "Captured",
+    });
+  });
+
+  it("degrades to plain text output when all image entries are malformed", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ label: "nothing usable" } as any]),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "text",
+      value: "Captured",
+    });
+  });
+
+  it("keeps error-text output for error results even with images", () => {
+    const result = engineMessagesToAISDK(
+      messagesWithImages([{ url: "https://cdn.example.com/shot.png" }], true),
+      { toolResultImages: true },
+    );
+    expect(firstToolResult(result).output).toEqual({
+      type: "error-text",
+      value: "Captured",
+    });
   });
 });
 

@@ -5,7 +5,7 @@
   "description": "Create, search, select, and export brand image and video assets from the Assets app.",
   "hosted": {
     "url": "https://assets.agent-native.com",
-    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://assets.agent-native.com/mcp"
   },
   "mcp": {
     "serverName": "agent-native-assets"
@@ -34,6 +34,10 @@
     }
   ],
   "skills": [
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    },
     {
       "path": ".agents/skills/asset-generation",
       "visibility": "both",

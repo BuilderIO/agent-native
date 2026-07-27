@@ -30,8 +30,9 @@ function escapeRegExp(value: string): string {
 
 function countOccurrences(haystack: string, needle: string): number {
   if (!needle) return 0;
-  // Step by 1 (not by needle length) so self-overlapping matches — e.g. "aa"
-  // inside "aaa" — are both counted and treated as ambiguous, not unique.
+  // Step by 1 (not by needle length) so self-overlapping matches are counted.
+  // A count > 1 does NOT immediately throw — Strategy 2 runs first and may
+  // still resolve a unique non-overlapping match.
   let count = 0;
   let idx = haystack.indexOf(needle);
   while (idx !== -1) {
@@ -61,11 +62,10 @@ export function applyOneEdit(
   // Strategy 1 — exact substring.
   const exact = countOccurrences(content, search);
   if (exact === 1) return content.split(search).join(replace);
-  if (exact > 1) {
-    throw new Error(
-      `Edit ${index + 1}: "search" matched ${exact} places — add more surrounding context so it matches exactly one location.`,
-    );
-  }
+  // When exact > 1 (including self-overlapping matches), fall through to
+  // Strategy 2 before declaring ambiguity. Strategy 2 uses a non-overlapping
+  // regex scan, so a search string that appears self-overlapping under Strategy
+  // 1 may still resolve to a single unique whitespace-flexible match.
 
   // Strategy 2 — whitespace-flexible.
   const pattern = escapeRegExp(search).replace(/\s+/g, "\\s+");
@@ -77,8 +77,12 @@ export function applyOneEdit(
     return content.replace(re, () => replace);
   }
   if (flexible > 1) {
+    const detail =
+      exact > 1
+        ? `${exact} places (exact) and ${flexible} places (whitespace-insensitive)`
+        : `${flexible} places (whitespace-insensitive)`;
     throw new Error(
-      `Edit ${index + 1}: "search" matched ${flexible} places (whitespace-insensitive) — add more surrounding context.`,
+      `Edit ${index + 1}: "search" matched ${detail} — add more surrounding context so it matches exactly one location.`,
     );
   }
 

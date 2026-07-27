@@ -3,7 +3,19 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { AgentConversationMessageView } from "./AgentConversation.js";
+
+vi.mock("../extensions/InlineExtensionFrame.js", () => ({
+  InlineExtensionFrame: ({ extensionId, extension }: any) => (
+    <div
+      data-testid="conversation-inline-extension"
+      data-extension-id={extensionId ?? extension?.id}
+    >
+      {extension?.name}
+    </div>
+  ),
+}));
 
 describe("AgentConversationMessageView", () => {
   let container: HTMLDivElement;
@@ -81,6 +93,53 @@ describe("AgentConversationMessageView", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(container.textContent).not.toContain("generate-design");
+  });
+
+  it("renders native inline extension tool UI", async () => {
+    await act(async () => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "render-inline-extension",
+                  state: "completed",
+                  result: JSON.stringify({
+                    ok: true,
+                    inlineExtension: {
+                      mode: "transient",
+                      id: "inline-1",
+                      name: "Knobs",
+                      content: "<div>Knobs</div>",
+                    },
+                  }),
+                  chatUI: { renderer: "core.inline-extension" },
+                },
+              },
+            ],
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(
+      container.querySelector('[data-testid="conversation-inline-extension"]'),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("Knobs");
+    expect(container.textContent).not.toContain("render inline extension");
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("border");
   });
 
   it("opens markdown links in a new external window", () => {

@@ -2,8 +2,9 @@ import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
-import type { UserSettings } from "../shared/types.js";
+
 import { normalizeSignature } from "../shared/signature.js";
+import type { UserSettings } from "../shared/types.js";
 
 const settingsSchema = z.object({
   name: z.string().optional().describe("Display name for local fallback mail"),

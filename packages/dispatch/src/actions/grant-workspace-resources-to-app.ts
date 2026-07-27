@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
+
 import { grantWorkspaceResourcesToApp } from "../server/lib/workspace-resources-store.js";
 
 export default defineAction({

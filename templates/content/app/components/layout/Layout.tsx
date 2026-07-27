@@ -1,3 +1,10 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
+import { IconMenu2 } from "@tabler/icons-react";
 import {
   type CSSProperties,
   ReactNode,
@@ -6,21 +13,21 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useNavigation } from "react-router";
+
+import { DocumentEditorSkeleton } from "@/components/editor/DocumentEditorSkeleton";
 import { DocumentSidebar } from "@/components/sidebar/DocumentSidebar";
-import { useCreatePage } from "@/hooks/use-create-page";
-import { AgentSidebar } from "@agent-native/core/client";
-import { InvitationBanner } from "@agent-native/core/client/org";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { IconMenu2 } from "@tabler/icons-react";
+import { useCreatePage } from "@/hooks/use-create-page";
+import { useIsMobile } from "@/hooks/use-mobile";
+
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
+const NARROW_DESKTOP_QUERY = "(max-width: 1099px)";
 
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
@@ -38,14 +45,43 @@ function loadSidebarWidth(): number {
   return DEFAULT_SIDEBAR_WIDTH;
 }
 
+function useIsNarrowDesktop() {
+  const [isNarrow, setIsNarrow] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(NARROW_DESKTOP_QUERY).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(NARROW_DESKTOP_QUERY);
+    const update = () => setIsNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return isNarrow;
+}
+
+export function documentPageIdFromPathname(pathname: string) {
+  return pathname.match(/^\/page\/(.+)/)?.[1] ?? null;
+}
+
 interface LayoutProps {
   children: ReactNode;
 }
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
-  const activeDocumentId =
-    location.pathname.match(/^\/page\/([^/]+)/)?.[1] ?? null;
+  const navigation = useNavigation();
+  const pendingPathname = navigation.location?.pathname ?? null;
+  const chromePathname = pendingPathname ?? location.pathname;
+  const t = useT();
+  const currentDocumentId = documentPageIdFromPathname(location.pathname);
+  const pendingDocumentId = pendingPathname
+    ? documentPageIdFromPathname(pendingPathname)
+    : null;
+  const activeDocumentId = pendingDocumentId ?? currentDocumentId;
+  const showPendingDocumentSkeleton =
+    !!pendingDocumentId && pendingDocumentId !== currentDocumentId;
   // Bind chat to the currently-open document. Everywhere else (list view,
   // settings) leaves scope null so general chats stay available.
   const documentScope = useMemo(
@@ -56,6 +92,7 @@ export function Layout({ children }: LayoutProps) {
     [activeDocumentId],
   );
   const isMobile = useIsMobile();
+  const isNarrowDesktop = useIsNarrowDesktop();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -70,10 +107,10 @@ export function Layout({ children }: LayoutProps) {
   }, []);
 
   const showHeader = !NO_HEADER_PREFIXES.some((prefix) =>
-    location.pathname.startsWith(prefix),
+    chromePathname.startsWith(prefix),
   );
 
-  const createPage = useCreatePage();
+  const createPage = useCreatePage({ awaitPersist: false });
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
@@ -89,10 +126,16 @@ export function Layout({ children }: LayoutProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createPage]);
 
+  useEffect(() => {
+    if (isNarrowDesktop) {
+      window.dispatchEvent(new Event("agent-panel:close"));
+    }
+  }, [isNarrowDesktop]);
+
   const mobileSidebarTrigger = isMobile ? (
     <button
       type="button"
-      aria-label="Open sidebar"
+      aria-label={t("navigation.openSidebar")}
       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden"
       onClick={() => setMobileSidebarOpen(true)}
     >
@@ -107,7 +150,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
         {isMobile ? (
           <>
             <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
@@ -127,8 +170,8 @@ export function Layout({ children }: LayoutProps) {
             {showHeader ? null : (
               <button
                 type="button"
-                aria-label="Open sidebar"
-                className="fixed left-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
+                aria-label={t("navigation.openSidebar")}
+                className="fixed start-3 top-3 z-30 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground md:hidden"
                 onClick={() => setMobileSidebarOpen(true)}
               >
                 <IconMenu2 size={18} />
@@ -136,27 +179,32 @@ export function Layout({ children }: LayoutProps) {
             )}
           </>
         ) : (
-          <DocumentSidebar
-            activeDocumentId={activeDocumentId}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-            width={sidebarWidth}
-            onResize={handleSidebarResize}
-          />
+          <div className="agent-layout-left-drawer flex shrink-0">
+            <DocumentSidebar
+              activeDocumentId={activeDocumentId}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+              width={sidebarWidth}
+              onResize={handleSidebarResize}
+            />
+          </div>
         )}
         <AgentSidebar
           position="right"
-          defaultOpen={!isMobile}
-          emptyStateText="Ask me anything about your documents"
+          defaultOpen={false}
+          agentPageHref="/agent"
+          emptyStateText={t("chat.emptyState")}
           suggestions={[
-            "Draft a PRD for a new feature",
-            "Summarize this page in 5 bullets",
-            "Pull this page from Notion",
+            t("chat.suggestionPrd"),
+            t("chat.suggestionSummary"),
+            t("chat.suggestionNotion"),
           ]}
           scope={documentScope}
+          browserTabId={getBrowserTabId()}
+          composerSlot={<CreativeContextComposerChip />}
         >
           <main
-            className="relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+            className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
             style={
               {
                 "--content-sidebar-width": `${contentSidebarWidth}px`,
@@ -167,9 +215,13 @@ export function Layout({ children }: LayoutProps) {
               <Header sidebarTrigger={mobileSidebarTrigger} />
             ) : null}
             <InvitationBanner
-              className={`${showHeader ? "pl-4" : "pl-16"} sm:pl-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+              className={`${showHeader ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
             />
-            {children}
+            {showPendingDocumentSkeleton ? (
+              <DocumentEditorSkeleton />
+            ) : (
+              children
+            )}
           </main>
         </AgentSidebar>
       </div>

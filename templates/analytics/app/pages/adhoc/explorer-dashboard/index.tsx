@@ -1,16 +1,59 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
+  useSession,
+  useChangeVersions,
+  useActionMutation,
+  callAction,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
+  IconPlus,
+  IconTrash,
+  IconPencil,
+  IconArchive,
+  IconDots,
+  IconEye,
+  IconEyeOff,
+  IconGripVertical,
+  IconHistory,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { toast } from "sonner";
+
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,67 +64,38 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  IconPlus,
-  IconTrash,
-  IconPencil,
-  IconArchive,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-} from "@tabler/icons-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "sonner";
-import {
-  PresenceBar,
-  useCollaborativeDoc,
-  generateTabId,
-  emailToColor,
-  emailToName,
-  useSession,
-  useChangeVersions,
-  useActionMutation,
-  agentNativePath,
-  callAction,
-  type CollabUser,
-} from "@agent-native/core/client";
-import {
-  resourceCanEdit,
-  resourceCanManage,
-  type ResourceAccess,
-} from "@/lib/resource-access";
-import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { DashboardChartCard } from "./ChartCard";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useDashboardChatContext } from "@/hooks/use-dashboard-chat-context";
+import {
+  resourceCanEdit,
+  resourceCanManage,
+  type ResourceAccess,
+} from "@/lib/resource-access";
+
+import { DashboardSkeleton } from "../DashboardSkeleton";
+import { DashboardChartCard } from "./ChartCard";
 
 export interface DashboardChart {
   id: string;
@@ -103,36 +117,51 @@ const TAB_ID = generateTabId();
 
 type FetchedExplorerDashboard = {
   data: ExplorerDashboardData;
+  ownerEmail: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
   archivedAt: string | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
 } & ResourceAccess;
 
+function ExplorerDashboardDragPreview({ title }: { title: string | null }) {
+  if (!title) return null;
+
+  return (
+    <div className="explorer-dashboard-drag-preview flex max-w-64 items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-lg ring-1 ring-primary/20">
+      <IconGripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{title}</span>
+    </div>
+  );
+}
+
 async function fetchDashboard(
   id: string,
 ): Promise<FetchedExplorerDashboard | null> {
-  try {
-    const raw: any = await callAction(
-      "get-explorer-dashboard",
-      { id },
-      { method: "GET" },
-    );
-    if (!raw) return null;
-    return {
-      data: {
-        name: raw.name ?? "Untitled Dashboard",
-        charts: raw.charts ?? [],
-      },
-      archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
-      hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
-      hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
-      role: typeof raw.role === "string" ? raw.role : undefined,
-      canEdit: typeof raw.canEdit === "boolean" ? raw.canEdit : undefined,
-      canManage: typeof raw.canManage === "boolean" ? raw.canManage : undefined,
-    };
-  } catch {
-    return null;
-  }
+  const raw: any = await callAction(
+    "get-explorer-dashboard",
+    { id },
+    { method: "GET" },
+  );
+  if (!raw) return null;
+  return {
+    data: {
+      name: raw.name ?? "Untitled Dashboard",
+      charts: raw.charts ?? [],
+    },
+    ownerEmail: typeof raw.ownerEmail === "string" ? raw.ownerEmail : null,
+    createdAt: typeof raw.createdAt === "string" ? raw.createdAt : null,
+    updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    updatedBy: typeof raw.updatedBy === "string" ? raw.updatedBy : null,
+    archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
+    hiddenAt: typeof raw.hiddenAt === "string" ? raw.hiddenAt : null,
+    hiddenBy: typeof raw.hiddenBy === "string" ? raw.hiddenBy : null,
+    role: typeof raw.role === "string" ? raw.role : undefined,
+    canEdit: typeof raw.canEdit === "boolean" ? raw.canEdit : undefined,
+    canManage: typeof raw.canManage === "boolean" ? raw.canManage : undefined,
+  };
 }
 
 async function saveDashboard(id: string, data: ExplorerDashboardData) {
@@ -143,27 +172,30 @@ async function saveDashboard(id: string, data: ExplorerDashboardData) {
 }
 
 async function fetchSavedConfigs(): Promise<SavedConfig[]> {
-  try {
-    const rows = await callAction(
-      "list-explorer-configs",
-      {},
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : [])
-      .filter((c: any) => c.id !== "_autosave")
-      .map((c: any) => ({ id: c.id, name: c.name }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-explorer-configs", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : [])
+    .filter((c: any) => c.id !== "_autosave")
+    .map((c: any) => ({ id: c.id, name: c.name }));
 }
 
 export default function ExplorerDashboardPage() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const dashboardId = searchParams.get("id");
 
   const [dashboard, setDashboard] = useState<ExplorerDashboardData | null>(
+    null,
+  );
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
     null,
   );
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
@@ -177,8 +209,20 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
+  const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
+    null,
+  );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: dashboardId,
+    kind: "explorer",
+    title: dashboard?.name,
+    panelCount: dashboard?.charts.length,
+    canEdit,
+  });
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
@@ -244,11 +288,12 @@ export default function ExplorerDashboardPage() {
     [collabDocId],
   );
 
-  const { data: savedConfigs = [] } = useQuery({
+  const savedConfigsQuery = useQuery({
     queryKey: ["explorer-configs"],
     queryFn: fetchSavedConfigs,
     staleTime: 30_000,
   });
+  const savedConfigs = savedConfigsQuery.data ?? [];
 
   // Refetch the dashboard whenever the `dashboards` source bumps OR any agent
   // action runs — the same "agent writes show up without a manual refresh"
@@ -282,6 +327,10 @@ export default function ExplorerDashboardPage() {
     if (!dashboardId) return;
     setLoaded(false);
     setDashboard(null);
+    setDashboardOwner(null);
+    setDashboardCreatedAt(null);
+    setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setHiddenAt(null);
     setHiddenBy(null);
     setResourceAccess(null);
@@ -293,6 +342,10 @@ export default function ExplorerDashboardPage() {
     const d = dashboardQuery.data;
     if (d) {
       setDashboard(d.data);
+      setDashboardOwner(d.ownerEmail);
+      setDashboardCreatedAt(d.createdAt);
+      setDashboardUpdatedAt(d.updatedAt);
+      setDashboardUpdatedBy(d.updatedBy);
       setArchivedAt(d.archivedAt);
       setHiddenAt(d.hiddenAt);
       setHiddenBy(d.hiddenBy);
@@ -302,7 +355,14 @@ export default function ExplorerDashboardPage() {
         canManage: d.canManage,
       });
     } else {
-      setDashboard({ name: "Untitled Dashboard", charts: [] });
+      setDashboard({
+        name: t("explorerDashboard.untitledDashboard"),
+        charts: [],
+      });
+      setDashboardOwner(null);
+      setDashboardCreatedAt(null);
+      setDashboardUpdatedAt(null);
+      setDashboardUpdatedBy(null);
       setArchivedAt(null);
       setHiddenAt(null);
       setHiddenBy(null);
@@ -325,11 +385,17 @@ export default function ExplorerDashboardPage() {
       queryClient.invalidateQueries({
         queryKey: ["explorer-dashboards-palette"],
       });
-      toast.success(`Archived "${dashboard?.name ?? "dashboard"}"`);
-      navigate("/adhoc/explorer");
+      toast.success(
+        t("explorerDashboard.archived", {
+          name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
+        }),
+      );
+      navigate("/dashboards/explorer");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't archive dashboard",
+        err instanceof Error
+          ? err.message
+          : t("explorerDashboard.archiveFailed"),
       );
     }
   }, [
@@ -356,10 +422,16 @@ export default function ExplorerDashboardPage() {
       queryClient.invalidateQueries({
         queryKey: ["data", "explorer-dashboard", dashboardId],
       });
-      toast.success(`Unhid "${dashboard?.name ?? "dashboard"}"`);
+      toast.success(
+        t("explorerDashboard.unhid", {
+          name: dashboard?.name ?? t("explorerDashboard.dashboardFallback"),
+        }),
+      );
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Couldn't unhide dashboard",
+        err instanceof Error
+          ? err.message
+          : t("explorerDashboard.unhideFailed"),
       );
     }
   }, [dashboardId, dashboard?.name, hideDashboardAction, queryClient]);
@@ -368,9 +440,7 @@ export default function ExplorerDashboardPage() {
     (updated: ExplorerDashboardData) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        toast.error(
-          "You can view this dashboard, but only editors can change it.",
-        );
+        toast.error(t("explorerDashboard.viewOnly"));
         return;
       }
       setDashboard(updated);
@@ -439,8 +509,13 @@ export default function ExplorerDashboardPage() {
     }),
   );
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragChartId(String(event.active.id));
+  }, []);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setActiveDragChartId(null);
       if (!dashboard || !canEdit) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
@@ -455,9 +530,13 @@ export default function ExplorerDashboardPage() {
     [dashboard, canEdit, persist],
   );
 
+  const handleDragCancel = useCallback(() => {
+    setActiveDragChartId(null);
+  }, []);
+
   const handleSaveName = useCallback(() => {
     if (!dashboard || !canEdit) return;
-    const name = nameInput.trim() || "Untitled Dashboard";
+    const name = nameInput.trim() || t("explorerDashboard.untitledDashboard");
     persist({ ...dashboard, name });
     setEditingName(false);
   }, [dashboard, canEdit, nameInput, persist]);
@@ -465,7 +544,7 @@ export default function ExplorerDashboardPage() {
   useSetPageTitle(
     !dashboardId ? (
       <h1 className="text-lg font-semibold tracking-tight truncate">
-        Dashboard
+        {t("explorerDashboard.dashboard")}
       </h1>
     ) : dashboard ? (
       <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -479,39 +558,35 @@ export default function ExplorerDashboardPage() {
   if (!dashboardId) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        No dashboard selected
+        {t("explorerDashboard.noDashboardSelected")}
       </div>
     );
   }
 
-  if (!loaded) {
-    // Match the eventual DashboardChartCard layout (Card chrome + title row +
-    // chart-body skeleton) so the transition from "dashboard config loading"
-    // to "queries loading" doesn't morph skeleton shape — the title text just
-    // fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
-    // panels and the page visibly shifts.
+  if (dashboardQuery.isError) {
     return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {[0, 1].map((i) => (
-            <Card key={i} className="flex flex-col overflow-visible">
-              <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
     );
+  }
+
+  if (!loaded) {
+    return <DashboardSkeleton />;
   }
 
   if (!dashboard) return null;
 
   // Config name lookup
   const configNameMap = new Map(savedConfigs.map((c) => [c.id, c.name]));
+  const activeDragChart = activeDragChartId
+    ? (dashboard.charts.find((chart) => chart.id === activeDragChartId) ?? null)
+    : null;
+  const activeDragChartTitle = activeDragChart
+    ? (configNameMap.get(activeDragChart.configId) ?? activeDragChart.configId)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -519,8 +594,7 @@ export default function ExplorerDashboardPage() {
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
           <IconEyeOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0 flex-1">
-            This dashboard is hidden from regular lists. It remains searchable
-            and openable by direct link.
+            {t("explorerDashboard.hiddenDescription")}
           </span>
           <Button
             size="sm"
@@ -530,7 +604,7 @@ export default function ExplorerDashboardPage() {
             className="shrink-0 border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/70"
           >
             <IconEye className="mr-1.5 h-3.5 w-3.5" />
-            Unhide
+            {t("sidebar.unhide")}
           </Button>
         </div>
       ) : null}
@@ -577,11 +651,14 @@ export default function ExplorerDashboardPage() {
           {canEdit ? (
             <Button size="sm" onClick={() => setAddChartOpen(true)}>
               <IconPlus className="h-4 w-4 mr-1" />
-              Add Chart
+              {t("explorerDashboard.addChart")}
             </Button>
           ) : null}
-          {canEdit || canManage ? (
-            <DropdownMenu>
+          {dashboardId || canEdit || canManage ? (
+            <DropdownMenu
+              open={dashboardActionsOpen}
+              onOpenChange={setDashboardActionsOpen}
+            >
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
@@ -589,19 +666,48 @@ export default function ExplorerDashboardPage() {
                       size="sm"
                       variant="ghost"
                       className="text-muted-foreground hover:text-foreground"
-                      aria-label="Dashboard actions"
+                      aria-label={t("explorerDashboard.dashboardActions")}
                     >
                       <IconDots className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>More actions</TooltipContent>
+                <TooltipContent>
+                  {t("explorerDashboard.moreActions")}
+                </TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-72">
+                {dashboardId ? (
+                  <>
+                    <DropdownMenuLabel className="font-normal">
+                      <DashboardMetadata
+                        createdAt={dashboardCreatedAt}
+                        createdBy={dashboardOwner}
+                        updatedAt={dashboardUpdatedAt}
+                        updatedBy={dashboardUpdatedBy}
+                      />
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setDashboardActionsOpen(false);
+                        setHistoryOpen(true);
+                      }}
+                    >
+                      <IconHistory className="mr-2 h-3.5 w-3.5" />
+                      {t("dashboard.historyTitle")}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+                {dashboardId && canEdit && !archivedAt ? (
+                  <DropdownMenuSeparator />
+                ) : null}
                 {canEdit && !archivedAt ? (
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       void handleArchive();
                     }}
                   >
@@ -616,16 +722,25 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
+                      setDashboardActionsOpen(false);
                       setConfirmDeleteOpen(true);
                     }}
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="mr-2 h-3.5 w-3.5" />
-                    Delete permanently
+                    {t("explorerDashboard.deletePermanently")}
                   </DropdownMenuItem>
                 ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+          {dashboardId ? (
+            <DashboardHistoryPanel
+              dashboardId={dashboardId}
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              canRestore={canEdit && !archivedAt}
+            />
           ) : null}
           {canManage ? (
             <AlertDialog
@@ -634,15 +749,17 @@ export default function ExplorerDashboardPage() {
             >
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+                  <AlertDialogTitle>
+                    {t("explorerDashboard.deletePermanentlyTitle")}
+                  </AlertDialogTitle>
                   <AlertDialogDescription>
-                    This permanently deletes &ldquo;{dashboard.name}&rdquo; and
-                    cannot be undone. To keep it recoverable, choose Archive
-                    instead.
+                    {t("explorerDashboard.deletePermanentlyDescription", {
+                      name: dashboard.name,
+                    })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={async () => {
                       if (!dashboardId || !canManage) return;
@@ -657,18 +774,20 @@ export default function ExplorerDashboardPage() {
                           queryKey: ["explorer-dashboards-palette"],
                         });
                         setConfirmDeleteOpen(false);
-                        navigate("/adhoc/explorer");
+                        navigate("/dashboards/explorer");
                       } catch (err) {
                         toast.error(
                           err instanceof Error
                             ? err.message
-                            : "Couldn't delete dashboard",
+                            : t("sidebar.deleteFailed", {
+                                name: dashboard.name,
+                              }),
                         );
                       }
                     }}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   >
-                    Delete permanently
+                    {t("explorerDashboard.deletePermanently")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -681,9 +800,7 @@ export default function ExplorerDashboardPage() {
       {dashboard.charts.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
-            <p>
-              No charts yet. Add saved explorer charts to build your dashboard.
-            </p>
+            <p>{t("explorerDashboard.noChartsYet")}</p>
             {canEdit ? (
               <Button
                 size="sm"
@@ -691,7 +808,7 @@ export default function ExplorerDashboardPage() {
                 onClick={() => setAddChartOpen(true)}
               >
                 <IconPlus className="h-4 w-4 mr-1" />
-                Add Chart
+                {t("explorerDashboard.addChart")}
               </Button>
             ) : null}
           </CardContent>
@@ -700,13 +817,18 @@ export default function ExplorerDashboardPage() {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          onDragStart={canEdit ? handleDragStart : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragCancel={handleDragCancel}
         >
           <SortableContext
             items={dashboard.charts.map((c) => c.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div
+              className="explorer-dashboard-grid grid grid-cols-1 gap-4"
+              data-dashboard-dragging={activeDragChartId ? "true" : undefined}
+            >
               {dashboard.charts.map((chart) => (
                 <DashboardChartCard
                   key={chart.id}
@@ -717,13 +839,18 @@ export default function ExplorerDashboardPage() {
                   onRemove={() => removeChart(chart.id)}
                   onToggleWidth={() => toggleWidth(chart.id)}
                   onEdit={() =>
-                    navigate(`/adhoc/explorer?config=${chart.configId}`)
+                    navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
+                  selectedForChat={selectedPanelId === chart.id}
+                  selectPanelForChat={selectPanelForChat}
                 />
               ))}
             </div>
           </SortableContext>
+          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+            <ExplorerDashboardDragPreview title={activeDragChartTitle} />
+          </DragOverlay>
         </DndContext>
       )}
 
@@ -732,13 +859,19 @@ export default function ExplorerDashboardPage() {
         <Dialog open={addChartOpen} onOpenChange={setAddChartOpen}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Add Chart</DialogTitle>
+              <DialogTitle>{t("explorerDashboard.addChart")}</DialogTitle>
             </DialogHeader>
             <div className="max-h-[400px] overflow-auto space-y-1">
-              {savedConfigs.length === 0 ? (
+              {savedConfigsQuery.isError ? (
+                <ResourceLoadError
+                  inline
+                  message={t("commandPalette.loadFailed")}
+                  retryLabel={t("sidebar.retry")}
+                  onRetry={() => void savedConfigsQuery.refetch()}
+                />
+              ) : savedConfigs.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">
-                  No saved explorer charts yet. Create one in the Explorer tool
-                  first.
+                  {t("explorerDashboard.noSavedExplorerCharts")}
                 </p>
               ) : (
                 savedConfigs.map((config) => (
@@ -755,7 +888,7 @@ export default function ExplorerDashboardPage() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setAddChartOpen(false)}>
-                Cancel
+                {t("sidebar.cancel")}
               </Button>
             </DialogFooter>
           </DialogContent>

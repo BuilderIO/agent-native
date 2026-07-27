@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { describeCron, isValidCron, nextOccurrence } from "./cron.js";
 
 describe("isValidCron", () => {

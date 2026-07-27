@@ -1,9 +1,9 @@
-import type { PlanContent } from "./plan-content.js";
 import {
   PLAN_COMMENT_RESOLUTION_TARGETS,
   type PlanCommentMention,
   type PlanCommentResolutionTarget,
 } from "./comment-context.js";
+import type { PlanContent } from "./plan-content.js";
 
 export {
   PLAN_COMMENT_RESOLUTION_TARGETS,
@@ -62,6 +62,20 @@ export const PLAN_COMMENT_STATUSES = ["open", "resolved"] as const;
 
 export const PLAN_AUTHORS = ["agent", "human", "import"] as const;
 
+export const PLAN_REPORT_REASONS = [
+  "spam",
+  "harassment",
+  "hate",
+  "sexual",
+  "violence",
+  "self-harm",
+  "privacy",
+  "illegal",
+  "other",
+] as const;
+
+export const PLAN_REPORT_STATUSES = ["open", "reviewed", "dismissed"] as const;
+
 export type PlanStatus = (typeof PLAN_STATUSES)[number];
 export type PlanSource = (typeof PLAN_SOURCES)[number];
 export type PlanKind = (typeof PLAN_KINDS)[number];
@@ -69,6 +83,8 @@ export type PlanSectionType = (typeof PLAN_SECTION_TYPES)[number];
 export type PlanCommentKind = (typeof PLAN_COMMENT_KINDS)[number];
 export type PlanCommentStatus = (typeof PLAN_COMMENT_STATUSES)[number];
 export type PlanAuthor = (typeof PLAN_AUTHORS)[number];
+export type PlanReportReason = (typeof PLAN_REPORT_REASONS)[number];
+export type PlanReportStatus = (typeof PLAN_REPORT_STATUSES)[number];
 
 export interface PlanSummary {
   id: string;
@@ -82,9 +98,15 @@ export interface PlanSummary {
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
   sourceUrl?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  ownerEmail?: string | null;
+  canDelete?: boolean;
   sectionCounts: Record<string, number>;
   commentCount: number;
   openCommentCount: number;
@@ -102,12 +124,16 @@ export interface Plan {
   hostedPlanId?: string | null;
   hostedPlanUrl?: string | null;
   sourceUrl?: string | null;
+  sourceAuthorName?: string | null;
+  sourceAuthorLogin?: string | null;
   html?: string | null;
   markdown?: string | null;
   content?: PlanContent | null;
   createdAt: string;
   updatedAt: string;
   approvedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
 }
 
 export interface PlanSection {
@@ -141,6 +167,8 @@ export interface PlanComment {
   resolvedBy?: string | null;
   resolvedAt?: string | null;
   consumedAt?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -153,6 +181,20 @@ export interface PlanEvent {
   payload?: Record<string, unknown> | null;
   createdBy: PlanAuthor;
   createdAt: string;
+}
+
+export interface PlanReport {
+  id: string;
+  planId: string;
+  reason: PlanReportReason;
+  details?: string | null;
+  status: PlanReportStatus;
+  reporterEmail?: string | null;
+  reporterName?: string | null;
+  pageUrl?: string | null;
+  occurrenceCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PlanBundle {

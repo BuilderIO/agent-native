@@ -13,6 +13,39 @@
  * BUILDER_GATEWAY_BASE_URL.
  */
 
+import { captureError } from "../../server/capture-error.js";
+import {
+  clearBuilderCredentialAuthFailure,
+  resolveBuilderCredentials,
+  getBuilderGatewayBaseUrl,
+  recordBuilderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
+import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
+import {
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../../shared/reasoning-effort.js";
+import { isInBackgroundFunctionRuntime } from "../durable-background.js";
+import { BUILDER_MODEL_CONFIG } from "../model-config.js";
+import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import { describeErrorWithCauses } from "./error-detail.js";
+import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
+import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import {
+  splitSystemPromptForCache,
+  stablePrefixCacheControl,
+} from "./prompt-cache.js";
+import {
+  createStreamedToolInputState,
+  engineMessagesToBuilderGatewayAnthropic,
+  engineToolsToAnthropic,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
+} from "./translate-anthropic.js";
 import type {
   AgentEngine,
   EngineCapabilities,
@@ -20,28 +53,6 @@ import type {
   EngineEvent,
   EngineStreamOptions,
 } from "./types.js";
-import {
-  engineMessagesToBuilderGatewayAnthropic,
-  engineToolsToAnthropic,
-} from "./translate-anthropic.js";
-import { getBuilderGatewayRequestHeaders } from "./builder-gateway-headers.js";
-import {
-  clearBuilderCredentialAuthFailure,
-  resolveBuilderCredentials,
-  getBuilderGatewayBaseUrl,
-  recordBuilderCredentialAuthFailure,
-} from "../../server/credential-provider.js";
-import {
-  normalizeReasoningEffortForModel,
-  type ReasoningEffort,
-} from "../../shared/reasoning-effort.js";
-import {
-  LLM_MISSING_CREDENTIALS_ERROR_CODE,
-  LLM_MISSING_CREDENTIALS_MESSAGE,
-} from "./credential-errors.js";
-import { BUILDER_MODEL_CONFIG } from "../model-config.js";
-import { captureError } from "../../server/capture-error.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 
 export const BUILDER_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -53,12 +64,23 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
-// Keep the gateway timeout below the hosted run soft timeout so the agent loop
-// can append a continuation and persist terminal state before serverless hosts
-// (Netlify synchronous Functions are 60s) hard-kill the invocation.
+// Keep the foreground hosted gateway timeout below the synchronous serverless
+// wall so the agent loop can append a continuation and persist terminal state
+// before the host hard-kills the invocation.
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
-const MAX_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
+/**
+ * Netlify background functions have a 15-minute wall. Keep the Builder gateway
+ * ceiling below that, but above the run-manager's 13-minute soft-timeout so
+ * durable background runs checkpoint before this timer wins.
+ */
+const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
+/** Local and non-hosted runtimes have no synchronous serverless wall. */
+const MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS =
+  MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 const BUILDER_GATEWAY_NETWORK_ERROR_CODE = "builder_gateway_network_error";
+export const BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE =
+  "builder_model_unauthorized";
 
 export const BUILDER_DEFAULT_MODEL = BUILDER_MODEL_CONFIG.defaultModel;
 
@@ -92,11 +114,19 @@ function mapReasoningEffort(budgetTokens: number): ReasoningEffort {
  * `/app/organizations/Nicholas%20kipchumba%20Space/billing` which Builder's
  * router treats as unknown and silently bounces to `/app/projects`. The
  * Builder CLI-auth callback doesn't expose the org slug/id today, so we route
- * to the org-agnostic billing page — Builder resolves the active org from
- * session there and users with multiple orgs can switch from that screen.
+ * to the org-agnostic subscription page. Agent Native attribution lets Builder
+ * skip generic onboarding for new users who land there from an upgrade CTA.
  */
 async function buildUpgradeUrl(): Promise<string> {
-  return "https://builder.io/account/billing";
+  const url = new URL("https://builder.io/account/subscription");
+  url.searchParams.set("signupSource", "agent-native");
+  url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
+  url.searchParams.set("agentNativeFlow", "connect_llm");
+  url.searchParams.set("framework", "agent-native");
+  applyBuilderUtmTrackingParams(url.searchParams, {
+    content: "gateway_quota_upgrade",
+  });
+  return url.toString();
 }
 
 interface GatewayErrorBody {
@@ -135,15 +165,13 @@ class BuilderEngine implements AgentEngine {
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
-    const explicitReasoningEffort = normalizeReasoningEffortForModel(
+    const reasoningEffort = normalizeReasoningEffortForModel(
       opts.model,
-      opts.reasoningEffort,
+      opts.reasoningEffort ??
+        (typeof thinkingBudget === "number"
+          ? mapReasoningEffort(thinkingBudget)
+          : undefined),
     );
-    const reasoningEffort =
-      explicitReasoningEffort ??
-      (typeof thinkingBudget === "number"
-        ? mapReasoningEffort(thinkingBudget)
-        : undefined);
 
     // Apply prompt caching to system + tools (stable prefix) and to the last
     // user message (moving cache breakpoint so growing history gets cached
@@ -152,17 +180,23 @@ class BuilderEngine implements AgentEngine {
     const cacheEnabled =
       opts.providerOptions?.anthropic?.cacheControl !== false;
 
-    // System: wrap in array with cache_control when caching is on.
+    // System: split into a stable block carrying the breakpoint and a volatile
+    // tail (resources, app extras, model overlay, runtime context) without one,
+    // so mid-turn resource churn no longer invalidates system + tools.
+    const { stable, volatile } = splitSystemPromptForCache(
+      opts.systemPrompt ?? "",
+    );
     const systemValue: unknown = opts.systemPrompt
       ? cacheEnabled
         ? [
             {
               type: "text",
-              text: opts.systemPrompt,
-              cache_control: { type: "ephemeral" },
+              text: stable,
+              cache_control: stablePrefixCacheControl(),
             },
+            ...(volatile ? [{ type: "text", text: volatile }] : []),
           ]
-        : opts.systemPrompt
+        : stable + volatile
       : undefined;
 
     // Tools: add cache_control to the last tool definition.
@@ -170,17 +204,23 @@ class BuilderEngine implements AgentEngine {
     if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
       const last = { ...cachedTools[cachedTools.length - 1] } as any;
-      last.cache_control = { type: "ephemeral" };
+      last.cache_control = stablePrefixCacheControl();
       cachedTools[cachedTools.length - 1] = last;
     }
 
     // Messages: add a moving cache breakpoint on the last user message's last
-    // content block so the entire conversation prefix is cached.
+    // content block so the entire conversation prefix is cached. Stays on the
+    // default 5m TTL — it moves every iteration, so a longer-lived entry would
+    // only pay the higher write premium.
     let cachedMessages = messages;
     if (cacheEnabled && messages.length > 0) {
-      const lastUserIdx = [...messages].findLastIndex(
-        (m: any) => m.role === "user",
-      );
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
       if (lastUserIdx >= 0) {
         cachedMessages = [...messages];
         const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
@@ -203,7 +243,11 @@ class BuilderEngine implements AgentEngine {
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
+        opts.model,
       ),
+      ...(typeof opts.temperature === "number"
+        ? { temperature: opts.temperature }
+        : {}),
       ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
     };
 
@@ -251,12 +295,16 @@ class BuilderEngine implements AgentEngine {
             phase: "request",
             model: opts.model,
             gatewayUrl,
-            timeoutMs: gatewayTimeoutMs,
+            timeoutMs: gatewayAbort.effectiveTimeoutMs(),
             timedOut,
             elapsedMs: Date.now() - tStart,
           });
         }
-        yield createBuilderGatewayTimeoutStop(err, timedOut, gatewayTimeoutMs);
+        yield createBuilderGatewayTimeoutStop(
+          err,
+          timedOut,
+          gatewayAbort.effectiveTimeoutMs(),
+        );
         return;
       }
 
@@ -308,8 +356,10 @@ class BuilderEngine implements AgentEngine {
       }
 
       yield* parseJsonlStream(reader, opts.model, {
+        abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
-        gatewayTimeoutMs,
+        getGatewayTimeoutMs: gatewayAbort.effectiveTimeoutMs,
+        onFirstEvent: gatewayAbort.markFirstEvent,
         gatewayUrl,
         requestStartedAt: tStart,
       });
@@ -423,11 +473,12 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
 // a complete line and the client must still process it.
 async function* readJsonlLines(
   reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
 ): AsyncIterable<string> {
   const decoder = new TextDecoder();
   let buffer = "";
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readStreamChunk(reader, abortSignal);
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let newlineIdx = buffer.indexOf("\n");
@@ -450,23 +501,26 @@ async function* parseJsonlStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   model: string,
   captureContext: {
+    abortSignal?: AbortSignal;
     didGatewayTimeout?: () => boolean;
-    gatewayTimeoutMs?: number;
+    getGatewayTimeoutMs?: () => number;
+    onFirstEvent?: () => void;
     gatewayUrl?: URL;
     requestStartedAt?: number;
   } = {},
 ): AsyncIterable<EngineEvent> {
-  const gatewayTimeoutMs =
-    captureContext.gatewayTimeoutMs ?? DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
   const parts: EngineContentPart[] = [];
   let pendingText = "";
   let pendingThinking: { text: string; signature?: string } | null = null;
 
-  const flushPending = () => {
+  const flushPendingText = () => {
     if (pendingText) {
       parts.push({ type: "text", text: pendingText });
       pendingText = "";
     }
+  };
+
+  const flushPendingThinking = () => {
     if (pendingThinking) {
       parts.push({
         type: "thinking",
@@ -479,8 +533,37 @@ async function* parseJsonlStream(
     }
   };
 
+  const flushPending = () => {
+    flushPendingText();
+    flushPendingThinking();
+  };
+
+  const toolInputs = createStreamedToolInputState();
+
+  // The gateway can announce a tool call through `tool-call-delta` frames and
+  // then die before the terminal `tool-call` frame. Assemble what streamed, or
+  // hand the model an in-band error — never end the turn advertising a call
+  // that was silently dropped.
+  const recoverUndeliveredToolCalls = (): EngineEvent[] => {
+    const events = finalizeStreamedToolInputs(toolInputs);
+    for (const event of events) {
+      if (event.type === "tool-call") {
+        parts.push({
+          type: "tool-call",
+          id: event.id,
+          name: event.name,
+          input: event.input,
+        });
+      }
+    }
+    return events;
+  };
+
   try {
-    for await (const line of readJsonlLines(reader)) {
+    for await (const line of readJsonlLines(
+      reader,
+      captureContext.abortSignal,
+    )) {
       let event: any;
       try {
         event = JSON.parse(line);
@@ -498,16 +581,25 @@ async function* parseJsonlStream(
         return;
       }
 
+      // Heartbeats are transport-level keepalives, not proof the model is
+      // producing output — every other parsed event counts as first progress.
+      if (event?.type !== "heartbeat") {
+        captureContext.onFirstEvent?.();
+      }
+
       switch (event.type) {
         case "text-delta": {
           const text = event.text ?? "";
+          flushPendingThinking();
           pendingText += text;
           yield { type: "text-delta", text };
           break;
         }
 
-        case "thinking-delta": {
+        case "thinking-delta":
+        case "reasoning-delta": {
           const text = event.text ?? "";
+          flushPendingText();
           if (!pendingThinking) pendingThinking = { text: "" };
           pendingThinking.text += text;
           if (event.signature) pendingThinking.signature = event.signature;
@@ -519,8 +611,8 @@ async function* parseJsonlStream(
           break;
         }
 
-        case "tool-call-delta":
-          yield {
+        case "tool-call-delta": {
+          const delta: EngineEvent = {
             type: "tool-input-delta",
             id: event.id,
             name: event.name,
@@ -531,22 +623,26 @@ async function* parseJsonlStream(
                   ? event.delta
                   : "",
           };
+          observeStreamedToolInput(toolInputs, delta);
+          yield delta;
+          break;
+        }
+
+        case "heartbeat":
+          yield { type: "gateway-heartbeat" };
           break;
 
         case "tool-call": {
           flushPending();
-          parts.push({
-            type: "tool-call",
-            id: event.id,
-            name: event.name,
-            input: event.input,
-          });
-          yield {
-            type: "tool-call",
+          const call = {
+            type: "tool-call" as const,
             id: event.id,
             name: event.name,
             input: event.input,
           };
+          parts.push(call);
+          observeStreamedToolInput(toolInputs, call);
+          yield { ...call };
           break;
         }
 
@@ -567,6 +663,7 @@ async function* parseJsonlStream(
 
         case "stop": {
           flushPending();
+          yield* recoverUndeliveredToolCalls();
           yield { type: "assistant-content", parts };
 
           const reason = event.reason ?? "end_turn";
@@ -612,13 +709,31 @@ async function* parseJsonlStream(
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
             const gatewayErrCode = event.errorCode ?? event.code;
+            // The gateway already authenticated this request before streaming,
+            // so a bare "Unauthorized" here means the account cannot use this
+            // model — not that the connection is broken. Only a message that
+            // names the credential may tear down the Builder connection.
             const isCredentialAuthError =
               Boolean(explicitErrMsg) &&
+              isBuilderCredentialAuthErrorInStream(String(errMsg));
+            const isModelAuthError =
+              Boolean(explicitErrMsg) &&
+              !isCredentialAuthError &&
               isBuilderCredentialAuthError(String(errMsg));
+            // Anthropic's bare "Connection error." often arrives here with no
+            // gateway code. Tag it as a network error so in-run retries and
+            // run-level resume treat it as transient instead of terminal.
+            const isProviderConnectionError =
+              typeof explicitErrMsg === "string" &&
+              isProviderConnectionErrorMessage(String(explicitErrMsg));
             const errCode = isCredentialAuthError
               ? "builder_auth_error"
-              : (gatewayErrCode ??
-                (!explicitErrMsg ? "builder_gateway_error" : undefined));
+              : isModelAuthError
+                ? BUILDER_MODEL_UNAUTHORIZED_ERROR_CODE
+                : isProviderConnectionError
+                  ? BUILDER_GATEWAY_NETWORK_ERROR_CODE
+                  : (gatewayErrCode ??
+                    (!explicitErrMsg ? "builder_gateway_error" : undefined));
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
@@ -677,6 +792,7 @@ async function* parseJsonlStream(
 
     // Stream ended without a stop event — synthesize one so callers don't hang.
     flushPending();
+    yield* recoverUndeliveredToolCalls();
     yield { type: "assistant-content", parts };
     yield {
       type: "stop",
@@ -685,6 +801,9 @@ async function* parseJsonlStream(
     };
   } catch (err) {
     const timedOut = captureContext.didGatewayTimeout?.() ?? false;
+    const gatewayTimeoutMs =
+      captureContext.getGatewayTimeoutMs?.() ??
+      DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
     if (timedOut || isBuilderGatewayNetworkError(err)) {
       captureBuilderGatewayTransportError(err, {
         phase: "stream",
@@ -709,6 +828,32 @@ async function* parseJsonlStream(
       // Already cancelled or closed
     }
   }
+}
+
+function readStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  abortSignal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!abortSignal) return reader.read();
+  if (abortSignal.aborted) {
+    return Promise.reject(abortSignal.reason ?? new Error("Stream aborted"));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortSignal.reason ?? new Error("Stream aborted"));
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    reader.read().then(
+      (value) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 function normalizeGatewayErrorText(raw: string, status: number): string {
@@ -749,26 +894,83 @@ export function createBuilderEngine(
   return new BuilderEngine();
 }
 
-function getBuilderGatewayTimeoutMs(): number {
-  const raw = process.env.AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS;
-  if (!raw) return DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
+function resolveMaxBuilderGatewayTimeoutMs(): number {
+  if (isInBackgroundFunctionRuntime()) {
+    return MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
   }
-  return Math.min(parsed, MAX_BUILDER_GATEWAY_TIMEOUT_MS);
+
+  if (!isHostedBuilderRuntime()) {
+    return MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS;
+  }
+
+  try {
+    const base = getBuilderGatewayBaseUrl();
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)([:/]|$)/i.test(base)) {
+      return MAX_LOCAL_BUILDER_GATEWAY_TIMEOUT_MS;
+    }
+  } catch {
+    // ignore malformed override
+  }
+  return MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS;
 }
 
+function isHostedBuilderRuntime(): boolean {
+  if (
+    process.env.NETLIFY &&
+    process.env.NETLIFY !== "false" &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  if (
+    process.env.AWS_LAMBDA_FUNCTION_NAME &&
+    process.env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  return Boolean(
+    process.env.CF_PAGES ||
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.RENDER ||
+    process.env.FLY_APP_NAME ||
+    process.env.K_SERVICE,
+  );
+}
+
+function getBuilderGatewayTimeoutMs(): number {
+  const raw = process.env.AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS;
+  const maxMs = resolveMaxBuilderGatewayTimeoutMs();
+  if (!raw) return maxMs;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return maxMs;
+  }
+  return Math.min(parsed, maxMs);
+}
+
+/**
+ * Two-stage abort deadline: until the first real stream event arrives, the
+ * effective deadline is min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) —
+ * a wedged gateway that never streams anything gets cut off in ~2 minutes
+ * instead of riding the full flat timeout. Once `markFirstEvent()` fires, the
+ * timer reschedules for whatever remains of the original total deadline, so
+ * a request that starts streaming still gets the full budget it always did.
+ */
 function createGatewayAbortSignal(
   parentSignal: AbortSignal,
-  timeoutMs: number,
+  totalTimeoutMs: number,
 ): {
   signal: AbortSignal;
   didTimeout: () => boolean;
+  effectiveTimeoutMs: () => number;
+  markFirstEvent: () => void;
   cleanup: () => void;
 } {
   const controller = new AbortController();
   let timedOut = false;
+  let firstEventSeen = false;
+  const startedAt = Date.now();
 
   const abortFromParent = () => {
     if (!controller.signal.aborted) {
@@ -776,12 +978,18 @@ function createGatewayAbortSignal(
     }
   };
 
-  const timeout = setTimeout(() => {
+  const fireTimeout = () => {
     timedOut = true;
     if (!controller.signal.aborted) {
       controller.abort(new Error("Builder gateway request timed out"));
     }
-  }, timeoutMs);
+  };
+
+  const firstEventDeadlineMs = Math.min(
+    totalTimeoutMs,
+    FIRST_STREAM_EVENT_TIMEOUT_MS,
+  );
+  let timeout = setTimeout(fireTimeout, firstEventDeadlineMs);
 
   if (parentSignal.aborted) abortFromParent();
   parentSignal.addEventListener("abort", abortFromParent, { once: true });
@@ -789,6 +997,21 @@ function createGatewayAbortSignal(
   return {
     signal: controller.signal,
     didTimeout: () => timedOut,
+    effectiveTimeoutMs: () =>
+      firstEventSeen ? totalTimeoutMs : firstEventDeadlineMs,
+    markFirstEvent: () => {
+      if (firstEventSeen || timedOut) return;
+      firstEventSeen = true;
+      // The first-event window was already the binding constraint (total
+      // timeout <= it) — nothing to reschedule.
+      if (firstEventDeadlineMs >= totalTimeoutMs) return;
+      clearTimeout(timeout);
+      const remainingMs = Math.max(
+        0,
+        totalTimeoutMs - (Date.now() - startedAt),
+      );
+      timeout = setTimeout(fireTimeout, remainingMs);
+    },
     cleanup: () => {
       clearTimeout(timeout);
       parentSignal.removeEventListener("abort", abortFromParent);
@@ -813,6 +1036,25 @@ function isBuilderCredentialAuthError(message: string): boolean {
     lowerMessage.includes("invalid_token") ||
     lowerMessage.includes("token invalid") ||
     (referencesAccessToken && rejectedToken)
+  );
+}
+
+/**
+ * Stricter than {@link isBuilderCredentialAuthError} for errors that arrive
+ * inside an already-authenticated stream, where a bare "unauthorized" is far
+ * more likely to be a per-model entitlement rejection than a bad credential.
+ * Misreading one there disconnects Builder for every model, including the ones
+ * that still work.
+ */
+function isBuilderCredentialAuthErrorInStream(message: string): boolean {
+  if (!isBuilderCredentialAuthError(message)) return false;
+  const lowerMessage = message.toLowerCase();
+  return (
+    lowerMessage.includes("private key") ||
+    lowerMessage.includes("access token") ||
+    lowerMessage.includes("invalid token") ||
+    lowerMessage.includes("invalid_token") ||
+    lowerMessage.includes("token invalid")
   );
 }
 
@@ -857,8 +1099,7 @@ function formatTimeoutMs(timeoutMs: number): string {
 }
 
 function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return String(err);
+  return describeErrorWithCauses(err);
 }
 
 function errorSearchText(err: unknown): string {
@@ -886,11 +1127,18 @@ function isBuilderGatewayNetworkError(err: unknown): boolean {
     text.includes("econnaborted") ||
     text.includes("fetch failed") ||
     text.includes("network error") ||
+    // Anthropic SDK's APIConnectionError default ("Connection error.") is
+    // often forwarded by the Builder gateway as a stop event with no code.
+    text.includes("connection error") ||
     text.includes("connection reset") ||
     text.includes("connection closed") ||
     text.includes("stream closed") ||
     text.includes("terminated")
   );
+}
+
+function isProviderConnectionErrorMessage(message: string): boolean {
+  return message.trim().toLowerCase() === "connection error.";
 }
 
 function captureBuilderGatewayTransportError(

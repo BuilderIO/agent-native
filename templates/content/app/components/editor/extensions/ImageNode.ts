@@ -1,7 +1,8 @@
 import Image, { type ImageOptions } from "@tiptap/extension-image";
 import { ReactNodeViewRenderer } from "@tiptap/react";
-import { ImageBlock } from "./ImageBlock";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
+
+import { ImageBlock } from "./ImageBlock";
 
 export interface ContentImageOptions extends ImageOptions {
   documentId?: string;

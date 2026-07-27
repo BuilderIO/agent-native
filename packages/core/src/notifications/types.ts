@@ -41,9 +41,12 @@ export interface NotificationChannel {
   /**
    * Deliver the notification. Must be best-effort — throwing will be logged
    * but will not block other channels from running.
+   *
+   * Return `false` to skip (e.g. no URL / no recipients configured) so the
+   * channel is not recorded in `deliveredChannels`.
    */
   deliver(
     input: NotificationInput,
     meta: NotificationMeta,
-  ): void | Promise<void>;
+  ): void | boolean | Promise<void | boolean>;
 }

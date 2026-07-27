@@ -1,5 +1,7 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo } from "react";
 import { useSearchParams } from "react-router";
+
 import { SqlChart } from "@/components/dashboard/SqlChart";
 import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -22,6 +24,7 @@ const VALID_SOURCES = new Set([
   "ga4",
   "amplitude",
   "first-party",
+  "demo",
   "prometheus",
 ]);
 
@@ -41,7 +44,7 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return {
         error:
-          "Panel source must be bigquery, ga4, amplitude, first-party, or prometheus.",
+          "Panel source must be bigquery, ga4, amplitude, first-party, demo, or prometheus.",
       };
     }
     if (
@@ -65,16 +68,24 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
         : undefined) as SqlPanel["config"],
     };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "Failed to decode panel" };
+    return { error: e instanceof Error ? e.message : "failedToDecodePanel" };
   }
 }
 
 function ChartError({ message }: { message: string }) {
+  const t = useT();
+  const displayMessage =
+    message === "failedToDecodePanel"
+      ? t("common.failedToDecodePanel")
+      : message;
+
   return (
     <div className="flex h-full w-full items-center justify-center p-4">
       <div className="text-xs text-muted-foreground text-center max-w-md">
-        <div className="font-medium text-foreground">Chart unavailable</div>
-        <div className="mt-1">{message}</div>
+        <div className="font-medium text-foreground">
+          {t("common.chartUnavailable")}
+        </div>
+        <div className="mt-1">{displayMessage}</div>
       </div>
     </div>
   );
@@ -94,7 +105,7 @@ export default function ChartRoute() {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-transparent p-2">
+    <div className="flex h-screen w-screen flex-col overflow-visible bg-transparent p-2">
       {result.title && (
         <div className="mb-1 px-1 text-xs font-medium text-muted-foreground">
           {result.title}

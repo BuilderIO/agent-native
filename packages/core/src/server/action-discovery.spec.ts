@@ -1,12 +1,55 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
+
 import {
+  autoDiscoverActions,
   loadActionsFromStaticRegistry,
   mergeCoreSharingActions,
 } from "./action-discovery.js";
 
 const CORE_ACTION_DISCOVERY_TIMEOUT_MS = 15_000;
+const tmpDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of tmpDirs.splice(0)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("action discovery", () => {
+  it(
+    "loads TypeScript action files from plain source directories",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "hello.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
+          "  readOnly: true,",
+          '  run: async () => ({ message: "Hello from TS" }),',
+          "};",
+          "",
+        ].join("\n"),
+      );
+
+      const registry = await autoDiscoverActions(actionsDir);
+
+      expect(registry.hello).toBeDefined();
+      expect(registry.hello.readOnly).toBe(true);
+      await expect(registry.hello.run({})).resolves.toEqual({
+        message: "Hello from TS",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "mutating-read": {
@@ -49,6 +92,52 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "poll-run": {
+        default: {
+          tool: { description: "Poll run status", parameters: {} },
+          readOnly: true,
+          dedupe: false,
+          run: async () => ({ status: "running" }),
+        },
+      },
+    });
+
+    expect(registry["poll-run"].dedupe).toBe(false);
+  });
+
+  it("preserves explicit allowInPlanMode false metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "act-only-read": {
+        default: {
+          tool: { description: "Act-only read", parameters: {} },
+          readOnly: true,
+          allowInPlanMode: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["act-only-read"].allowInPlanMode).toBe(false);
+  });
+
+  it("preserves per-tool timeout and result limits", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "slow-provider": {
+        default: {
+          tool: { description: "Slow provider", parameters: {} },
+          timeoutMs: 120_000,
+          maxResultChars: 10_000,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["slow-provider"].timeoutMs).toBe(120_000);
+    expect(registry["slow-provider"].maxResultChars).toBe(10_000);
+  });
+
   it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {
     const registry = loadActionsFromStaticRegistry({
       "ui-sync": {
@@ -61,6 +150,22 @@ describe("action discovery", () => {
     });
 
     expect(registry["ui-sync"].agentTool).toBe(false);
+  });
+
+  it("preserves requiresAuth:false from static defineAction entries", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "public-metadata": {
+        default: {
+          tool: { description: "Public metadata", parameters: {} },
+          http: { method: "GET" },
+          readOnly: true,
+          requiresAuth: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["public-metadata"].requiresAuth).toBe(false);
   });
 
   it("preserves publicAgent metadata from static defineAction entries", () => {
@@ -107,6 +212,34 @@ describe("action discovery", () => {
     });
 
     expect(registry["preview-thing"].mcpApp).toBe(mcpApp);
+  });
+
+  it("preserves a boolean needsApproval gate through discovery", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "send-email": {
+        default: {
+          tool: { description: "Send email", parameters: {} },
+          needsApproval: true,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["send-email"].needsApproval).toBe(true);
+  });
+
+  it("preserves a predicate needsApproval gate through discovery", () => {
+    const gate = (args: { to?: string }) =>
+      Boolean(args.to?.endsWith("@external.com"));
+    const registry = loadActionsFromStaticRegistry({
+      "send-email-named": {
+        tool: { description: "Send email", parameters: {} },
+        needsApproval: gate,
+        run: async () => ({ ok: true }),
+      },
+    });
+
+    expect(registry["send-email-named"].needsApproval).toBe(gate);
   });
 
   it("threads the http config through named and default static entries", () => {
@@ -208,6 +341,24 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "merges app-facing MCP actions without exposing them as agent tools",
+    async () => {
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      for (const name of ["list-mcp-tools", "call-mcp-tool"]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(registry[name].agentTool).toBe(false);
+        expect(registry[name].requiresAuth).toBe(true);
+      }
+      expect(registry["list-mcp-tools"].http).toEqual({ method: "GET" });
+      expect(registry["call-mcp-tool"].http).toBeUndefined();
+      expect(registry["call-mcp-tool"].toolCallable).toBe(false);
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("does not overwrite a template-provided action of the same name (template wins)", async () => {
     const templateRun = async () => "template-share";
     const registry: Record<string, any> = {
@@ -225,5 +376,42 @@ describe("action discovery", () => {
     );
     // Other core actions still get merged in.
     expect(registry["unshare-resource"]).toBeDefined();
+  });
+
+  it("merges localization preference actions", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["get-localization-preference"]).toBeDefined();
+    expect(registry["get-localization-preference"].http).toEqual({
+      method: "GET",
+    });
+    expect(registry["set-localization-preference"]).toBeDefined();
+  });
+
+  it("merges toolkit history and review actions", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    for (const name of [
+      "create-resource-version",
+      "list-resource-versions",
+      "get-resource-version",
+      "restore-resource-version",
+      "list-resource-history",
+      "list-review-comments",
+      "create-review-comment",
+      "reply-review-comment",
+      "resolve-review-thread",
+      "delete-review-comment",
+      "consume-review-feedback",
+      "get-review-feedback",
+      "set-review-status",
+      "send-review-thread-to-agent",
+    ]) {
+      expect(registry[name], `${name} should be merged`).toBeDefined();
+    }
+    expect(registry["list-resource-history"].readOnly).toBe(true);
+    expect(registry["list-review-comments"].readOnly).toBe(true);
   });
 });

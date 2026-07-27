@@ -11,7 +11,8 @@
  * regex stays narrow; the gateway may emit URLs containing `(`
  * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
  */
-export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+export const BUILDER_SPACE_SETTINGS_URL =
+  "https://builder.io/account/space?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=space_settings";
 
 // Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
 // error message. The chat renderer intercepts this href and renders a button
@@ -33,7 +34,7 @@ export function formatChatErrorText(
   upgradeUrl?: string,
   errorCode?: string,
 ): string {
-  const normalized = normalizeChatError(errorMessage);
+  const normalized = normalizeChatError(errorMessage, errorCode);
   if (
     errorCode === "gateway_not_enabled" ||
     /space has not enabled the LLM gateway/i.test(normalized.message)
@@ -60,10 +61,113 @@ export interface NormalizedChatError {
   details?: string;
 }
 
-export function normalizeChatError(errorMessage: string): NormalizedChatError {
+function normalizeErrorCode(errorCode?: string): string {
+  return String(errorCode ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function isProviderRateLimit(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_rate_limited" ||
+    code === "http_429" ||
+    code === "rate_limited" ||
+    code === "rate_limit_exceeded" ||
+    /^429 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /\b(?:http\s*)?429\b.*\b(?:status|too many requests|rate[-_\s]?limit|no body)\b/i.test(
+      text,
+    ) ||
+    /\b(?:too many requests|rate[-_\s]?limit(?:ed| exceeded)?)\b/i.test(text)
+  );
+}
+
+function isProviderAuthenticationError(
+  text: string,
+  errorCode?: string,
+): boolean {
+  const code = normalizeErrorCode(errorCode);
+  const lower = text.toLowerCase();
+  return (
+    code === "authentication_error" ||
+    code === "http_401" ||
+    /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
+    /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
+      text,
+    ) ||
+    lower.includes("invalid x-api-key") ||
+    lower.includes("invalid api key") ||
+    lower.includes("incorrect api key") ||
+    lower.includes("api key is invalid") ||
+    (lower.includes("authentication_error") && lower.includes("api"))
+  );
+}
+
+function isConnectionError(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_network_error" ||
+    code === "connection_error" ||
+    code === "network_error" ||
+    /^(?:provider_network_error|connection_error|network_error)$/i.test(
+      text.trim(),
+    )
+  );
+}
+
+export function normalizeChatError(
+  errorMessage: string,
+  errorCode?: string,
+): NormalizedChatError {
   const raw = String(errorMessage || "Unknown error");
   const looksHtml = /<html[\s>]|<body[\s>]|<head[\s>]/i.test(raw);
   const text = looksHtml ? htmlToText(raw) : raw.trim();
+
+  const code = normalizeErrorCode(errorCode);
+
+  if (code === "builder_model_unauthorized") {
+    return {
+      message:
+        "The provider behind this model rejected the request. Pick a different model, then retry.",
+      details: text,
+    };
+  }
+
+  if (code === "builder_auth_error") {
+    return {
+      message:
+        "Builder rejected the connected credentials. Reconnect Builder.io in Settings, then retry.",
+      details: text,
+    };
+  }
+
+  if (isProviderRateLimit(text, errorCode)) {
+    return {
+      message:
+        "The model provider is rate-limiting this chat right now. Wait a moment, then retry.",
+      details: text,
+    };
+  }
+
+  if (isProviderAuthenticationError(text, errorCode)) {
+    return {
+      message:
+        "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      details: text,
+    };
+  }
+
+  if (isConnectionError(text, errorCode)) {
+    const providerNetworkError =
+      normalizeErrorCode(errorCode) === "provider_network_error" ||
+      /provider_network_error/i.test(text);
+    return {
+      message: providerNetworkError
+        ? "The model provider could not be reached. Check your connection and retry."
+        : "The agent connection was interrupted. Check your connection and retry.",
+      details: text,
+    };
+  }
 
   if (/^Gateway error \(no detail; raw event:/i.test(text)) {
     // The previous copy promised auto-recovery and suggested switching models,

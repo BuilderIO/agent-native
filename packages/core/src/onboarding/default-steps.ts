@@ -6,8 +6,6 @@
  * `id` after these have been registered.
  */
 
-import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
 import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
@@ -16,7 +14,14 @@ import {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
+import { registerOnboardingStep } from "./registry.js";
+import type { OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -49,7 +54,7 @@ const LLM_KEY_METHODS: LlmKeyMethod[] = [
     provider: "openrouter",
     id: "openrouter-key",
     label: "OpenRouter",
-    description: "OpenRouter models with your own OpenRouter key.",
+    description: "OpenRouter models, including GLM 5.2, with your own key.",
   },
   {
     provider: "groq",
@@ -82,9 +87,9 @@ const llmStep: OnboardingStep = {
       id: "builder",
       kind: "builder-cli-auth",
       label: "Connect Builder",
-      description:
-        "Connect the Builder space where this app should run. This unlocks managed LLM credits, browser automation, and file uploads. Cloud code changes appear when Builder Cloud Agents are available for the workspace.",
+      description: "Builder.io's free tier includes AI credits.",
       primary: true,
+      badge: "free",
       payload: {
         scope: "llm",
       },
@@ -117,16 +122,24 @@ const llmStep: OnboardingStep = {
         await import("../server/credential-provider.js");
       if (await resolveHasCompleteBuilderConnection()) return true;
     } catch {
-      if (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) {
-        return true;
-      }
+      // Credential storage may be unavailable during early boot. Do not fall
+      // back to deployment-level Builder env here; the scoped resolver owns the
+      // policy for when that is safe.
     }
     try {
       if (await detectEngineFromUserSecrets()) return true;
     } catch {
       // Fall through to legacy/env detection.
     }
-    if (PROVIDER_ENV_VARS.some((k) => !!process.env[k])) return true;
+    if (
+      PROVIDER_ENV_VARS.some(
+        (k) =>
+          canUseDeployCredentialFallbackForRequest(k) &&
+          !!readDeployCredentialEnv(k),
+      )
+    ) {
+      return true;
+    }
     try {
       return isAgentEngineSettingConfigured(await getSetting("agent-engine"));
     } catch {
@@ -142,7 +155,7 @@ const databaseStep: OnboardingStep = {
   required: false,
   title: "Database",
   description:
-    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database.",
+    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
   methods: [
     {
       id: "database-url",
@@ -155,7 +168,8 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder: "postgres://..., libsql://..., file:./data/app.db",
+            placeholder:
+              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
           },
           {
             key: "DATABASE_AUTH_TOKEN",
@@ -277,13 +291,126 @@ const emailStep: OnboardingStep = {
       },
     },
   ],
-  isComplete: () => {
-    if (process.env.RESEND_API_KEY) return true;
+  isComplete: async () => {
+    if (await resolveSecret("RESEND_API_KEY")) return true;
     // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
     // set — otherwise sendEmail() throws at runtime even though the API key
     // is configured.
-    if (process.env.SENDGRID_API_KEY) return !!process.env.EMAIL_FROM;
+    if (await resolveSecret("SENDGRID_API_KEY")) {
+      return !!(await resolveSecret("EMAIL_FROM"));
+    }
     return false;
+  },
+};
+
+const githubRepositoryStep: OnboardingStep = {
+  id: "github-repository",
+  order: 50,
+  required: false,
+  title: "Connect a GitHub repository",
+  description:
+    "Optional for cloud/headless repo work. Grants connector-scoped file read and write access without cloning a repo or running code.",
+  methods: [
+    {
+      id: "settings",
+      kind: "link",
+      primary: true,
+      label: "Open GitHub token settings",
+      description:
+        "Save a fine-grained token scoped to the repositories this workspace may access.",
+      payload: {
+        url: "#secrets:GITHUB_TOKEN",
+        external: false,
+      },
+    },
+    {
+      id: "local-env",
+      kind: "form",
+      label: "Use local .env",
+      description:
+        "For local/single-tenant work, save a token and optional default owner/repo.",
+      payload: {
+        writeScope: "workspace",
+        fields: [
+          {
+            key: "GITHUB_TOKEN",
+            label: "GITHUB_TOKEN",
+            placeholder: "github_pat_...",
+            secret: true,
+          },
+          {
+            key: "GITHUB_REPOSITORY",
+            label: "GITHUB_REPOSITORY",
+            placeholder: "owner/repo",
+          },
+        ],
+      },
+    },
+  ],
+  isComplete: async (context) => {
+    const userEmail = context?.userEmail;
+    const orgId = context?.orgId ?? null;
+    if (userEmail) {
+      try {
+        const { resolveWorkspaceConnectionCredentialForApp } =
+          await import("../workspace-connections/index.js");
+        const result = await resolveWorkspaceConnectionCredentialForApp({
+          appId:
+            process.env.AGENT_NATIVE_APP_ID ||
+            process.env.APP_ID ||
+            process.env.npm_package_name ||
+            "app",
+          provider: "github",
+          key: "GITHUB_TOKEN",
+          userEmail,
+          orgId,
+        });
+        if (result.available) return true;
+      } catch {
+        // Fall through to local credential stores.
+      }
+
+      try {
+        const { resolveCredential } = await import("../credentials/index.js");
+        if (await resolveCredential("GITHUB_TOKEN", { userEmail, orgId })) {
+          return true;
+        }
+      } catch {
+        // Fall through to app_secrets.
+      }
+
+      try {
+        const { readAppSecretMeta } = await import("../secrets/storage.js");
+        const refs: Array<{
+          scope: "user" | "org" | "workspace";
+          scopeId: string;
+        }> = [{ scope: "user", scopeId: userEmail }];
+        if (orgId) {
+          refs.push(
+            { scope: "org", scopeId: orgId },
+            { scope: "workspace", scopeId: orgId },
+          );
+        } else {
+          refs.push({ scope: "workspace", scopeId: `solo:${userEmail}` });
+        }
+        for (const ref of refs) {
+          const meta = await readAppSecretMeta({
+            key: "GITHUB_TOKEN",
+            scope: ref.scope,
+            scopeId: ref.scopeId,
+          });
+          if (meta) return true;
+        }
+      } catch {
+        // Fall through to local/single-tenant env.
+      }
+    }
+
+    if (!canUseDeployCredentialFallbackForRequest()) return false;
+    return !!(
+      readDeployCredentialEnv("GITHUB_TOKEN") ||
+      readDeployCredentialEnv("GH_TOKEN")
+    );
   },
 };
 
@@ -297,4 +424,5 @@ export function registerDefaultOnboardingSteps(): void {
   registerOnboardingStep(databaseStep);
   registerOnboardingStep(authStep);
   registerOnboardingStep(emailStep);
+  registerOnboardingStep(githubRepositoryStep);
 }

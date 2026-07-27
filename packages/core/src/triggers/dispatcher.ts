@@ -6,29 +6,33 @@
  * loop) when matching events fire.
  */
 
+import {
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import {
+  runAgentLoop,
+  actionsToEngineTools,
+  filterInitialEngineTools,
+  getOwnerActiveApiKey,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type { AgentChatEvent } from "../agent/types.js";
+import { createThread } from "../chat-threads/store.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
 import type { EventMeta } from "../event-bus/types.js";
 import { resourceListAllOwners, resourcePut } from "../resources/store.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import {
-  runAgentLoop,
-  actionsToEngineTools,
-  getOwnerActiveApiKey,
-  type ActionEntry,
-} from "../agent/production-agent.js";
-import {
-  getStoredModelForEngine,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import { createThread } from "../chat-threads/store.js";
-import type { AgentChatEvent } from "../agent/types.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
 
 // Re-use the job frontmatter parser — triggers extend the same format.
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
 
-function parseTriggerFrontmatter(content: string): {
+export function parseTriggerFrontmatter(content: string): {
   meta: TriggerFrontmatter;
   body: string;
 } {
@@ -91,6 +95,9 @@ function parseTriggerFrontmatter(content: string): {
       case "domain":
         meta.domain = value;
         break;
+      case "delegatedPolicyId":
+        meta.delegatedPolicyId = value || undefined;
+        break;
       case "createdBy":
         meta.createdBy = value;
         break;
@@ -119,7 +126,10 @@ function parseTriggerFrontmatter(content: string): {
   return { meta, body };
 }
 
-function buildTriggerContent(meta: TriggerFrontmatter, body: string): string {
+export function buildTriggerContent(
+  meta: TriggerFrontmatter,
+  body: string,
+): string {
   const lines = ["---"];
   lines.push(`schedule: "${meta.schedule}"`);
   lines.push(`enabled: ${meta.enabled}`);
@@ -129,6 +139,16 @@ function buildTriggerContent(meta: TriggerFrontmatter, body: string): string {
     lines.push(`condition: "${meta.condition.replace(/"/g, '\\"')}"`);
   lines.push(`mode: ${meta.mode}`);
   if (meta.domain) lines.push(`domain: ${meta.domain}`);
+  if (
+    meta.delegatedPolicyId &&
+    !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(meta.delegatedPolicyId)
+  ) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+  if (meta.delegatedPolicyId)
+    lines.push(`delegatedPolicyId: ${meta.delegatedPolicyId}`);
   if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
   if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -148,6 +168,13 @@ function buildTriggerContent(meta: TriggerFrontmatter, body: string): string {
 export interface TriggerDispatcherDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a trigger run. See
+   * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
+   * semantics. Omit to keep the full `getActions()` set visible up front
+   * (current behavior).
+   */
+  getInitialToolNames?: () => string[] | undefined;
   apiKey?: string;
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
@@ -253,8 +280,7 @@ async function handleEvent(
       // Resolve API key for condition evaluation
       const owner = meta.createdBy || resource.owner;
       const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey =
-        userApiKey || _deps.apiKey || process.env.ANTHROPIC_API_KEY;
+      const apiKey = userApiKey || _deps.apiKey;
       if (!apiKey) {
         console.warn(
           `[triggers] No API key for trigger "${resource.path}" — skipping`,
@@ -348,7 +374,7 @@ async function isTriggerRunAsStillValid(
 }
 
 async function dispatchAgentic(
-  resource: { path: string; owner: string; content: string },
+  resource: { id: string; path: string; owner: string; content: string },
   meta: TriggerFrontmatter,
   body: string,
   payload: unknown,
@@ -398,19 +424,31 @@ async function dispatchAgentic(
     { userEmail: jobUserEmail, orgId: jobOrgId },
     async () => {
       try {
-        const actions = _deps!.getActions();
+        const baseActions = _deps!.getActions();
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = _deps!.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         const engine = await resolveEngine({
           apiKey,
           appId: _deps!.appId,
         });
-        const model =
+        const modelCandidate =
           _deps!.model ??
           (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
           engine.defaultModel;
-        await createThread(jobUserEmail, {
+        const model = normalizeModelForEngine(engine, modelCandidate);
+        const thread = await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });
 
@@ -444,20 +482,65 @@ ${body}`;
         const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
         const events: AgentChatEvent[] = [];
+        let triggerUsage: Awaited<ReturnType<typeof runAgentLoop>> | null =
+          null;
 
         try {
-          await runAgentLoop({
-            engine,
-            model,
-            systemPrompt,
-            tools,
-            messages,
-            actions,
-            send: (event) => events.push(event),
-            signal: controller.signal,
-          });
+          // Wrapper, not raw `runAgentLoop`: an automation runs with nobody
+          // watching, so a transport-level cut (gateway 45s, socket hang up)
+          // has to be resumed inside this invocation or the trigger silently
+          // does nothing. `undefined` budget + the hosted default keeps the
+          // soft timeout under the serverless wall on hosts that have one and
+          // disabled locally.
+          triggerUsage = await runAgentLoopDirectWithSoftTimeout(
+            {
+              engine,
+              model,
+              systemPrompt,
+              tools,
+              availableTools,
+              messages,
+              actions,
+              send: (event) => events.push(event),
+              signal: controller.signal,
+              threadId: thread.id,
+              actionCaller: "automation",
+              automation: {
+                triggerId: resource.id,
+                triggerName,
+                policyId: meta.delegatedPolicyId,
+              },
+            },
+            undefined,
+            { useHostedDefault: true },
+          );
         } finally {
           clearTimeout(timeout);
+        }
+
+        if (
+          triggerUsage &&
+          (triggerUsage.inputTokens > 0 ||
+            triggerUsage.outputTokens > 0 ||
+            triggerUsage.cacheReadTokens > 0 ||
+            triggerUsage.cacheWriteTokens > 0)
+        ) {
+          try {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail: jobUserEmail,
+              inputTokens: triggerUsage.inputTokens,
+              outputTokens: triggerUsage.outputTokens,
+              cacheReadTokens: triggerUsage.cacheReadTokens,
+              cacheWriteTokens: triggerUsage.cacheWriteTokens,
+              model: triggerUsage.model,
+              label: `automation:${triggerName}`,
+              app: _deps!.appId,
+              refId: eventMeta.eventId,
+            });
+          } catch {
+            // Usage attribution must not break automation dispatch.
+          }
         }
 
         meta.lastStatus = "success";
@@ -481,5 +564,3 @@ ${body}`;
     },
   );
 }
-
-export { parseTriggerFrontmatter, buildTriggerContent };

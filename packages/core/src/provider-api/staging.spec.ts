@@ -16,15 +16,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const _metaStore = new Map<string, Record<string, unknown>>();
 const _rowStore = new Map<string, Record<string, unknown>[]>();
+const _executedSql: string[] = [];
+let _isPostgres = false;
 
 vi.mock("../db/client.js", () => ({
-  getDialect: () => "sqlite",
-  isPostgres: () => false,
-  intType: () => "INTEGER",
+  getDialect: () => (_isPostgres ? "postgres" : "sqlite"),
+  isPostgres: () => _isPostgres,
+  intType: () => (_isPostgres ? "BIGINT" : "INTEGER"),
   getDbExec: () => ({
     execute: async (sql: string | { sql: string; args: unknown[] }) => {
       const rawSql = typeof sql === "string" ? sql : sql.sql;
       const args = typeof sql === "string" ? [] : (sql.args as unknown[]);
+      _executedSql.push(rawSql);
 
       // CREATE TABLE — no-op
       if (/CREATE TABLE/i.test(rawSql)) return { rows: [], rowsAffected: 0 };
@@ -210,7 +213,6 @@ vi.mock("../db/client.js", () => ({
       return { rows: [], rowsAffected: 0 };
     },
   }),
-  isPostgres: () => false,
 }));
 
 // ---------------------------------------------------------------------------
@@ -256,6 +258,11 @@ const {
 const { createProviderApiRuntime } = await import("./index.js");
 import type { ProviderApiRequestArgs } from "./index.js";
 
+beforeEach(() => {
+  _isPostgres = false;
+  _executedSql.length = 0;
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -267,12 +274,15 @@ function makeExecutor(_appId = "testapp") {
       userEmail: "ada@example.com",
       orgId: "org-1",
     }),
-    resolveCredential: async () => ({
-      key: "TEST_TOKEN",
-      value: "test-token",
-      source: "local",
-      provider: "stripe",
-    }),
+    resolveCredential: async ({ key, provider }) => {
+      if (key === "GONG_API_BASE") return null;
+      return {
+        key,
+        value: "test-token",
+        source: "local",
+        provider,
+      };
+    },
   });
   return (args: ProviderApiRequestArgs) => runtime.executeRequest(args);
 }
@@ -303,6 +313,20 @@ describe("extractItemsArray", () => {
 
   it("detects { records: [] }", () => {
     expect(extractItemsArray({ records: [{ x: "a" }] })).toEqual([{ x: "a" }]);
+  });
+
+  it("detects a single top-level array field alongside metadata", () => {
+    expect(
+      extractItemsArray({
+        providerSpecificRecords: [{ id: "record-1" }],
+        records: { cursor: "next" },
+      }),
+    ).toEqual([{ id: "record-1" }]);
+    expect(
+      extractItemsArray({
+        providerSpecificEvents: [{ eventId: "event-1" }],
+      }),
+    ).toEqual([{ eventId: "event-1" }]);
   });
 
   it("detects single-key object wrapping an array", () => {
@@ -367,6 +391,48 @@ describe("staging caps", () => {
   });
 });
 
+describe("staged dataset DDL", () => {
+  beforeEach(() => {
+    _metaStore.clear();
+    _rowStore.clear();
+    _resetInitPromiseForTests();
+  });
+
+  it("uses 64-bit integer columns and widens existing Postgres tables", async () => {
+    _isPostgres = true;
+
+    await upsertStagedDataset({
+      id: "ds_postgres_ddl",
+      appId: "analytics",
+      ownerEmail: "ada@example.com",
+      name: "postgres-ddl",
+      rows: [{ id: "row-1" }],
+      columns: ["id"],
+    });
+
+    expect(
+      _executedSql.some((sql) => /created_at\s+BIGINT\s+NOT NULL/i.test(sql)),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) => /updated_at\s+BIGINT\s+NOT NULL/i.test(sql)),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_datasets ALTER COLUMN created_at TYPE BIGINT/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      _executedSql.some((sql) =>
+        /ALTER TABLE staged_dataset_rows ALTER COLUMN row_index TYPE BIGINT/i.test(
+          sql,
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 3. fetchAll cursor loop + 429 + Retry-After
 // ---------------------------------------------------------------------------
@@ -425,6 +491,58 @@ describe("stagingExecuteRequest — cursor pagination + 429", () => {
     expect(result.pages).toBe(2);
     expect(result.truncated).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("can send next cursors through a POST body path", async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_url, init) => {
+        requestBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        const isFirstPage = requestBodies.length === 1;
+        return new Response(
+          JSON.stringify({
+            calls: [
+              {
+                id: isFirstPage ? "call-1" : "call-2",
+                title: isFirstPage ? "First call" : "Second call",
+              },
+            ],
+            records: { cursor: isFirstPage ? "cursor-2" : null },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      });
+
+    const result = await stagingExecuteRequest(
+      {
+        provider: "gong",
+        method: "POST",
+        path: "/calls/extensive",
+        body: {
+          filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
+          contentSelector: { exposedFields: { parties: true } },
+        },
+        stageAs: "gong_calls",
+        itemsPath: "calls",
+        pagination: {
+          nextCursorPath: "records.cursor",
+          cursorBodyPath: "cursor",
+          maxPages: 10,
+        },
+      },
+      makeExecutor(),
+      { appId: "testapp", ownerEmail: "ada@example.com" },
+    );
+
+    expect(result.dataset.rowCount).toBe(2);
+    expect(result.pages).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestBodies[0]).not.toHaveProperty("cursor");
+    expect(requestBodies[1]).toMatchObject({
+      cursor: "cursor-2",
+      filter: { fromDateTime: "2026-01-01T00:00:00.000Z" },
+    });
   });
 
   it("handles 429 with Retry-After and retries successfully", async () => {

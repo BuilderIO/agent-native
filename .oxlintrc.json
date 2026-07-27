@@ -1,6 +1,9 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "react-hooks"],
+  "plugins": ["react", "react-hooks", "typescript"],
+  "options": {
+    "typeAware": true
+  },
   "categories": {
     "correctness": "warn"
   },
@@ -19,6 +22,7 @@
     "**/*.spec.tsx",
     "**/*.e2e-host.tsx",
     "packages/core/src/cli/**",
+    "packages/core/src/templates/**",
     "packages/core/src/provider-api/**",
     "templates/plan/**",
     "templates/analytics/actions/provider-api-request.ts",

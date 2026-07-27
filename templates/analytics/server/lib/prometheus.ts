@@ -2,6 +2,7 @@
 // and matrix/vector → {rows, schema} transforms. No LLM in this path.
 
 import { z } from "zod";
+
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -338,7 +339,7 @@ export function flattenVector(data: {
   return { rows, schema: ROW_SCHEMA };
 }
 
-/** Entrypoint used by the panel dispatcher in `server/handlers/sql-query.ts`. */
+/** Entrypoint used by the dashboard panel source resolver. */
 export async function runPrometheusPanel(raw: string) {
   const d = parsePanelDescriptor(raw);
   if (d.mode === "instant") {

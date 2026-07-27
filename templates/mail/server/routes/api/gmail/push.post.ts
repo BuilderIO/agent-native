@@ -1,3 +1,4 @@
+import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
 import {
   defineEventHandler,
   readBody,
@@ -6,7 +7,7 @@ import {
   type H3Event,
 } from "h3";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import { listOAuthAccounts } from "@agent-native/core/oauth-tokens";
+
 import {
   bumpHistoryWatermark,
   invalidateListCacheForOwner,

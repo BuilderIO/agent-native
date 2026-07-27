@@ -1,9 +1,11 @@
+import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import type { ZodType } from "zod";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+
 import { cn } from "../utils.js";
-import type { BlockRenderContext } from "./types.js";
+import { ltrCodeBlockProps } from "./code-block-direction.js";
 import { introspect, type FieldDescriptor } from "./schema-form/introspect.js";
+import type { BlockRenderContext } from "./types.js";
 
 /**
  * Schema-driven auto-editor. When a {@link BlockSpec} omits `Edit`, the registry
@@ -49,7 +51,10 @@ export function SchemaBlockEditor<T>({
   const optional = fields.filter((field) => field.optional);
 
   return (
-    <div className="an-schema-block-editor flex flex-col gap-3">
+    <div
+      {...ltrCodeBlockProps}
+      className="an-schema-block-editor flex flex-col gap-3"
+    >
       {required.map((field) => (
         <FieldControl
           key={field.key}

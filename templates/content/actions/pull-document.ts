@@ -1,14 +1,11 @@
 import { defineAction } from "@agent-native/core";
+import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
-import { hasCollabState } from "@agent-native/core/collab";
-import {
-  appStateGet,
-  appStatePut,
-  appStateDelete,
-} from "@agent-native/core/application-state";
 import { z } from "zod";
+
 import "../server/db/index.js";
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
+import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 /**
  * Collab-aware "ingest the final" read for external agents.
@@ -29,21 +26,27 @@ import "../server/db/index.js";
  *      never saw the key, so every external `pull-document` waited the full
  *      timeout and returned stale DB content.
  *   2. The editor polls that key, serializes its current Y.Doc to markdown
- *      through its existing serializer, calls `update-document`, then deletes
- *      the key.
- *   3. We poll (across both candidate sessions) for the key to disappear
- *      (flush acknowledged) and then read the now-fresh row. If the key never
- *      clears (no editor actually open), we fall back to the DB column, which
- *      is the best available snapshot.
+ *      through its existing serializer, calls `update-document`, then writes an
+ *      explicit success/error acknowledgement for that request id.
+ *   3. We poll every active collaborator session for the acknowledgement, fail
+ *      closed on editor errors/timeouts, and then read the now-fresh row.
  *
  * When there is no live collab session the DB column is authoritative and we
- * skip the handshake entirely. The handshake itself is bounded by
- * FLUSH_TIMEOUT_MS so a stale `hasCollabState` (presence lingering with no tab
- * actually open) can never hang the request longer than a few seconds.
+ * skip the handshake entirely. The helper bounds the wait so stale collab
+ * presence with no tab actually open can never hang the request longer than a
+ * few seconds.
  */
 
-const FLUSH_POLL_INTERVAL_MS = 200;
-const FLUSH_TIMEOUT_MS = 4000;
+function formatDocumentContent(markdown: string, format: "markdown" | "text") {
+  return format === "text"
+    ? markdown
+        .replace(/^#{1,6}\s+/gm, "")
+        .replace(/[*_`~>]/g, "")
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .trim()
+    : markdown;
+}
 
 export default defineAction({
   description:
@@ -60,76 +63,39 @@ export default defineAction({
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {
     const access = await resolveAccess("document", id);
-    if (!access) throw new Error(`Document "${id}" not found`);
+    if (
+      !access ||
+      access.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
 
     // If a live Yjs collab session is open, the in-memory editor doc is fresher
     // than the SQL column. Ask the open editor to serialize + save, then wait
-    // for it to acknowledge by clearing the flush-request key.
-    if (await hasCollabState(id)) {
-      const flushKey = `flush-request-${id}`;
-      // The editor polls `flush-request-<id>` via the framework app-state
-      // route, which scopes reads to the logged-in browser user (the document
-      // owner). Writing under the caller's (external agent's) session — what
-      // the old `writeAppState` helper did — meant the editor never saw the
-      // key. Write under the owner's session so the open editor's poll picks
-      // it up; also write under the caller's own session for back-compat (e.g.
-      // an in-app agent that is itself the owner), de-duped.
-      const ownerEmail =
-        (access.resource.ownerEmail as string | undefined) || undefined;
-      const callerEmail = getRequestUserEmail() || undefined;
-      const targetSessions = Array.from(
-        new Set(
-          [ownerEmail, callerEmail].filter(
-            (s): s is string => typeof s === "string" && s.length > 0,
-          ),
-        ),
-      );
-      const flushValue = { id, ts: Date.now() };
-      await Promise.all(
-        targetSessions.map((s) =>
-          appStatePut(s, flushKey, flushValue, {
-            requestSource: "agent",
-          }).catch(() => {}),
-        ),
-      );
-      const deadline = Date.now() + FLUSH_TIMEOUT_MS;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, FLUSH_POLL_INTERVAL_MS));
-        // The editor deletes the key from whichever session it polls. Treat
-        // the flush as acknowledged once it is gone from all target sessions.
-        const pending = await Promise.all(
-          targetSessions.map((s) => appStateGet(s, flushKey)),
-        );
-        if (pending.every((p) => !p)) break;
-      }
-      // Best-effort cleanup if the editor never picked it up (no tab open).
-      await Promise.all(
-        targetSessions.map((s) =>
-          appStateDelete(s, flushKey, { requestSource: "agent" }).catch(
-            () => {},
-          ),
-        ),
-      );
-    }
+    // for its explicit request-id-matched acknowledgement.
+    await flushOpenDocumentEditorToSql({
+      documentId: id,
+      ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
+    });
 
     // Re-resolve so we read the now-fresh row (and re-check access).
     const fresh = await resolveAccess("document", id);
-    if (!fresh) throw new Error(`Document "${id}" not found`);
+    if (
+      !fresh ||
+      fresh.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
     const doc = fresh.resource;
     const markdown = (doc.content as string) ?? "";
-    const content =
-      format === "text"
-        ? markdown
-            .replace(/^#{1,6}\s+/gm, "")
-            .replace(/[*_`~>]/g, "")
-            .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-            .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-            .trim()
-        : markdown;
+    const content = formatDocumentContent(markdown, format);
 
     return {
       id: doc.id,
       title: doc.title,
+      description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
       deepLink: buildDeepLink({

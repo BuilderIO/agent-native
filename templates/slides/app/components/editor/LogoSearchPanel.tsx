@@ -1,13 +1,13 @@
+import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
-import { agentNativePath, useActionQuery } from "@agent-native/core/client";
-
-const LOGO_DEV_PK = "pk_VwOyCAOgT0aBNpecT2qO-A";
 
 interface LogoResult {
   name: string;
   domain: string;
+  logoUrl?: string;
 }
 
 interface LogoSearchPanelProps {
@@ -21,12 +21,14 @@ export default function LogoSearchPanel({
   onOpenChange,
   onSelectLogo,
 }: LogoSearchPanelProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<LogoResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [brandfetchId, setBrandfetchId] = useState<string | null>(null);
+  const [logoDevToken, setLogoDevToken] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -36,6 +38,7 @@ export default function LogoSearchPanel({
     if (logoConfigData?.brandfetchId) {
       setBrandfetchId(logoConfigData.brandfetchId);
     }
+    setLogoDevToken(logoConfigData?.logoDevToken ?? null);
   }, [logoConfigData]);
 
   useEffect(() => {
@@ -79,17 +82,7 @@ export default function LogoSearchPanel({
     setResults([]);
     setSelectedDomain(null);
     try {
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/actions/search-logos?q=${encodeURIComponent(q)}`,
-        ),
-      );
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Search failed");
-        return;
-      }
-      const data: LogoResult[] = await res.json();
+      const data = await callAction("search-logos", { q }, { method: "GET" });
       if (data.length === 0) {
         setError("No logos found");
       } else {
@@ -111,7 +104,7 @@ export default function LogoSearchPanel({
 
   // Build variations for the selected domain
   const variations = selectedDomain
-    ? buildVariations(selectedDomain, brandfetchId)
+    ? buildVariations(selectedDomain, brandfetchId, logoDevToken, t)
     : [];
 
   return createPortal(
@@ -137,7 +130,7 @@ export default function LogoSearchPanel({
               {selectedDomain}
             </button>
           ) : (
-            "Logo Search"
+            t("raw.logoSearchTitle")
           )}
         </h3>
         <button
@@ -162,7 +155,7 @@ export default function LogoSearchPanel({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSearch();
                 }}
-                placeholder="Search company name (e.g. Intuit)"
+                placeholder={t("raw.searchCompanyPlaceholder")}
                 className="w-full pl-8 pr-3 py-1.5 bg-muted border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-[#609FF8]/50"
               />
             </div>
@@ -174,7 +167,7 @@ export default function LogoSearchPanel({
               {loading ? (
                 <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                "Search"
+                t("raw.search")
               )}
             </button>
           </div>
@@ -191,7 +184,7 @@ export default function LogoSearchPanel({
         {/* IconSearch results */}
         {!selectedDomain && !loading && results.length === 0 && !error && (
           <div className="text-center py-6 text-muted-foreground text-xs">
-            Search for a company to find their logo
+            {t("raw.searchCompanyLogo")}
           </div>
         )}
 
@@ -318,34 +311,41 @@ interface VariationGroup {
 function buildVariations(
   domain: string,
   _brandfetchId: string | null,
+  logoDevToken: string | null,
+  t: ReturnType<typeof useT>,
 ): VariationGroup[] {
   // Brandfetch CDN works without client ID for free tier
   const bf = (path: string) => `https://cdn.brandfetch.io/${domain}/${path}`;
-  const ld = (params: string) =>
-    `https://img.logo.dev/${domain}?token=${LOGO_DEV_PK}&${params}`;
-
-  return [
+  const groups: VariationGroup[] = [
     {
       label: "Logo",
       items: [
         { label: "Default", url: bf("logo.png"), bg: "rgba(255,255,255,0.03)" },
-        { label: "On dark", url: bf("theme/dark/logo.png"), bg: "#111" },
+        { label: t("raw.onDark"), url: bf("theme/dark/logo.png"), bg: "#111" },
         { label: "SVG", url: bf("logo.svg"), bg: "rgba(255,255,255,0.03)" },
       ],
     },
     {
-      label: "Symbol / Icon",
+      label: t("raw.symbolIcon"),
       items: [
         {
           label: "Symbol",
           url: bf("symbol.png"),
           bg: "rgba(255,255,255,0.03)",
         },
-        { label: "Symbol dark", url: bf("theme/dark/symbol.png"), bg: "#111" },
+        {
+          label: t("raw.symbolDark"),
+          url: bf("theme/dark/symbol.png"),
+          bg: "#111",
+        },
         { label: "Icon", url: bf("icon.png"), bg: "rgba(255,255,255,0.03)" },
       ],
     },
-    {
+  ];
+  if (logoDevToken) {
+    const ld = (params: string) =>
+      `https://img.logo.dev/${domain}?token=${encodeURIComponent(logoDevToken)}&${params}`;
+    groups.push({
       label: "Logo.dev",
       items: [
         {
@@ -354,7 +354,7 @@ function buildVariations(
           bg: "rgba(255,255,255,0.03)",
         },
         {
-          label: "For dark bg",
+          label: t("raw.forDarkBg"),
           url: ld("size=400&format=png&retina=true&theme=light"),
           bg: "#111",
         },
@@ -364,6 +364,7 @@ function buildVariations(
           bg: "rgba(255,255,255,0.03)",
         },
       ],
-    },
-  ];
+    });
+  }
+  return groups;
 }

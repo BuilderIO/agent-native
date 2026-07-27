@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 const packageRoot = path.resolve(
@@ -60,5 +61,16 @@ describe("dispatch route shells", () => {
     );
 
     expect(chatRoute).toContain("@agent-native/dispatch/routes/pages/chat");
+  });
+
+  it("re-exports the operations console from the Dispatch template", () => {
+    const operationsRoute = fs.readFileSync(
+      path.join(repoRoot, "templates/dispatch/app/routes/operations.tsx"),
+      "utf-8",
+    );
+
+    expect(operationsRoute).toContain(
+      "@agent-native/dispatch/routes/pages/operations",
+    );
   });
 });

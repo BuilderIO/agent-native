@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
-import { setDispatchMcpAppAccessSettings } from "../server/lib/mcp-access-store.js";
+import { z } from "zod";
+
 import { recordAudit } from "../server/lib/dispatch-store.js";
+import { setDispatchMcpAppAccessSettings } from "../server/lib/mcp-access-store.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
 
 const modeSchema = z.enum(["all-apps", "selected-apps"]);
@@ -21,7 +22,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const agents = await discoverAgents("dispatch");
-    const knownIds = new Set(agents.map((agent) => agent.id));
+    const knownIds = new Set(["dispatch", ...agents.map((agent) => agent.id)]);
     const selectedAppIds = Array.from(
       new Set(
         args.selectedAppIds
@@ -35,10 +36,6 @@ export default defineAction({
         `Unknown app(s): ${unknown.join(", ")}. Use list-mcp-app-access to see available app IDs.`,
       );
     }
-    if (args.mode === "selected-apps" && selectedAppIds.length === 0) {
-      throw new Error("selected-apps mode requires at least one app ID.");
-    }
-
     await setDispatchMcpAppAccessSettings({
       mode: args.mode,
       selectedAppIds,

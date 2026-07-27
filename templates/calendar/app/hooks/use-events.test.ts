@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
 import type { CalendarEvent } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   applyCalendarEventRsvp,
   calendarEventOverlapsListParams,
   mergeCalendarEventIntoList,
   removeOptimisticCalendarEventFromList,
 } from "./event-list-cache";
-import { shouldShowEventsSkeleton } from "./use-events";
+import {
+  findEventByCurrentOrReplacedId,
+  mergeAttendeeLists,
+  reconcileUpdatedEventList,
+  shouldDeferOptimisticEventUpdate,
+  shouldShowEventsSkeleton,
+} from "./use-events";
 
 function calendarEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -172,6 +179,73 @@ describe("calendar event list cache helpers", () => {
     });
   });
 
+  it("merges added attendees without resetting existing RSVP metadata", () => {
+    const merged = mergeAttendeeLists(
+      [
+        {
+          email: "guest@example.com",
+          displayName: "Guest",
+          responseStatus: "accepted",
+          comment: "See you there",
+          optional: true,
+        },
+      ],
+      [
+        {
+          email: "new@example.com",
+          displayName: "New Guest",
+          optional: true,
+        },
+        {
+          email: "GUEST@example.com",
+          displayName: "Renamed Guest",
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        email: "GUEST@example.com",
+        displayName: "Renamed Guest",
+        responseStatus: "accepted",
+        comment: "See you there",
+        optional: true,
+      },
+      {
+        email: "new@example.com",
+        displayName: "New Guest",
+        optional: true,
+      },
+    ]);
+  });
+
+  it("lets addAttendees flip optional without clearing RSVP metadata", () => {
+    const merged = mergeAttendeeLists(
+      [
+        {
+          email: "guest@example.com",
+          responseStatus: "accepted",
+          comment: "See you there",
+        },
+      ],
+      [
+        {
+          email: "guest@example.com",
+          optional: true,
+        },
+      ],
+    );
+
+    expect(merged).toEqual([
+      {
+        email: "guest@example.com",
+        responseStatus: "accepted",
+        comment: "See you there",
+        optional: true,
+      },
+    ]);
+  });
+
   it("optimistically updates this and following recurring RSVP instances", () => {
     const past = calendarEvent({
       id: "past",
@@ -269,5 +343,59 @@ describe("shouldShowEventsSkeleton", () => {
         rangeKey: week,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldDeferOptimisticEventUpdate", () => {
+  it("waits for Google before moving a working-location event", () => {
+    const event = calendarEvent({ eventType: "workingLocation", allDay: true });
+
+    expect(shouldDeferOptimisticEventUpdate(event, false)).toBe(true);
+  });
+
+  it("keeps timed working-location moves optimistic", () => {
+    const event = calendarEvent({
+      eventType: "workingLocation",
+      allDay: false,
+    });
+
+    expect(shouldDeferOptimisticEventUpdate(event, false)).toBe(false);
+  });
+
+  it("waits for provider confirmation for working-location detail changes", () => {
+    expect(shouldDeferOptimisticEventUpdate(undefined, true)).toBe(true);
+  });
+
+  it("keeps ordinary event updates optimistic", () => {
+    expect(shouldDeferOptimisticEventUpdate(calendarEvent(), false)).toBe(
+      false,
+    );
+  });
+});
+
+describe("reconcileUpdatedEventList", () => {
+  it("rebinds a replaced working-location occurrence to its new id", () => {
+    const original = calendarEvent({
+      id: "google-instance-20260707",
+      eventType: "workingLocation",
+      accountEmail: "owner@example.com",
+    });
+
+    const reconciled = reconcileUpdatedEventList([original], original.id, {
+      id: "google-working-location-override",
+      replacedId: original.id,
+      accountEmail: "owner@example.com",
+    });
+
+    expect(reconciled).toEqual([
+      expect.objectContaining({
+        id: "google-working-location-override",
+        _replacedId: "google-instance-20260707",
+        accountEmail: "owner@example.com",
+      }),
+    ]);
+    expect(
+      findEventByCurrentOrReplacedId(reconciled ?? [], original.id),
+    ).toMatchObject({ id: "google-working-location-override" });
   });
 });

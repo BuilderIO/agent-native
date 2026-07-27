@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { normalizeCodeAgentTranscriptForConversation } from "./code-agent-transcript.js";
 import type { CodeAgentConversationTranscriptEvent } from "./code-agent-transcript.js";
 
@@ -142,6 +143,53 @@ describe("normalizeCodeAgentTranscriptForConversation", () => {
     });
   });
 
+  it("preserves native chatUI metadata and structured tool payloads", () => {
+    const inlineResult = {
+      ok: true,
+      inlineExtension: {
+        mode: "transient",
+        id: "inline-1",
+        name: "Knobs",
+        content: "<div>Knobs</div>",
+      },
+    };
+    const events: CodeAgentConversationTranscriptEvent[] = [
+      {
+        id: "tool-start",
+        runId: "run-1",
+        type: "status",
+        text: "Rendering inline UI",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        metadata: {
+          type: "tool_start",
+          tool: "render-inline-extension",
+          input: { name: "Knobs" },
+        },
+      },
+      {
+        id: "tool-done",
+        runId: "run-1",
+        type: "status",
+        text: "Rendered inline UI",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        metadata: {
+          type: "tool_done",
+          tool: "render-inline-extension",
+          result: inlineResult,
+          chatUI: { renderer: "core.inline-extension" },
+        },
+      },
+    ];
+
+    const messages = normalizeCodeAgentTranscriptForConversation(events);
+    expect(messages[0]?.tools?.[0]).toMatchObject({
+      name: "render-inline-extension",
+      args: { name: "Knobs" },
+      resultJson: inlineResult,
+      chatUI: { renderer: "core.inline-extension" },
+    });
+  });
+
   it("marks pending user turns and can hide credential notices", () => {
     const events: CodeAgentConversationTranscriptEvent[] = [
       {
@@ -170,5 +218,32 @@ describe("normalizeCodeAgentTranscriptForConversation", () => {
     expect(visible[0]?.pending).toBe(true);
     expect(visible[1]?.notices?.[0]?.tone).toBe("warning");
     expect(hidden).toHaveLength(1);
+  });
+
+  it("hides credential notices via the structured signal even with neutral message text", () => {
+    const events: CodeAgentConversationTranscriptEvent[] = [
+      {
+        id: "user-1",
+        runId: "run-1",
+        type: "user",
+        text: "Continue",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "credentials-1",
+        runId: "run-1",
+        type: "status",
+        text: "Provider unavailable.",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        signal: "credential-gap",
+      },
+    ];
+
+    const hidden = normalizeCodeAgentTranscriptForConversation(events, {
+      hideCredentialMessages: true,
+    });
+
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0]?.role).toBe("user");
   });
 });

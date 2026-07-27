@@ -1,5 +1,6 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useParams } from "react-router";
-import { useActionQuery } from "@agent-native/core/client";
+
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 
 export default function AssetEmbed() {

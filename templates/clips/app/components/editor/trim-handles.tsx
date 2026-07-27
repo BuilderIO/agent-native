@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/utils";
+
 import { formatMs } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 export interface TrimHandlesProps {
   /** Total width of the track in px (matches the waveform's totalWidth). */
@@ -12,8 +13,7 @@ export interface TrimHandlesProps {
   /** Fires when the user releases the mouse after drag. */
   onCommit?: (value: { startMs: number; endMs: number }) => void;
   durationMs: number;
-  /** Scroll offset of the parent container so handles track with zoom. */
-  scrollLeft?: number;
+  splitPoints?: number[];
   className?: string;
 }
 
@@ -45,7 +45,7 @@ export function TrimHandles({
   onChange,
   onCommit,
   durationMs,
-  scrollLeft = 0,
+  splitPoints = [],
   className,
 }: TrimHandlesProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -56,10 +56,10 @@ export function TrimHandles({
     (clientX: number) => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return 0;
-      const x = clientX - rect.left + scrollLeft;
+      const x = clientX - rect.left;
       return Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     },
-    [scrollLeft, durationMs, width],
+    [durationMs, width],
   );
 
   const startDrag = (mode: DragMode) => (e: React.PointerEvent) => {
@@ -100,7 +100,7 @@ export function TrimHandles({
     const toMsFromEvent = (e: PointerEvent) => {
       const rect = rootRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const x = e.clientX - rect.left + scrollLeft;
+      const x = e.clientX - rect.left;
       return Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     };
     window.addEventListener("pointermove", handleMove);
@@ -109,10 +109,13 @@ export function TrimHandles({
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
     };
-  }, [dragMode, value, onChange, onCommit, scrollLeft, durationMs, width]);
+  }, [dragMode, value, onChange, onCommit, durationMs, width]);
 
   const startX = (value.startMs / Math.max(durationMs, 1)) * width;
   const endX = (value.endMs / Math.max(durationMs, 1)) * width;
+  const visibleSplitPoints = splitPoints.filter(
+    (ms) => ms > value.startMs && ms < value.endMs, // i18n-ignore numeric range predicate, not visible UI copy
+  );
 
   return (
     <div
@@ -135,6 +138,16 @@ export function TrimHandles({
         <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full bg-foreground text-background text-[10px] px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
           {formatMs(value.endMs - value.startMs)}
         </div>
+        {visibleSplitPoints.map((splitMs) => (
+          <div
+            key={splitMs}
+            className="absolute top-0 h-full w-0.5 -translate-x-1/2 bg-rose-500/95"
+            style={{
+              left: `${((splitMs - value.startMs) / Math.max(value.endMs - value.startMs, 1)) * 100}%`,
+            }}
+            aria-hidden="true"
+          />
+        ))}
       </div>
 
       {/* Left handle */}

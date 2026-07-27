@@ -1,8 +1,10 @@
+// i18n-raw-literal-disable-file
 // Navigation context state helpers exposed to the agent.
 // Pure logic — no React, no icons.
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,
+  ContentDatabaseSource,
   ContentDatabaseView,
   Document,
   DocumentProperty,
@@ -10,14 +12,15 @@ import type {
   DocumentPropertyValue,
 } from "@shared/api";
 import { isComputedPropertyType } from "@shared/properties";
+
+import { databaseCalculationSummaries } from "./calculations";
+import { propertyValueText } from "./filter-sort";
+import { databaseCalendarDateProperty } from "./grouping";
 import type {
   DatabaseSort,
   DatabaseFilter,
   DatabaseDateViewRange,
 } from "./types";
-import { databaseCalendarDateProperty } from "./grouping";
-import { databaseCalculationSummaries } from "./calculations";
-import { propertyValueText } from "./filter-sort";
 
 export function databaseItemPreviewTitle(
   item: Pick<ContentDatabaseItem, "document"> | null | undefined,
@@ -66,6 +69,10 @@ export function databaseVisibleItemSummaries(
 export function databaseNavigationState({
   document,
   databaseId,
+  databaseDocumentId,
+  hostDocumentId,
+  renderMode,
+  source = null,
   views = [],
   activeView,
   searchQuery = "",
@@ -83,6 +90,10 @@ export function databaseNavigationState({
 }: {
   document: Pick<Document, "id" | "title">;
   databaseId: string;
+  databaseDocumentId?: string;
+  hostDocumentId?: string;
+  renderMode?: "page" | "inline";
+  source?: ContentDatabaseSource | null;
   views?: Array<Pick<ContentDatabaseView, "id" | "name" | "type">>;
   activeView: Pick<
     ContentDatabaseView,
@@ -99,6 +110,7 @@ export function databaseNavigationState({
     | "wrapCells"
     | "rowDensity"
     | "openPagesIn"
+    | "formQuestions"
   >;
   searchQuery?: string;
   sorts?: DatabaseSort[];
@@ -138,12 +150,33 @@ export function databaseNavigationState({
         (property) => property.definition.id === activeView.endDatePropertyId,
       )
     : null;
+  const outboundSourceChangeCount =
+    source?.changeSets.filter((changeSet) => changeSet.direction === "outbound")
+      .length ?? 0;
+  const navigationInstanceHostId =
+    hostDocumentId ?? databaseDocumentId ?? document.id;
 
   return {
     view: "editor",
     documentId: document.id,
     title: document.title,
     databaseId,
+    databaseDocumentId,
+    databaseHostDocumentId: hostDocumentId,
+    databaseRenderMode: renderMode,
+    databaseNavigationInstanceId:
+      databaseDocumentId || hostDocumentId || renderMode
+        ? `${navigationInstanceHostId}:${databaseId}`
+        : undefined,
+    databaseSourceType: source?.sourceType,
+    databaseSourceName: source?.sourceName,
+    databaseSourceTable: source?.sourceTable,
+    databaseSourceSyncState: source?.syncState,
+    databaseSourceFreshness: source?.freshness,
+    databaseSourcePendingChangeCount: source?.changeSets.length,
+    databaseSourceLocalChangeCount: source
+      ? outboundSourceChangeCount
+      : undefined,
     databaseViews: databaseViewSummaries(
       views.length > 0 ? views : [activeView],
     ),
@@ -186,6 +219,8 @@ export function databaseNavigationState({
       activeView.openPagesIn === "full_page"
         ? activeView.openPagesIn
         : undefined,
+    databaseFormQuestions:
+      activeView.type === "form" ? activeView.formQuestions : undefined,
     databaseVisibleItemCount: visibleItemCount,
     databaseTotalItemCount: totalItemCount,
     databaseVisibleItems: databaseVisibleItemSummaries(
@@ -248,11 +283,17 @@ export function databaseBulkScalarInputState(
 
 export function databaseDuplicatedItemFromResponse(
   response: Pick<ContentDatabaseResponse, "items"> &
-    Pick<Partial<ContentDatabaseResponse>, "duplicatedItemId">,
+    Pick<
+      Partial<ContentDatabaseResponse>,
+      "duplicatedItemId" | "duplicatedItemIds"
+    >,
 ) {
-  return (
-    response.items.find((item) => item.id === response.duplicatedItemId) ?? null
-  );
+  const duplicatedItemIds = response.duplicatedItemIds ?? [];
+  const duplicatedItemId =
+    duplicatedItemIds.length > 0
+      ? duplicatedItemIds[duplicatedItemIds.length - 1]
+      : response.duplicatedItemId;
+  return response.items.find((item) => item.id === duplicatedItemId) ?? null;
 }
 
 export function toggleDatabaseRowSelection(
@@ -269,7 +310,12 @@ export function pruneDatabaseRowSelection(
   visibleItems: ContentDatabaseItem[],
 ) {
   const visibleIds = new Set(visibleItems.map((item) => item.id));
-  return selectedItemIds.filter((id) => visibleIds.has(id));
+  const nextSelectedItemIds = selectedItemIds.filter((id) =>
+    visibleIds.has(id),
+  );
+  return nextSelectedItemIds.length === selectedItemIds.length
+    ? selectedItemIds
+    : nextSelectedItemIds;
 }
 
 export function toggleAllDatabaseRowSelection(

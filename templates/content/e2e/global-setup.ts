@@ -1,5 +1,6 @@
-import { chromium, type FullConfig } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
+
+import { chromium, type FullConfig } from "@playwright/test";
 
 /*
  * Establish a reusable authed session for the "authed" project.
@@ -27,8 +28,9 @@ async function globalSetup(_config: FullConfig) {
   const page = await ctx.newPage();
   let result: Record<string, unknown> = {};
   try {
-    await page.goto(`${baseURL}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1500);
+    await page.goto(`${baseURL}/_agent-native/sign-in`, {
+      waitUntil: "domcontentloaded",
+    });
     result = await page.evaluate(
       async ({ email, pass }) => {
         const post = (path: string, body: unknown) =>

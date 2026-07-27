@@ -1,22 +1,13 @@
-/**
- * Non-destructive editor for a single recording.
- *
- * Three rows, top to bottom:
- *   1. Preview — a simple <video> element plus a side panel for transcript.
- *   2. Transcript editor (middle) + chapters sidebar.
- *   3. Waveform, trim handles, timeline ruler (bottom).
- *
- * All edits (trim, split, thumbnail, chapters, stitch) go through actions so
- * the agent and UI stay in sync via `useDbSync` + the `refresh-signal` poke.
- */
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agentNativePath,
   appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 // Client-side app-state helpers — the `@agent-native/core/application-state`
@@ -53,28 +44,32 @@ async function writeAppStateClient(key: string, value: unknown): Promise<void> {
   }
 }
 
-import { cn } from "@/lib/utils";
-import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
+import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   parseEdits,
   getExcludedRanges,
   formatMs,
+  skipExcludedRange,
   type EditsJson,
 } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
+import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
+import { ChaptersEditor } from "./chapters-editor";
+import { defaultSelectionRange } from "./editor-selection";
 import { EditorToolbar } from "./editor-toolbar";
-import { Waveform } from "./waveform";
-import { TrimHandles } from "./trim-handles";
+import { RewindExtensionDialog } from "./rewind-extension-dialog";
+import { StitchManager } from "./stitch-manager";
+import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
 import { TranscriptEditor } from "./transcript-editor";
-import { ChaptersEditor } from "./chapters-editor";
-import { ThumbnailPicker } from "./thumbnail-picker";
-import { StitchManager } from "./stitch-manager";
+import { TrimHandles } from "./trim-handles";
+import { Waveform } from "./waveform";
 
 export interface EditorLayoutProps {
   recordingId: string;
@@ -82,6 +77,26 @@ export interface EditorLayoutProps {
 }
 
 const WAVEFORM_HEIGHT = 120;
+const MIN_TIMELINE_ZOOM = 1;
+const MAX_TIMELINE_ZOOM = 50;
+
+function clampTimelineZoom(value: number): number {
+  if (!Number.isFinite(value)) return MIN_TIMELINE_ZOOM;
+  const clamped = Math.max(
+    MIN_TIMELINE_ZOOM,
+    Math.min(MAX_TIMELINE_ZOOM, value),
+  );
+  return Math.round(clamped * 10) / 10;
+}
+
+function normalizeWheelDeltaY(
+  event: WheelEvent,
+  viewportWidth: number,
+): number {
+  if (event.deltaMode === 1) return event.deltaY * 16;
+  if (event.deltaMode === 2) return event.deltaY * viewportWidth;
+  return event.deltaY;
+}
 
 function shouldProxyWaveformUrl(videoUrl: string): boolean {
   try {
@@ -134,6 +149,7 @@ function getWaveformMediaUrl({
 }
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
+  const t = useT();
   // --- server state -------------------------------------------------------
   const playerDataQuery = useActionQuery("get-recording-player-data", {
     recordingId,
@@ -205,9 +221,16 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
+  const [rewindOpen, setRewindOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const trackpadGestureRef = useRef<{
+    zoom: number;
+    scrollLeft: number;
+    anchorRatio: number;
+    viewportX: number;
+  } | null>(null);
 
   // Measure viewport so waveform + timeline stay responsive.
   useEffect(() => {
@@ -226,11 +249,148 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     Math.floor(viewportWidth * Math.max(1, zoom)),
   );
 
+  const calculateAnchoredScrollLeft = useCallback(
+    (
+      nextZoom: number,
+      anchor?: { anchorRatio?: number; viewportX?: number },
+    ) => {
+      const nextTotalWidth = Math.max(
+        viewportWidth,
+        Math.floor(viewportWidth * Math.max(1, nextZoom)),
+      );
+      const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
+      const anchorMs = selectionRange
+        ? (selectionRange.startMs + selectionRange.endMs) / 2
+        : playheadMs;
+      const fallbackAnchorRatio =
+        durationMs > 0
+          ? Math.max(0, Math.min(durationMs, anchorMs)) / durationMs
+          : 0;
+      const anchorRatio = Math.max(
+        0,
+        Math.min(1, anchor?.anchorRatio ?? fallbackAnchorRatio),
+      );
+      const viewportX =
+        typeof anchor?.viewportX === "number"
+          ? Math.max(0, Math.min(viewportWidth, anchor.viewportX))
+          : viewportWidth / 2;
+      const anchorX = anchorRatio * nextTotalWidth;
+      return Math.max(0, Math.min(maxScrollLeft, anchorX - viewportX));
+    },
+    [durationMs, playheadMs, selectionRange, viewportWidth],
+  );
+
+  const setAnchoredZoom = useCallback(
+    (
+      nextZoom: number,
+      anchor?: { anchorRatio?: number; viewportX?: number },
+    ) => {
+      const clamped = clampTimelineZoom(nextZoom);
+      setZoom(clamped);
+      setScrollLeft(calculateAnchoredScrollLeft(clamped, anchor));
+    },
+    [calculateAnchoredScrollLeft],
+  );
+
+  const handleZoomChange = useCallback(
+    (nextZoom: number) => setAnchoredZoom(nextZoom),
+    [setAnchoredZoom],
+  );
+
   useEffect(() => {
     setScrollLeft((current) =>
       Math.min(current, Math.max(0, totalWidth - viewportWidth)),
     );
   }, [totalWidth, viewportWidth]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const getViewportX = (clientX?: number) => {
+      if (typeof clientX !== "number") return viewportWidth / 2;
+      const rect = el.getBoundingClientRect();
+      return Math.max(0, Math.min(viewportWidth, clientX - rect.left));
+    };
+
+    const getAnchorRatio = (
+      sourceZoom: number,
+      sourceScrollLeft: number,
+      viewportX: number,
+    ) => {
+      const sourceTotalWidth = Math.max(
+        viewportWidth,
+        Math.floor(viewportWidth * Math.max(1, sourceZoom)),
+      );
+      return Math.max(
+        0,
+        Math.min(
+          1,
+          (sourceScrollLeft + viewportX) / Math.max(1, sourceTotalWidth),
+        ),
+      );
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const deltaY = normalizeWheelDeltaY(event, viewportWidth);
+      if (Math.abs(deltaY) < 0.01) return;
+      const viewportX = getViewportX(event.clientX);
+      const anchorRatio = getAnchorRatio(zoom, scrollLeft, viewportX);
+      const nextZoom = clampTimelineZoom(zoom * Math.exp(-deltaY * 0.006));
+      if (nextZoom === zoom) return;
+      setAnchoredZoom(nextZoom, { anchorRatio, viewportX });
+    };
+
+    const handleGestureStart = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as Event & { clientX?: number };
+      const viewportX = getViewportX(gesture.clientX);
+      trackpadGestureRef.current = {
+        zoom,
+        scrollLeft,
+        anchorRatio: getAnchorRatio(zoom, scrollLeft, viewportX),
+        viewportX,
+      };
+    };
+
+    const handleGestureChange = (event: Event) => {
+      const start = trackpadGestureRef.current;
+      if (!start) return;
+      event.preventDefault();
+      const gesture = event as Event & { scale?: number };
+      const scale =
+        typeof gesture.scale === "number" && Number.isFinite(gesture.scale)
+          ? gesture.scale
+          : 1;
+      const nextZoom = clampTimelineZoom(start.zoom * scale);
+      if (nextZoom === zoom) return;
+      setAnchoredZoom(nextZoom, {
+        anchorRatio: start.anchorRatio,
+        viewportX: start.viewportX,
+      });
+    };
+
+    const handleGestureEnd = () => {
+      trackpadGestureRef.current = null;
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    el.addEventListener("gesturestart", handleGestureStart, {
+      passive: false,
+    });
+    el.addEventListener("gesturechange", handleGestureChange, {
+      passive: false,
+    });
+    el.addEventListener("gestureend", handleGestureEnd);
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("gesturestart", handleGestureStart);
+      el.removeEventListener("gesturechange", handleGestureChange);
+      el.removeEventListener("gestureend", handleGestureEnd);
+    };
+  }, [scrollLeft, setAnchoredZoom, viewportWidth, zoom]);
 
   // Sync the <video> to play state.
   useEffect(() => {
@@ -249,13 +409,20 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     if (!recording?.id) return;
     const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
     setPlaybackSpeed(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, [defaultPreviewSpeed, recording?.id]);
 
   // Keep the editor preview speed visible and in sync with the media element.
+  // `defaultPlaybackRate` is set too so a `videoUrl` source swap that resets
+  // `playbackRate` (some browsers do this on load) falls back to the chosen
+  // speed instead of 1x.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.defaultPlaybackRate = playbackSpeed;
     v.playbackRate = playbackSpeed;
   }, [playbackSpeed, videoUrl]);
 
@@ -263,17 +430,25 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     const next = parsePlaybackSpeed(rate) ?? 1.2;
     setPlaybackSpeed(next);
     savePlaybackSpeedPreference(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, []);
 
   // Keep the playheadMs in sync with the element's currentTime.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const onTime = () => setPlayheadMs(v.currentTime * 1000);
+    const onTime = () => {
+      const rawMs = v.currentTime * 1000;
+      const visibleMs = skipExcludedRange(rawMs, excludedRanges, durationMs);
+      if (visibleMs !== rawMs) v.currentTime = visibleMs / 1000;
+      setPlayheadMs(visibleMs);
+    };
     v.addEventListener("timeupdate", onTime);
     return () => v.removeEventListener("timeupdate", onTime);
-  }, [videoUrl]);
+  }, [durationMs, excludedRanges, videoUrl]);
 
   // Expose the in-editor state so the agent can read "the user is editing and scrubbed to X".
   useEffect(() => {
@@ -336,20 +511,24 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           startMs: Math.round(range.startMs),
           endMs: Math.round(range.endMs),
         });
-        toast.success("Trimmed");
+        toast.success(t("editorLayout.trimmed"));
         setSelectionRange(null);
       } catch (err: any) {
-        toast.error(err?.message ?? "Trim failed");
+        toast.error(err?.message ?? t("editorLayout.trimFailed"));
       }
     },
     [recordingId, trim],
   );
 
-  const seek = useCallback((ms: number) => {
-    const v = videoRef.current;
-    if (v) v.currentTime = ms / 1000;
-    setPlayheadMs(ms);
-  }, []);
+  const seek = useCallback(
+    (ms: number) => {
+      const visibleMs = skipExcludedRange(ms, excludedRanges, durationMs);
+      const v = videoRef.current;
+      if (v) v.currentTime = visibleMs / 1000;
+      setPlayheadMs(visibleMs);
+    },
+    [durationMs, excludedRanges],
+  );
 
   // --- keyboard shortcuts -------------------------------------------------
   useEffect(() => {
@@ -396,18 +575,22 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               endMs: Math.round(range.endMs),
             })
             .then(() => {
-              toast.success("Cut");
+              toast.success(t("editorLayout.cut"));
               setSelectionRange(null);
             })
-            .catch((err: any) => toast.error(err?.message ?? "Cut failed"));
+            .catch((err: any) =>
+              toast.error(err?.message ?? t("editorLayout.cutFailed")),
+            );
         }
       } else if (e.key.toLowerCase() === "s") {
         // Split at playhead
         e.preventDefault();
         split
           .mutateAsync({ recordingId, atMs: Math.round(playheadMs) })
-          .then(() => toast.success("Split"))
-          .catch((err: any) => toast.error(err?.message ?? "Split failed"));
+          .then(() => toast.success(t("editorLayout.split")))
+          .catch((err: any) =>
+            toast.error(err?.message ?? t("editorLayout.splitFailed")),
+          );
       }
     };
     window.addEventListener("keydown", handler);
@@ -415,22 +598,20 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
-  const effectiveSelection = selectionRange ?? {
-    startMs: Math.max(0, playheadMs - 1000),
-    endMs: Math.min(durationMs || 1_000, playheadMs + 1000),
-  };
+  const effectiveSelection =
+    selectionRange ?? defaultSelectionRange(playheadMs, durationMs);
 
   if (playerDataQuery.isLoading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Loading recording…
+        {t("editorLayout.loadingRecording")}
       </div>
     );
   }
   if (!recording) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Recording not found
+        {t("editorLayout.recordingNotFound")}
       </div>
     );
   }
@@ -451,13 +632,17 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         playbackSpeed={playbackSpeed}
         onPlaybackSpeedChange={handlePlaybackSpeedChange}
         zoom={zoom}
-        onZoomChange={setZoom}
+        onZoomChange={handleZoomChange}
         edits={edits}
         selectionRange={selectionRange}
         video={{ videoUrl, videoFormat, title: recording.title }}
         onOpenThumbnailPicker={() => setThumbOpen(true)}
         onOpenChapters={() => setChaptersOpen((v) => !v)}
         onOpenStitch={() => setStitchOpen(true)}
+        onOpenRewind={() => setRewindOpen(true)}
+        rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
+        rewindAvailable={canOfferRewindHistory(playerData?.role)}
+        rewindRequiresPrivate={recording?.visibility !== "private"}
         chaptersOpen={chaptersOpen}
       />
 
@@ -485,7 +670,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               />
             ) : (
               <div className="text-sm text-muted-foreground">
-                No video available yet.
+                {t("editorLayout.noVideoYet")}
               </div>
             )}
           </div>
@@ -515,9 +700,11 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 playheadMs={playheadMs}
                 durationMs={durationMs}
                 excludedRanges={excludedRanges}
-                selectionRange={selectionRange}
+                selectionRange={effectiveSelection}
+                splitPoints={splitPoints}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
+                scrollLeft={scrollLeft}
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
@@ -537,7 +724,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                     value={effectiveSelection}
                     onChange={setSelectionRange}
                     durationMs={durationMs}
-                    scrollLeft={scrollLeft}
+                    splitPoints={splitPoints}
                   />
                 </div>
               </div>
@@ -558,9 +745,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   durationMs={durationMs}
                   playheadMs={playheadMs}
                   chapters={chapters}
-                  excludedRanges={excludedRanges}
                   splitPoints={splitPoints}
-                  scrollLeft={scrollLeft}
+                  originalStartMs={edits.rewindOriginalStartMs}
                   onSeek={seek}
                   onClickChapter={(c) => seek(c.startMs)}
                 />
@@ -609,6 +795,23 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
+      {canOfferRewindHistory(playerData?.role) ? (
+        <RewindExtensionDialog
+          open={rewindOpen}
+          onOpenChange={setRewindOpen}
+          recordingId={recordingId}
+          durationMs={durationMs}
+          videoFormat={videoFormat}
+          hasAudio={Boolean(recording.hasAudio)}
+          visibility={recording.visibility}
+          onVisibilityChanged={async () => {
+            await playerDataQuery.refetch();
+          }}
+          onApplied={async () => {
+            await playerDataQuery.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

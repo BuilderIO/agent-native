@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core";
+import { useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface CanvasPin {
   id: string;
@@ -137,9 +139,21 @@ export function CanvasCommentPins({
   contextId,
   contextLabel,
 }: CanvasCommentPinsProps) {
+  const t = useT();
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  const removalTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+    new Set(),
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of removalTimersRef.current) clearTimeout(timer);
+      removalTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
@@ -269,8 +283,13 @@ export function CanvasCommentPins({
       console.error("[CanvasCommentPins] failed to send to agent:", err);
     }
     updatePin(pin.id, { submitted: true });
-    // Auto-clear after a short delay so the user sees the pin "fly away"
-    setTimeout(() => removePin(pin.id), 1500);
+    // Keep the acknowledgement visible just long enough to register, without
+    // making a routine submit feel delayed.
+    const timer = setTimeout(() => {
+      removalTimersRef.current.delete(timer);
+      removePin(pin.id);
+    }, 220);
+    removalTimersRef.current.add(timer);
   };
 
   if (!active && pins.length === 0) return null;
@@ -290,10 +309,10 @@ export function CanvasCommentPins({
         >
           <IconMessage className="w-3.5 h-3.5 text-[#609FF8]" />
           <span className="text-[11px] text-foreground">
-            Click anywhere to drop a comment pin
+            {t("raw.pinDropHint")}
           </span>
           <span className="text-[10px] text-muted-foreground ml-1">
-            Esc to exit
+            {t("raw.escExit")}
           </span>
         </div>
       )}
@@ -311,7 +330,7 @@ export function CanvasCommentPins({
             className={cn(
               "fixed z-[55]",
               pin.submitted &&
-                "transition-all duration-1000 opacity-0 -translate-y-4",
+                "-translate-y-2 opacity-0 transition-[transform,opacity] duration-200 ease-out motion-reduce:translate-y-0 motion-reduce:duration-150",
             )}
             style={{ left, top }}
           >
@@ -351,7 +370,7 @@ export function CanvasCommentPins({
                 })()}
               >
                 <p className="mb-2 text-xs font-semibold text-foreground">
-                  Edit slide
+                  {t("raw.editSlide")}
                 </p>
                 <Textarea
                   autoFocus
@@ -374,7 +393,7 @@ export function CanvasCommentPins({
                       removePin(pin.id);
                     }
                   }}
-                  placeholder="Tell the agent what to change…"
+                  placeholder={t("raw.tellAgentChange")}
                   className="resize-none text-xs min-h-[60px]"
                 />
                 {pin.targetText && (

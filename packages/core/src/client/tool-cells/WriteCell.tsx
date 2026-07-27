@@ -2,12 +2,14 @@
  * WriteCell — renders a write tool call as a new-file view with added-line styling.
  */
 
-import { memo, useState } from "react";
 import {
   IconChevronDown,
   IconFilePlus,
   IconLoader2,
 } from "@tabler/icons-react";
+import { memo, useState } from "react";
+
+import { AnimatedCollapse } from "../chat/tool-call-display.js";
 import { cn } from "../utils.js";
 
 export interface WriteCellMeta {
@@ -120,22 +122,24 @@ export function WriteCell({ meta, isRunning }: WriteCellProps) {
       </button>
 
       {/* Content body */}
-      {expanded && hasContent && meta.content && (
-        <div className="border-t border-border/40 bg-background">
-          <FileContentView content={meta.content} maxLines={maxCollapsed} />
-          {hiddenLines > 0 && (
-            <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
-              <button
-                type="button"
-                className="cursor-pointer underline hover:text-foreground"
-                onClick={() => setShowAll(true)}
-              >
-                Show {hiddenLines} more lines
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+      <AnimatedCollapse open={expanded && hasContent}>
+        {meta.content && (
+          <div className="border-t border-border/40 bg-background">
+            <FileContentView content={meta.content} maxLines={maxCollapsed} />
+            {hiddenLines > 0 && (
+              <div className="border-t border-border/40 px-3 py-1 text-[11px] text-muted-foreground">
+                <button
+                  type="button"
+                  className="cursor-pointer underline hover:text-foreground"
+                  onClick={() => setShowAll(true)}
+                >
+                  Show {hiddenLines} more lines
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </AnimatedCollapse>
     </div>
   );
 }

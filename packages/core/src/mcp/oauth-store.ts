@@ -6,14 +6,78 @@
  * are signed JWTs and are never persisted.
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
+
+import {
+  getDbExec,
+  isConnectionError,
+  intType,
+  isPostgres,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
 export const MCP_OAUTH_CODE_TTL_MS = 10 * 60_000;
-export const MCP_OAUTH_ACCESS_TOKEN_TTL = "1h";
-export const MCP_OAUTH_REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60_000;
+
+/**
+ * Parse a duration string like "30d", "1h", "7d" into seconds.
+ * Returns `null` when the input is not a valid recognised pattern.
+ */
+function parseDurationSeconds(raw: string): number | null {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/^(\d+(?:\.\d+)?)\s*([smhd])$/i);
+  if (!match) return null;
+  const value = parseFloat(match[1]);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  switch (match[2].toLowerCase()) {
+    case "s":
+      return value;
+    case "m":
+      return value * 60;
+    case "h":
+      return value * 3600;
+    case "d":
+      return value * 86400;
+  }
+  return null;
+}
+
+const DEFAULT_ACCESS_TOKEN_TTL = "30d";
+const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 30 * 86400;
+
+function resolveAccessTokenTtl(): { str: string; seconds: number } {
+  const env = process.env.MCP_OAUTH_ACCESS_TOKEN_TTL?.trim();
+  if (env) {
+    const secs = parseDurationSeconds(env);
+    if (secs !== null) return { str: env, seconds: secs };
+    // Garbage value — fall back to default rather than silently breaking.
+    console.warn(
+      `[mcp-oauth] Invalid MCP_OAUTH_ACCESS_TOKEN_TTL="${env}", using default "${DEFAULT_ACCESS_TOKEN_TTL}"`,
+    );
+  }
+  return {
+    str: DEFAULT_ACCESS_TOKEN_TTL,
+    seconds: DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
+  };
+}
+
+const _accessTokenTtl = resolveAccessTokenTtl();
+
+/**
+ * Access-token TTL as a jose-compatible duration string.
+ * Defaults to "30d"; override with MCP_OAUTH_ACCESS_TOKEN_TTL env var.
+ */
+export const MCP_OAUTH_ACCESS_TOKEN_TTL: string = _accessTokenTtl.str;
+
+/**
+ * Access-token TTL in seconds (derived from the same env var).
+ * Used to populate the OAuth `expires_in` response field.
+ */
+export const MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: number =
+  _accessTokenTtl.seconds;
+
+export const MCP_OAUTH_REFRESH_TOKEN_TTL_MS = 365 * 24 * 60 * 60_000;
 export const MCP_OAUTH_REGISTER_MAX = 60;
 export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
@@ -21,7 +85,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
+      const createClientsSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
           client_id TEXT PRIMARY KEY,
           client_name TEXT,
@@ -31,8 +95,8 @@ async function ensureTable(): Promise<void> {
           token_endpoint_auth_method TEXT,
           created_at ${intType()}
         )
-      `);
-      await client.execute(`
+      `;
+      const createCodesSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_codes (
           code TEXT PRIMARY KEY,
           client_id TEXT NOT NULL,
@@ -48,8 +112,8 @@ async function ensureTable(): Promise<void> {
           expires_at ${intType()},
           consumed_at ${intType()}
         )
-      `);
-      await client.execute(`
+      `;
+      const createRefreshTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_oauth_refresh_tokens (
           id TEXT PRIMARY KEY,
           token_hash TEXT UNIQUE NOT NULL,
@@ -65,7 +129,26 @@ async function ensureTable(): Promise<void> {
           revoked_at ${intType()},
           replaced_by_hash TEXT
         )
-      `);
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema first (no lock) and only issue
+        // DDL when the table is actually missing, wrapped in a
+        // transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists("mcp_oauth_clients", createClientsSql);
+        await ensureTableExists("mcp_oauth_codes", createCodesSql);
+        await ensureTableExists(
+          "mcp_oauth_refresh_tokens",
+          createRefreshTokensSql,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // create-then-execute behaviour.
+      await client.execute(createClientsSql);
+      await client.execute(createCodesSql);
+      await client.execute(createRefreshTokensSql);
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -479,14 +562,20 @@ export async function getOAuthRefreshToken(
   return row;
 }
 
+/**
+ * Slide the refresh-token's expiry window on each successful use so that active
+ * users never hit the TTL. Records `last_used_at` and extends `expires_at` to
+ * `now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS`.
+ */
 export async function touchOAuthRefreshToken(
   refreshToken: string,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   const tokenHash = hashOAuthToken(refreshToken);
+  const now = Date.now();
   await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
-    args: [Date.now(), tokenHash],
+    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
+    args: [now, now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS, tokenHash],
   });
 }

@@ -1,14 +1,23 @@
-import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import fs from "fs";
 import path from "path";
-import { eq } from "drizzle-orm";
+
+import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { parseSlidesFigDesignSystem } from "../server/lib/fig-design-system.js";
-import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
+import { readUserUploadedFile } from "./_uploaded-files.js";
+
+const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
 export default defineAction({
   description:
@@ -16,14 +25,12 @@ export default defineAction({
     "For PPTX files, returns parsed slides with text and layout info ready for conversion. " +
     "For DOCX files, returns structured sections extracted from the document. " +
     "For PDF files, returns extracted text organized by page. " +
-    "For Figma .fig files, returns extracted brand/design-system tokens and a preview; call create-design-system with the returned data. " +
-    "The agent can then use the extracted content to create a deck via create-deck or add-slide, or create a design system from .fig tokens.",
+    "For Figma .fig files, requires Builder.io and starts Builder design-system indexing; the returned Builder job/design-system ids are the source of truth. " +
+    "The agent can then use the extracted content to create a deck via create-deck or add-slide, or tell the user where Builder is indexing the design system.",
   schema: z.object({
     filePath: z
       .string()
-      .describe(
-        "Server path to the uploaded file (e.g. data/uploads/file.pptx)",
-      ),
+      .describe("Uploaded file path or opaque hosted upload reference"),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "auto"])
       .optional()
@@ -40,16 +47,26 @@ export default defineAction({
       .describe(
         "If true, replace deckId's slides with slides converted from the file.",
       ),
+    maxChars: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(100_000)
+      .optional()
+      .describe(
+        "Maximum extracted source characters to return when not importing directly into a deck (default 60000).",
+      ),
   }),
-  run: async ({ filePath, format, deckId, importIntoDeck }) => {
-    const absPath = resolveUserUploadedFile(filePath);
-
-    const fileBuffer = await fs.promises.readFile(absPath);
+  run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
+    const uploaded = await readUserUploadedFile(filePath);
+    const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
+    const fileBuffer = uploaded.data;
+    const filename = uploaded.filename;
 
     // Detect format from extension if auto
     let detectedFormat = format;
     if (detectedFormat === "auto") {
-      const ext = path.extname(absPath).toLowerCase();
+      const ext = path.extname(filename).toLowerCase();
       if (ext === ".pptx") detectedFormat = "pptx";
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
@@ -64,28 +81,40 @@ export default defineAction({
     if (detectedFormat === "fig") {
       if (importIntoDeck) {
         throw new Error(
-          "Figma .fig imports create design systems, not slide replacements. Re-run without importIntoDeck, then call create-design-system with the returned data.",
+          "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
         );
       }
-      const result = parseSlidesFigDesignSystem({
-        data: fileBuffer,
-        filename: path.basename(absPath),
+      const title = titleFromPath(filename);
+      const result = await startBuilderDesignSystemIndex({
+        projectName: title,
+        files: [
+          {
+            name: path.basename(filename),
+            data: fileBuffer,
+            mimeType: "application/octet-stream",
+          },
+        ],
+      });
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      const proxy = await upsertBuilderProxyDesignSystem({
+        result,
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        projectName: title,
       });
       return {
         format: "fig",
-        title: result.suggestedTitle,
-        designSystem: result.data,
-        customInstructions: result.customInstructions,
-        preview: result.preview,
+        title,
+        source: "builder",
+        projectId: result.projectId,
+        jobId: result.jobId,
+        designSystemId: result.designSystemId,
+        localDesignSystemId: proxy.localDesignSystemId,
+        builderUrl: result.builderUrl,
+        status: result.status,
         deckId,
-        instructions: [
-          "Parsed the .fig file and extracted a slide-ready design system.",
-          "Call create-design-system with:",
-          `- title: ${JSON.stringify(result.suggestedTitle)}`,
-          "- data: JSON.stringify(designSystem)",
-          "- customInstructions: the returned customInstructions string",
-          "Then set it as default or apply it to a deck if the user asked.",
-        ].join("\n"),
+        instructions: proxy.instructions,
       };
     }
 
@@ -95,7 +124,7 @@ export default defineAction({
       const { convertToSlideHtml } =
         await import("../server/handlers/import/html-converter.js");
       const presentation = await parsePptx(fileBuffer);
-      const title = presentation.title || titleFromPath(absPath);
+      const title = presentation.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -141,7 +170,7 @@ export default defineAction({
         await import("../server/handlers/import/html-converter.js");
       const doc = await parseDocx(fileBuffer);
       const slideHtmlArray = convertSectionsToSlides(doc.sections);
-      const title = doc.title || titleFromPath(absPath);
+      const title = doc.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -170,27 +199,30 @@ export default defineAction({
         format: "docx",
         title,
         sectionCount: doc.sections.length,
-        text: doc.text,
-        sections: doc.sections.map((s) => ({
-          heading: s.heading,
-          content: s.content,
-          text: stripTags(s.content),
-          contentPreview: stripTags(s.content).slice(0, 500),
-        })),
+        text: truncateText(doc.text, sourceLimit).text,
+        sections: summarizeSections(doc.sections),
         textLength: doc.text.length,
+        truncated: doc.text.length > sourceLimit,
+        note:
+          doc.text.length > sourceLimit
+            ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
+            : undefined,
         deckId,
       };
     }
 
     if (detectedFormat === "pdf") {
-      const { PDFParse } = await import("pdf-parse");
+      const { PDFParse, canvasFactory } = await setupPdfParse();
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
-      const pdf = new PDFParse(new Uint8Array(fileBuffer));
-      const result = await pdf.getText();
+      const pdf = new PDFParse({
+        data: new Uint8Array(fileBuffer),
+        CanvasFactory: canvasFactory,
+      });
+      const result = await pdf.getText().finally(() => pdf.destroy());
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
-      const title = titleFromPath(absPath);
+      const title = titleFromPath(filename);
 
       if (textPages.length === 0) {
         throw new Error(
@@ -221,18 +253,23 @@ export default defineAction({
           imported: true,
         };
       }
+      const totalTextLength = textPages.reduce(
+        (sum, p) => sum + p.text.length,
+        0,
+      );
 
       return {
         format: "pdf",
         title: `Imported PDF (${pages.length} pages)`,
         pageCount: pages.length,
         textPageCount: textPages.length,
-        pages: textPages.map((p) => ({
-          pageNum: p.num,
-          text: p.text,
-          textPreview: p.text.slice(0, 500),
-          textLength: p.text.length,
-        })),
+        pages: truncatePages(textPages, sourceLimit),
+        totalTextLength,
+        truncated: totalTextLength > sourceLimit,
+        note:
+          totalTextLength > sourceLimit
+            ? `Returned the first ${sourceLimit} extracted characters. Re-run with a higher maxChars value if more source context is needed.`
+            : undefined,
         deckId,
       };
     }
@@ -267,6 +304,57 @@ function normalizePdfPages(result: unknown): { num: number; text: string }[] {
     num: i + 1,
     text: pageText.trim(),
   }));
+}
+
+function truncateText(
+  text: string,
+  limit: number,
+): { text: string; truncated: boolean } {
+  if (text.length <= limit) return { text, truncated: false };
+  return { text: text.slice(0, limit), truncated: true };
+}
+
+function takeFromBudget(
+  text: string,
+  budget: { remaining: number },
+): { text: string; truncated: boolean } {
+  if (budget.remaining <= 0) {
+    return { text: "", truncated: text.length > 0 };
+  }
+  if (text.length <= budget.remaining) {
+    budget.remaining -= text.length;
+    return { text, truncated: false };
+  }
+  const taken = text.slice(0, budget.remaining);
+  budget.remaining = 0;
+  return { text: taken, truncated: true };
+}
+
+function truncatePages(pages: { num: number; text: string }[], limit: number) {
+  const budget = { remaining: limit };
+  return pages
+    .map((p) => {
+      const truncated = takeFromBudget(p.text, budget);
+      return {
+        pageNum: p.num,
+        text: truncated.text,
+        textPreview: p.text.slice(0, 500),
+        textLength: p.text.length,
+        truncated: truncated.truncated,
+      };
+    })
+    .filter((p) => p.text || p.textLength === 0);
+}
+
+function summarizeSections(sections: { heading: string; content: string }[]) {
+  return sections.map((s) => {
+    const plain = stripTags(s.content);
+    return {
+      heading: s.heading,
+      textPreview: plain.slice(0, 500),
+      textLength: plain.length,
+    };
+  });
 }
 
 async function replaceDeckSlides(

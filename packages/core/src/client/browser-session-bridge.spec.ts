@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { createAgentNativeBrowserSessionBridge } from "./browser-session-bridge.js";
 import {
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
   type AgentNativeHostMessageType,
 } from "./host-bridge.js";
-import { createAgentNativeBrowserSessionBridge } from "./browser-session-bridge.js";
 
 function dispatchFromHost(
   source: Window,

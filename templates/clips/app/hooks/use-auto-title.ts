@@ -1,25 +1,16 @@
-/**
- * Clips AI request bridge
- *
- * Watches the `clips-ai-request-:id` application_state queue. The bridge sends
- * queued recording work to the agent chat exactly once per
- * (recordingId, kind, requestedAt).
- *
- * Once handled we DELETE the request entry so the next page load / tab switch
- * doesn't re-fire. The polling layer flips UI back to ready when the requested
- * action lands its writes.
- */
-
-import { useEffect, useRef } from "react";
 import {
-  agentNativePath,
-  callAction,
   sendToAgentChat,
-} from "@agent-native/core/client";
+  type AgentChatMessage,
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
+import { useEffect, useRef } from "react";
+
 import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
-const POLL_INTERVAL_MS = 3000;
+const TWO_MINUTES_MS = 2 * 60 * 1000;
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -44,15 +35,20 @@ interface AiRequest {
   recordingId?: string;
   requestedAt?: string;
   currentTitle?: string;
+  currentDescription?: string;
   transcriptStatus?: string;
   transcriptText?: string;
   segmentsJson?: string;
   agentsContext?: string;
+  includeSummary?: boolean;
   thresholdMs?: number;
   message?: string;
+  includeFullVideoInAi?: boolean;
+  openInChat?: boolean;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
+  "generate-metadata",
   "regenerate-title",
   "regenerate-summary",
   "regenerate-chapters",
@@ -61,22 +57,21 @@ const DISPATCHABLE_REQUESTS = new Set([
   "generate-workflow",
 ]);
 
-async function readRequest(recordingId: string): Promise<AiRequest | null> {
-  const url = agentNativePath(
-    `/_agent-native/application-state/${encodeURIComponent(
-      `clips-ai-request-${recordingId}`,
-    )}`,
-  );
+async function listRequests(): Promise<Map<string, AiRequest>> {
   try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const payload = await res.json().catch(() => null);
-    if (!payload || typeof payload !== "object") return null;
-    // The application-state endpoint wraps stored values under `.value`.
-    const value = (payload as any).value ?? payload;
-    return value as AiRequest;
+    const result = (await callAction("list-ai-requests", {} as any, {
+      method: "GET",
+    })) as { requests?: AiRequest[] } | null | undefined;
+    return new Map(
+      (result?.requests ?? [])
+        .filter(
+          (r): r is AiRequest & { recordingId: string } => !!r?.recordingId,
+        )
+        .map((r) => [r.recordingId, r]),
+    );
   } catch {
-    return null;
+    // Swallow — the next tick retries.
+    return new Map();
   }
 }
 
@@ -90,8 +85,9 @@ async function clearRequest(recordingId: string): Promise<void> {
 }
 
 /**
- * Mount this once in the app shell. It polls the recording list and fires
- * `sendToAgentChat` for every pending request queued by a clips action.
+ * Mount this once in the app shell. It watches the exact application-state
+ * keys used for queued Clips AI work and fires `sendToAgentChat` for every
+ * pending request queued by a clips action.
  * Idempotent — a given (recordingId, kind, requestedAt) is only dispatched
  * once per tab session.
  */
@@ -110,25 +106,37 @@ export function useAutoTitleBridge(): void {
         `${r.id}:${r.titleSource ?? ""}:${r.title}:${r.updatedAt}:${r.transcriptStatus ?? ""}:${r.transcriptHasText ? "1" : "0"}`,
     )
     .join("|");
+  const aiRequestVersion = useChangeVersions(
+    readyRecordings.map(
+      (recording) => `app-state:clips-ai-request-${recording.id}`,
+    ),
+  );
 
   useEffect(() => {
     if (readyRecordings.length === 0) return;
     let cancelled = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
     async function tick() {
-      if (cancelled || inflight.current) return;
+      if (cancelled) return;
+      if (inflight.current) {
+        // A new request-state version can arrive while the previous list read
+        // is in flight. Recheck after it settles so that event is not the last
+        // chance to dispatch the queued work.
+        fallbackTimer = setTimeout(() => void tick(), 50);
+        return;
+      }
       inflight.current = true;
       try {
+        const requestsById = await listRequests();
+        if (cancelled) return;
+
         for (const rec of readyRecordings) {
           if (cancelled) return;
 
-          const request = await readRequest(rec.id);
+          const request = requestsById.get(rec.id) ?? null;
 
-          if (
-            request?.kind &&
-            DISPATCHABLE_REQUESTS.has(request.kind) &&
-            request.recordingId === rec.id
-          ) {
+          if (request?.kind && DISPATCHABLE_REQUESTS.has(request.kind)) {
             // Server queued a delegation — use the full context it provided.
             // Key includes requestedAt so each distinct server request fires
             // exactly once, independent of any prior fallback dispatch.
@@ -137,17 +145,17 @@ export function useAutoTitleBridge(): void {
             }`;
             if (dispatched.current.has(dispatchKey)) continue;
             dispatched.current.add(dispatchKey);
+            if (
+              request.kind === "generate-metadata" ||
+              request.kind === "regenerate-title"
+            ) {
+              // The temporary title remains replaceable while the background
+              // agent runs. Suppress the old-recording fallback in this tab so
+              // clearing the request does not immediately launch a duplicate.
+              dispatched.current.add(`${rec.id}:fallback`);
+            }
 
-            sendToAgentChat({
-              message:
-                request.message ??
-                `Handle queued ${request.kind} work for recording ${rec.id}.`,
-              context: JSON.stringify(buildRequestContext(rec, request)),
-              submit: true,
-              openSidebar: false,
-              newTab: true,
-              background: true,
-            });
+            dispatchAiRequest(rec, request);
 
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
@@ -163,9 +171,8 @@ export function useAutoTitleBridge(): void {
               continue;
             }
 
-            const ageMs = Date.now() - new Date(rec.createdAt).getTime();
-            const TWO_MINUTES_MS = 2 * 60 * 1000;
-            if (ageMs < TWO_MINUTES_MS) continue;
+            if (Date.now() - new Date(rec.createdAt).getTime() < TWO_MINUTES_MS)
+              continue;
 
             // Use a dedicated key so a later server-queued request (e.g. from
             // a long transcription that finishes after the 2-min window) is
@@ -185,26 +192,110 @@ export function useAutoTitleBridge(): void {
       }
     }
 
-    tick();
-    const handle = setInterval(tick, POLL_INTERVAL_MS);
+    function scheduleNextFallback() {
+      if (cancelled) return;
+      const delay = nextAutoTitleFallbackDelay(
+        readyRecordings,
+        dispatched.current,
+      );
+      if (delay === null) return;
+      // Keep the timeout non-zero so a failed request cannot spin a tight loop.
+      fallbackTimer = setTimeout(
+        () => {
+          fallbackTimer = null;
+          void tick().finally(scheduleNextFallback);
+        },
+        Math.max(delay, 50),
+      );
+    }
+
+    // One initial read catches requests queued before this component mounted.
+    // Later reads are driven by the exact clips-ai-request application-state
+    // counters above. The only timer left is a one-shot wake-up when an old
+    // transcript-backed recording becomes eligible for the legacy fallback.
+    void tick().finally(scheduleNextFallback);
     return () => {
       cancelled = true;
-      clearInterval(handle);
+      if (fallbackTimer) clearTimeout(fallbackTimer);
     };
+    // readyRecordingsKey is the stable snapshot consumed by tick; depending on
+    // the array itself would restart the effect on every query result object.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readyRecordingsKey]);
+  }, [aiRequestVersion, readyRecordingsKey]);
+}
+
+export function nextAutoTitleFallbackDelay(
+  recordings: readonly RecordingSummary[],
+  dispatched: ReadonlySet<string>,
+  now = Date.now(),
+): number | null {
+  let nextDelay: number | null = null;
+
+  for (const recording of recordings) {
+    if (recording.status !== "ready") continue;
+    if (!isAutoTitleReplaceable(recording.title, recording.titleSource)) {
+      continue;
+    }
+    if (
+      recording.transcriptStatus !== "ready" ||
+      recording.transcriptHasText !== true ||
+      dispatched.has(`${recording.id}:fallback`)
+    ) {
+      continue;
+    }
+
+    const createdAt = new Date(recording.createdAt).getTime();
+    const delay = Number.isFinite(createdAt)
+      ? Math.max(0, TWO_MINUTES_MS - (now - createdAt))
+      : 0;
+    nextDelay = nextDelay === null ? delay : Math.min(nextDelay, delay);
+  }
+
+  return nextDelay;
 }
 
 function buildRequestContext(rec: RecordingSummary, request: AiRequest) {
   return {
     recordingId: rec.id,
     currentTitle: request.currentTitle ?? rec.title,
+    currentDescription: request.currentDescription ?? "",
     transcript: request.transcriptText ?? "",
     agentsContext: request.agentsContext ?? "",
     transcriptStatus: request.transcriptStatus ?? "ready",
     transcriptSegments: parseJsonArray(request.segmentsJson),
+    includeFullVideoInAi: request.includeFullVideoInAi === true,
+    includeSummary: request.includeSummary === true,
     request,
   };
+}
+
+export function buildAiRequestChatOptions(
+  rec: RecordingSummary,
+  request: AiRequest,
+): AgentChatMessage {
+  const includeFullVideo = request.includeFullVideoInAi === true;
+  const gemini = includeFullVideo ? fullVideoAiModelSelection() : null;
+  const openInChat = request.openInChat === true;
+  return {
+    message:
+      request.message ??
+      `Handle queued ${request.kind} work for recording ${rec.id}.`,
+    context: JSON.stringify(buildRequestContext(rec, request)),
+    submit: true,
+    openSidebar: openInChat ? true : false,
+    newTab: true,
+    background: !openInChat,
+    ...(gemini
+      ? {
+          engine: gemini.engine,
+          model: gemini.model,
+        }
+      : {}),
+  };
+}
+
+function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
+  sendToAgentChat(buildAiRequestChatOptions(rec, request));
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

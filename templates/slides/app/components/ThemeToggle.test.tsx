@@ -1,9 +1,10 @@
-// @vitest-environment happy-dom
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { useTheme } from "next-themes";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ReactElement } from "react";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("next-themes", () => ({
   useTheme: vi.fn(),

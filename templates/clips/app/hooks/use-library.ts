@@ -1,4 +1,9 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
+
+import { isLiveRecordingUpload } from "@/lib/recording-status";
 
 export interface RecordingSummary {
   id: string;
@@ -32,7 +37,7 @@ export interface RecordingSummary {
 }
 
 export interface ListRecordingsArgs {
-  view?: "library" | "space" | "archive" | "trash" | "all";
+  view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -42,24 +47,13 @@ export interface ListRecordingsArgs {
   offset?: number;
 }
 
-function isAwaitingAutoTitle(recording: RecordingSummary): boolean {
-  const title = (recording.title ?? "").trim();
-  const titleIsReplaceable =
-    title === "" ||
-    title === "Untitled recording" ||
-    recording.titleSource === "default" ||
-    recording.titleSource === "context";
-  if (!titleIsReplaceable) return false;
-
-  if (recording.transcriptStatus === "failed") return false;
-  if (recording.transcriptStatus === "ready") {
-    return recording.transcriptHasText === true;
-  }
-
-  return (
-    recording.transcriptStatus === "pending" ||
-    recording.transcriptStatus === "streaming"
-  );
+export function recordingsRefetchInterval(
+  recordings: readonly RecordingSummary[] | undefined,
+): number | false {
+  if (!recordings || recordings.length === 0) return false;
+  return recordings.some((recording) => isLiveRecordingUpload(recording))
+    ? 3000
+    : false;
 }
 
 export function useRecordings(args: ListRecordingsArgs = {}) {
@@ -72,17 +66,36 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // If any recording is still on a replaceable seed title, keep a 3s
-      // refetch cadence so the skeleton in `recording-card` upgrades to
-      // the real title promptly even if the refresh-signal poll is missed.
+      // Keep a short poll only while uploads/processors are active so the
+      // library card does not get stuck if the global refresh signal is
+      // missed. Generated titles arrive through the shared DB sync transport;
+      // polling completed recordings forever is both redundant and expensive.
       refetchInterval: (q) => {
         const recs = (q.state.data as any)?.recordings as
           | RecordingSummary[]
           | undefined;
-        if (!recs || recs.length === 0) return false;
-        const pendingTitle = recs.some(isAwaitingAutoTitle);
-        return pendingTitle ? 3000 : false;
+        return recordingsRefetchInterval(recs);
       },
+    },
+  );
+}
+
+/**
+ * Count-only variant for surfaces like the sidebar badge that need a total but
+ * not the rows. Hits `list-recordings` with `countOnly`, so it skips the row
+ * payload server-side and doesn't share (or pay for) the full-list query or its
+ * title polling.
+ */
+export function useRecordingsCount(
+  args: Omit<ListRecordingsArgs, "limit" | "offset"> = {},
+) {
+  return useActionQuery<number>(
+    "list-recordings",
+    { ...args, countOnly: true } as any,
+    {
+      select: (data: any) => (typeof data?.total === "number" ? data.total : 0),
+      retry: false,
+      throwOnError: false,
     },
   );
 }
@@ -149,9 +162,10 @@ export function useDeleteFolder() {
 }
 
 export function useMoveRecording() {
-  return useActionMutation<any, { id: string; folderId?: string | null }>(
-    "move-recording",
-  );
+  return useActionMutation<
+    any,
+    { id?: string; ids?: string[]; folderId?: string | null }
+  >("move-recording");
 }
 
 export function useTrashRecording() {
@@ -191,17 +205,26 @@ export function useTagRecording() {
 // three hooks hit the same endpoint and slice — React Query dedupes identical
 // keys.
 
-export function useOrganizationState(organizationId?: string) {
+export function useOrganizationState(
+  organizationId?: string,
+  options: { enabled?: boolean } = {},
+) {
   return useActionQuery<any>(
     "list-organization-state",
     organizationId ? { organizationId } : undefined,
+    {
+      enabled: options.enabled ?? true,
+    },
   );
 }
 
 export function useFolders(
   args: { organizationId?: string; spaceId?: string | null } = {},
+  options: { enabled?: boolean } = {},
 ) {
-  const { data, isLoading } = useOrganizationState(args.organizationId);
+  const { data, isLoading } = useOrganizationState(args.organizationId, {
+    enabled: options.enabled ?? Boolean(args.organizationId),
+  });
   const all = Array.isArray(data?.folders) ? (data.folders as any[]) : [];
   const folders =
     args.spaceId !== undefined
@@ -212,17 +235,22 @@ export function useFolders(
   return { data: { folders }, isLoading };
 }
 
-export function useSpaces(organizationId?: string) {
-  const { data, isLoading } = useOrganizationState(organizationId);
+export function useSpaces(
+  organizationId?: string,
+  options: { enabled?: boolean } = {},
+) {
+  const { data, isLoading } = useOrganizationState(organizationId, {
+    enabled: options.enabled ?? Boolean(organizationId),
+  });
   const spaces = Array.isArray(data?.spaces) ? (data.spaces as any[]) : [];
   return { data: { spaces }, isLoading };
 }
 
-export function useOrganizations() {
+export function useOrganizations(options: { enabled?: boolean } = {}) {
   // list-organization-state only returns the current organization. We surface
   // it as a single-item list so the switcher has something to render; the
   // framework team will replace this with a proper `list-organizations` later.
-  const { data, isLoading } = useOrganizationState();
+  const { data, isLoading } = useOrganizationState(undefined, options);
   const organizations = data?.organization ? [data.organization] : [];
   return {
     data: { organizations, currentId: data?.organization?.id },

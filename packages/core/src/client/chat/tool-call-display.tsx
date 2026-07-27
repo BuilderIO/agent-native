@@ -1,50 +1,152 @@
 // Owns: tool-payload formatting helpers, ToolCallDisplay, ToolCallFallback,
 // and ReconnectStreamMessage used by AssistantChat.
 
+import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+import {
+  IconLoader2,
+  IconCircleX,
+  IconCheck,
+  IconChevronRight,
+  IconCopy,
+  IconCode,
+  IconBrandSlack,
+  IconTerminal2,
+  IconDatabase,
+  IconSearch,
+  IconFileCode,
+  IconShieldCheck,
+  IconX,
+} from "@tabler/icons-react";
 import React, {
   useState,
   useEffect,
   useCallback,
-  useMemo,
+  useLayoutEffect,
   useRef,
 } from "react";
-import type { ToolCallMessagePartProps } from "@assistant-ui/react";
+
+import type {
+  A2AAgentActivitySnapshot,
+  A2AAgentActivityToolCall,
+} from "../../a2a/activity.js";
+import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import type { ContentPart } from "../sse-event-processor.js";
-import { humanizeToolName } from "../tool-display.js";
+import { AgentTaskCard } from "../AgentTaskCard.js";
+import { writeClipboardText } from "../clipboard.js";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
+import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
+import { useT } from "../i18n.js";
+import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
+import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
 import {
   BashCell,
   EditCell,
   WriteCell,
   FilesChangedSummary,
 } from "../tool-cells/index.js";
-import { AgentTaskCard } from "../AgentTaskCard.js";
-import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
-import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
-import { writeClipboardText } from "../clipboard.js";
+import {
+  humanizeToolName,
+  isCallAgentToolCallShadowed,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
+import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
-  markdownComponents,
-  markdownModule,
-  remarkGfmFn,
-  markdownUrlTransform,
+  useSmoothStreamingText,
 } from "./markdown-renderer.js";
+import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
-  IconLoader2,
-  IconCircleX,
-  IconCheck,
-  IconSquareFilled,
-  IconChevronDown,
-  IconCopy,
-  IconSearch,
-  IconArrowsMaximize,
-  IconArrowsMinimize,
-} from "@tabler/icons-react";
+  isBuiltinDataWidgetActionRenderer,
+  resolveBuiltinActionChatRenderer,
+  resolveBuiltinFallbackToolRenderer,
+} from "./widgets/builtin-tool-renderers.js";
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
+
+/**
+ * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
+ * re-issues the turn approving a specific paused tool call (opt-in
+ * `needsApproval` actions). When null, the Approve button is not rendered.
+ * Deny defaults to local-only (the action stays un-run) unless `onDeny` is
+ * provided, and "Always allow" only renders when `onAlwaysAllow` is provided
+ * — both are additive so existing action-approval consumers are unaffected.
+ */
+export type ApprovalContextValue = {
+  /** Re-issue the turn so the server runs the approved call. */
+  onApprove: (approvalKey: string) => void;
+  /**
+   * Optional host hook invoked in addition to the local "denied" state, e.g.
+   * so a Code session can also resolve its own pending approval as denied.
+   */
+  onDeny?: (approvalKey: string) => void;
+  /**
+   * Optional host hook that persists this exact call so future occurrences
+   * skip the approval gate. When absent, no "Always allow" button renders.
+   */
+  onAlwaysAllow?: (approvalKey: string) => void;
+};
+export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
+  null,
+);
+
+export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
+
+export function ToolActivityPresentation({
+  toolName,
+  isRunning,
+  isActiveTail,
+  suppressLongRunningHint = false,
+  children,
+}: {
+  toolName: string;
+  isRunning: boolean;
+  isActiveTail: boolean;
+  suppressLongRunningHint?: boolean;
+  children: React.ReactNode;
+}) {
+  const [showLongRunningHint, setShowLongRunningHint] = useState(false);
+  // A batched update can first reveal a tool with its result already attached.
+  // Presentation follows the active chat tail rather than execution state so
+  // that newly revealed completed tools still get their entrance motion.
+  const [animateEntry] = useState(isActiveTail);
+
+  useEffect(() => {
+    if (!isRunning || suppressLongRunningHint) {
+      setShowLongRunningHint(false);
+      return;
+    }
+    setShowLongRunningHint(false);
+    const timeout = window.setTimeout(() => {
+      setShowLongRunningHint(true);
+    }, TOOL_LONG_RUNNING_HINT_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isRunning, suppressLongRunningHint, toolName]);
+
+  return (
+    <div
+      className={cn(
+        "agent-tool-call",
+        animateEntry && "agent-tool-call--entering",
+      )}
+      data-running={isRunning ? "true" : undefined}
+    >
+      {children}
+      {isRunning && showLongRunningHint && (
+        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
+          Still working. Large updates can take a minute or two.
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── Tool-payload formatting ──────────────────────────────────────────────────
 
@@ -89,6 +191,12 @@ function inferToolTextLanguage(
 ): string {
   const keyName = (key ?? "").toLowerCase();
   const tool = (toolName ?? "").toLowerCase();
+  if (
+    keyName === "code" &&
+    (tool.includes("run-code") || tool.includes("run_code"))
+  ) {
+    return "javascript";
+  }
   if (
     keyName === "sql" ||
     keyName.endsWith("sql") ||
@@ -164,53 +272,99 @@ export function toolResultPayload(
   };
 }
 
-// ─── Search highlight helpers ─────────────────────────────────────────────────
+// ─── Tool icon helpers ────────────────────────────────────────────────────────
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+type ToolIconComponent = React.ComponentType<{
+  className?: string;
+  size?: number | string;
+}>;
 
-function countTextMatches(text: string, query: string): number {
-  const needle = query.trim();
-  if (!needle) return 0;
-  return Array.from(text.matchAll(new RegExp(escapeRegExp(needle), "gi")))
-    .length;
-}
-
-function renderHighlightedSearchText(
-  text: string,
-  query: string,
-): React.ReactNode {
-  const needle = query.trim();
-  if (!needle) return text;
-  const regex = new RegExp(escapeRegExp(needle), "gi");
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-    parts.push(<mark key={`${match.index}-${match[0]}`}>{match[0]}</mark>);
-    lastIndex = match.index + match[0].length;
-    if (match[0].length === 0) regex.lastIndex += 1;
+function resolveToolIcon(toolName: string): ToolIconComponent {
+  const name = toolName.toLowerCase();
+  if (name.includes("slack")) return IconBrandSlack;
+  if (
+    name.includes("bash") ||
+    name.includes("shell") ||
+    name.includes("terminal") ||
+    name.includes("run-code") ||
+    name.includes("exec")
+  ) {
+    return IconTerminal2;
   }
-  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
-  return parts;
+  if (
+    name.includes("sql") ||
+    name.includes("bigquery") ||
+    name.includes("db-query") ||
+    name.includes("query")
+  ) {
+    return IconDatabase;
+  }
+  if (
+    name.includes("search") ||
+    name.includes("find") ||
+    name.includes("grep")
+  ) {
+    return IconSearch;
+  }
+  if (
+    name.includes("file") ||
+    name.includes("read") ||
+    name.includes("write") ||
+    name.includes("edit")
+  ) {
+    return IconFileCode;
+  }
+  return IconCode;
 }
 
-// ─── ToolDetailViewer ──────────────────────────────────────────────────────────
+// ─── Simple code viewer (Codex-style gray box) ────────────────────────────────
 
-function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
-  const [expanded, setExpanded] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [search, setSearch] = useState("");
+function SimpleCodeViewer({
+  text,
+  lang,
+  className,
+  maxHeightClass = "max-h-56",
+}: {
+  text: string;
+  lang: string;
+  className?: string;
+  maxHeightClass?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "agent-tool-code overflow-auto rounded-md bg-muted/70 font-mono text-[11px] leading-relaxed text-foreground",
+        maxHeightClass,
+        className,
+      )}
+    >
+      {lang !== "text" && (
+        <div className="sticky top-0 z-[1] flex items-center justify-between border-b border-border/40 bg-muted/90 px-2.5 py-1">
+          <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground/80">
+            {lang}
+          </span>
+        </div>
+      )}
+      <HighlightedCodeBlock code={text} lang={lang} />
+    </div>
+  );
+}
+
+function ToolOutputPopover({
+  open,
+  onOpenChange,
+  title,
+  payload,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  payload: ToolDetailPayload;
+  children: React.ReactNode;
+}) {
   const [copied, setCopied] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const matchCount = useMemo(
-    () => countTextMatches(payload.text, search),
-    [payload.text, search],
-  );
 
   useEffect(() => {
     return () => {
@@ -231,81 +385,165 @@ function ToolDetailViewer({ payload }: { payload: ToolDetailPayload }) {
   }, [payload.copyText]);
 
   return (
-    <div className="rounded-md border border-border/50 bg-background/60">
-      <div className="flex min-h-9 flex-wrap items-center gap-2 border-b border-border/50 px-2.5 py-1.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[11px] font-medium text-foreground/85">
-              {payload.title}
-            </span>
-            {payload.lang !== "text" && (
-              <span className="shrink-0 rounded border border-border/60 px-1 py-0.5 font-mono text-[9px] uppercase leading-none text-muted-foreground">
-                {payload.lang}
-              </span>
-            )}
-          </div>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={12}
+        className="flex max-h-[min(calc(100vh-2rem),var(--radix-popover-content-available-height,75vh))] w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,760px),760px)] flex-col gap-0 overflow-hidden p-0"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="truncate text-sm font-medium">{title}</div>
+          <button
+            type="button"
+            onClick={copyValue}
+            className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setSearchOpen((v) => !v)}
-          aria-label={`Search ${payload.title.toLowerCase()}`}
-          aria-pressed={searchOpen}
-          className={cn(
-            "inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground",
-            searchOpen && "bg-accent text-foreground",
-          )}
-        >
-          <IconSearch size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={expanded ? "Shrink code viewer" : "Expand code viewer"}
-          aria-pressed={expanded}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {expanded ? (
-            <IconArrowsMinimize size={12} />
-          ) : (
-            <IconArrowsMaximize size={12} />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={copyValue}
-          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 font-sans text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
-        >
-          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      {searchOpen && (
-        <div className="flex items-center gap-2 border-b border-border/50 px-2.5 py-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Find"
-            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring"
+        <div className="min-h-0 flex-1 overflow-hidden p-3">
+          <SimpleCodeViewer
+            text={payload.text}
+            lang={payload.lang}
+            maxHeightClass="max-h-[min(70vh,calc(var(--radix-popover-content-available-height,75vh)-4.5rem))]"
           />
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {search.trim() ? matchCount : ""}
-          </span>
         </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ─── Collapsible height animation ─────────────────────────────────────────────
+
+export function AnimatedCollapse({
+  open,
+  children,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+}) {
+  const [mounted, setMounted] = useState(open);
+
+  useLayoutEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
+
+  const onTransitionEnd = useCallback(
+    (event: React.TransitionEvent<HTMLDivElement>) => {
+      if (event.propertyName !== "grid-template-rows" || open) return;
+      setMounted(false);
+    },
+    [open],
+  );
+
+  if (!mounted) return null;
+
+  return (
+    <div
+      className="agent-chat-collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+      onTransitionEnd={onTransitionEnd}
+    >
+      <div className="agent-chat-collapse__content">{children}</div>
+    </div>
+  );
+}
+
+// ─── Human-in-the-loop approval affordance ────────────────────────────────────
+
+/**
+ * Inline Approve/Deny prompt rendered when a `needsApproval` action paused the
+ * turn. Approve re-issues the turn with the call's `approvalKey`; Deny dismisses
+ * the prompt locally (the action stays un-run).
+ */
+function ApprovalAffordance({
+  toolName,
+  approval,
+}: {
+  toolName: string;
+  approval: { approvalKey: string; dismissed?: boolean };
+}) {
+  const ctx = React.useContext(ApprovalContext);
+  const [approved, setApproved] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  // Once approved, the turn is re-issued; collapse to a quiet note so the user
+  // can't double-fire the approval.
+  if (approved) {
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        Approved. Re-running {toolName}...
+      </div>
+    );
+  }
+  // Deny defaults to local-only (the action simply stays un-run). When the
+  // host also provided `onDeny` (e.g. a Code session resolving its own
+  // pending approval), it fires alongside the local state.
+  if (denied) {
+    return (
+      <div className="mt-1.5 text-xs text-muted-foreground">
+        Denied. {toolName} did not run.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5">
+      <IconShieldCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <span className="mr-auto text-xs text-muted-foreground">
+        Approve to run {toolName}?
+      </span>
+      {ctx && (
+        <button
+          type="button"
+          onClick={() => {
+            setApproved(true);
+            ctx.onApprove(approval.approvalKey);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            "bg-foreground text-background hover:bg-foreground/90",
+          )}
+        >
+          <IconCheck className="h-3.5 w-3.5" />
+          Approve
+        </button>
       )}
-      <div
+      {ctx?.onAlwaysAllow && (
+        <button
+          type="button"
+          onClick={() => {
+            setApproved(true);
+            ctx.onAlwaysAllow?.(approval.approvalKey);
+          }}
+          title="Approve and always allow this exact command"
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+            "text-foreground hover:bg-muted",
+          )}
+        >
+          <IconShieldCheck className="h-3.5 w-3.5" />
+          Always allow
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          setDenied(true);
+          ctx?.onDeny?.(approval.approvalKey);
+        }}
         className={cn(
-          "agent-tool-code overflow-auto font-mono text-[11px] leading-relaxed text-foreground",
-          expanded ? "max-h-[70vh]" : "max-h-72",
+          "inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium transition-colors",
+          "text-foreground hover:bg-muted",
         )}
       >
-        {search.trim() ? (
-          <pre>
-            <code>{renderHighlightedSearchText(payload.text, search)}</code>
-          </pre>
-        ) : (
-          <HighlightedCodeBlock code={payload.text} lang={payload.lang} />
-        )}
-      </div>
+        <IconX className="h-3.5 w-3.5" />
+        Deny
+      </button>
     </div>
   );
 }
@@ -318,61 +556,91 @@ export function ToolCallDisplay({
   args,
   result,
   mcpApp,
+  chatUI,
   isRunning,
   structuredMeta,
+  approval,
+  repeatCount,
+  isLatestRunning = isRunning,
+  isActiveTail,
 }: {
   toolName: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   isRunning: boolean;
   structuredMeta?: Record<string, unknown>;
+  approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
+  /** The latest tool shown while the overall chat turn is still active. */
+  isActiveTail?: boolean;
+  /** @deprecated Use isActiveTail. */
+  isLatestRunning?: boolean;
 }) {
+  const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
   // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
+  const wrapToolDisplay = (children: React.ReactNode) => (
+    <ToolActivityPresentation
+      toolName={toolName}
+      isRunning={isRunning}
+      isActiveTail={showActiveTail}
+      suppressLongRunningHint={
+        toolName === "call-agent" || toolName.startsWith("agent:")
+      }
+    >
+      {children}
+    </ToolActivityPresentation>
+  );
   if (toolKind === "bash") {
-    return (
+    return wrapToolDisplay(
       <BashCell
         meta={
           structuredMeta as unknown as Parameters<typeof BashCell>[0]["meta"]
         }
         output={result}
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "edit") {
-    return (
+    return wrapToolDisplay(
       <EditCell
         meta={
           structuredMeta as unknown as Parameters<typeof EditCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
   if (toolKind === "write") {
-    return (
+    return wrapToolDisplay(
       <WriteCell
         meta={
           structuredMeta as unknown as Parameters<typeof WriteCell>[0]["meta"]
         }
         isRunning={isRunning}
-      />
+      />,
     );
   }
-  return (
+  return wrapToolDisplay(
     <ToolCallDisplayGeneric
       toolName={toolName}
       argsText={argsText}
       args={args}
       result={result}
       mcpApp={mcpApp}
+      chatUI={chatUI}
       isRunning={isRunning}
-    />
+      isActiveTail={showActiveTail}
+      structuredMeta={structuredMeta}
+      approval={approval}
+      repeatCount={repeatCount}
+    />,
   );
 }
 
@@ -382,31 +650,48 @@ function ToolCallDisplayGeneric({
   args,
   result,
   mcpApp,
+  chatUI,
   isRunning,
+  isActiveTail,
+  structuredMeta,
+  approval,
+  repeatCount,
 }: {
   toolName: string;
   argsText?: string;
   args: Record<string, unknown>;
   result?: string;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  isActiveTail: boolean;
+  structuredMeta?: Record<string, unknown>;
+  approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
 }) {
-  const streamRef = useRef<HTMLDivElement>(null);
-
-  const isAgentCall = toolName.startsWith("agent:");
+  const isRawCallAgent = toolName === "call-agent";
+  const isAgentCall = toolName.startsWith("agent:") || isRawCallAgent;
   const [expanded, setExpanded] = useState(isAgentCall);
-  const agentName = isAgentCall ? toolName.slice(6) : null;
+  const [outputOpen, setOutputOpen] = useState(false);
+  const agentName = toolName.startsWith("agent:")
+    ? toolName.slice(6)
+    : typeof args.agent === "string"
+      ? args.agent
+      : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
-  const agentStreamText = isAgentCall ? (argsText ?? "") : "";
+  const agentStreamText = isRawCallAgent
+    ? (result ?? "")
+    : isAgentCall
+      ? (argsText ?? "")
+      : "";
+  const agentActivity = structuredMeta?.agentActivity as
+    | A2AAgentActivitySnapshot
+    | undefined;
+  const agentProgress = structuredMeta?.agentProgress as
+    | AgentCallProgress
+    | undefined;
   const hasStreamText = agentStreamText.length > 0;
   const hasArgs = !isAgentCall && Object.keys(args).length > 0;
-
-  // NOTE: All hooks must be above any conditional returns
-  useEffect(() => {
-    if (isAgentCall && isRunning && streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [agentStreamText, isAgentCall, isRunning]);
 
   // Render connect-builder as ConnectBuilderCard once the result is available
   if (toolName === "connect-builder" && result) {
@@ -471,6 +756,36 @@ function ToolCallDisplayGeneric({
     }
   }
 
+  const parsedResult = result ? parseJsonText(result) : null;
+  const nativeToolContext = {
+    toolName,
+    args,
+    resultText: result,
+    resultJson: parsedResult,
+    isRunning,
+    isActiveTail,
+    chatUI,
+  };
+  const skipRegistryRenderer =
+    !isAgentCall && isBuiltinDataWidgetActionRenderer(nativeToolContext);
+  const NativeToolRenderer = isAgentCall
+    ? null
+    : (resolveBuiltinActionChatRenderer(nativeToolContext) ??
+      (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
+      resolveBuiltinFallbackToolRenderer(nativeToolContext));
+  if (NativeToolRenderer) {
+    return (
+      <ActionChatUiSurface
+        context={nativeToolContext}
+        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
+          nativeToolContext,
+        )}
+      >
+        <NativeToolRenderer context={nativeToolContext} />
+      </ActionChatUiSurface>
+    );
+  }
+
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
 
@@ -486,68 +801,313 @@ function ToolCallDisplayGeneric({
     ? hasStreamText
     : hasArgs || result !== undefined;
   const isExpanded = isAgentCall ? hasStreamText && expanded : expanded;
+  const ToolIcon = resolveToolIcon(toolName);
+  const outputTitle = `Raw ${toolName} tool call output`;
+
+  if (isAgentCall) {
+    return (
+      <AgentCallCell
+        agentName={agentName ?? "agent"}
+        activity={agentActivity}
+        progress={agentProgress}
+        responseText={agentStreamText}
+        isRunning={isRunning}
+        isError={isAgentError}
+        durationMs={
+          typeof structuredMeta?.agentDurationMs === "number"
+            ? structuredMeta.agentDurationMs
+            : agentActivity?.durationMs
+        }
+      />
+    );
+  }
 
   return (
-    <div className="my-1 overflow-hidden">
+    <div className="group/tool my-0.5 w-full overflow-hidden">
       {mcpApp && <McpAppRenderer app={mcpApp} className="mb-1.5" />}
       <button
+        type="button"
         onClick={() => canExpand && setExpanded(!isExpanded)}
         aria-expanded={canExpand ? isExpanded : undefined}
         className={cn(
-          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-mono w-full text-left overflow-hidden",
-          isRunning
-            ? "bg-muted text-muted-foreground"
-            : "bg-muted text-muted-foreground hover:bg-accent",
+          "flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors",
+          canExpand && "hover:text-foreground",
+          isRunning && "text-muted-foreground",
         )}
       >
-        <span className="shrink-0">
+        <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-3.5 animate-spin" />
           ) : isAgentError ? (
-            <IconCircleX className="h-3 w-3 text-destructive" />
-          ) : result !== undefined ? (
-            <IconCheck className="h-3 w-3 text-emerald-500" />
+            <IconCircleX className="size-3.5 text-destructive" />
           ) : (
-            <IconSquareFilled className="h-3 w-3 text-muted-foreground" />
+            <>
+              <ToolIcon
+                className={cn(
+                  "size-3.5 transition-opacity",
+                  canExpand && "group-hover/tool:opacity-0",
+                )}
+              />
+              {canExpand && (
+                <IconChevronRight
+                  className={cn(
+                    "absolute size-3.5 opacity-0 transition-[opacity,transform] group-hover/tool:opacity-100",
+                    isExpanded && "rotate-90",
+                  )}
+                />
+              )}
+            </>
           )}
         </span>
-        <span className="truncate min-w-0">
-          <span className="font-medium">{displayName}</span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isActiveTail && "agent-running-shimmer",
+          )}
+        >
+          {displayName}
         </span>
-        {canExpand && (
-          <IconChevronDown
-            className={cn(
-              "ml-auto h-3 w-3 shrink-0 opacity-40",
-              isExpanded && "rotate-180",
-            )}
-          />
+        {repeatCount && repeatCount > 1 && (
+          <span
+            className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
+            title={`Repeated ${repeatCount} times`}
+          >
+            {repeatCount}x
+          </span>
         )}
       </button>
-      {isExpanded && isAgentCall && hasStreamText && (
-        <div
-          ref={streamRef}
-          className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground break-words max-h-48 overflow-y-auto agent-markdown prose prose-sm prose-invert max-w-none"
-        >
-          {markdownModule?.default && remarkGfmFn ? (
-            <markdownModule.default
-              remarkPlugins={[remarkGfmFn]}
-              components={markdownComponents}
-              urlTransform={markdownUrlTransform}
+      <AnimatedCollapse
+        open={isExpanded && !isAgentCall && (hasArgs || result !== undefined)}
+      >
+        <div className="mt-1 space-y-2 pl-5">
+          {inputPayload && (
+            <SimpleCodeViewer
+              text={inputPayload.text}
+              lang={inputPayload.lang}
+            />
+          )}
+          {resultPayload && (
+            <ToolOutputPopover
+              open={outputOpen}
+              onOpenChange={setOutputOpen}
+              title={outputTitle}
+              payload={resultPayload}
             >
-              {agentStreamText}
-            </markdownModule.default>
-          ) : (
-            <span style={{ whiteSpace: "pre-wrap" }}>{agentStreamText}</span>
+              <button
+                type="button"
+                aria-label={`View ${toolName} output`}
+                className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <IconCode className="size-3.5" />
+              </button>
+            </ToolOutputPopover>
           )}
         </div>
-      )}
-      {isExpanded && !isAgentCall && (hasArgs || result !== undefined) && (
-        <div className="mt-1 space-y-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          {inputPayload && <ToolDetailViewer payload={inputPayload} />}
-          {resultPayload && <ToolDetailViewer payload={resultPayload} />}
-        </div>
+      </AnimatedCollapse>
+      {approval && (
+        <ApprovalAffordance toolName={toolName} approval={approval} />
       )}
     </div>
+  );
+}
+
+function AgentCallCell({
+  agentName,
+  activity,
+  progress,
+  responseText,
+  isRunning,
+  isError,
+  durationMs,
+}: {
+  agentName: string;
+  activity?: A2AAgentActivitySnapshot;
+  progress?: AgentCallProgress;
+  responseText: string;
+  isRunning: boolean;
+  isError: boolean;
+  durationMs?: number;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(true);
+  const toolCount = activity?.toolCalls?.length ?? 0;
+  // Response segments are ordered against the tool calls that preceded them, so
+  // they render in the timeline where the remote agent actually said them.
+  // Once the authoritative result text arrives, its segment moves to the
+  // bottom block instead of being rendered twice.
+  const segments = activity?.response ?? [];
+  const inlineSegments =
+    responseText && !isRunning ? segments.slice(0, toolCount) : segments;
+  const finalText =
+    responseText || (inlineSegments.length ? "" : activity?.responseText);
+  const work =
+    activity?.reasoning?.length || toolCount || inlineSegments.length;
+  const workItemCount = Math.max(
+    activity?.reasoning?.length ?? 0,
+    toolCount,
+    inlineSegments.length,
+  );
+  const label = isRunning
+    ? t("agentPanel.delegatedAgent.asking", { name: agentName })
+    : isError
+      ? t("agentPanel.delegatedAgent.error", { name: agentName })
+      : t("agentPanel.delegatedAgent.asked", { name: agentName });
+  const workContent = work ? (
+    <div className="space-y-1 ps-5">
+      {Array.from({ length: workItemCount }, (_, index) => {
+        const reasoningText = activity?.reasoning?.[index];
+        const segment = inlineSegments[index];
+        const tool = activity?.toolCalls?.[index];
+        return (
+          <React.Fragment key={`activity-${index}`}>
+            {reasoningText && (
+              <ReasoningCell
+                text={reasoningText}
+                isStreaming={
+                  isRunning &&
+                  activity.activePhase === "reasoning" &&
+                  index === activity.reasoning.length - 1
+                }
+                defaultOpen={index === activity.reasoning.length - 1}
+                collapseWhenReplaced={index < activity.toolCalls.length}
+              />
+            )}
+            {segment && (
+              <div className="pb-1">
+                <SmoothMarkdownText
+                  text={segment}
+                  streaming={
+                    isRunning &&
+                    activity?.activePhase === "responding" &&
+                    index === inlineSegments.length - 1
+                  }
+                  resetKey={`agent-response-${agentName}-${index}`}
+                  statusType={isRunning ? "running" : "complete"}
+                />
+              </div>
+            )}
+            {tool && (
+              <AgentActivityToolCallRow
+                tool={tool}
+                isActiveTail={
+                  isRunning && index === activity.toolCalls.length - 1
+                }
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  ) : null;
+  const progressState = progress?.state.replaceAll(/[-_]+/g, " ");
+  const progressText =
+    isRunning && !activity && progress && progressState
+      ? [
+          progressState.charAt(0).toUpperCase() + progressState.slice(1),
+          t("agentPanel.delegatedAgent.elapsed", {
+            duration: formatWorkedDuration(progress.elapsedSeconds * 1000),
+          }),
+          progress.detail,
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : null;
+  return (
+    <div className="group/tool my-0.5 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {isRunning ? (
+          <IconLoader2 className="size-3.5 animate-spin" />
+        ) : isError ? (
+          <IconCircleX className="size-3.5 text-destructive" />
+        ) : (
+          <IconChevronRight
+            className={cn("size-3.5 transition-transform", open && "rotate-90")}
+          />
+        )}
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isRunning && "agent-running-shimmer",
+          )}
+        >
+          {label}
+        </span>
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="ms-1 border-s border-border/50 ps-2 pt-1">
+          {workContent &&
+            (isRunning ? (
+              workContent
+            ) : (
+              <WorkedForSummary durationMs={durationMs}>
+                {workContent}
+              </WorkedForSummary>
+            ))}
+          {progressText && (
+            <p
+              className="ps-5 pb-1 text-xs text-muted-foreground"
+              data-testid="agent-call-progress"
+              aria-live="polite"
+            >
+              {progressText}
+            </p>
+          )}
+          {finalText && (
+            <div className="ps-5 pb-1">
+              <SmoothMarkdownText
+                text={finalText}
+                streaming={isRunning}
+                resetKey={`agent-response-${agentName}`}
+                statusType={isRunning ? "running" : "complete"}
+              />
+            </div>
+          )}
+        </div>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+function AgentActivityToolCallRow({
+  tool,
+  isActiveTail,
+}: {
+  tool: A2AAgentActivityToolCall;
+  isActiveTail: boolean;
+}) {
+  const isRunning = tool.status === "running";
+  const ToolIcon = resolveToolIcon(tool.name);
+
+  return (
+    <ToolActivityPresentation
+      toolName={tool.name}
+      isRunning={isRunning}
+      isActiveTail={isActiveTail}
+      suppressLongRunningHint
+    >
+      <div className="my-0.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground">
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {isRunning ? (
+            <IconLoader2 className="size-3.5 animate-spin" />
+          ) : (
+            <ToolIcon className="size-3.5" />
+          )}
+        </span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isActiveTail && "agent-running-shimmer",
+          )}
+        >
+          {humanizeToolName(tool.name)}
+        </span>
+      </div>
+    </ToolActivityPresentation>
   );
 }
 
@@ -561,10 +1121,17 @@ export function ToolCallFallback({
   ...rest
 }: ToolCallMessagePartProps & {
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
+  activity?: boolean;
+  approval?: { approvalKey: string; dismissed?: boolean };
+  repeatCount?: number;
+  isLatestRunning?: boolean;
+  isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning = result === undefined && chatRunning;
+  const isRunning =
+    result === undefined && (chatRunning || rest.activity === true);
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -578,8 +1145,13 @@ export function ToolCallFallback({
             : undefined
       }
       mcpApp={rest.mcpApp}
+      chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      isActiveTail={rest.isActiveTail}
+      isLatestRunning={rest.isLatestRunning}
+      approval={rest.approval}
+      repeatCount={rest.repeatCount}
     />
   );
 }
@@ -594,39 +1166,398 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const toolSummary = getReconnectToolSummaryInfo(content);
+  const latestReasoningPartIndex = content.reduce(
+    (latestIndex, part, index) =>
+      part.type === "reasoning" ? index : latestIndex,
+    -1,
+  );
+  const streamingTextPartIndex =
+    content.at(-1)?.type === "text" ? content.length - 1 : -1;
+  const streamingReasoningPartIndex =
+    content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
+  const latestActiveToolIndex = content.reduce(
+    (latestIndex, part, index) =>
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      (chatRunning || part.activity === true)
+        ? index
+        : latestIndex,
+    -1,
+  );
+
+  const renderPart = (part: ContentPart, i: number) => {
+    if (isCallAgentToolCallShadowed(content, i)) return null;
+    if (part.type === "text") {
+      const partStreaming = chatRunning && i === streamingTextPartIndex;
+      return (
+        <SmoothMarkdownText
+          key={`reconnect-text-${i}`}
+          text={part.text}
+          streaming={partStreaming}
+          resetKey={`reconnect-text-${i}`}
+          statusType={partStreaming ? "running" : "complete"}
+        />
+      );
+    }
+    if (part.type === "reasoning") {
+      return (
+        <ReasoningCell
+          key={`reconnect-reasoning-${i}`}
+          text={part.text}
+          isStreaming={chatRunning && i === streamingReasoningPartIndex}
+          resetKey={`reconnect-reasoning-${i}`}
+          defaultOpen={i === latestReasoningPartIndex}
+          collapseWhenReplaced={i < latestReasoningPartIndex}
+        />
+      );
+    }
+    return (
+      <ToolCallDisplay
+        key={`reconnect-tool-${i}`}
+        toolName={part.toolName}
+        argsText={part.argsText}
+        args={part.args}
+        result={part.result}
+        mcpApp={part.mcpApp}
+        chatUI={part.chatUI}
+        structuredMeta={part.structuredMeta}
+        isRunning={
+          part.result === undefined && (chatRunning || part.activity === true)
+        }
+        isActiveTail={i === latestActiveToolIndex}
+        approval={part.approval}
+        repeatCount={part.repeatCount}
+      />
+    );
+  };
+
+  const renderedParts: React.ReactNode[] = [];
+  let summaryStartIndex = -1;
+  let summaryToolCount = 0;
+  const flushSummary = (endIndex: number) => {
+    if (summaryStartIndex < 0) return;
+    renderedParts.push(
+      <RanToolsSummary
+        key={`reconnect-tool-summary-${summaryStartIndex}`}
+        toolCount={summaryToolCount}
+      >
+        {content
+          .slice(summaryStartIndex, endIndex)
+          .map((part, offset) => renderPart(part, summaryStartIndex + offset))}
+      </RanToolsSummary>,
+    );
+    summaryStartIndex = -1;
+    summaryToolCount = 0;
+  };
+
+  for (let i = 0; i < content.length; i++) {
+    const part = content[i]!;
+    if (isCallAgentToolCallShadowed(content, i)) continue;
+    const isOlderToolWork =
+      toolSummary.startIndex >= 0 &&
+      i < toolSummary.startIndex &&
+      isReconnectToolSummaryPart(content, i, toolSummary.startIndex);
+    if (isOlderToolWork) {
+      summaryStartIndex = summaryStartIndex < 0 ? i : summaryStartIndex;
+      if (part.type === "tool-call") summaryToolCount++;
+      continue;
+    }
+    flushSummary(i);
+    renderedParts.push(renderPart(part, i));
+  }
+  flushSummary(content.length);
 
   return (
     <div className="flex justify-start">
-      <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {content.map((part, i) => {
-          if (part.type === "text") {
-            return (
-              <SmoothMarkdownText
-                key={`reconnect-text-${i}`}
-                text={part.text}
-                streaming={chatRunning}
-                resetKey={`reconnect-text-${i}`}
-                statusType={chatRunning ? "running" : "complete"}
-              />
-            );
-          }
-          if (part.type === "tool-call") {
-            return (
-              <ToolCallDisplay
-                key={`reconnect-tool-${i}`}
-                toolName={part.toolName}
-                argsText={part.argsText}
-                args={part.args}
-                result={part.result}
-                mcpApp={part.mcpApp}
-                structuredMeta={part.structuredMeta}
-                isRunning={part.result === undefined && chatRunning}
-              />
-            );
-          }
-          return null;
-        })}
+      <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
+        {renderedParts}
       </div>
+    </div>
+  );
+}
+
+function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
+  const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      isReconnectSummarizablePart(part)
+    ) {
+      indices.push(index);
+    }
+    return indices;
+  }, []);
+  if (toolCallIndices.length <= ASSISTANT_VISIBLE_TOOL_CALL_LIMIT) {
+    return { startIndex: -1 };
+  }
+  return {
+    startIndex:
+      toolCallIndices[
+        toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT
+      ]!,
+  };
+}
+
+function isReconnectSummarizablePart(part: ContentPart): boolean {
+  return (
+    part.type === "reasoning" ||
+    (part.type === "tool-call" &&
+      part.toolName !== "connect-builder" &&
+      part.chatUI === undefined &&
+      part.mcpApp === undefined)
+  );
+}
+
+function isReconnectToolSummaryPart(
+  content: readonly ContentPart[],
+  index: number,
+  startIndex: number,
+): boolean {
+  if (startIndex < 0 || index >= startIndex) return false;
+  if (
+    isCallAgentToolCallShadowed(content, index) ||
+    !isReconnectSummarizablePart(content[index]!)
+  ) {
+    return false;
+  }
+
+  let segmentStart = index;
+  while (
+    segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(content, segmentStart - 1) &&
+    isReconnectSummarizablePart(content[segmentStart - 1]!)
+  ) {
+    segmentStart--;
+  }
+
+  let segmentEnd = index + 1;
+  while (
+    segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(content, segmentEnd) &&
+    isReconnectSummarizablePart(content[segmentEnd]!)
+  ) {
+    segmentEnd++;
+  }
+
+  return content
+    .slice(segmentStart, segmentEnd)
+    .some((candidate) => candidate.type === "tool-call");
+}
+
+// ─── Reasoning / Thinking cell ────────────────────────────────────────────────
+
+/**
+ * Completed reasoning and tool calls share one outer "Worked for…"
+ * disclosure. Reasoning cells inside it render their prose directly so
+ * opening that summary never reveals a redundant second disclosure.
+ */
+const WorkSummaryContentContext = React.createContext(false);
+
+export function ReasoningCell({
+  text,
+  isStreaming = false,
+  resetKey,
+  defaultOpen,
+  autoCollapse = false,
+  collapseWhenReplaced = false,
+  durationMs,
+}: {
+  text: string;
+  isStreaming?: boolean;
+  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  resetKey?: string;
+  defaultOpen?: boolean;
+  /** Animate closed when a live reasoning segment finishes during a run. */
+  autoCollapse?: boolean;
+  /** Animate closed when a newer reasoning segment replaces this one. */
+  collapseWhenReplaced?: boolean;
+  /**
+   * Elapsed thinking time in ms, once known. Only meaningful once streaming
+   * has finished — callers that track live timing (see ReasoningMessagePart)
+   * pass this so the label can read "Thought for Xs" instead of "Thought".
+   * Historical messages with no live timing simply omit it.
+   */
+  durationMs?: number | null;
+}) {
+  const embeddedInWorkSummary = React.useContext(WorkSummaryContentContext);
+  const [open, setOpen] = useState(defaultOpen ?? true);
+  const wasStreamingRef = useRef(isStreaming);
+  const wasReplacedRef = useRef(collapseWhenReplaced);
+  const trimmed = text.trim();
+  const visibleText = useSmoothStreamingText(
+    trimmed,
+    isStreaming,
+    resetKey ?? "reasoning",
+  );
+
+  useEffect(() => {
+    if (autoCollapse && wasStreamingRef.current && !isStreaming) {
+      setOpen(false);
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [autoCollapse, isStreaming]);
+
+  useEffect(() => {
+    if (collapseWhenReplaced && !wasReplacedRef.current) {
+      setOpen(false);
+    }
+    wasReplacedRef.current = collapseWhenReplaced;
+  }, [collapseWhenReplaced]);
+
+  if (!trimmed && !isStreaming) return null;
+
+  if (embeddedInWorkSummary) {
+    return (
+      <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+        {visibleText || (isStreaming ? "…" : "")}
+      </div>
+    );
+  }
+
+  const label = isStreaming
+    ? "Thinking"
+    : durationMs != null
+      ? `Thought for ${formatWorkedDuration(durationMs)}`
+      : "Thought";
+  // Only clamp to a scroll-free "tail" view while actively streaming and
+  // expanded — once the run finishes the full text is shown, unclamped.
+  const showTail = isStreaming && open;
+
+  return (
+    <div className="my-0.5 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        {isStreaming ? (
+          <span className="agent-thinking-indicator__text">{label}</span>
+        ) : (
+          <span>{label}</span>
+        )}
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
+          <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
+            {visibleText || (isStreaming ? "…" : "")}
+          </div>
+        </div>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+// ─── Worked-for duration helpers ──────────────────────────────────────────────
+
+export function formatWorkedDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (totalSeconds < 60) {
+    return totalSeconds <= 1 ? "1s" : `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) {
+    if (seconds === 0) return `${minutes}m`;
+    return `${minutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  if (remMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remMinutes}m`;
+}
+
+export function WorkedForSummary({
+  durationMs,
+  defaultOpen = false,
+  autoCollapse = false,
+  children,
+}: {
+  durationMs?: number | null;
+  /** Keep completed work visible when the turn contains interactive UI. */
+  defaultOpen?: boolean;
+  /** When true, close the summary after a run has completed. */
+  autoCollapse?: boolean;
+  children: React.ReactNode;
+}) {
+  // Ordinary completed work starts closed so a remount never flashes details
+  // while auto-collapse settles. Interactive UI opts into an open summary.
+  const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (defaultOpen) {
+      setOpen(true);
+    } else if (autoCollapse) {
+      setOpen(false);
+    }
+  }, [autoCollapse, defaultOpen]);
+
+  const label =
+    durationMs != null && durationMs >= 1000
+      ? `Worked for ${formatWorkedDuration(durationMs)}`
+      : "Worked";
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={open}>
+        <WorkSummaryContentContext.Provider value>
+          <div className="pt-1">{children}</div>
+        </WorkSummaryContentContext.Provider>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+export function RanToolsSummary({
+  toolCount,
+  children,
+}: {
+  toolCount: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="pt-1">{children}</div>
+      </AnimatedCollapse>
     </div>
   );
 }

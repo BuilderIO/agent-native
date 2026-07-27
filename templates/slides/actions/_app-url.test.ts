@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { getDeckUrl, getExportUrl, getSlidesAppUrl } from "./_app-url.js";
 
 beforeEach(() => {
@@ -22,6 +23,16 @@ describe("slides app URLs", () => {
 
     expect(getDeckUrl("deck-2")).toBe(
       "https://workspace.example.test/slides/deck/deck-2",
+    );
+  });
+
+  it("prefers the workspace gateway over a local app URL", () => {
+    vi.stubEnv("APP_URL", "http://localhost:8086");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+    vi.stubEnv("APP_BASE_PATH", "/slides");
+
+    expect(getDeckUrl("deck-4")).toBe(
+      "https://workspace.example.test/slides/deck/deck-4",
     );
   });
 

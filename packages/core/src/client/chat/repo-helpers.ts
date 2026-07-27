@@ -5,6 +5,8 @@
 // interface covering the shapes both `threadRuntime.export()` and
 // `normalizeThreadRepository()` produce, and use it everywhere instead of `any`.
 
+import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
+
 export interface RepoMessageStatus {
   type?: string;
   reason?: string;
@@ -56,6 +58,190 @@ export function getRepoMessage(entry: RepoEntry): RepoMessage | null {
   return (entry?.message ?? entry) as RepoMessage | null;
 }
 
+export function getAssistantRunDurationMs(
+  message:
+    | {
+        metadata?: unknown;
+      }
+    | null
+    | undefined,
+): number | null {
+  const metadata =
+    message?.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const durationMs = custom?.[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
+export function withLastAssistantRunDuration<T extends NormalizedRepo>(
+  repo: T,
+  durationMs: number | null | undefined,
+): T {
+  if (
+    !Array.isArray(repo.messages) ||
+    typeof durationMs !== "number" ||
+    !Number.isFinite(durationMs) ||
+    durationMs < 0
+  ) {
+    return repo;
+  }
+
+  let messageIndex = -1;
+  for (let index = repo.messages.length - 1; index >= 0; index -= 1) {
+    if (getRepoMessage(repo.messages[index]!)?.role === "assistant") {
+      messageIndex = index;
+      break;
+    }
+  }
+  if (messageIndex < 0) return repo;
+
+  const entry = repo.messages[messageIndex]!;
+  const message = getRepoMessage(entry);
+  if (!message || getAssistantRunDurationMs(message) === durationMs) {
+    return repo;
+  }
+
+  const metadata = message.metadata ?? {};
+  const custom =
+    metadata.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : {};
+  const nextMessage: RepoMessage = {
+    ...message,
+    metadata: {
+      ...metadata,
+      custom: {
+        ...custom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  const messages = repo.messages.slice();
+  messages[messageIndex] =
+    entry.message === undefined
+      ? (nextMessage as RepoEntry)
+      : { ...entry, message: nextMessage };
+  return { ...repo, messages };
+}
+
+/**
+ * Collapse duplicate message ids before a repository is handed to
+ * `threadRuntime.import()`. assistant-ui's `MessageRepository` throws
+ * "MessageRepository(performOp/link): A message with the same id already exists
+ * in the parent tree" when the imported messages contain the same id more than
+ * once (Sentry AGENT-NATIVE-BROWSER-2Q). Duplicate ids are never valid thread
+ * data — they come from optimistic+echo races, streaming reconnect replays, or
+ * multi-tab merges — so keep only the LAST occurrence of each id (the most
+ * recent, most complete copy). parentId references stay valid because the
+ * surviving entry keeps the same id.
+ *
+ * Returns the input unchanged (same reference) when there are no duplicates, so
+ * the overwhelmingly common no-dupe case is a cheap no-op with zero behavioural
+ * change for normal threads.
+ */
+export function dedupeRepoMessagesById<T extends NormalizedRepo>(
+  repo: T | null | undefined,
+): T | null | undefined {
+  if (!repo || !Array.isArray(repo.messages)) return repo;
+  const entries = repo.messages;
+  const lastIndexById = new Map<string, number>();
+  let hasDuplicate = false;
+  entries.forEach((entry, index) => {
+    const id = getRepoMessage(entry)?.id;
+    if (typeof id !== "string" || !id) return;
+    if (lastIndexById.has(id)) hasDuplicate = true;
+    lastIndexById.set(id, index);
+  });
+  if (!hasDuplicate) return repo;
+  const deduped = entries.filter((entry, index) => {
+    const id = getRepoMessage(entry)?.id;
+    // Keep id-less entries untouched; for duplicated ids keep only the last.
+    if (typeof id !== "string" || !id) return true;
+    return lastIndexById.get(id) === index;
+  });
+  return { ...repo, messages: deduped };
+}
+
+function repoMessageContentIsEmpty(content: unknown): boolean {
+  if (typeof content === "string") return content.trim().length === 0;
+  if (!Array.isArray(content)) return true;
+  return !content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    if (type === "text") {
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" && text.trim().length > 0;
+    }
+    return true;
+  });
+}
+
+function entryWithParentId(
+  entry: RepoEntry,
+  parentId: string | null,
+): RepoEntry {
+  return { ...entry, parentId };
+}
+
+function repairRepoLinks<T extends NormalizedRepo>(
+  repo: T,
+  entries: RepoEntry[],
+): T {
+  const seenIds = new Set<string>();
+  let previousId: string | null = null;
+  const repaired: RepoEntry[] = [];
+
+  for (const entry of entries) {
+    const id = getRepoMessage(entry)?.id;
+    if (typeof id !== "string" || !id) continue;
+    const requestedParentId = entry.parentId;
+    const parentId =
+      requestedParentId === null
+        ? null
+        : typeof requestedParentId === "string" &&
+            seenIds.has(requestedParentId)
+          ? requestedParentId
+          : previousId;
+    repaired.push(entryWithParentId(entry, parentId));
+    seenIds.add(id);
+    previousId = id;
+  }
+
+  const headId =
+    typeof repo.headId === "string" && seenIds.has(repo.headId)
+      ? repo.headId
+      : previousId;
+  return { ...repo, messages: repaired, headId: headId ?? undefined };
+}
+
+export function dropEmptyAssistantMessages<T extends NormalizedRepo>(
+  repo: T | null | undefined,
+): T | null | undefined {
+  if (!repo || !Array.isArray(repo.messages)) return repo;
+
+  let changed = false;
+  const messages = repo.messages.filter((entry) => {
+    const message = getRepoMessage(entry);
+    const drop =
+      message?.role === "assistant" &&
+      repoMessageContentIsEmpty(message.content);
+    if (drop) changed = true;
+    return !drop;
+  });
+
+  if (!changed) return repo;
+  return repairRepoLinks(repo, messages);
+}
+
 export function isAssistantMessageTerminal(
   message: RepoMessage | null,
 ): boolean {
@@ -98,6 +284,41 @@ function repoTerminalAssistantCount(
   }).length;
 }
 
+function toolCallProgressScore(part: RepoMessageContent): number {
+  if (part.type !== "tool-call") return 0;
+  let score = 1;
+  if (part.activity !== true) score += 1;
+  if ("result" in part) score += 4;
+  return score;
+}
+
+function repoToolCallProgress(repo: NormalizedRepo | null | undefined): {
+  total: number;
+  materialized: number;
+  completed: number;
+  score: number;
+} {
+  const progress = {
+    total: 0,
+    materialized: 0,
+    completed: 0,
+    score: 0,
+  };
+  for (const entry of getRepoMessages(repo)) {
+    const message = getRepoMessage(entry);
+    const content = message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part?.type !== "tool-call") continue;
+      progress.total += 1;
+      if (part.activity !== true) progress.materialized += 1;
+      if ("result" in part) progress.completed += 1;
+      progress.score += toolCallProgressScore(part);
+    }
+  }
+  return progress;
+}
+
 export function shouldImportServerThreadData(
   currentRepo: NormalizedRepo | null | undefined,
   incomingRepo: NormalizedRepo | null | undefined,
@@ -118,6 +339,16 @@ export function shouldImportServerThreadData(
     if (
       incomingTerminalAssistants <= currentTerminalAssistants &&
       repoTextLength(incomingRepo) < repoTextLength(currentRepo)
+    ) {
+      return false;
+    }
+    const currentTools = repoToolCallProgress(currentRepo);
+    const incomingTools = repoToolCallProgress(incomingRepo);
+    if (
+      incomingTools.total < currentTools.total ||
+      incomingTools.materialized < currentTools.materialized ||
+      incomingTools.completed < currentTools.completed ||
+      incomingTools.score < currentTools.score
     ) {
       return false;
     }

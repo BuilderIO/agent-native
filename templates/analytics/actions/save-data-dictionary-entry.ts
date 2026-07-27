@@ -3,15 +3,16 @@ import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
-import { z } from "zod";
 import {
   getOrgSetting,
   getUserSetting,
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
-import { cliBoolean } from "./schema-helpers.js";
+import { z } from "zod";
+
 import { resolveDictionaryTrustDefaults } from "./data-dictionary-trust.js";
+import { cliBoolean } from "./schema-helpers.js";
 
 const KEY_PREFIX = "data-dict-";
 
@@ -41,6 +42,18 @@ export default defineAction({
       .string()
       .optional()
       .describe("Owning team (e.g. 'Sales', 'Marketing', 'Product', 'Data')"),
+    source: z
+      .string()
+      .optional()
+      .describe(
+        "Canonical source/provider id for this definition (for example first-party, bigquery, or hubspot)",
+      ),
+    action: z
+      .string()
+      .optional()
+      .describe(
+        "Preferred Analytics action name when this metric is not expressed as SQL",
+      ),
     table: z
       .string()
       .optional()
@@ -142,6 +155,8 @@ export default defineAction({
       metric: args.metric,
       definition: args.definition,
       department: args.department ?? (existing as any)?.department ?? "",
+      source: args.source ?? (existing as any)?.source ?? "",
+      action: args.action ?? (existing as any)?.action ?? "",
       table: args.table ?? (existing as any)?.table ?? "",
       columnsUsed: args.columnsUsed ?? (existing as any)?.columnsUsed ?? "",
       cuts: args.cuts ?? (existing as any)?.cuts ?? "",

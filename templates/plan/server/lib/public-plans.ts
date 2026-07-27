@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+
+import { eq } from "drizzle-orm";
 import {
   deleteCookie,
   getCookie,
@@ -6,15 +8,15 @@ import {
   setCookie,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
+
 import { getDb, schema } from "../db/index.js";
+import { GuestAbuseLimitError, tryConsumeGuestMint } from "./guest-abuse.js";
 import {
   GUEST_AUTHOR_DOMAIN,
-  LOCAL_PLAN_OWNER_EMAIL,
+  getLocalPlanOwnerEmail,
   isGuestAuthorIdentity,
   isLocalPlanRuntime,
 } from "./local-identity.js";
-import { GuestAbuseLimitError, tryConsumeGuestMint } from "./guest-abuse.js";
 
 const PUBLIC_PLAN_VIEWER_COOKIE = "plan_public_viewer";
 const PUBLIC_PLAN_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -51,7 +53,12 @@ function getAppOrigin(event: H3Event): string | null {
 }
 
 function planIdFromPath(pathname: string): string | null {
-  const match = pathname.match(/(?:^|\/)plans\/([^/?#]+)/);
+  const match = pathname.match(/(?:^|\/)(?:plans|recaps)\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function actionNameFromPath(pathname: string): string | null {
+  const match = pathname.match(/(?:^|\/)_agent-native\/actions\/([^/?#]+)/);
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
@@ -91,12 +98,23 @@ async function getPublicPlanForEvent(event: H3Event) {
     .select({
       id: schema.plans.id,
       visibility: schema.plans.visibility,
+      deletedAt: schema.plans.deletedAt,
     })
     .from(schema.plans)
     .where(eq(schema.plans.id, id))
     .limit(1);
 
-  return plan?.visibility === "public" ? plan : null;
+  return plan?.visibility === "public" && !plan.deletedAt ? plan : null;
+}
+
+function allowsAnonymousPlanAccessMetadata(event: H3Event): boolean {
+  const rawUrl = event.node?.req?.url ?? event.path ?? "/";
+  try {
+    const url = new URL(rawUrl, getAppOrigin(event) ?? "http://localhost");
+    return actionNameFromPath(url.pathname) === "get-plan-access-status";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -122,19 +140,22 @@ function isSecureRequest(event: H3Event): boolean {
  *      viewer can read (but, per the comment gate, not comment) without an
  *      account. Honored in every environment, hosted and local. Read-only.
  *   2. Local single-user identity — in local mode only (`isLocalPlanRuntime()`),
- *      fall back to `LOCAL_PLAN_OWNER_EMAIL` so the no-login local workflow can
- *      create, read, list, and edit its own plans without signing in. This MUST
- *      NOT fire on a hosted/production deploy; `isLocalPlanRuntime()` enforces
- *      the production refusal.
+ *      fall back to the configured local owner so the no-login local workflow
+ *      can create, read, list, and edit its own plans without signing in. This
+ *      MUST NOT fire on a hosted/production deploy; `isLocalPlanRuntime()`
+ *      enforces the production refusal.
  *
  * Returns `null` when none applies, so the caller rejects exactly as before.
  */
 export async function resolvePlanAnonymousOwner(
   event: H3Event,
 ): Promise<string | null> {
+  if (allowsAnonymousPlanAccessMetadata(event)) {
+    return resolveAnonymousPlanViewerCookie(event);
+  }
   const publicViewer = await resolvePublicPlanViewerOwner(event);
   if (publicViewer) return publicViewer;
-  return isLocalPlanRuntime() ? LOCAL_PLAN_OWNER_EMAIL : null;
+  return isLocalPlanRuntime() ? getLocalPlanOwnerEmail() : null;
 }
 
 export async function resolvePublicPlanViewerOwner(
@@ -142,7 +163,10 @@ export async function resolvePublicPlanViewerOwner(
 ): Promise<string | null> {
   const plan = await getPublicPlanForEvent(event);
   if (!plan) return null;
+  return resolveAnonymousPlanViewerCookie(event);
+}
 
+function resolveAnonymousPlanViewerCookie(event: H3Event): string {
   let viewerId = getCookie(event, PUBLIC_PLAN_VIEWER_COOKIE);
   if (!isValidCookieUuid(viewerId)) {
     viewerId = randomUUID();

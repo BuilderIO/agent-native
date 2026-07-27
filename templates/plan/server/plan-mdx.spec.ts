@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { planContentSchema, type PlanContent } from "../shared/plan-content.js";
 import {
   applyPlanMdxSourcePatches,
@@ -676,6 +677,35 @@ version: 2
     if (wireframe?.type !== "wireframe") throw new Error("Expected wireframe");
     expect(wireframe.data.surface).toBe("browser");
     expect(wireframe.data.html).toBe("<div>hi</div>");
+  });
+
+  it("preserves leading indentation in static template-literal code attributes", async () => {
+    const code = [
+      "const builderCredits =",
+      "  (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;",
+      "const titleGenerationPaused = Boolean(",
+      "  canEdit &&",
+      "    builderCredits?.exhausted === true &&",
+      "    recording &&",
+      "    isDefaultTitle(recording.title),",
+      ");",
+    ].join("\n");
+
+    const parsed = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Indented code"
+version: 2
+---
+
+<AnnotatedCode id="indented-code" language="tsx" code={\`${code}\`} />
+`,
+    });
+    const block = parsed.blocks.find((block) => block.id === "indented-code");
+    expect(block?.type).toBe("annotated-code");
+    if (block?.type !== "annotated-code") {
+      throw new Error("Expected annotated-code");
+    }
+    expect(block.data.code).toBe(code);
   });
 
   it("throws on a template-literal html attribute that interpolates ${…}", async () => {

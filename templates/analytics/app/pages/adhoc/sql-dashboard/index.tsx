@@ -1,5 +1,58 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
+  useSession,
+  callAction,
+  useChangeVersions,
+  useActionMutation,
+  type AuthSession,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  CreativeContextShareSheet,
+  CreativeContextShareTab,
+} from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import {
+  useDroppable,
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
+  type CollisionDetection,
+} from "@dnd-kit/core";
+import {
+  IconArchive,
+  IconDotsVertical,
+  IconEye,
+  IconEyeOff,
+  IconGripVertical,
+  IconHistory,
+  IconInfoCircle,
+  IconLock,
+  IconMail,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconUsersGroup,
+  IconWorld,
+  IconX,
+} from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Fragment,
+  memo,
   useState,
   useEffect,
   useCallback,
@@ -7,13 +60,16 @@ import {
   useRef,
 } from "react";
 import { useSearchParams, useParams, useNavigate } from "react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+
+import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
+import {
+  DashboardTitleSkeleton,
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@/components/layout/HeaderActions";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,64 +80,37 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  IconArchive,
-  IconClock,
-  IconDots,
-  IconEye,
-  IconEyeOff,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-  IconUser,
-} from "@tabler/icons-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  ShareButton,
-  PresenceBar,
-  useCollaborativeDoc,
-  generateTabId,
-  emailToColor,
-  emailToName,
-  useSession,
-  agentNativePath,
-  callAction,
-  useChangeVersions,
-  useActionMutation,
-  type CollabUser,
-} from "@agent-native/core/client";
-import { SqlChartCard } from "./SqlChartCard";
-import {
-  DashboardFilterBar,
-  FILTER_PARAM_PREFIX,
-  resolveFilterVars,
-} from "./DashboardFilterBar";
-import { interpolate } from "./interpolate";
-import { serializePanelSql } from "./panel-sql";
-import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
-import { ViewsMenu } from "./ViewsMenu";
-import BlankDashboard from "../BlankDashboard";
-import {
-  clampDashboardColumns,
-  clampPanelWidth,
-  DEFAULT_DASHBOARD_COLUMNS,
-  type SqlDashboardConfig,
-  type SqlPanel,
-} from "./types";
-import { useUserPref } from "@/hooks/use-user-pref";
+  useDashboardChatContext,
+  type DashboardPanelChatContextArgs,
+  type SelectDashboardPanelOptions,
+} from "@/hooks/use-dashboard-chat-context";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
+import { useUserPref } from "@/hooks/use-user-pref";
+import {
+  DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
+  DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS,
+  dashboardReportCaptureError,
+  type DashboardReportCapturePhase,
+} from "@/lib/dashboard-report-capture";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
   sqlDashboardPrefetchKey,
@@ -92,28 +121,264 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+
+import BlankDashboard from "../BlankDashboard";
+import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
-  DashboardTitleSkeleton,
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
+  availableDropSlotIdsForPanel,
+  buildDashboardPanelGroups,
+  columnExpansionForDropSlot,
+  distanceFromPointerToRect,
+  dropSlotId,
+  movePanelToDropSlot,
+  preferredDropSlotId,
+  readDropSlot,
+  removePanelFromLayout,
+  sameDropSlot,
+  type DashboardDropSlot,
+} from "./dashboard-layout";
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  KeyboardSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
+  createDashboardAdoptionHold,
+  dashboardPrefetchInitialData,
+  shouldAdoptDashboardQueryResult,
+  type DashboardAdoptionHold,
+} from "./dashboard-sync";
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+  DashboardFilterBar,
+  FILTER_PARAM_PREFIX,
+  extractFilterParams,
+  resolveFilterVars,
+} from "./DashboardFilterBar";
+import { EmailReportDialog } from "./EmailReportDialog";
+import { dashboardExtensionSlotId } from "./extension-slot";
+import { interpolate } from "./interpolate";
+import { serializePanelSql } from "./panel-sql";
+import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
+import { listReportablePanelIds } from "./report-panel-window";
+import { SqlChartCard } from "./SqlChartCard";
+import {
+  clampDashboardColumns,
+  DEFAULT_DASHBOARD_COLUMNS,
+  type SqlDashboardConfig,
+  type SqlPanel,
+} from "./types";
+import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
+
+type DashboardTabGroup = {
+  name: string;
+  tabs: Array<{ value: string; label: string }>;
+};
+
+function groupDashboardTabs(tabs: string[]): {
+  groups: DashboardTabGroup[];
+  hasNestedTabs: boolean;
+} {
+  const hasNestedTabs = tabs.some((tab) => tab.includes(" / "));
+  const groups: DashboardTabGroup[] = [];
+  const byName = new Map<string, DashboardTabGroup>();
+
+  for (const tab of tabs) {
+    const [rawGroup, ...rest] = tab.split(/\s*\/\s*/);
+    const name = hasNestedTabs && rest.length > 0 ? rawGroup : "Server";
+    const label = hasNestedTabs && rest.length > 0 ? rest.join(" / ") : tab;
+    let group = byName.get(name);
+    if (!group) {
+      group = { name, tabs: [] };
+      byName.set(name, group);
+      groups.push(group);
+    }
+    group.tabs.push({ value: tab, label });
+  }
+
+  return { groups, hasNestedTabs };
+}
+
+function DashboardDropLine({
+  slot,
+  activeSlot,
+  disabled,
+}: {
+  slot: DashboardDropSlot;
+  activeSlot: DashboardDropSlot | null;
+  disabled: boolean;
+}) {
+  const { setNodeRef } = useDroppable({
+    id: dropSlotId(slot),
+    data: { slot },
+    disabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      aria-hidden="true"
+      data-active={sameDropSlot(activeSlot, slot) ? "true" : undefined}
+      className={
+        slot.type === "row"
+          ? "dashboard-row-drop-slot"
+          : "dashboard-column-drop-slot"
+      }
+    />
+  );
+}
+
+function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
+  if (!panel) return null;
+
+  return (
+    <div className="dashboard-drag-preview flex max-w-64 items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-lg ring-1 ring-primary/20">
+      <IconGripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{panel.title}</span>
+    </div>
+  );
+}
+
+/**
+ * A single chart cell, memoized so that drag interactions — which re-render the
+ * dashboard page on every drop-slot change — do NOT re-render every chart's
+ * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
+ * stable callbacks below don't change, so React skips these cells entirely and
+ * only the lightweight drop-line indicators update. This keeps dragging smooth
+ * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
+ * collaborator highlights, panel edits) still re-render normally.
+ */
+const PanelCell = memo(function PanelCell({
+  panel,
+  vars,
+  remoteEditor,
+  editable,
+  eagerLoad,
+  reportScreenshot,
+  isDragSource,
+  selectedForChat,
+  selectPanelForChat,
+  onRemovePanel,
+  onEditPanel,
+  onSavePanel,
+  dashboardExtensionContext,
+}: {
+  panel: SqlPanel;
+  vars: Record<string, string>;
+  remoteEditor: { color: string; name: string } | undefined;
+  editable: boolean;
+  eagerLoad: boolean;
+  reportScreenshot: boolean;
+  isDragSource: boolean;
+  selectedForChat: boolean;
+  selectPanelForChat: (
+    panel: DashboardPanelChatContextArgs,
+    options?: SelectDashboardPanelOptions,
+  ) => void;
+  onRemovePanel: (panelId: string) => void;
+  onEditPanel: (panel: SqlPanel) => void;
+  onSavePanel: (panel: SqlPanel) => Promise<void>;
+  dashboardExtensionContext: Record<string, unknown>;
+}) {
+  const resolved = useMemo(
+    () =>
+      panel.config?.description
+        ? {
+            ...panel,
+            config: {
+              ...panel.config,
+              description: interpolate(panel.config.description, vars),
+            },
+          }
+        : panel,
+    [panel, vars],
+  );
+  const resolvedSql = useMemo(
+    () =>
+      interpolate(serializePanelSql(panel.sql), vars, {
+        failClosedTimeVariables: true,
+      }),
+    [panel.sql, vars],
+  );
+  const handleSelectForChat = useCallback(
+    (options?: SelectDashboardPanelOptions) => {
+      const extensionId =
+        panel.chartType === "extension" ? panel.config?.extensionId : undefined;
+      selectPanelForChat(
+        {
+          panelId: panel.id,
+          panelTitle: panel.title,
+          panelKind:
+            panel.chartType === "table"
+              ? "table"
+              : panel.chartType === "extension"
+                ? "extension"
+                : "chart",
+          chartType: panel.chartType,
+          source: panel.source,
+          extensionId,
+        },
+        options,
+      );
+    },
+    [panel, selectPanelForChat],
+  );
+
+  return (
+    <div
+      className="dashboard-grid-cell relative h-full"
+      style={
+        remoteEditor
+          ? {
+              outline: `2px solid ${remoteEditor.color}`,
+              outlineOffset: 2,
+              borderRadius: 8,
+            }
+          : undefined
+      }
+    >
+      {remoteEditor && (
+        <span
+          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+          style={{
+            backgroundColor: remoteEditor.color,
+            color: "#fff",
+          }}
+        >
+          {remoteEditor.name}
+        </span>
+      )}
+      <SqlChartCard
+        panel={resolved}
+        resolvedSql={resolvedSql}
+        onRemove={() => onRemovePanel(panel.id)}
+        onEdit={() => onEditPanel(panel)}
+        onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        editable={editable}
+        eagerLoad={eagerLoad}
+        reportScreenshot={reportScreenshot}
+        isDragSource={isDragSource}
+        selectedForChat={selectedForChat}
+        onSelectForChat={handleSelectForChat}
+        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        filters={vars}
+        extensionContext={
+          panel.chartType === "extension"
+            ? {
+                ...dashboardExtensionContext,
+                panel: {
+                  id: panel.id,
+                  title: panel.title,
+                  slotId:
+                    panel.config?.extensionSlotId ??
+                    dashboardExtensionSlotId(
+                      String(dashboardExtensionContext.dashboardId),
+                      panel.id,
+                    ),
+                },
+              }
+            : undefined
+        }
+      />
+    </div>
+  );
+});
 
 type FetchedDashboard = {
   id: string;
@@ -123,22 +388,80 @@ type FetchedDashboard = {
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
+  updatedBy: string | null;
 } & ResourceAccess;
 
-async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
+function parseDashboardDemoMetadata(
+  value: unknown,
+): SqlDashboardConfig["demo"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return typeof raw.id === "string" && raw.id
+    ? {
+        id: raw.id,
+        version: typeof raw.version === "string" ? raw.version : undefined,
+        installedAt:
+          typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+      }
+    : undefined;
+}
+
+function parseDashboardCatalogMetadata(
+  value: unknown,
+): SqlDashboardConfig["catalog"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    templateId: typeof raw.templateId === "string" ? raw.templateId : undefined,
+    templateVersion:
+      typeof raw.templateVersion === "string" ? raw.templateVersion : undefined,
+    installedAt:
+      typeof raw.installedAt === "string" ? raw.installedAt : undefined,
+  };
+}
+
+async function fetchDashboard(
+  id: string,
+  options?: { reportScreenshot?: boolean },
+): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
-      { id },
-      { method: "GET" },
+      { id, includeConfig: true },
+      {
+        method: "GET",
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
+          : {}),
+      },
     );
-    if (!data || data.error) return null;
+    if (!data) return null;
+    if (data.error) {
+      throw new Error(
+        typeof data.message === "string" && data.message
+          ? data.message
+          : typeof data.error === "string"
+            ? data.error
+            : "Dashboard bootstrap failed",
+      );
+    }
     return {
       id,
       config: {
         name: data.name ?? "Untitled Dashboard",
         description: data.description,
+        parentId:
+          typeof data.parentId === "string" && data.parentId.trim().length > 0
+            ? data.parentId
+            : undefined,
+        catalog: parseDashboardCatalogMetadata(data.catalog),
+        demo: parseDashboardDemoMetadata(data.demo),
         filters: data.filters,
         variables: data.variables,
         columns: typeof data.columns === "number" ? data.columns : undefined,
@@ -152,15 +475,50 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
           ? data.visibility
           : "private",
       ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
         typeof data.canManage === "boolean" ? data.canManage : undefined,
     };
-  } catch {
+  } catch (error) {
+    if (options?.reportScreenshot) throw error;
     return null;
   }
+}
+
+function DashboardReportCaptureSurface({
+  phase,
+  panelIds,
+  error,
+  className,
+  children,
+}: {
+  phase: DashboardReportCapturePhase;
+  panelIds?: string[];
+  error?: unknown;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const captureError = error ? dashboardReportCaptureError(error) : undefined;
+
+  return (
+    <div
+      className={className}
+      data-dashboard-report-capture
+      data-dashboard-report-ready={phase === "ready" ? "true" : "false"}
+      data-dashboard-report-phase={phase}
+      data-dashboard-report-fetch-state={phase}
+      data-dashboard-report-error={captureError || undefined}
+      data-dashboard-report-panel-ids={
+        panelIds ? JSON.stringify(panelIds) : undefined
+      }
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -179,21 +537,40 @@ async function saveDashboard(
 }
 
 export default function SqlDashboardPage() {
+  const { session } = useSession();
+
+  return <SqlDashboardPageContent reportScreenshot={false} session={session} />;
+}
+
+function SqlDashboardPageContent({
+  reportScreenshot,
+  session,
+}: {
+  reportScreenshot: boolean;
+  session: AuthSession | null;
+}) {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
+  const reportSettingsRequested = searchParams.get("reportSettings") === "1";
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
-  const [hiddenBy, setHiddenBy] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
-    "private" | "org" | "public"
-  >("private");
+    "private" | "org" | "public" | null
+  >(null);
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
   const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
     null,
   );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
@@ -205,9 +582,32 @@ export default function SqlDashboardPage() {
   const [descriptionInput, setDescriptionInput] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [emailReportOpen, setEmailReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
+  const [activeDropSlot, setActiveDropSlot] =
+    useState<DashboardDropSlot | null>(null);
+  const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
+    null,
+  );
   const viewedDashboardIdRef = useRef<string | null>(null);
-  const canEdit = resourceCanEdit(resourceAccess);
-  const canManage = resourceCanManage(resourceAccess);
+  const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
+  const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
+  const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
+  const dashboardColumns = clampDashboardColumns(
+    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
+  );
+  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
+    id: reportScreenshot ? null : dashboardId,
+    kind: "sql",
+    title: dashboard?.name,
+    panelCount: dashboard?.panels.length,
+    canEdit,
+  });
+  const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
+  const showDemoIntro =
+    isDemoDashboard && searchParams.get("demoIntro") === "1";
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
   const { mutateAsync: deleteDashboardAction } = useActionMutation(
@@ -231,8 +631,12 @@ export default function SqlDashboardPage() {
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;
-      return fetchDashboard(dashboardId);
+      return fetchDashboard(dashboardId, { reportScreenshot });
     },
+    retry: reportScreenshot ? 1 : false,
+    retryDelay: reportScreenshot
+      ? DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS
+      : undefined,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialData: () => {
@@ -240,10 +644,7 @@ export default function SqlDashboardPage() {
       const snapshot = queryClient.getQueryData<
         PrefetchSnapshot<FetchedDashboard | null>
       >(sqlDashboardPrefetchKey(dashboardId));
-      if (snapshot?.data === null && snapshot.syncVersion !== sync) {
-        return undefined;
-      }
-      return snapshot?.data;
+      return dashboardPrefetchInitialData(snapshot, sync);
     },
     initialDataUpdatedAt: () => {
       if (!dashboardId) return undefined;
@@ -253,7 +654,7 @@ export default function SqlDashboardPage() {
           queryKey,
         );
       if (!snapshot) return undefined;
-      if (snapshot.syncVersion !== sync) return 0;
+      if (snapshot.syncVersion !== sync) return undefined;
       return queryClient.getQueryState(queryKey)?.dataUpdatedAt;
     },
   });
@@ -263,16 +664,17 @@ export default function SqlDashboardPage() {
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
   // ── Collaborative editing ──────────────────────────────────────────
-  const { session } = useSession();
-  const currentUser: CollabUser | undefined = session?.email
-    ? {
-        name: emailToName(session.email),
-        email: session.email,
-        color: emailToColor(session.email),
-      }
-    : undefined;
+  const currentUser: CollabUser | undefined =
+    !reportScreenshot && session?.email
+      ? {
+          name: emailToName(session.email),
+          email: session.email,
+          color: emailToColor(session.email),
+        }
+      : undefined;
 
-  const collabDocId = dashboardId ? `dash-${dashboardId}` : null;
+  const collabDocId =
+    !reportScreenshot && dashboardId ? `dash-${dashboardId}` : null;
   const {
     ydoc,
     awareness,
@@ -285,6 +687,36 @@ export default function SqlDashboardPage() {
     requestSource: TAB_ID,
     user: currentUser,
   });
+
+  const updateCachedDashboardConfig = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      queryClient.setQueriesData<FetchedDashboard | null>(
+        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, config: updated } : prev),
+      );
+      queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+        sqlDashboardPrefetchKey(dashboardId),
+        (prev) =>
+          prev?.data
+            ? { ...prev, data: { ...prev.data, config: updated } }
+            : prev,
+      );
+    },
+    [dashboardId, queryClient],
+  );
+
+  const holdDashboardConfig = useCallback(() => {
+    if (!dashboardId) return;
+    pendingConfigRef.current = createDashboardAdoptionHold({
+      dashboardId,
+      currentUpdatedAt: dashboardUpdatedAt,
+    });
+    void queryClient.cancelQueries(
+      { queryKey: ["data", "sql-dashboard", dashboardId] },
+      { revert: false },
+    );
+  }, [dashboardId, dashboardUpdatedAt, queryClient]);
 
   // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
@@ -324,8 +756,10 @@ export default function SqlDashboardPage() {
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
-        if (parsed && parsed.panels) {
+        if (parsed && Array.isArray(parsed.panels)) {
+          holdDashboardConfig();
           setDashboard(parsed);
+          updateCachedDashboardConfig(parsed);
         }
       } catch {
         // JSON parse failed — ignore partial updates
@@ -335,13 +769,14 @@ export default function SqlDashboardPage() {
     return () => {
       ytext.unobserve(handler);
     };
-  }, [ydoc, collabSynced]);
+  }, [ydoc, collabSynced, holdDashboardConfig, updateCachedDashboardConfig]);
 
   // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
     isLoading: filtersLoading,
+    isSuccess: filtersLoaded,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
@@ -357,10 +792,11 @@ export default function SqlDashboardPage() {
     setDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
-    setHiddenBy(null);
-    setDashboardVisibility("private");
+    setDashboardVisibility(null);
     setDashboardOwner(null);
+    setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
@@ -368,14 +804,34 @@ export default function SqlDashboardPage() {
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
     const fetched = dashboardQuery.data;
-    if (fetched && fetched.id !== dashboardId) return;
-    setDashboard(fetched?.config ?? null);
+    const adoption = shouldAdoptDashboardQueryResult({
+      dashboardId,
+      loaded,
+      isPlaceholderData: dashboardQuery.isPlaceholderData,
+      fetchedId: fetched?.id,
+      fetchedUpdatedAt: fetched?.updatedAt,
+      currentUpdatedAt: dashboardUpdatedAt,
+      hold: pendingConfigRef.current,
+    });
+    if (adoption.clearHold) {
+      pendingConfigRef.current = null;
+    }
+    if (!adoption.adopt) return;
+    const fetchedConfig = fetched?.config ?? null;
+    const fetchedVisibility =
+      fetched?.visibility === "private" ||
+      fetched?.visibility === "org" ||
+      fetched?.visibility === "public"
+        ? fetched.visibility
+        : null;
+    setDashboard(fetchedConfig);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
-    setHiddenBy(fetched?.hiddenBy ?? null);
-    setDashboardVisibility(fetched?.visibility ?? "private");
+    setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
+    setDashboardUpdatedBy(fetched?.updatedBy ?? null);
     setResourceAccess(
       fetched
         ? {
@@ -386,15 +842,35 @@ export default function SqlDashboardPage() {
         : null,
     );
     setLoaded(true);
-    if (fetched && viewedDashboardIdRef.current !== dashboardId) {
+    if (
+      fetched &&
+      !reportScreenshot &&
+      viewedDashboardIdRef.current !== dashboardId
+    ) {
       viewedDashboardIdRef.current = dashboardId;
       incrementItemView("dashboard", dashboardId);
     }
-  }, [dashboardId, dashboardQuery.data, dashboardQuery.isSuccess]);
+  }, [
+    dashboardId,
+    dashboardQuery.data,
+    dashboardQuery.isSuccess,
+    dashboardQuery.isPlaceholderData,
+    dashboardUpdatedAt,
+    loaded,
+    reportScreenshot,
+  ]);
 
   // Apply saved filters on initial load if no filter URL params are present
   useEffect(() => {
-    if (appliedSaved.current || filtersLoading || !loaded || !dashboard) return;
+    if (
+      reportScreenshot ||
+      appliedSaved.current ||
+      filtersLoading ||
+      !filtersLoaded ||
+      !loaded ||
+      !dashboard
+    )
+      return;
     appliedSaved.current = true;
 
     // Check if there's a view param — if so, load view filters
@@ -435,9 +911,11 @@ export default function SqlDashboardPage() {
     }
   }, [
     filtersLoading,
+    filtersLoaded,
     loaded,
     dashboard,
     savedFilters,
+    reportScreenshot,
     searchParams,
     setSearchParams,
   ]);
@@ -445,7 +923,13 @@ export default function SqlDashboardPage() {
   // Auto-save filter state when URL params change (debounced)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
-    if (!loaded || !dashboard?.filters?.length || !dashboardId) return;
+    if (
+      reportScreenshot ||
+      !loaded ||
+      !dashboard?.filters?.length ||
+      !dashboardId
+    )
+      return;
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       const currentFilters: Record<string, string> = {};
@@ -457,7 +941,14 @@ export default function SqlDashboardPage() {
       saveFilterPref({ filters: currentFilters });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
-  }, [searchParams, loaded, dashboard?.filters, dashboardId, saveFilterPref]);
+  }, [
+    searchParams,
+    loaded,
+    dashboard?.filters,
+    dashboardId,
+    saveFilterPref,
+    reportScreenshot,
+  ]);
 
   /**
    * Push a config update through the collab layer so other tabs/users
@@ -488,10 +979,12 @@ export default function SqlDashboardPage() {
     (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        toast.error("You have view-only access to this dashboard.");
+        toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
+      holdDashboardConfig();
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
         .then(() => {
@@ -511,12 +1004,22 @@ export default function SqlDashboardPage() {
         .catch((err) => {
           toast.error(
             err instanceof Error
-              ? `Couldn't save dashboard: ${err.message}`
-              : "Couldn't save dashboard",
+              ? t("sqlDashboard.saveFailedWithMessage", {
+                  message: err.message,
+                })
+              : t("sqlDashboard.saveFailed"),
           );
         });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab],
+    [
+      dashboardId,
+      canEdit,
+      holdDashboardConfig,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   /**
@@ -527,10 +1030,12 @@ export default function SqlDashboardPage() {
     async (updated: SqlDashboardConfig) => {
       if (!dashboardId) return;
       if (!canEdit) {
-        throw new Error("You have view-only access to this dashboard.");
+        throw new Error(t("sqlDashboard.viewOnly"));
       }
+      holdDashboardConfig();
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId),
@@ -541,7 +1046,15 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab],
+    [
+      dashboardId,
+      canEdit,
+      holdDashboardConfig,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   const removePanel = useCallback(
@@ -549,26 +1062,14 @@ export default function SqlDashboardPage() {
       if (!dashboard) return;
       persist({
         ...dashboard,
-        panels: dashboard.panels.filter((p) => p.id !== panelId),
+        panels: removePanelFromLayout(
+          dashboard.panels,
+          panelId,
+          dashboardColumns,
+        ),
       });
     },
-    [dashboard, persist],
-  );
-
-  const toggleWidth = useCallback(
-    (panelId: string, gridColumns: number) => {
-      if (!dashboard) return;
-      const max = clampDashboardColumns(gridColumns);
-      persist({
-        ...dashboard,
-        panels: dashboard.panels.map((p) => {
-          if (p.id !== panelId) return p;
-          const current = clampPanelWidth(p.width, max);
-          return { ...p, width: current >= max ? 1 : max };
-        }),
-      });
-    },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
 
   const handleSavePanel = useCallback(
@@ -606,26 +1107,62 @@ export default function SqlDashboardPage() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
   );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragPanelId(String(event.active.id));
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const nextSlot = readDropSlot(event.over?.data.current);
+    setActiveDropSlot((currentSlot) => {
+      if (!nextSlot) return currentSlot === null ? currentSlot : null;
+      return sameDropSlot(currentSlot, nextSlot) ? currentSlot : nextSlot;
+    });
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setActiveDropSlot(null);
+      setActiveDragPanelId(null);
       if (!dashboard) return;
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const oldIndex = dashboard.panels.findIndex((p) => p.id === active.id);
-      const newIndex = dashboard.panels.findIndex((p) => p.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
+      const slot = readDropSlot(event.over?.data.current);
+      if (!slot) return;
+      const panelId = String(event.active.id);
+      const columnExpansion = columnExpansionForDropSlot(
+        buildDashboardPanelGroups(dashboard.panels, dashboardColumns),
+        panelId,
+        slot,
+      );
+      const nextPanels = movePanelToDropSlot(
+        dashboard.panels,
+        panelId,
+        slot,
+        dashboardColumns,
+      );
+      if (nextPanels === dashboard.panels) return;
+      const persistedPanels = columnExpansion?.sectionPanelId
+        ? nextPanels.map((panel) =>
+            panel.id === columnExpansion.sectionPanelId
+              ? { ...panel, columns: columnExpansion.columns }
+              : panel,
+          )
+        : nextPanels;
       persist({
         ...dashboard,
-        panels: arrayMove(dashboard.panels, oldIndex, newIndex),
+        ...(columnExpansion && !columnExpansion.sectionPanelId
+          ? { columns: columnExpansion.columns }
+          : {}),
+        panels: persistedPanels,
       });
     },
-    [dashboard, persist],
+    [dashboard, dashboardColumns, persist],
   );
+
+  const handleDragCancel = useCallback(() => {
+    setActiveDropSlot(null);
+    setActiveDragPanelId(null);
+  }, []);
 
   const handleSaveName = useCallback(() => {
     if (!dashboard) return;
@@ -654,6 +1191,37 @@ export default function SqlDashboardPage() {
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const currentReportFilters = useMemo<Record<string, string>>(() => {
+    const out = dashboard?.filters
+      ? extractFilterParams(dashboard.filters, searchParams)
+      : {};
+    const tab = searchParams.get("tab");
+    if (tab) out.tab = tab;
+    return out;
+  }, [dashboard?.filters, searchParams]);
+
+  useEffect(() => {
+    if (!reportScreenshot && reportSettingsRequested) {
+      setEmailReportOpen(true);
+    }
+  }, [reportScreenshot, reportSettingsRequested]);
+
+  const handleEmailReportOpenChange = useCallback(
+    (open: boolean) => {
+      setEmailReportOpen(open);
+      if (open || !reportSettingsRequested) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("reportSettings");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [reportSettingsRequested, setSearchParams],
+  );
+
   // Distinct tab values across panels in declaration order. When this is
   // non-empty the dashboard renders a tab strip and filters panels by tab.
   const tabs = useMemo<string[]>(() => {
@@ -671,12 +1239,21 @@ export default function SqlDashboardPage() {
   }, [dashboard]);
 
   const requestedTab = searchParams.get("tab");
-  const activeTab =
+  const selectedTab =
     tabs.length > 0
       ? requestedTab && tabs.includes(requestedTab)
         ? requestedTab
         : tabs[0]
       : null;
+  // The report URL carries no `tab` parameter and must show every panel, so
+  // the normal first-tab fallback does not apply in report mode.
+  const activeTab = reportScreenshot ? null : selectedTab;
+  const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
+  const activeTabGroup = activeTab
+    ? groupedTabs.groups.find((group) =>
+        group.tabs.some((tab) => tab.value === activeTab),
+      )
+    : null;
 
   const handleTabChange = useCallback(
     (value: string) => {
@@ -691,56 +1268,104 @@ export default function SqlDashboardPage() {
     },
     [setSearchParams],
   );
+  const handleTabGroupChange = useCallback(
+    (groupName: string) => {
+      const group = groupedTabs.groups.find((item) => item.name === groupName);
+      const firstTab = group?.tabs[0]?.value;
+      if (firstTab) handleTabChange(firstTab);
+    },
+    [groupedTabs.groups, handleTabChange],
+  );
 
   // Panels visible under the current tab. Untagged panels appear on every
   // tab; tagged panels only on their own tab. When no tabs are defined the
   // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
-    if (!activeTab) return dashboard.panels;
-    return dashboard.panels.filter((p) => !p.tab || p.tab === activeTab);
+    return activeTab
+      ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
+      : dashboard.panels;
   }, [dashboard, activeTab]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
   // Panels before any section go in an initial unsectioned block.
-  const dashboardColumns = clampDashboardColumns(
-    dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
-  );
   const panelGroups = useMemo(() => {
-    const groups: Array<{
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    }> = [];
-    let current: {
-      key: string;
-      section: SqlPanel | null;
-      panels: SqlPanel[];
-      columns: number;
-    } = {
-      key: "intro",
-      section: null,
-      panels: [],
-      columns: dashboardColumns,
-    };
-    for (const panel of visiblePanels) {
-      if (panel.chartType === "section") {
-        if (current.section || current.panels.length > 0) groups.push(current);
-        current = {
-          key: panel.id,
-          section: panel,
-          panels: [],
-          columns: clampDashboardColumns(panel.columns ?? dashboardColumns),
-        };
-      } else {
-        current.panels.push(panel);
-      }
-    }
-    if (current.section || current.panels.length > 0) groups.push(current);
-    return groups;
+    return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
+  const activeDragPanel = useMemo(
+    () =>
+      activeDragPanelId
+        ? (visiblePanels.find((panel) => panel.id === activeDragPanelId) ??
+          null)
+        : null,
+    [activeDragPanelId, visiblePanels],
+  );
+  const activeDropSlotIds = useMemo(
+    () =>
+      activeDragPanelId
+        ? availableDropSlotIdsForPanel(panelGroups, activeDragPanelId)
+        : null,
+    [activeDragPanelId, panelGroups],
+  );
+
+  const dashboardCollisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      const activePanelId = String(args.active.id);
+      const availableSlotIds =
+        activeDragPanelId === activePanelId && activeDropSlotIds
+          ? activeDropSlotIds
+          : availableDropSlotIdsForPanel(panelGroups, activePanelId);
+      const droppableContainers = args.droppableContainers.filter((container) =>
+        availableSlotIds.has(String(container.id)),
+      );
+
+      if (droppableContainers.length === 0) return [];
+
+      if (!args.pointerCoordinates) return [];
+
+      const candidates = droppableContainers.flatMap((droppableContainer) => {
+        const rect = args.droppableRects.get(droppableContainer.id);
+        const slot = readDropSlot(droppableContainer.data.current);
+        if (!rect || !slot) return [];
+        return [
+          {
+            id: String(droppableContainer.id),
+            slot,
+            rect,
+          },
+        ];
+      });
+      const preferredId = preferredDropSlotId(
+        args.pointerCoordinates,
+        candidates,
+      );
+      const preferredContainer =
+        preferredId === null
+          ? null
+          : (droppableContainers.find(
+              (container) => String(container.id) === preferredId,
+            ) ?? null);
+      const preferredRect =
+        preferredContainer && args.droppableRects.get(preferredContainer.id);
+
+      return preferredId && preferredContainer && preferredRect
+        ? [
+            {
+              id: preferredId,
+              data: {
+                droppableContainer: preferredContainer,
+                value: distanceFromPointerToRect(
+                  args.pointerCoordinates,
+                  preferredRect,
+                ),
+              },
+            },
+          ]
+        : [];
+    },
+    [activeDragPanelId, activeDropSlotIds, panelGroups],
+  );
 
   const handleDelete = useCallback(async () => {
     if (!dashboardId) return;
@@ -756,6 +1381,17 @@ export default function SqlDashboardPage() {
     });
     navigate("/");
   }, [dashboardId, canManage, deleteDashboardAction, queryClient, navigate]);
+
+  const dismissDemoIntro = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("demoIntro");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   const handleArchive = useCallback(async () => {
     if (!dashboardId) return;
@@ -795,7 +1431,6 @@ export default function SqlDashboardPage() {
         hidden: false,
       })) as { ownerEmail?: string | null } | undefined;
       setHiddenAt(null);
-      setHiddenBy(null);
       if (typeof result?.ownerEmail === "string") {
         setDashboardOwner(result.ownerEmail);
       }
@@ -827,9 +1462,14 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardShareUrl = useMemo(() => {
+    if (!dashboardId || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/dashboards/" + dashboardId);
+  }, [dashboardId]);
+
   useSetPageTitle(
-    dashboard ? (
-      <div className="flex items-center gap-2 min-w-0">
+    reportScreenshot ? null : dashboard ? (
+      <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
             value={nameInput}
@@ -841,14 +1481,14 @@ export default function SqlDashboardPage() {
           />
         ) : canEdit ? (
           <button
-            className="group text-lg font-semibold hover:text-primary flex items-center gap-1 truncate"
+            className="group flex min-w-0 items-center gap-1 truncate text-lg font-semibold hover:text-primary"
             onClick={() => {
               setNameInput(dashboard.name);
               setEditingName(true);
             }}
           >
             <span className="truncate">{dashboard.name}</span>
-            <IconPencil className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100" />
+            <IconPencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
           </button>
         ) : (
           <span className="truncate text-lg font-semibold">
@@ -862,7 +1502,7 @@ export default function SqlDashboardPage() {
   );
 
   useSetHeaderActions(
-    dashboard ? (
+    reportScreenshot ? null : dashboard ? (
       <>
         <PresenceBar
           activeUsers={activeUsers}
@@ -879,6 +1519,31 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
+            shareUrl={dashboardShareUrl}
+            shareTabs={{
+              tabs: [
+                {
+                  value: "context",
+                  label: "Context",
+                  content: (
+                    <CreativeContextShareTab
+                      resource={{
+                        appId: "analytics",
+                        resourceType: "dashboard",
+                        resourceId: dashboardId,
+                        title: dashboard.name,
+                        updatedAt: dashboardUpdatedAt ?? undefined,
+                        preview: {
+                          kind: "document",
+                          label: t("dashboard.sqlDashboard"),
+                        },
+                      }}
+                    />
+                  ),
+                },
+              ],
+            }}
           />
         ) : null}
         {canEdit ? (
@@ -890,56 +1555,167 @@ export default function SqlDashboardPage() {
           >
             <Button size="sm" variant="outline">
               <IconPlus className="h-4 w-4 mr-1" />
-              Add panel
+              {t("sqlDashboard.addPanel")}
             </Button>
           </AddPanelPopover>
         ) : null}
-        {canEdit || canManage ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="Dashboard actions"
-                  >
-                    <IconDots className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>More actions</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-44">
-              {canEdit && !archivedAt ? (
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void handleArchive();
-                  }}
+        <DropdownMenu
+          open={dashboardActionsOpen}
+          onOpenChange={setDashboardActionsOpen}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label={t("sqlDashboard.dashboardActions")}
                 >
-                  <IconArchive className="mr-2 h-3.5 w-3.5" />
-                  Archive
-                </DropdownMenuItem>
-              ) : null}
-              {canEdit && !archivedAt && canManage ? (
+                  <IconDotsVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-72">
+            {dashboardId && canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  setContextSheetOpen(true);
+                }}
+              >
+                <IconPlus className="mr-2 h-3.5 w-3.5" />
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+              </DropdownMenuItem>
+            ) : null}
+            {dashboardId ? (
+              <>
                 <DropdownMenuSeparator />
-              ) : null}
-              {canManage ? (
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault();
-                    setConfirmDeleteOpen(true);
+                    setDashboardActionsOpen(false);
+                    setEmailReportOpen(true);
                   }}
-                  className="text-destructive focus:text-destructive"
                 >
-                  <IconTrash className="mr-2 h-3.5 w-3.5" />
-                  Delete permanently
+                  <IconMail className="mr-2 h-3.5 w-3.5" />
+                  {t("sqlDashboard.emailReports")}
                 </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setDashboardActionsOpen(false);
+                    setHistoryOpen(true);
+                  }}
+                >
+                  <IconHistory className="mr-2 h-3.5 w-3.5" />
+                  {t("dashboard.historyTitle")}
+                </DropdownMenuItem>
+              </>
+            ) : null}
+            {canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  void handleArchive();
+                }}
+              >
+                <IconArchive className="mr-2 h-3.5 w-3.5" />
+                {t("sidebar.archive")}
+              </DropdownMenuItem>
+            ) : null}
+            {canEdit && !archivedAt && canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            {canManage ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  setConfirmDeleteOpen(true);
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <IconTrash className="mr-2 h-3.5 w-3.5" />
+                {t("sqlDashboard.deletePermanently")}
+              </DropdownMenuItem>
+            ) : null}
+            {dashboardId || (canEdit && !archivedAt) || canManage ? (
+              <DropdownMenuSeparator />
+            ) : null}
+            <DropdownMenuLabel className="font-normal">
+              <DashboardMetadata
+                createdAt={dashboardCreatedAt}
+                createdBy={dashboardOwner}
+                updatedAt={dashboardUpdatedAt}
+                updatedBy={dashboardUpdatedBy}
+              />
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
+                {dashboardVisibility ? (
+                  <span className="flex items-center gap-1.5">
+                    {dashboardVisibility === "public" ? (
+                      <IconWorld className="h-3 w-3" />
+                    ) : dashboardVisibility === "org" ? (
+                      <IconUsersGroup className="h-3 w-3" />
+                    ) : (
+                      <IconLock className="h-3 w-3" />
+                    )}
+                    {dashboardVisibility === "public"
+                      ? t("sqlDashboard.public")
+                      : dashboardVisibility === "org"
+                        ? t("sqlDashboard.sharedWithOrg")
+                        : t("sqlDashboard.private")}
+                  </span>
+                ) : null}
+                {hiddenAt && (
+                  <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+                    <IconEyeOff className="h-3 w-3" />
+                    {t("sqlDashboard.hidden")}
+                  </span>
+                )}
+              </div>
+            </DropdownMenuLabel>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {dashboardId ? (
+          <EmailReportDialog
+            open={emailReportOpen}
+            onOpenChange={handleEmailReportOpenChange}
+            dashboardId={dashboardId}
+            dashboardName={dashboard.name}
+            filters={currentReportFilters}
+          />
+        ) : null}
+        {dashboardId ? (
+          <DashboardHistoryPanel
+            dashboardId={dashboardId}
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            canRestore={canEdit && !archivedAt}
+          />
+        ) : null}
+        {dashboardId ? (
+          <CreativeContextShareSheet
+            open={contextSheetOpen}
+            onOpenChange={setContextSheetOpen}
+            resource={{
+              appId: "analytics",
+              resourceType: "dashboard",
+              resourceId: dashboardId,
+              title: dashboard.name,
+              updatedAt: dashboardUpdatedAt ?? undefined,
+              visibility: dashboardVisibility ?? undefined,
+              preview: {
+                kind: "document",
+                label: t("dashboard.sqlDashboard"),
+              },
+            }}
+            canManage={canManage}
+          />
         ) : null}
         {canManage ? (
           <AlertDialog
@@ -948,20 +1724,22 @@ export default function SqlDashboardPage() {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete permanently?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {t("sqlDashboard.deletePermanentlyTitle")}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This permanently deletes &ldquo;{dashboard?.name}&rdquo; and
-                  cannot be undone. To keep it recoverable, choose Archive
-                  instead.
+                  {t("sqlDashboard.deletePermanentlyDescription", {
+                    name: dashboard?.name ?? "",
+                  })}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={handleDelete}
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 >
-                  Delete permanently
+                  {t("sqlDashboard.deletePermanently")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -972,50 +1750,65 @@ export default function SqlDashboardPage() {
   );
 
   if (!dashboardId) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            {t("sqlDashboard.noDashboardSelected")}
+          </div>
+        </DashboardReportCaptureSurface>
+      );
+    }
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        No dashboard selected
+        {t("sqlDashboard.noDashboardSelected")}
       </div>
+    );
+  }
+
+  if (reportScreenshot && dashboardQuery.isError) {
+    return (
+      <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
+        <DashboardSkeleton />
+      </DashboardReportCaptureSurface>
     );
   }
 
   if (!loaded) {
-    // Match the eventual SqlChartCard layout exactly (Card chrome + title row +
-    // chart-body skeleton) so the transition from "dashboard config loading" to
-    // "queries loading" doesn't morph the skeleton's shape — only the title
-    // text fills in. Otherwise the bare h-64 rectangles jump into Card-chromed
-    // panels and the page visibly shifts.
-    return (
-      <div className="dashboard-grid-container space-y-4">
-        <div
-          className="dashboard-grid"
-          style={{ "--dash-cols": 2 } as React.CSSProperties}
-        >
-          {[0, 1].map((i) => (
-            <Card key={i} className="flex flex-col overflow-visible">
-              <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="loading">
+          <DashboardSkeleton />
+        </DashboardReportCaptureSurface>
+      );
+    }
+    return <DashboardSkeleton />;
   }
 
-  if (!dashboard) return <BlankDashboard />;
+  if (!dashboard) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <BlankDashboard />
+        </DashboardReportCaptureSurface>
+      );
+    }
+    return <BlankDashboard />;
+  }
 
   return (
-    <div className="space-y-4">
+    <DashboardReportCaptureSurface
+      className="space-y-4"
+      phase="ready"
+      panelIds={
+        reportScreenshot ? listReportablePanelIds(visiblePanels) : undefined
+      }
+    >
       {hiddenAt ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
           <IconEyeOff className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="min-w-0 flex-1">
-            This dashboard is hidden from regular lists. It remains searchable
-            and openable by direct link.
+            {t("sqlDashboard.hiddenDescription")}
           </span>
           <Button
             size="sm"
@@ -1025,61 +1818,29 @@ export default function SqlDashboardPage() {
             className="shrink-0 border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/70"
           >
             <IconEye className="mr-1.5 h-3.5 w-3.5" />
-            Unhide
+            {t("sidebar.unhide")}
           </Button>
         </div>
       ) : null}
-      {/* Author, last updated, and visibility metadata */}
-      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {hiddenAt && (
-          <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
-            <IconEyeOff className="h-3 w-3" />
-            Hidden
-          </span>
-        )}
-        {dashboardUpdatedAt && (
-          <span className="flex items-center gap-1">
-            <IconClock className="h-3 w-3" />
-            Updated{" "}
-            {new Date(dashboardUpdatedAt).toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-              day: "numeric",
-            })}
-          </span>
-        )}
-        {dashboardOwner && (
-          <span className="flex items-center gap-1">
-            <IconUser className="h-3 w-3" />
-            {dashboardOwner.split("@")[0]}
-          </span>
-        )}
-        <span
-          className={`flex items-center gap-1.5 font-medium ${
-            dashboardVisibility === "public"
-              ? "text-green-600"
-              : dashboardVisibility === "org"
-                ? "text-blue-600"
-                : "text-yellow-600"
-          }`}
-        >
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              dashboardVisibility === "public"
-                ? "bg-green-500"
-                : dashboardVisibility === "org"
-                  ? "bg-blue-500"
-                  : "bg-yellow-500"
-            }`}
-          />
-          {dashboardVisibility === "public"
-            ? "Public"
-            : dashboardVisibility === "org"
-              ? "Shared with org"
-              : "Private"}
-        </span>
-      </div>
-
+      {showDemoIntro ? (
+        <Alert className="border-cyan-400/50 bg-cyan-400/10 pr-12 text-cyan-950 shadow-sm shadow-cyan-500/10 dark:bg-cyan-400/10 dark:text-cyan-50 [&>svg]:text-cyan-600 dark:[&>svg]:text-cyan-300">
+          <IconInfoCircle className="h-4 w-4" />
+          <AlertTitle>{t("sqlDashboard.demoIntroTitle")}</AlertTitle>
+          <AlertDescription className="text-cyan-900/80 dark:text-cyan-100/80">
+            {t("sqlDashboard.demoIntroDescription")}
+          </AlertDescription>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute right-2 top-2 h-8 w-8 text-cyan-900 hover:bg-cyan-400/20 hover:text-cyan-950 dark:text-cyan-100 dark:hover:text-cyan-50"
+            onClick={dismissDemoIntro}
+            aria-label={t("sqlDashboard.dismissDemoIntro")}
+          >
+            <IconX className="h-4 w-4" />
+          </Button>
+        </Alert>
+      ) : null}
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea
@@ -1094,10 +1855,10 @@ export default function SqlDashboardPage() {
           }}
           rows={2}
           autoFocus
-          placeholder="Add a description"
+          placeholder={t("sqlDashboard.addDescriptionPlaceholder")}
           className="text-sm resize-y"
         />
-      ) : dashboard.description ? (
+      ) : !reportScreenshot && dashboard.description ? (
         <button
           className={
             canEdit
@@ -1124,39 +1885,65 @@ export default function SqlDashboardPage() {
           }}
         >
           <IconPencil className="h-3 w-3" />
-          Add description
+          {t("sqlDashboard.addDescription")}
         </button>
       ) : null}
 
       {/* Tabs */}
       {tabs.length > 0 && activeTab && (
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList
-            className="grid w-full"
-            style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}
-          >
-            {tabs.map((t) => (
-              <TabsTrigger key={t} value={t}>
-                {t}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="space-y-2">
+          {groupedTabs.hasNestedTabs && groupedTabs.groups.length > 1 ? (
+            <Tabs
+              value={activeTabGroup?.name ?? groupedTabs.groups[0]?.name}
+              onValueChange={handleTabGroupChange}
+            >
+              <TabsList className="inline-flex max-w-full justify-start overflow-x-auto">
+                {groupedTabs.groups.map((group) => (
+                  <TabsTrigger
+                    key={group.name}
+                    value={group.name}
+                    className="shrink-0 whitespace-nowrap"
+                  >
+                    {group.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          ) : null}
+          <Tabs value={activeTab} onValueChange={handleTabChange}>
+            <TabsList className="flex h-auto w-full justify-start overflow-x-auto">
+              {(groupedTabs.hasNestedTabs
+                ? (activeTabGroup?.tabs ?? [])
+                : tabs.map((tab) => ({ value: tab, label: tab }))
+              ).map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  {tab.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
       )}
 
       {/* Filters */}
-      {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar
-          filters={dashboard.filters}
-          onSaveView={canEdit ? handleSaveView : undefined}
-        />
-      )}
+      {!reportScreenshot &&
+        dashboard.filters &&
+        dashboard.filters.length > 0 && (
+          <DashboardFilterBar
+            filters={dashboard.filters}
+            onSaveView={canEdit ? handleSaveView : undefined}
+          />
+        )}
 
       {/* Panels grid */}
       {dashboard.panels.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
-            <p>This dashboard has no panels yet.</p>
+            <p>{t("sqlDashboard.noPanels")}</p>
             {canEdit ? (
               <AddPanelPopover
                 onSave={handleSavePanel}
@@ -1166,7 +1953,7 @@ export default function SqlDashboardPage() {
               >
                 <Button size="sm" variant="outline">
                   <IconPlus className="h-4 w-4 mr-1" />
-                  Add your first panel
+                  {t("sqlDashboard.addFirstPanel")}
                 </Button>
               </AddPanelPopover>
             ) : null}
@@ -1175,146 +1962,155 @@ export default function SqlDashboardPage() {
       ) : (
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={dashboardCollisionDetection}
+          onDragStart={canEdit ? handleDragStart : undefined}
+          onDragOver={canEdit ? handleDragOver : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragCancel={handleDragCancel}
         >
-          <SortableContext
-            items={visiblePanels.map((p) => p.id)}
-            strategy={rectSortingStrategy}
+          <div
+            className="dashboard-grid-container flex flex-col gap-1"
+            data-dashboard-dragging={activeDragPanel ? "true" : undefined}
           >
-            <div className="dashboard-grid-container flex flex-col gap-4">
-              {panelGroups.map((group) => {
-                const renderPanelCell = (panel: SqlPanel) => {
-                  const resolved = panel.config?.description
-                    ? {
-                        ...panel,
-                        config: {
-                          ...panel.config,
-                          description: interpolate(
-                            panel.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : panel;
-                  const remoteEditor = remoteEditingPanels.get(panel.id);
-                  const span = clampPanelWidth(panel.width, group.columns);
-                  return (
-                    <div
-                      key={panel.id}
-                      className="dashboard-grid-cell relative h-full"
-                      style={
-                        {
-                          "--panel-span": span,
-                          ...(remoteEditor
-                            ? {
-                                outline: `2px solid ${remoteEditor.color}`,
-                                outlineOffset: 2,
-                                borderRadius: 8,
-                              }
-                            : null),
-                        } as React.CSSProperties
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql={interpolate(
-                          serializePanelSql(panel.sql),
+            {panelGroups.map((group) => {
+              const renderSection = (section: SqlPanel) => {
+                const remoteEditor = reportScreenshot
+                  ? undefined
+                  : remoteEditingPanels.get(section.id);
+                const resolved = section.config?.description
+                  ? {
+                      ...section,
+                      config: {
+                        ...section.config,
+                        description: interpolate(
+                          section.config.description,
                           vars,
-                        )}
-                        gridColumns={group.columns}
-                        onRemove={() => removePanel(panel.id)}
-                        onToggleWidth={() =>
-                          toggleWidth(panel.id, group.columns)
-                        }
-                        onEdit={() => openEditPanel(panel)}
-                        onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
-                const renderSection = (section: SqlPanel) => {
-                  const remoteEditor = remoteEditingPanels.get(section.id);
-                  const resolved = section.config?.description
-                    ? {
-                        ...section,
-                        config: {
-                          ...section.config,
-                          description: interpolate(
-                            section.config.description,
-                            vars,
-                          ),
-                        },
-                      }
-                    : section;
-                  return (
-                    <div
-                      className="relative"
-                      style={
-                        remoteEditor
-                          ? {
-                              outline: `2px solid ${remoteEditor.color}`,
-                              outlineOffset: 2,
-                              borderRadius: 8,
-                            }
-                          : undefined
-                      }
-                    >
-                      {remoteEditor && (
-                        <span
-                          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                          style={{
-                            backgroundColor: remoteEditor.color,
-                            color: "#fff",
-                          }}
-                        >
-                          {remoteEditor.name}
-                        </span>
-                      )}
-                      <SqlChartCard
-                        panel={resolved}
-                        resolvedSql=""
-                        onRemove={() => removePanel(section.id)}
-                        onEdit={() => openEditPanel(section)}
-                        editable={canEdit}
-                      />
-                    </div>
-                  );
-                };
-
+                        ),
+                      },
+                    }
+                  : section;
                 return (
-                  <Fragment key={group.key}>
-                    {group.section && renderSection(group.section)}
-                    {group.panels.length > 0 && (
-                      <div
-                        className="dashboard-grid"
-                        style={
-                          {
-                            "--dash-cols": group.columns,
-                          } as React.CSSProperties
-                        }
+                  <div
+                    className="dashboard-section-cell relative"
+                    style={
+                      remoteEditor
+                        ? {
+                            outline: `2px solid ${remoteEditor.color}`,
+                            outlineOffset: 2,
+                            borderRadius: 8,
+                          }
+                        : undefined
+                    }
+                  >
+                    {remoteEditor && (
+                      <span
+                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+                        style={{
+                          backgroundColor: remoteEditor.color,
+                          color: "#fff",
+                        }}
                       >
-                        {group.panels.map(renderPanelCell)}
-                      </div>
+                        {remoteEditor.name}
+                      </span>
                     )}
-                  </Fragment>
+                    <SqlChartCard
+                      panel={resolved}
+                      resolvedSql=""
+                      onRemove={() => removePanel(section.id)}
+                      onEdit={() => openEditPanel(section)}
+                      editable={canEdit}
+                      eagerLoad={reportScreenshot}
+                      isDragSource={activeDragPanelId === section.id}
+                    />
+                  </div>
                 );
-              })}
-            </div>
-          </SortableContext>
+              };
+
+              const renderRowDropLine = (rowIndex: number) => (
+                <DashboardDropLine
+                  key={`row-slot-${group.key}-${rowIndex}`}
+                  slot={{ type: "row", groupKey: group.key, rowIndex }}
+                  activeSlot={activeDropSlot}
+                  disabled={!canEdit}
+                />
+              );
+
+              return (
+                <Fragment key={group.key}>
+                  {group.section && renderSection(group.section)}
+                  {renderRowDropLine(0)}
+                  {group.rows.map((row, rowIndex) => {
+                    return (
+                      <Fragment key={row.key}>
+                        <div
+                          className="dashboard-grid"
+                          style={
+                            {
+                              "--dash-cols": row.panels.length,
+                            } as React.CSSProperties
+                          }
+                        >
+                          <DashboardDropLine
+                            slot={{
+                              type: "column",
+                              groupKey: group.key,
+                              rowIndex,
+                              columnIndex: 0,
+                            }}
+                            activeSlot={activeDropSlot}
+                            disabled={!canEdit}
+                          />
+                          {row.panels.map((panel, columnIndex) => (
+                            <Fragment key={panel.id}>
+                              <PanelCell
+                                panel={panel}
+                                vars={vars}
+                                remoteEditor={
+                                  reportScreenshot
+                                    ? undefined
+                                    : remoteEditingPanels.get(panel.id)
+                                }
+                                editable={canEdit}
+                                eagerLoad={reportScreenshot}
+                                reportScreenshot={reportScreenshot}
+                                isDragSource={activeDragPanelId === panel.id}
+                                selectedForChat={selectedPanelId === panel.id}
+                                selectPanelForChat={selectPanelForChat}
+                                onRemovePanel={removePanel}
+                                onEditPanel={openEditPanel}
+                                onSavePanel={handleSavePanel}
+                                dashboardExtensionContext={{
+                                  dashboardId,
+                                  dashboardName: dashboard.name,
+                                  dashboardDescription:
+                                    dashboard.description ?? null,
+                                  filters: vars,
+                                }}
+                              />
+                              <DashboardDropLine
+                                slot={{
+                                  type: "column",
+                                  groupKey: group.key,
+                                  rowIndex,
+                                  columnIndex: columnIndex + 1,
+                                }}
+                                activeSlot={activeDropSlot}
+                                disabled={!canEdit}
+                              />
+                            </Fragment>
+                          ))}
+                        </div>
+                        {renderRowDropLine(rowIndex + 1)}
+                      </Fragment>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
+          </div>
+          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+            <DashboardDragPreview panel={activeDragPanel} />
+          </DragOverlay>
         </DndContext>
       )}
 
@@ -1328,6 +2124,6 @@ export default function SqlDashboardPage() {
           existingPanelTitles={dashboard.panels.map((p) => p.title)}
         />
       ) : null}
-    </div>
+    </DashboardReportCaptureSurface>
   );
 }

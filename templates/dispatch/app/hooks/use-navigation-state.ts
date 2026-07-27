@@ -1,14 +1,16 @@
-import { useRef } from "react";
 import {
-  appBasePath,
-  appPath,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+  isAgentChatHomeHandoffActive,
+  markAgentChatHomeHandoff,
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
 } from "@agent-native/dispatch/components";
+import { useRef } from "react";
+import { useLocation } from "react-router";
 
 export interface NavigationState {
   view: string;
@@ -18,9 +20,11 @@ export interface NavigationState {
   dreamId?: string;
   sourceId?: string;
   query?: string;
+  operationsView?: "monitoring" | "database";
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
+  const location = useLocation();
   // Capture extensions in a ref so the stable callbacks always read latest.
   const extensionsRef = useRef(extensions);
   extensionsRef.current = extensions;
@@ -45,7 +49,21 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
           : resolvedPath;
       return routerPath(path);
     },
+    onNavigate: (_command, path) => {
+      if (
+        routerPath(location.pathname) === "/chat" &&
+        pathnameFromPath(path) !== "/chat"
+      ) {
+        if (isAgentChatHomeHandoffActive("dispatch")) {
+          markAgentChatHomeHandoff("dispatch");
+        }
+      }
+    },
   });
+}
+
+function pathnameFromPath(path: string): string {
+  return path.split(/[?#]/, 1)[0] || "/";
 }
 
 export function buildDispatchNavigationState(
@@ -75,6 +93,12 @@ export function buildDispatchNavigationState(
     if (dreamId) state.dreamId = dreamId;
     if (sourceId) state.sourceId = sourceId;
     if (query) state.query = query;
+  }
+
+  if (state.view === "operations") {
+    const params = new URLSearchParams(search);
+    state.operationsView =
+      params.get("view") === "database" ? "database" : "monitoring";
   }
 
   return state;
@@ -138,6 +162,7 @@ function resolveView(
   }
   if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
+  if (pathname.startsWith("/operations")) return "operations";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
@@ -151,7 +176,7 @@ function resolveView(
   if (pathname.startsWith("/audit")) return "audit";
   if (pathname.startsWith("/dreams")) return "dreams";
   if (pathname.startsWith("/thread-debug")) return "thread-debug";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "overview";
 }
 
@@ -168,6 +193,11 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "operations":
+    case "monitoring":
+    case "observability":
+    case "database":
+      return view === "database" ? "/operations?view=database" : "/operations";
     case "metrics":
     case "usage":
       return "/metrics";
@@ -201,7 +231,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/team";
+      return "/settings#organization";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

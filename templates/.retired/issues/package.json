@@ -1,8 +1,7 @@
 {
   "name": "issues",
   "private": true,
-  "type": "module",
   "scripts": {
-    "build": "tsx ../../../scripts/build-retired-netlify-site.ts issues"
+    "build": "node ../../../scripts/build-retired-netlify-site.ts issues"
   }
 }

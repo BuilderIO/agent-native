@@ -5,12 +5,15 @@ import {
   ownableColumns,
   createSharesTable,
 } from "@agent-native/core/db/schema";
+
 import {
   PLAN_AUTHORS,
   PLAN_COMMENT_KINDS,
   PLAN_COMMENT_RESOLUTION_TARGETS,
   PLAN_COMMENT_STATUSES,
   PLAN_KINDS,
+  PLAN_REPORT_REASONS,
+  PLAN_REPORT_STATUSES,
   PLAN_SECTION_TYPES,
   PLAN_SOURCES,
   PLAN_STATUSES,
@@ -49,6 +52,21 @@ export const plans = table("plans", {
   // URL of the source PR, issue, or page that triggered this recap (e.g. the
   // GitHub PR URL). Nullable — only populated when the caller supplies it.
   sourceUrl: text("source_url"),
+  // Structured source metadata for recap/product-knowledge search. Nullable so
+  // older imported recaps and non-PR recaps keep working unchanged.
+  sourceType: text("source_type"),
+  sourceRepo: text("source_repo"),
+  sourcePrNumber: integer("source_pr_number"),
+  sourcePrState: text("source_pr_state"),
+  sourcePrMergedAt: text("source_pr_merged_at"),
+  sourceAuthorEmail: text("source_author_email"),
+  sourceAuthorName: text("source_author_name"),
+  sourceAuthorLogin: text("source_author_login"),
+  // Stable key used by PR Visual Recap publish retries to replace the recap
+  // created by an earlier attempt instead of creating duplicate recap rows.
+  recapIdempotencyKey: text("recap_idempotency_key"),
+  deletedAt: text("deleted_at"),
+  deletedBy: text("deleted_by"),
   ...ownableColumns(),
 });
 
@@ -94,6 +112,8 @@ export const planComments = table("plan_comments", {
   resolvedBy: text("resolved_by"),
   resolvedAt: text("resolved_at"),
   consumedAt: text("consumed_at"),
+  deletedAt: text("deleted_at"),
+  deletedBy: text("deleted_by"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
@@ -112,6 +132,24 @@ export const planEvents = table("plan_events", {
   createdAt: text("created_at").notNull(),
 });
 
+export const planReports = table("plan_reports", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id")
+    .notNull()
+    .references(() => plans.id),
+  reason: text("reason", { enum: PLAN_REPORT_REASONS }).notNull(),
+  details: text("details"),
+  status: text("status", { enum: PLAN_REPORT_STATUSES })
+    .notNull()
+    .default("open"),
+  reporterEmail: text("reporter_email"),
+  reporterName: text("reporter_name"),
+  pageUrl: text("page_url"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
 export const planVersions = table("plan_versions", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
@@ -125,6 +163,18 @@ export const planVersions = table("plan_versions", {
     .notNull()
     .default("agent"),
   createdAt: text("created_at").notNull(),
+  // Denormalized copies of summarizePlanVersion's derived fields, populated at
+  // snapshot-write time so list-plan-versions can project just these small
+  // columns instead of fetching + JSON.parsing every row's full snapshot_json
+  // blob. Nullable so pre-existing rows (written before this column existed)
+  // fall back to parsing snapshot_json lazily — see summarizePlanVersionRow.
+  status: text("summary_status", { enum: PLAN_STATUSES }),
+  source: text("summary_source", { enum: PLAN_SOURCES }),
+  blockCount: integer("block_count"),
+  sectionCount: integer("section_count"),
+  hasCanvas: integer("has_canvas", { mode: "boolean" }),
+  hasPrototype: integer("has_prototype", { mode: "boolean" }),
+  previewText: text("preview_text"),
 });
 
 export const planShares = createSharesTable("plan_shares");

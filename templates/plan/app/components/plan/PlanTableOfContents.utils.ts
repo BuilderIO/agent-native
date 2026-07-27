@@ -22,24 +22,139 @@ type RectLike = {
   getBoundingClientRect: () => { top: number };
 };
 
+function escapeAttributeValue(value: string) {
+  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function findBlockElement(root: HTMLElement, blockId: string) {
+  return root.querySelector<HTMLElement>(
+    `[data-block-id="${escapeAttributeValue(blockId)}"]`,
+  );
+}
+
+function isDocumentHeading(element: Element): element is HTMLElement {
+  return element.matches("h1, h2, h3");
+}
+
+function directDocumentHeadings(root: ParentNode): HTMLElement[] {
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      ".an-rich-md-prose > h1, .an-rich-md-prose > h2, .an-rich-md-prose > h3",
+    ),
+  ).filter((heading) => !heading.closest(".plan-block-node"));
+}
+
+function findReadonlyHeadingElement(
+  root: HTMLElement,
+  item: PlanHeadingTocItem,
+) {
+  const idTarget = root.querySelector<HTMLElement>(
+    `[id="${escapeAttributeValue(item.id)}"]`,
+  );
+  if (
+    idTarget &&
+    isDocumentHeading(idTarget) &&
+    !idTarget.closest(".plan-block-node")
+  ) {
+    return idTarget;
+  }
+
+  const block = findBlockElement(root, item.blockId);
+  if (!block) return null;
+  return directDocumentHeadings(block)[item.headingIndex] ?? null;
+}
+
+function findMainEditorProse(root: HTMLElement): HTMLElement | null {
+  const editor = root.querySelector<HTMLElement>(".plan-document-editor");
+  if (!editor) return null;
+  // Tiptap wraps the ProseMirror root in a div, so `.an-rich-md-prose` isn't a
+  // direct child — match at any depth. First in document order is the top-level
+  // prose (nested-block editors live deeper inside it).
+  return editor.querySelector<HTMLElement>(".an-rich-md-prose");
+}
+
+function findEditableHeadingElement(
+  root: HTMLElement,
+  item: PlanHeadingTocItem,
+) {
+  const prose = findMainEditorProse(root);
+  if (!prose) return null;
+
+  let currentRunId = "";
+  let headingIndex = 0;
+  for (const child of Array.from(prose.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (child.hasAttribute("data-plan-block")) {
+      currentRunId = "";
+      continue;
+    }
+
+    const runId = child.getAttribute("data-run-id");
+    if (runId && runId !== currentRunId) {
+      currentRunId = runId;
+      headingIndex = 0;
+    }
+
+    if (currentRunId !== item.blockId || !isDocumentHeading(child)) continue;
+    if (headingIndex === item.headingIndex) return child;
+    headingIndex += 1;
+  }
+
+  return null;
+}
+
+function findHeadingElement(root: HTMLElement, item: PlanHeadingTocItem) {
+  return (
+    findReadonlyHeadingElement(root, item) ??
+    findEditableHeadingElement(root, item)
+  );
+}
+
+export function resolvePlanTocElements(
+  root: HTMLElement,
+  items: PlanTocItem[],
+) {
+  // Map each TOC item to its rendered element WITHOUT mutating the DOM. Heading
+  // items resolve by their source block instead of a global heading counter, so
+  // markdown headings rendered inside callouts, custom blocks, or transient
+  // editor fallbacks cannot shift later TOC links onto the wrong element.
+  const map = new Map<string, HTMLElement>();
+
+  for (const item of items) {
+    const target =
+      item.kind === "block"
+        ? findBlockElement(root, item.blockId)
+        : findHeadingElement(root, item);
+    if (target) map.set(item.id, target);
+  }
+
+  return map;
+}
+
 export function getActivePlanTocId(
   ids: string[],
   getElementById: (id: string) => RectLike | null,
   offset = 180,
   scrollRoot: RectLike | null = null,
 ) {
-  let active = ids[0] ?? "";
+  const fallback = ids[0] ?? "";
+  let active = fallback;
+  let activeTop = Number.NEGATIVE_INFINITY;
+  let activeIndex = -1;
   const rootTop = scrollRoot?.getBoundingClientRect().top ?? 0;
-  for (const id of ids) {
+  ids.forEach((id, index) => {
     const el = getElementById(id);
-    if (!el) continue;
+    if (!el) return;
     const top = el.getBoundingClientRect().top - rootTop;
     if (top <= offset) {
-      active = id;
-    } else {
-      break;
+      if (top > activeTop || (top === activeTop && index > activeIndex)) {
+        active = id;
+        activeTop = top;
+        activeIndex = index;
+      }
     }
-  }
+  });
   return active;
 }
 
@@ -70,10 +185,7 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
     const synthetic: PlanTocItem[] = [];
     const usedBlockIds = new Set(items.map((item) => item.blockId));
 
-    // Semantic label map: block type → TOC label. Only the FIRST occurrence of
-    // each type is synthesized (second file-tree, second data-model, etc. get no
-    // separate entry — they're assumed to be the same semantic category).
-    const seenSynthTypes = new Set<string>();
+    // Semantic label map: block type → TOC label.
     const SYNTH_LABELS: Partial<Record<PlanBlock["type"], string>> = {
       "file-tree": "Files changed",
       "data-model": "Schema",
@@ -83,16 +195,21 @@ export function collectPlanTocItems(blocks: PlanBlock[]): PlanTocItem[] {
       "question-form": "Open questions",
     };
 
+    // Skip any label already used — seeded with real heading/title labels so a
+    // synthetic entry never duplicates a section the document already names
+    // (e.g. a "## Key changes" heading next to a diff block), then growing as
+    // synthetics are added so each label appears at most once.
+    const usedLabels = new Set(
+      items.map((item) => item.label.trim().toLowerCase()),
+    );
+
     for (const block of blocks) {
       if (usedBlockIds.has(block.id)) continue;
       if (block.type === "tabs" || block.type === "columns") continue;
       const label = SYNTH_LABELS[block.type];
       if (!label) continue;
-      // De-duplicate: file-tree+file-tree both map to "Files changed", so only
-      // emit the first. But api-endpoint and diff both can synthesize (different
-      // labels), so key by label not type.
-      if (seenSynthTypes.has(label)) continue;
-      seenSynthTypes.add(label);
+      if (usedLabels.has(label.toLowerCase())) continue;
+      usedLabels.add(label.toLowerCase());
       synthetic.push({
         id: tocIdForBlock(block.id),
         blockId: block.id,

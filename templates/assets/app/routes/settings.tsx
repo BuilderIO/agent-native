@@ -1,15 +1,22 @@
-import {
-  agentNativePath,
-  useActionQuery,
-  useBuilderConnectFlow,
-  useBuilderStatus,
-} from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   useOnboarding,
   type OnboardingMethod,
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
-import { useQueryClient } from "@tanstack/react-query";
+import { TeamPage } from "@agent-native/core/client/org";
+import {
+  AccountSettingsCard,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  type SettingsSearchEntry,
+} from "@agent-native/core/client/settings";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -21,6 +28,7 @@ import {
   IconLoader2,
   IconPhoto,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useMemo,
@@ -28,6 +36,8 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+
+import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -46,8 +56,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { PageShell } from "@/components/layout/PageShell";
 import { cn } from "@/lib/utils";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 type ImageGenerationConfig = {
   builderEnabled?: boolean;
@@ -65,33 +76,95 @@ type ImageGenerationConfig = {
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
+  const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "assets-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "assets-generation-setup",
+        label: t("settings.setupTitle"),
+        keywords:
+          "builder generation storage object storage api key gemini openai brand kit setup connect",
+        hash: "asset-generation-setup",
+      },
+    ],
+    [t],
+  );
+
   return (
     <PageShell
-      title="Settings"
-      description="Asset generation, storage, and brand kit access."
-      className="max-w-4xl space-y-6"
+      title={t("settings.title")}
+      description={t("settings.description")}
+      className="max-w-5xl"
     >
-      <div className="max-w-2xl">
-        <h2 className="text-lg font-semibold tracking-tight">Connections</h2>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          Keep Assets ready to generate, save, and share brand-safe media.
-          Builder is the simplest path; manual keys stay available when you need
-          them.
-        </p>
-      </div>
+      <SettingsTabsPage
+        account={<AccountSettingsCard />}
+        teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
+        general={
+          <div className="mx-auto w-full max-w-2xl space-y-6">
+            <CreativeContextSettingsLink />
 
-      <section id="asset-generation-setup" className="scroll-mt-4">
-        <AssetsSetupCard libraryCount={data?.count ?? 0} />
-      </section>
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">
+                {t("settings.connections")}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {t("settings.connectionsDescription")}
+              </p>
+            </div>
+
+            <Card id="language" className="scroll-mt-4">
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.languageTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.languageDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="max-w-xs space-y-1.5">
+                <Label>{t("settings.languageLabel")}</Label>
+                <LanguagePicker label={t("settings.languageLabel")} />
+              </CardContent>
+            </Card>
+
+            <section id="asset-generation-setup" className="scroll-mt-4">
+              <AssetsSetupCard libraryCount={data?.count ?? 0} />
+            </section>
+          </div>
+        }
+        team={
+          <div className="mx-auto w-full max-w-3xl">
+            <TeamPage
+              showTitle={false}
+              createOrgDescription={t("team.createOrgDescription")}
+            />
+          </div>
+        }
+        whatsNew={
+          <div className="mx-auto w-full max-w-2xl">
+            <ChangelogSettingsCard markdown={changelog} />
+          </div>
+        }
+      />
     </PageShell>
   );
 }
 
 function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const onboarding = useOnboarding();
   const { status } = useBuilderStatus();
@@ -154,14 +227,16 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
       <CardHeader className="border-b border-border/70 p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <CardTitle className="text-base">Assets setup</CardTitle>
+            <CardTitle className="text-base">
+              {t("settings.setupTitle")}
+            </CardTitle>
             <CardDescription className="mt-1 leading-6">
-              Two essentials: generation and durable storage.
+              {t("settings.setupDescription")}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">{readyCount}/2</span>
-            ready
+            {t("settings.setupReady")}
           </div>
         </div>
       </CardHeader>
@@ -174,14 +249,16 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
             builderConnected
               ? orgName
                 ? `Connected to ${orgName}.`
-                : "Connected for managed generation."
+                : t("settings.builderDescriptionReady")
               : builderEnabled
-                ? "Managed image generation and storage, no provider keys."
-                : "Disabled for this deployment."
+                ? t("settings.builderDescriptionManaged")
+                : t("settings.builderDescriptionDisabled")
           }
           status={
             <StatusPill tone={builderConnected ? "ready" : "neutral"}>
-              {builderConnected ? "Connected" : "Optional"}
+              {builderConnected
+                ? t("settings.connected")
+                : t("settings.optional")}
             </StatusPill>
           }
           action={
@@ -197,16 +274,16 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 {flow.connecting ? (
                   <>
                     <IconLoader2 className="size-3.5 animate-spin" />
-                    Connecting
+                    {t("settings.connecting")}
                   </>
                 ) : builderConnected ? (
                   <>
-                    Reconnect
+                    {t("settings.reconnect")}
                     <IconExternalLink className="size-3.5" />
                   </>
                 ) : (
                   <>
-                    Connect
+                    {t("settings.connect")}
                     <IconExternalLink className="size-3.5" />
                   </>
                 )}
@@ -219,11 +296,13 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
 
         <SettingsRow
           icon={<IconPhoto className="size-4" />}
-          title="Generation"
-          description={generationSummary(configData, builderConnected)}
+          title={t("settings.generation")}
+          description={generationSummary(configData, builderConnected, t)}
           status={
             <StatusPill tone={generationReady ? "ready" : "attention"}>
-              {generationReady ? "Ready" : "Needs setup"}
+              {generationReady
+                ? t("settings.generationReady")
+                : t("settings.generationNeedsSetup")}
             </StatusPill>
           }
           action={
@@ -232,7 +311,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 open={manualGenerationOpen}
                 onClick={() => setManualGenerationOpen((open) => !open)}
               >
-                Manual keys
+                {t("settings.manualKeys")}
               </DisclosureButton>
             ) : null
           }
@@ -240,23 +319,25 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         {manualGenerationOpen && generationStep ? (
           <ManualMethodPanel
             step={generationStep}
-            title="Manual generation keys"
-            description="Add Gemini for video generation, or OpenAI/Gemini as image fallbacks."
+            title={t("settings.manualGenerationKeys")}
+            description={t("settings.manualGenerationDescription")}
             onSaved={refreshSetup}
           />
         ) : null}
 
         <SettingsRow
           icon={<IconCloudUpload className="size-4" />}
-          title="Storage"
+          title={t("settings.storage")}
           description={
             storageReady
-              ? "Originals, thumbnails, videos, and exports have a durable home."
-              : "Add S3-compatible storage for production assets and exports."
+              ? t("settings.storageReady")
+              : t("settings.storageNeedsSetup")
           }
           status={
             <StatusPill tone={storageReady ? "ready" : "attention"}>
-              {storageReady ? "Ready" : "Needs setup"}
+              {storageReady
+                ? t("settings.generationReady")
+                : t("settings.generationNeedsSetup")}
             </StatusPill>
           }
           action={
@@ -265,7 +346,7 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
                 open={manualStorageOpen}
                 onClick={() => setManualStorageOpen((open) => !open)}
               >
-                Configure
+                {t("settings.configure")}
               </DisclosureButton>
             ) : null
           }
@@ -273,19 +354,21 @@ function AssetsSetupCard({ libraryCount }: { libraryCount: number }) {
         {manualStorageOpen && storageStep ? (
           <ManualMethodPanel
             step={storageStep}
-            title="Object storage"
-            description="Use S3, R2, Spaces, Tigris, MinIO, or another compatible provider."
+            title={t("settings.objectStorage")}
+            description={t("settings.objectStorageDescription")}
             onSaved={refreshSetup}
           />
         ) : null}
 
         <SettingsRow
           icon={<IconLibraryPhoto className="size-4" />}
-          title="Brand Kits"
+          title={t("settings.brandKits")}
           description={`${libraryCount} accessible ${
             libraryCount === 1 ? "brand kit" : "brand kits"
           }.`}
-          status={<StatusPill tone="neutral">Available</StatusPill>}
+          status={
+            <StatusPill tone="neutral">{t("settings.available")}</StatusPill>
+          }
         />
       </CardContent>
     </Card>
@@ -321,7 +404,7 @@ function SettingsRow({
           </p>
         </div>
       </div>
-      {action ? <div className="shrink-0 sm:ml-4">{action}</div> : null}
+      {action ? <div className="shrink-0 sm:ms-4">{action}</div> : null}
     </div>
   );
 }
@@ -387,6 +470,7 @@ function ManualMethodPanel({
   description: string;
   onSaved: () => Promise<void>;
 }) {
+  const t = useT();
   const methods = useMemo(() => step.methods.filter(isFormMethod), [step]);
   const [selectedId, setSelectedId] = useState(methods[0]?.id ?? "");
 
@@ -410,10 +494,12 @@ function ManualMethodPanel({
 
         {methods.length > 1 ? (
           <div className="max-w-xs">
-            <Label className="text-xs text-muted-foreground">Provider</Label>
+            <Label className="text-xs text-muted-foreground">
+              {t("settings.provider")}
+            </Label>
             <Select value={selectedId} onValueChange={setSelectedId}>
               <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Choose a provider" />
+                <SelectValue placeholder={t("settings.chooseProvider")} />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
@@ -432,7 +518,7 @@ function ManualMethodPanel({
           <CredentialForm method={selected} onSaved={onSaved} />
         ) : (
           <p className="text-sm text-muted-foreground">
-            No manual setup options are available for this item.
+            {t("settings.noManualOptions")}
           </p>
         )}
       </div>
@@ -447,12 +533,14 @@ function CredentialForm({
   method: FormOnboardingMethod;
   onSaved: () => Promise<void>;
 }) {
+  const t = useT();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fields = method.payload.fields;
-  const submitLabel = fields.length > 1 ? "Save settings" : "Save key";
+  const submitLabel =
+    fields.length > 1 ? t("settings.saveSettings") : t("settings.saveKey");
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -467,7 +555,7 @@ function CredentialForm({
         .filter((item) => item.value !== "");
 
       if (!vars.length) {
-        setError("Enter a value first.");
+        setError(t("settings.enterValueFirst"));
         return;
       }
 
@@ -484,13 +572,13 @@ function CredentialForm({
         const data = (await response.json().catch(() => ({}))) as {
           error?: string;
         };
-        throw new Error(data.error ?? `Save failed: ${response.status}`);
+        throw new Error(`${t("settings.saveFailed")}: ${response.status}`);
       }
 
       setValues({});
       await onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : t("settings.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -545,7 +633,7 @@ function CredentialForm({
         {saving ? (
           <>
             <IconLoader2 className="size-3.5 animate-spin" />
-            Saving
+            {t("settings.saving")}
           </>
         ) : (
           submitLabel
@@ -578,15 +666,20 @@ function isFormMethod(
 function generationSummary(
   config: ImageGenerationConfig | undefined,
   builderConnected: boolean,
+  t: (key: string, options?: Record<string, unknown>) => string,
 ) {
-  if (builderConnected) return "Builder is handling managed image generation.";
+  if (builderConnected) return t("settings.builderManaged");
   const providers = [
     config?.geminiConfigured ? "Gemini" : null,
     config?.openaiConfigured ? "OpenAI" : null,
   ].filter(Boolean);
-  if (providers.length) return `${providers.join(" and ")} configured.`;
-  if (config?.builderEnabled === false) {
-    return "Add Gemini or OpenAI before generating new assets.";
+  if (providers.length) {
+    return t("settings.providerConfigured", {
+      providers: providers.join(" and "),
+    });
   }
-  return "Add Builder, Gemini, or OpenAI before generating new assets.";
+  if (config?.builderEnabled === false) {
+    return t("settings.addGeminiOrOpenAI");
+  }
+  return t("settings.addBuilderGeminiOrOpenAI");
 }

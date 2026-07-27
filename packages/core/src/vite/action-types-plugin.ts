@@ -1,3 +1,4 @@
+import fs from "fs";
 /**
  * Vite plugin that generates end-to-end type-safe action types AND a runtime
  * registry of static imports so bundlers (Nitro on Netlify/Vercel/AWS-Lambda,
@@ -15,7 +16,7 @@
  *     bundled serverless function and every action route 404s.
  */
 import path from "path";
-import fs from "fs";
+
 import type { Plugin } from "vite";
 
 /** Files to skip during discovery (matches action-discovery.ts). */
@@ -37,6 +38,18 @@ const SKIP_FILES = new Set([
  * their own `actions/` directory — the merge below is skip-existing.
  */
 const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
+  {
+    name: "get-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/get-feature-flags",
+  },
+  {
+    name: "list-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/list-feature-flags",
+  },
+  {
+    name: "set-feature-flag",
+    specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
+  },
   {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
@@ -78,6 +91,72 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "context-report",
     specifier: "@agent-native/core/agent/context-xray/actions/context-report",
   },
+  {
+    name: "get-localization-preference",
+    specifier:
+      "@agent-native/core/localization/actions/get-localization-preference",
+  },
+  {
+    name: "set-localization-preference",
+    specifier:
+      "@agent-native/core/localization/actions/set-localization-preference",
+  },
+  {
+    name: "create-resource-version",
+    specifier: "@agent-native/core/history/actions/create-resource-version",
+  },
+  {
+    name: "list-resource-versions",
+    specifier: "@agent-native/core/history/actions/list-resource-versions",
+  },
+  {
+    name: "get-resource-version",
+    specifier: "@agent-native/core/history/actions/get-resource-version",
+  },
+  {
+    name: "restore-resource-version",
+    specifier: "@agent-native/core/history/actions/restore-resource-version",
+  },
+  {
+    name: "list-resource-history",
+    specifier: "@agent-native/core/history/actions/list-resource-history",
+  },
+  {
+    name: "list-review-comments",
+    specifier: "@agent-native/core/review/actions/list-review-comments",
+  },
+  {
+    name: "create-review-comment",
+    specifier: "@agent-native/core/review/actions/create-review-comment",
+  },
+  {
+    name: "reply-review-comment",
+    specifier: "@agent-native/core/review/actions/reply-review-comment",
+  },
+  {
+    name: "resolve-review-thread",
+    specifier: "@agent-native/core/review/actions/resolve-review-thread",
+  },
+  {
+    name: "delete-review-comment",
+    specifier: "@agent-native/core/review/actions/delete-review-comment",
+  },
+  {
+    name: "consume-review-feedback",
+    specifier: "@agent-native/core/review/actions/consume-review-feedback",
+  },
+  {
+    name: "get-review-feedback",
+    specifier: "@agent-native/core/review/actions/get-review-feedback",
+  },
+  {
+    name: "set-review-status",
+    specifier: "@agent-native/core/review/actions/set-review-status",
+  },
+  {
+    name: "send-review-thread-to-agent",
+    specifier: "@agent-native/core/review/actions/send-review-thread-to-agent",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {
@@ -108,7 +187,15 @@ function scanActionFiles(actionsDir: string): string[] {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
-      if (!content.includes("defineAction") && !reexportsDefaultAction) {
+      const exportsActionFactory =
+        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+          content,
+        );
+      if (
+        !content.includes("defineAction") &&
+        !reexportsDefaultAction &&
+        !exportsActionFactory
+      ) {
         return false;
       }
     } catch {
@@ -269,10 +356,18 @@ type ActionEntry<T> = T extends { default: { run: (...args: infer A) => infer R 
     }
   : { result: any; params: Record<string, any> };
 
-declare module "@agent-native/core/client" {
-  interface ActionRegistry {
+declare global {
+  interface AgentNativeActionRegistry {
 ${typeEntries.join("\n")}
   }
+}
+
+declare module "@agent-native/core/client" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
+}
+
+declare module "@agent-native/core/client/hooks" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 
 export {};

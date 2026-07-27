@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { getDb, schema } from "../server/db/index.js";
-import { assertAccess } from "@agent-native/core/sharing";
 import { seedFromText } from "@agent-native/core/collab";
+import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 export default defineAction({
   description:
@@ -33,21 +35,46 @@ export default defineAction({
     await assertAccess("design", designId, "editor");
 
     const db = getDb();
+
+    // Guard against duplicate (designId, filename) — edit-design uses .limit(1)
+    // which is non-deterministic when multiple rows match the same key.
+    const [existing] = await db
+      .select({ id: schema.designFiles.id })
+      .from(schema.designFiles)
+      .where(
+        and(
+          eq(schema.designFiles.designId, designId),
+          eq(schema.designFiles.filename, filename),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      throw new Error(
+        `File "${filename}" already exists in design ${designId} — use edit-design to modify it`,
+      );
+    }
+
     const id = nanoid();
     const now = new Date().toISOString();
+
+    // Stamp missing data-agent-native-node-id attributes before persisting so
+    // the new screen is fully addressable by id-keyed editor operations from
+    // the moment it's created, instead of depending on a client-side backfill
+    // the first time someone opens it.
+    const annotatedContent = annotateScreenHtmlForPersist(content, fileType);
 
     await db.insert(schema.designFiles).values({
       id,
       designId,
       filename,
       fileType: fileType ?? "html",
-      content,
+      content: annotatedContent,
       createdAt: now,
       updatedAt: now,
     });
 
     // Seed collab state for the new file
-    await seedFromText(id, content);
+    await seedFromText(id, annotatedContent);
 
     // Update the design's updatedAt timestamp
     await db

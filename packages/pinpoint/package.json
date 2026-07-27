@@ -1,22 +1,30 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.8",
-  "type": "module",
+  "version": "0.1.16",
   "description": "Visual feedback and annotation tool for agent-native web applications",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/pinpoint"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
+  "bin": {
+    "pinpoint": "./dist/cli.js"
   },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist",
+    "src/scripts",
+    ".agents"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "dist/cli.js",
+    "dist/index.browser.js"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -40,14 +48,10 @@
       "import": "./dist/types/index.js"
     }
   },
-  "bin": {
-    "pinpoint": "./dist/cli.js"
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
-  "files": [
-    "dist",
-    "src/scripts",
-    ".agents"
-  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -61,15 +65,6 @@
     "solid-js": "^1.9.10",
     "zod": "^4.3.6"
   },
-  "peerDependencies": {
-    "@agent-native/core": ">=0.8.0",
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -80,8 +75,18 @@
     "esbuild-plugin-solid": "^0.6.0",
     "express": "^5.1.0",
     "tsup": "^8.4.0",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.5"
+  },
+  "peerDependencies": {
+    "@agent-native/core": ">=0.8.0",
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

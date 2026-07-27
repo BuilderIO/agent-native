@@ -2,7 +2,7 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
-const TRAFFIC_DASHBOARD_PATH = "/adhoc/agent-native-templates-first-party";
+const TRAFFIC_DASHBOARD_PATH = "/dashboards/agent-native-templates-first-party";
 const TRAFFIC_DASHBOARD_ID = "agent-native-templates-first-party";
 
 function trafficDashboardDeepLink(): string {

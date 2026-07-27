@@ -2,10 +2,16 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
-import { assertValidFields } from "../server/lib/validate-fields.js";
+import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
+import {
+  assertValidFields,
+  normalizeFieldIds,
+} from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
+import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 function slugify(text: string): string {
   return text
@@ -16,7 +22,8 @@ function slugify(text: string): string {
 }
 
 export default defineAction({
-  description: "Update an existing form.",
+  description:
+    "Update an existing form, including settings.emailOnNewResponses to email the form owner when new responses arrive.",
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),
@@ -32,7 +39,9 @@ export default defineAction({
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
-      .describe("Form settings object (or JSON string of the same)"),
+      .describe(
+        "Form settings object (or JSON string of the same). Set emailOnNewResponses=true to email the form owner for each new response.",
+      ),
     status: z
       .enum(["draft", "published", "closed"])
       .optional()
@@ -75,26 +84,34 @@ export default defineAction({
       } else {
         parsedFields = args.fields;
       }
+      parsedFields = normalizeFieldIds(parsedFields);
       assertValidFields(parsedFields);
       updates.fields = JSON.stringify(parsedFields);
     }
     if (args.settings !== undefined) {
-      let parsedSettings: FormSettings;
+      let incomingSettings: FormSettings;
       if (typeof args.settings === "string") {
         try {
-          parsedSettings = JSON.parse(args.settings) as FormSettings;
-          updates.settings = args.settings;
+          incomingSettings = JSON.parse(args.settings) as FormSettings;
         } catch {
           throw new Error("--settings must be valid JSON");
         }
       } else {
-        parsedSettings = args.settings as unknown as FormSettings;
-        updates.settings = JSON.stringify(args.settings);
+        incomingSettings = args.settings as unknown as FormSettings;
       }
+      let existingSettings: FormSettings = {};
+      try {
+        existingSettings = JSON.parse(existing.settings) as FormSettings;
+      } catch {
+        // Keep malformed legacy settings recoverable by replacing them with
+        // the valid settings supplied by this update.
+      }
+      const parsedSettings = { ...existingSettings, ...incomingSettings };
       // Reject blocked integration URLs at save time (private IPs,
       // cloud-metadata, non-http(s) schemes). fireIntegrations also
       // re-checks at runtime as defense-in-depth.
       assertIntegrationUrlsAllowed(parsedSettings);
+      updates.settings = JSON.stringify(parsedSettings);
     }
     if (args.status !== undefined) updates.status = args.status;
 
@@ -117,42 +134,7 @@ export default defineAction({
         effectiveFields = [];
       }
 
-      const issues: string[] = [];
-      if (effectiveFields.length === 0) {
-        issues.push("form has no fields");
-      }
-      const optionTypes = new Set(["select", "multiselect", "radio"]);
-      for (const [idx, field] of effectiveFields.entries()) {
-        const label = String(field?.label ?? "").trim();
-        if (!label) {
-          issues.push(`field #${idx + 1} is missing a label`);
-        }
-        if (
-          optionTypes.has(field?.type) &&
-          (!Array.isArray(field?.options) || field.options.length === 0)
-        ) {
-          issues.push(`field "${label || `#${idx + 1}`}" has no options`);
-        }
-        // For required Number/Scale fields, conflicting min/max would
-        // render the field unsubmittable — block publish on that too.
-        if (
-          field?.required &&
-          (field?.type === "number" || field?.type === "scale") &&
-          field?.validation?.min !== undefined &&
-          field?.validation?.max !== undefined &&
-          Number(field.validation.min) > Number(field.validation.max)
-        ) {
-          issues.push(
-            `required field "${label || `#${idx + 1}`}" has min > max`,
-          );
-        }
-      }
-
-      if (issues.length > 0) {
-        throw new Error(
-          `Cannot publish: ${issues.join("; ")}. Fix these before publishing.`,
-        );
-      }
+      assertPublishableForm(effectiveFields);
     }
 
     await db
@@ -165,6 +147,8 @@ export default defineAction({
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
       .limit(1);
+
+    invalidatePublicFormCache(existing, row);
 
     return {
       id: row!.id,

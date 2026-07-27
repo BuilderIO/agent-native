@@ -13,14 +13,17 @@ import {
   type CodeAgentTranscriptEventKind,
 } from "../cli/code-agent-runs.js";
 
-export type BackgroundAgentRunKind = "code" | "agent-team";
+export type BackgroundAgentRunKind = "code" | "agent-team" | "harness";
 
-export type BackgroundAgentRunSource = "local-code" | "hosted-agent-team";
+export type BackgroundAgentRunSource =
+  | "local-code"
+  | "hosted-agent-team"
+  | "agent-harness";
 
 export type BackgroundAgentRunStatus = CodeAgentRunStatus;
 
 export interface BackgroundAgentRunSourceRecord {
-  type: "code-agent-run" | "agent-team-task";
+  type: "code-agent-run" | "agent-team-task" | "agent-harness-session";
   id: string;
   threadId?: string;
   parentThreadId?: string;
@@ -60,7 +63,10 @@ export interface BackgroundAgentTranscriptEvent {
   kind: CodeAgentTranscriptEventKind;
   source: BackgroundAgentRunSource;
   sourceRecord: {
-    type: "code-agent-transcript-event" | "agent-team-run-event";
+    type:
+      | "code-agent-transcript-event"
+      | "agent-team-run-event"
+      | "agent-harness-run-event";
     id: string;
     seq?: number;
   };
@@ -71,6 +77,8 @@ export interface BackgroundAgentTranscriptEvent {
 
 export interface ListBackgroundAgentRunsOptions {
   goalId?: string;
+  ownerEmail?: string | null;
+  orgId?: string | null;
 }
 
 export function toBackgroundAgentRun(

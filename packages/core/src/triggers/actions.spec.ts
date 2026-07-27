@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { createAutomationToolEntries } from "./actions.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
@@ -160,6 +161,52 @@ Record the QA signal.`,
     await tool().run({ action: "delete", name: "qa-alert" });
 
     expect(resourceDeleteMock).toHaveBeenCalledWith("resource-1");
+  });
+
+  it("rejects define with mode: deterministic and persists nothing", async () => {
+    const result = await tool().run({
+      action: "define",
+      name: "qa-deterministic",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+      mode: "deterministic",
+    });
+
+    expect(result).toContain("Deterministic mode was removed");
+    expect(resourcePutMock).not.toHaveBeenCalled();
+    expect(refreshEventSubscriptionsMock).not.toHaveBeenCalled();
+  });
+
+  it("persists mode: agentic when mode is explicit or omitted", async () => {
+    await tool().run({
+      action: "define",
+      name: "qa-explicit-agentic",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+      mode: "agentic",
+    });
+
+    expect(resourcePutMock).toHaveBeenCalledWith(
+      owner,
+      "jobs/qa-explicit-agentic.md",
+      expect.stringContaining("mode: agentic"),
+    );
+
+    await tool().run({
+      action: "define",
+      name: "qa-omitted-mode",
+      trigger_type: "event",
+      event: "test.event.fired",
+      body: "Record the QA signal.",
+    });
+
+    expect(resourcePutMock).toHaveBeenLastCalledWith(
+      owner,
+      "jobs/qa-omitted-mode.md",
+      expect.stringContaining("mode: agentic"),
+    );
   });
 
   it("scopes fire-test events to the current user", async () => {

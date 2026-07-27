@@ -1,14 +1,16 @@
+import { useT } from "@agent-native/core/client/i18n";
+import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
-import { cn, shortcutLabel } from "@/lib/utils";
+
+import { msToClock } from "@/components/player/scrubber";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
-import { msToClock } from "@/components/player/scrubber";
+import { cn, shortcutLabel } from "@/lib/utils";
 
 function highlight(
   text: string,
@@ -41,24 +43,26 @@ function highlight(
 
 interface SearchBarProps {
   className?: string;
+  side?: "top" | "right" | "bottom" | "left";
 }
 
-function matchLabel(hit: SearchHit): string {
+function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
   switch (hit.matchType) {
     case "title-transcript":
-      return "Title + transcript";
+      return t("searchBar.titleTranscript");
     case "title-comment":
-      return "Title + comment";
+      return t("searchBar.titleComment");
     case "transcript":
-      return "Transcript";
+      return t("searchBar.transcript");
     case "comment":
-      return "Comment";
+      return t("searchBar.comment");
     default:
-      return "Title or description";
+      return t("searchBar.titleOrDescription");
   }
 }
 
-export function SearchBar({ className }: SearchBarProps) {
+export function SearchBar({ className, side = "right" }: SearchBarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -118,7 +122,7 @@ export function SearchBar({ className }: SearchBarProps) {
       <div className={cn("relative w-full", className)}>
         <PopoverTrigger asChild>
           <div className="relative">
-            <IconSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <IconSearch className="absolute start-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <input
               ref={inputRef}
               value={query}
@@ -127,22 +131,22 @@ export function SearchBar({ className }: SearchBarProps) {
                 setOpen(true);
               }}
               onFocus={() => setOpen(true)}
-              placeholder="Search recordings…"
-              className="w-full h-8 rounded-md border border-border bg-background pl-8 pr-12 text-xs outline-none focus:ring-2 focus:ring-primary/30"
+              placeholder={t("searchBar.placeholder")}
+              className="w-full h-8 rounded-md border border-border bg-background ps-8 pe-12 text-xs outline-none focus:ring-2 focus:ring-primary/30"
             />
             {query ? (
               <button
-                aria-label="Clear search"
+                aria-label={t("searchBar.clear")}
                 onClick={() => {
                   setQuery("");
                   inputRef.current?.focus();
                 }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
+                className="absolute end-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent"
               >
                 <IconX className="h-3 w-3" />
               </button>
             ) : (
-              <span className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
+              <span className="absolute end-1.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {shortcutLabel("cmd+k")}
               </span>
             )}
@@ -151,19 +155,20 @@ export function SearchBar({ className }: SearchBarProps) {
 
         <PopoverContent
           align="start"
-          side="right"
+          side={side}
           sideOffset={8}
-          className="w-[420px] p-0 overflow-hidden"
+          className="w-[min(420px,calc(100vw-2rem))] p-0 overflow-hidden"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {isFetching && results.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              Searching…
+              {t("searchBar.searching")}
             </div>
           )}
           {!isFetching && results.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              No matches for <span className="font-medium">{query}</span>
+              {t("searchBar.noMatchesFor")}{" "}
+              <span className="font-medium">{query}</span>
             </div>
           )}
           {results.length > 0 && (
@@ -197,7 +202,7 @@ export function SearchBar({ className }: SearchBarProps) {
                     )}
                     <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
                       <span className="uppercase tracking-wide">
-                        {matchLabel(hit)}
+                        {matchLabel(hit, t)}
                       </span>
                       {typeof hit.matchMs === "number" ? (
                         <>

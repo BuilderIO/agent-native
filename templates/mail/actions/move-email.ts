@@ -1,15 +1,20 @@
 import { defineAction } from "@agent-native/core";
-import { getAccessTokens } from "./helpers.js";
-import { getRequestUserEmail } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserEmail } from "@agent-native/core/server";
+import { z } from "zod";
+
 import {
   gmailGetMessage,
   gmailListLabels,
   gmailModifyThread,
 } from "../server/lib/google-api.js";
 import { isConnected } from "../server/lib/google-auth.js";
-import { z } from "zod";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "../server/lib/local-email-store.js";
+import { getAccessTokens } from "./helpers.js";
 
 type GmailLabel = { id?: string; name?: string };
 
@@ -79,31 +84,33 @@ export default defineAction({
     if (!ownerEmail) throw new Error("no authenticated user");
 
     if (!(await isConnected(ownerEmail))) {
-      const data = await getUserSetting(ownerEmail, "local-emails");
-      const emails =
-        data && Array.isArray((data as any).emails) ? (data as any).emails : [];
-      const idSet = new Set(ids);
-      const targetThreads = new Set<string>();
-      for (const email of emails) {
-        if (idSet.has(email.id)) targetThreads.add(email.threadId || email.id);
-      }
+      const changed = await withLocalEmailMutationLock(ownerEmail, async () => {
+        const emails = await readLocalEmails(ownerEmail);
+        const idSet = new Set(ids);
+        const targetThreads = new Set<string>();
+        for (const email of emails) {
+          if (idSet.has(email.id))
+            targetThreads.add(email.threadId || email.id);
+        }
 
-      let changed = 0;
-      const updated = emails.map((email: any) => {
-        if (!targetThreads.has(email.threadId || email.id)) return email;
-        changed++;
-        const labelIds = new Set<string>(email.labelIds ?? []);
-        labelIds.delete("inbox");
-        if (args.removeLabel) labelIds.delete(args.removeLabel);
-        labelIds.add(targetLabel);
-        return {
-          ...email,
-          isArchived: true,
-          labelIds: [...labelIds],
-        };
+        let changed = 0;
+        const updated = emails.map((email) => {
+          if (!targetThreads.has(email.threadId || email.id)) return email;
+          changed++;
+          const labelIds = new Set<string>(email.labelIds ?? []);
+          labelIds.delete("inbox");
+          if (args.removeLabel) labelIds.delete(args.removeLabel);
+          labelIds.add(targetLabel);
+          return {
+            ...email,
+            isArchived: true,
+            labelIds: [...labelIds],
+          };
+        });
+
+        await writeLocalEmails(ownerEmail, updated);
+        return changed;
       });
-
-      await putUserSetting(ownerEmail, "local-emails", { emails: updated });
       await writeAppState("refresh-signal", { ts: Date.now() });
       return `Moved ${changed} local email(s) to ${targetLabel}`;
     }

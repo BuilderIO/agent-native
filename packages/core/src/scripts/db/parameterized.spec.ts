@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
 import { createClient } from "@libsql/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("db scripts parameterized SQL", () => {
   afterEach(() => {

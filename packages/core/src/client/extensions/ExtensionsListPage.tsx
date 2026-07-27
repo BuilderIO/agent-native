@@ -1,9 +1,4 @@
-import { agentNativePath } from "../api-path.js";
-import { useState, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "react-router";
 import {
-  IconArrowLeft,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
@@ -11,26 +6,38 @@ import {
   IconTool,
   IconTrash,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
-import { AgentToggleButton } from "../AgentPanel.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+
+import { extensionPath } from "../../extensions/path.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { AgentToggleButton } from "../AgentPanel.js";
+import { agentNativePath } from "../api-path.js";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { PromptComposer } from "../composer/index.js";
+import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
+import {
+  deleteOrHideExtension,
+  invalidateExtensionRemoval,
+} from "./delete-extension.js";
 import {
   TOOLS_ORDER_CHANGE_EVENT,
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
-import {
-  deleteOrHideExtension,
-  invalidateExtensionRemoval,
-} from "./delete-extension.js";
-import { extensionPath } from "../../extensions/path.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -39,11 +46,18 @@ interface Extension {
   icon?: string;
   canDelete?: boolean;
   globallyHidden?: boolean;
+  source?: {
+    mode?: "database" | "local-files";
+    entryPath?: string;
+  };
 }
 
 let lastCreateSubmission: { prompt: string; at: number } | null = null;
 
-function submitCreateTool(prompt: string) {
+function submitCreateTool(
+  prompt: string,
+  messageForPrompt: (prompt: string) => string,
+) {
   const trimmed = prompt.trim();
   if (!trimmed) return;
   const now = Date.now();
@@ -56,7 +70,7 @@ function submitCreateTool(prompt: string) {
   }
   lastCreateSubmission = { prompt: trimmed, at: now };
   sendToAgentChat({
-    message: `Create an extension: ${trimmed}`,
+    message: messageForPrompt(trimmed),
     submit: true,
     openSidebar: true,
     newTab: true,
@@ -64,23 +78,36 @@ function submitCreateTool(prompt: string) {
 }
 
 function CreateToolInput({ className }: { className?: string }) {
+  const t = useT();
   return (
     <div className={cn("flex flex-col gap-2 text-left", className)}>
       <p className="px-1 text-sm font-medium text-foreground">
-        What should it do?
+        {t("extensions.whatShouldItDo")}
       </p>
       <PromptComposer
         autoFocus
         className="text-left"
-        placeholder="A todo list, API dashboard, calculator..."
+        placeholder={t("extensions.createPlaceholder")}
         draftScope="extensions:create"
-        onSubmit={(text) => submitCreateTool(text)}
+        onSubmit={(text) =>
+          submitCreateTool(text, (prompt) =>
+            t("extensions.createPrompt", { prompt }),
+          )
+        }
       />
     </div>
   );
 }
 
-export function ExtensionsListPage() {
+export interface ExtensionsListPageProps {
+  /** Skip the standalone extensions navigation state when embedded in Settings. */
+  embedded?: boolean;
+}
+
+export function ExtensionsListPage({
+  embedded = false,
+}: ExtensionsListPageProps = {}) {
+  const t = useT();
   const [showCreate, setShowCreate] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -91,12 +118,13 @@ export function ExtensionsListPage() {
   );
 
   useEffect(() => {
+    if (embedded) return;
     fetch(agentNativePath("/_agent-native/application-state/navigation"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ view: "extensions" }),
     }).catch(() => {});
-  }, []);
+  }, [embedded]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -109,7 +137,7 @@ export function ExtensionsListPage() {
     };
   }, []);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -119,10 +147,11 @@ export function ExtensionsListPage() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toolList =
     toolOrderState.length > 0
@@ -130,7 +159,9 @@ export function ExtensionsListPage() {
       : (extensions ?? []);
 
   const handleCreate = (text: string) => {
-    submitCreateTool(text);
+    submitCreateTool(text, (prompt) =>
+      t("extensions.createPrompt", { prompt }),
+    );
     setShowCreate(false);
   };
 
@@ -166,37 +197,24 @@ export function ExtensionsListPage() {
   };
 
   return (
-    <div className="flex h-full w-full flex-col">
-      <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
+    <div
+      className={cn(
+        "flex w-full flex-col",
+        embedded ? "min-h-[28rem]" : "h-full",
+      )}
+    >
+      <header
+        className={cn(
+          "flex h-12 items-center justify-between px-4 shrink-0",
+          !embedded && "border-b",
+        )}
+      >
+        {!embedded ? (
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>
+          </div>
+        ) : null}
         <div className="flex items-center gap-2">
-          <Link
-            to="/"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label="Back to app"
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </Link>
-          <h1 className="text-sm font-semibold">Extensions</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowGloballyHidden((prev) => !prev)}
-            aria-pressed={showGloballyHidden}
-            className={cn(
-              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium",
-              showGloballyHidden
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-          >
-            {showGloballyHidden ? (
-              <IconEye className="h-4 w-4" />
-            ) : (
-              <IconEyeOff className="h-4 w-4" />
-            )}
-            {showGloballyHidden ? "Hiding shown" : "Show hidden"}
-          </button>
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
               <button
@@ -204,7 +222,7 @@ export function ExtensionsListPage() {
                 className="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
               >
                 <IconPlus className="h-4 w-4" />
-                New Extension
+                {t("extensions.newExtension")}
               </button>
             </PopoverTrigger>
             <PopoverContent
@@ -213,23 +231,45 @@ export function ExtensionsListPage() {
               className="w-[420px] p-3"
             >
               <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                New extension
+                {t("extensions.newExtensionTitle")}
               </p>
               <PromptComposer
                 autoFocus
-                placeholder="Describe what you'd like to build..."
+                placeholder={t("extensions.buildPlaceholder")}
                 draftScope="extensions:create-popover"
                 onSubmit={handleCreate}
               />
             </PopoverContent>
           </Popover>
-          <NotificationsBell />
-          <AgentToggleButton />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t("extensions.optionsFor", {
+                  name: t("extensions.title"),
+                })}
+              >
+                <IconDotsVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuCheckboxItem
+                checked={showGloballyHidden}
+                onCheckedChange={(checked) =>
+                  setShowGloballyHidden(Boolean(checked))
+                }
+              >
+                {t("extensions.showHidden")}
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {!embedded ? <AgentToggleButton /> : null}
         </div>
       </header>
 
       <div className="flex-1 overflow-auto px-5 py-8 sm:px-8 sm:py-10">
-        {isLoading ? (
+        {extensionsQuery.isLoading ? (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
@@ -242,6 +282,13 @@ export function ExtensionsListPage() {
               </div>
             ))}
           </div>
+        ) : extensionsQuery.isError ? (
+          <ExtensionQueryErrorState
+            className="min-h-[calc(100vh-9rem)]"
+            message={t("extensions.loadError")}
+            onRetry={() => void extensionsQuery.refetch()}
+            retrying={extensionsQuery.isFetching}
+          />
         ) : toolList.length === 0 ? (
           <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-start px-2 pb-12 pt-[clamp(5rem,18vh,11rem)] sm:pb-16">
             <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-7">
@@ -249,10 +296,10 @@ export function ExtensionsListPage() {
                 <IconTool className="h-10 w-10 text-muted-foreground/40" />
                 <div className="space-y-1.5">
                   <p className="text-base font-semibold text-foreground">
-                    Create your first extension
+                    {t("extensions.emptyTitle")}
                   </p>
                   <p className="mx-auto max-w-sm text-sm text-muted-foreground">
-                    Describe a small app and the agent will build it.
+                    {t("extensions.emptyDescription")}
                   </p>
                 </div>
               </div>
@@ -261,118 +308,142 @@ export function ExtensionsListPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {toolList.map((extension) => (
-              <div
-                key={extension.id}
-                className={cn(
-                  "group relative rounded-lg border border-border bg-card",
-                  "hover:border-primary/30 hover:shadow-sm",
-                  extension.globallyHidden && "opacity-60",
-                )}
-              >
-                <Link
-                  to={extensionPath(extension.id, extension.name)}
-                  className="block p-5 pr-12"
-                >
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
-                    <IconTool className="h-5 w-5" />
-                  </div>
-                  <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                    {extension.globallyHidden && (
-                      <IconEyeOff
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                        aria-label="Hidden from everyone"
-                      />
-                    )}
-                    <span className="truncate">{extension.name}</span>
-                  </h3>
-                  {extension.description && (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">
-                      {extension.description}
-                    </p>
+            {toolList.map((extension) => {
+              const isLocalExtension = extension.source?.mode === "local-files";
+              return (
+                <div
+                  key={extension.id}
+                  className={cn(
+                    "group relative rounded-lg border border-border bg-card",
+                    "hover:border-primary/30 hover:shadow-sm",
+                    extension.globallyHidden && "opacity-60",
                   )}
-                </Link>
-                <Popover
-                  open={confirmDeleteId === extension.id}
-                  onOpenChange={(open) =>
-                    setConfirmDeleteId(open ? extension.id : null)
-                  }
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
-                      aria-label={`Options for ${extension.name}`}
-                    >
-                      <IconDotsVertical className="h-4 w-4" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    sideOffset={4}
-                    className="w-64 p-0"
+                  <Link
+                    to={extensionPath(extension.id, extension.name)}
+                    className="block p-5 pr-12"
                   >
-                    {extension.canDelete !== false && (
-                      <div className="border-b p-1">
-                        <button
-                          type="button"
-                          onClick={() => handleGlobalHideToggle(extension)}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent"
-                        >
-                          {extension.globallyHidden ? (
-                            <>
-                              <IconEye className="h-3.5 w-3.5" />
-                              Unhide for everyone
-                            </>
-                          ) : (
-                            <>
-                              <IconEyeOff className="h-3.5 w-3.5" />
-                              Hide from everyone
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                    <div className="p-3">
-                      <p className="text-[12px]">
-                        {extension.canDelete === false ? "Remove " : "Delete "}
-                        <span className="font-medium">{extension.name}</span>?
-                        {extension.canDelete === false
-                          ? " This hides it from your Extensions list without deleting it for anyone else."
-                          : " This removes it everywhere it is shared."}
-                      </p>
-                      <div className="mt-3 flex justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(extension)}
-                          disabled={deletingId === extension.id}
-                          className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90",
-                            deletingId === extension.id && "opacity-60",
-                          )}
-                        >
-                          <IconTrash className="h-3.5 w-3.5" />
-                          {deletingId === extension.id
-                            ? extension.canDelete === false
-                              ? "Removing..."
-                              : "Deleting..."
-                            : extension.canDelete === false
-                              ? "Remove"
-                              : "Delete"}
-                        </button>
-                      </div>
+                    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                      <IconTool className="h-5 w-5" />
                     </div>
-                  </PopoverContent>
-                </Popover>
-              </div>
-            ))}
+                    <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      {extension.globallyHidden && (
+                        <IconEyeOff
+                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                          aria-label={t("extensions.hiddenFromEveryone")}
+                        />
+                      )}
+                      <span className="truncate">{extension.name}</span>
+                    </h3>
+                    {extension.description && (
+                      <p className="line-clamp-2 text-xs text-muted-foreground">
+                        {extension.description}
+                      </p>
+                    )}
+                    {isLocalExtension && (
+                      <p className="mt-3 inline-flex rounded-md border border-border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {t("extensions.localFile")}
+                      </p>
+                    )}
+                  </Link>
+                  <Popover
+                    open={confirmDeleteId === extension.id}
+                    onOpenChange={(open) =>
+                      setConfirmDeleteId(open ? extension.id : null)
+                    }
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover:opacity-100"
+                        aria-label={t("extensions.optionsFor", {
+                          name: extension.name,
+                        })}
+                      >
+                        <IconDotsVertical className="h-4 w-4" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="end"
+                      sideOffset={4}
+                      className="w-64 p-0"
+                    >
+                      {!isLocalExtension && extension.canDelete !== false && (
+                        <div className="border-b p-1">
+                          <button
+                            type="button"
+                            onClick={() => handleGlobalHideToggle(extension)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent"
+                          >
+                            {extension.globallyHidden ? (
+                              <>
+                                <IconEye className="h-3.5 w-3.5" />
+                                {t("extensions.unhideEveryone")}
+                              </>
+                            ) : (
+                              <>
+                                <IconEyeOff className="h-3.5 w-3.5" />
+                                {t("extensions.hideEveryone")}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                      {isLocalExtension ? (
+                        <div className="p-3 text-[12px] text-muted-foreground">
+                          {t("extensions.localFileDescription", {
+                            entryPath:
+                              extension.source?.entryPath ?? "local files",
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <p className="text-[12px]">
+                            {extension.canDelete === false
+                              ? t("extensions.removeQuestion", {
+                                  name: extension.name,
+                                })
+                              : t("extensions.deleteQuestion", {
+                                  name: extension.name,
+                                })}{" "}
+                            {extension.canDelete === false
+                              ? t("extensions.hideForYouDescription")
+                              : t("extensions.removeEverywhereDescription")}
+                          </p>
+                          <div className="mt-3 flex justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="rounded-md px-2 py-1 text-[12px] hover:bg-accent"
+                            >
+                              {t("extensions.cancel")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(extension)}
+                              disabled={deletingId === extension.id}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90",
+                                deletingId === extension.id && "opacity-60",
+                              )}
+                            >
+                              <IconTrash className="h-3.5 w-3.5" />
+                              {deletingId === extension.id
+                                ? extension.canDelete === false
+                                  ? t("extensions.removing")
+                                  : t("extensions.deleting")
+                                : extension.canDelete === false
+                                  ? t("extensions.remove")
+                                  : t("extensions.delete")}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

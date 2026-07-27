@@ -1,15 +1,19 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
-import { useQuery } from "@tanstack/react-query";
-import { appBasePath } from "@agent-native/core/client";
+
+import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import {
   VideoPlayer,
   type VideoPlayerHandle,
 } from "@/components/player/video-player";
-import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { Spinner } from "@/components/ui/spinner";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
+
+import { isLoomEmbedBackedRecording } from "../../shared/loom";
 
 export function meta() {
   return [{ title: "Clip" }];
@@ -52,6 +56,7 @@ function parseTimeParam(raw: string | null): number {
 }
 
 export default function EmbedRoute() {
+  const t = useT();
   const { shareId } = useParams<{ shareId: string }>();
   const [searchParams] = useSearchParams();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
@@ -74,6 +79,34 @@ export default function EmbedRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const previous = {
+      htmlOverflow: html.style.overflow,
+      htmlHeight: html.style.height,
+      bodyOverflow: body.style.overflow,
+      bodyHeight: body.style.height,
+      bodyBackground: body.style.background,
+    };
+
+    html.style.overflow = "hidden";
+    html.style.height = "100%";
+    body.style.overflow = "hidden";
+    body.style.height = "100%";
+    body.style.background = "#000";
+
+    return () => {
+      html.style.overflow = previous.htmlOverflow;
+      html.style.height = previous.htmlHeight;
+      body.style.overflow = previous.bodyOverflow;
+      body.style.height = previous.bodyHeight;
+      body.style.background = previous.bodyBackground;
+    };
+  }, []);
+
   const dataQ = useQuery({
     queryKey: ["public-recording", shareId, password],
     queryFn: async () => {
@@ -91,19 +124,22 @@ export default function EmbedRoute() {
   });
 
   const recording = dataQ.data?.data?.recording;
+  const comments = dataQ.data?.data?.comments ?? [];
   const transcriptSegments = dataQ.data?.data?.transcript?.segments ?? [];
   const chapters = dataQ.data?.data?.chapters ?? [];
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
+  const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
+
+  const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
+    null,
+  );
 
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
-    videoRef: {
-      get current() {
-        return playerRef.current?.video ?? null;
-      },
-    } as any,
+    videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
+    trackOpenWithoutVideo: isLoomEmbedBacked,
   });
 
   const needsPassword =
@@ -129,7 +165,7 @@ export default function EmbedRoute() {
 
   if (dataQ.isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-black">
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black">
         <Spinner className="h-8 w-8 text-white/70" />
       </div>
     );
@@ -140,31 +176,35 @@ export default function EmbedRoute() {
       <AccessPasswordPrompt
         onSubmit={onSubmitPassword}
         error={pwError}
-        title="Password required"
+        title={t("embedRoute.passwordRequired")}
       />
     );
   }
 
   if (!recording) {
     return (
-      <div className="flex items-center justify-center h-screen w-full bg-black text-white">
-        <p className="text-sm">Clip unavailable.</p>
+      <div className="fixed inset-0 flex h-dvh w-dvw items-center justify-center overflow-hidden bg-black text-white">
+        <p className="text-sm">{t("embedRoute.unavailable")}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-screen w-screen bg-black overflow-hidden">
+    <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
       <VideoPlayer
         ref={playerRef}
+        onVideoElementChange={setTrackedVideoEl}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
+        videoFormat={recording.videoFormat}
+        embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}
         editsJson={recording.editsJson}
         thumbnailUrl={recording.thumbnailUrl}
         defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
         autoPlay={autoplay}
         startMs={startMs}
+        comments={comments}
         chapters={chapters}
         transcriptSegments={transcriptSegments}
         cta={firstCta}

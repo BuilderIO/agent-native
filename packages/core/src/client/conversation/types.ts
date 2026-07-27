@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+
+import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 
 export interface AgentConversationAttachment {
@@ -22,8 +24,11 @@ export interface AgentConversationToolCall {
   name: string;
   state: AgentConversationToolState;
   input?: string;
+  args?: Record<string, unknown>;
   result?: string;
+  resultJson?: unknown;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   summary?: string;
 }
 

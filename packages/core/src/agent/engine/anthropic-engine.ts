@@ -8,27 +8,50 @@
  * All providerOptions.anthropic fields are forwarded directly to the SDK.
  */
 
-import type {
-  AgentEngine,
-  EngineCapabilities,
-  EngineStreamOptions,
-  EngineEvent,
-} from "./types.js";
+import {
+  clearProviderCredentialAuthFailure,
+  readDeployCredentialEnv,
+  recordProviderCredentialAuthFailure,
+} from "../../server/credential-provider.js";
+import {
+  anthropicManualThinkingBudget,
+  normalizeReasoningEffortForModel,
+  supportsClaudeAdaptiveThinking,
+} from "../../shared/reasoning-effort.js";
+import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "./credential-errors.js";
+import { describeErrorWithCauses } from "./error-detail.js";
+import {
+  createFirstEventAbortController,
+  FIRST_STREAM_EVENT_TIMEOUT_MS,
+} from "./first-event-timeout.js";
+import {
+  clampThinkingBudgetTokens,
+  resolveMaxOutputTokensForEngine,
+} from "./output-tokens.js";
+import {
+  splitSystemPromptForCache,
+  stablePrefixCacheControl,
+} from "./prompt-cache.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
   anthropicContentToEngine,
   anthropicChunkToEngineEvents,
   createAnthropicChunkStreamState,
+  createStreamedToolInputState,
+  finalizeStreamedToolInputs,
+  observeStreamedToolInput,
 } from "./translate-anthropic.js";
-import { readDeployCredentialEnv } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
-import {
-  LLM_MISSING_CREDENTIALS_ERROR_CODE,
-  LLM_MISSING_CREDENTIALS_MESSAGE,
-} from "./credential-errors.js";
-import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
-import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
+import type {
+  AgentEngine,
+  EngineCapabilities,
+  EngineStreamOptions,
+  EngineEvent,
+} from "./types.js";
 
 export const ANTHROPIC_CAPABILITIES: EngineCapabilities = {
   thinking: true,
@@ -57,18 +80,40 @@ class AnthropicEngine implements AgentEngine {
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey: this.apiKey });
+    // Explicit: the agent loop already retries a failed model call up to
+    // MAX_RETRIES times with backoff. Leaving the SDK on its default (2)
+    // multiplies the two layers into ~12 HTTP requests per failed run.
+    const client = new Anthropic({ apiKey: this.apiKey, maxRetries: 1 });
 
     const tools = engineToolsToAnthropic(opts.tools);
     const messages = engineMessagesToAnthropic(opts.messages);
     const anthropicOpts = opts.providerOptions?.anthropic;
+
+    // Resolved once so both max_tokens and the thinking-budget headroom
+    // clamp below agree on the same ceiling.
+    const resolvedMaxOutputTokens = resolveMaxOutputTokensForEngine(
+      this.name,
+      opts.maxOutputTokens,
+      opts.model,
+    );
 
     // Build extra body params for Anthropic-native features
     const extra: Record<string, unknown> = {};
     if (anthropicOpts?.thinking) {
       extra.thinking = {
         type: anthropicOpts.thinking.type,
-        budget_tokens: anthropicOpts.thinking.budgetTokens,
+        // Only the "enabled" config carries a numeric budget_tokens; clamp it
+        // so thinking can't consume the entire max_tokens budget and leave
+        // zero room for the actual response ("adaptive" thinking has no
+        // budget_tokens field at all, so it passes through unclamped).
+        budget_tokens:
+          anthropicOpts.thinking.type === "enabled" &&
+          typeof anthropicOpts.thinking.budgetTokens === "number"
+            ? clampThinkingBudgetTokens(
+                anthropicOpts.thinking.budgetTokens,
+                resolvedMaxOutputTokens,
+              )
+            : anthropicOpts.thinking.budgetTokens,
       };
     }
     if (anthropicOpts?.topK !== undefined) {
@@ -78,11 +123,19 @@ class AnthropicEngine implements AgentEngine {
       opts.model,
       opts.reasoningEffort,
     );
-    if (reasoningEffort) {
-      if (!extra.thinking) {
+    if (reasoningEffort && !extra.thinking) {
+      if (supportsClaudeAdaptiveThinking(opts.model)) {
         extra.thinking = { type: "adaptive" };
+        extra.output_config = { effort: reasoningEffort };
+      } else {
+        const budgetTokens = clampThinkingBudgetTokens(
+          anthropicManualThinkingBudget(reasoningEffort),
+          resolvedMaxOutputTokens,
+        );
+        if (budgetTokens !== undefined) {
+          extra.thinking = { type: "enabled", budget_tokens: budgetTokens };
+        }
       }
-      extra.output_config = { effort: reasoningEffort };
     }
 
     // Apply prompt caching to the system prompt and tools by default.
@@ -91,10 +144,16 @@ class AnthropicEngine implements AgentEngine {
     // changes turn-to-turn, it's a no-op. Templates can opt out by setting
     // providerOptions.anthropic.cacheControl = false.
     const cacheEnabled = anthropicOpts?.cacheControl !== false;
-    const systemBlocks: any[] = [{ type: "text", text: opts.systemPrompt }];
+    // Two system blocks: the breakpoint sits on the stable prefix so a change
+    // in the volatile tail (resources the agent itself creates mid-turn, app
+    // extras, model overlay, runtime context) no longer invalidates system +
+    // tools. Callers that emit no sentinel get one block, as before.
+    const { stable, volatile } = splitSystemPromptForCache(opts.systemPrompt);
+    const systemBlocks: any[] = [{ type: "text", text: stable }];
     if (cacheEnabled) {
-      systemBlocks[0].cache_control = { type: "ephemeral" };
+      systemBlocks[0].cache_control = stablePrefixCacheControl();
     }
+    if (volatile) systemBlocks.push({ type: "text", text: volatile });
 
     // Apply cache_control to the last tool definition when caching is enabled.
     // Anthropic caches the prefix up to and including the last cached block.
@@ -102,19 +161,45 @@ class AnthropicEngine implements AgentEngine {
     if (cacheEnabled && tools.length > 0) {
       cachedTools = [...tools];
       const last = { ...cachedTools[cachedTools.length - 1] } as any;
-      last.cache_control = { type: "ephemeral" };
+      last.cache_control = stablePrefixCacheControl();
       cachedTools[cachedTools.length - 1] = last;
+    }
+
+    // Apply a moving cache breakpoint on the last user message's last content
+    // block so the entire conversation prefix (system + tools + growing
+    // history) is cached turn-over-turn as the thread lengthens. Mirrors the
+    // Builder gateway engine's identical handling in builder-engine.ts. This
+    // breakpoint keeps the default 5m TTL: it moves every iteration, so a
+    // longer-lived entry would only pay the higher write premium.
+    let cachedMessages = messages;
+    if (cacheEnabled && messages.length > 0) {
+      let lastUserIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if ((messages[i] as any).role === "user") {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      if (lastUserIdx >= 0) {
+        cachedMessages = [...messages];
+        const lastMsg = { ...cachedMessages[lastUserIdx] } as any;
+        if (Array.isArray(lastMsg.content) && lastMsg.content.length > 0) {
+          const content = [...lastMsg.content];
+          const lastBlock = { ...content[content.length - 1] } as any;
+          lastBlock.cache_control = { type: "ephemeral" };
+          content[content.length - 1] = lastBlock;
+          lastMsg.content = content;
+          cachedMessages[lastUserIdx] = lastMsg;
+        }
+      }
     }
 
     const requestParams: any = {
       model: opts.model,
-      max_tokens: resolveMaxOutputTokensForEngine(
-        this.name,
-        opts.maxOutputTokens,
-      ),
+      max_tokens: resolvedMaxOutputTokens,
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
-      messages,
+      messages: cachedMessages,
       ...(opts.temperature !== undefined
         ? { temperature: opts.temperature }
         : {}),
@@ -124,8 +209,9 @@ class AnthropicEngine implements AgentEngine {
     // Remove undefined tools to avoid Anthropic API validation errors
     if (!requestParams.tools) delete requestParams.tools;
 
+    const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const apiStream = client.messages.stream(requestParams, {
-      signal: opts.abortSignal,
+      signal: firstEventAbort.signal,
     });
 
     // Per-stream state lets the translator carry each tool-call's id/name from
@@ -133,17 +219,42 @@ class AnthropicEngine implements AgentEngine {
     // long tool-input generation emits countable `tool-input-start` /
     // `tool-input-delta` progress events (mirroring the Builder engine).
     const chunkState = createAnthropicChunkStreamState();
+    const toolInputs = createStreamedToolInputState();
 
     try {
       for await (const chunk of apiStream) {
+        // The SDK's SSE parsing already drops `ping` keepalives before they
+        // reach this loop, so any chunk here is real provider progress.
+        firstEventAbort.markFirstEvent();
         const events = anthropicChunkToEngineEvents(chunk, chunkState);
         for (const event of events) {
+          observeStreamedToolInput(toolInputs, event);
           yield event;
         }
       }
 
       const finalMessage = await apiStream.finalMessage();
       const assistantContent = anthropicContentToEngine(finalMessage.content);
+
+      // A tool call the stream announced but the final message never carried
+      // would otherwise vanish, leaving the turn claiming an action it never
+      // ran. Recover it from its deltas, or tell the model in-band.
+      for (const recovered of finalizeStreamedToolInputs(
+        toolInputs,
+        assistantContent.flatMap((part) =>
+          part.type === "tool-call" ? [part.id] : [],
+        ),
+      )) {
+        if (recovered.type === "tool-call") {
+          assistantContent.push({
+            type: "tool-call",
+            id: recovered.id,
+            name: recovered.name,
+            input: recovered.input,
+          });
+        }
+        yield recovered;
+      }
 
       // Emit usage
       if (finalMessage.usage) {
@@ -159,6 +270,10 @@ class AnthropicEngine implements AgentEngine {
       }
 
       yield { type: "assistant-content", parts: assistantContent };
+      await clearProviderCredentialAuthFailure({
+        key: "ANTHROPIC_API_KEY",
+        value: this.apiKey,
+      });
 
       // Emit stop reason
       const stopReason = finalMessage.stop_reason ?? "end_turn";
@@ -172,12 +287,61 @@ class AnthropicEngine implements AgentEngine {
               : "end_turn",
       };
     } catch (err: any) {
+      const timedOut = firstEventAbort.didTimeout();
+      const statusCode: number | undefined =
+        typeof err?.status === "number"
+          ? err.status
+          : typeof err?.statusCode === "number"
+            ? err.statusCode
+            : undefined;
+      // A first-event abort surfaces from the SDK as a generic
+      // APIUserAbortError ("Request was aborted.") — replace it with a
+      // message that actually explains what happened.
+      const rawMessage: string = err?.message ?? String(err);
+      const errorMessage = timedOut
+        ? `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`
+        : describeErrorWithCauses(err);
+      // Anthropic SDK APIConnectionError defaults to "Connection error." with
+      // no HTTP status. Tag it so in-run retries and run-level resume treat
+      // the failure as a transient network interruption. Classify on the bare
+      // message — the recorded `errorMessage` carries the cause chain.
+      const isConnectionError =
+        !timedOut &&
+        statusCode === undefined &&
+        rawMessage.trim().toLowerCase() === "connection error.";
+      if (statusCode === 401) {
+        await recordProviderCredentialAuthFailure({
+          key: "ANTHROPIC_API_KEY",
+          value: this.apiKey,
+          status: statusCode,
+          code: "http_401",
+          message: errorMessage,
+        });
+      }
       yield {
         type: "stop",
         reason: "error",
-        error: err?.message ?? String(err),
+        error: errorMessage,
+        // Forward the provider HTTP status for EVERY known status, not just
+        // 401. The Anthropic SDK reports empty-body failures as a bare
+        // "429 status code (no body)" message, so without a structured
+        // statusCode/errorCode `isRetryableError` couldn't classify a rate
+        // limit (it matches "529"/"502" substrings but not "429") and the
+        // run failed hard instead of backing off + retrying like the Builder
+        // gateway path does. `http_429`/`http_529` also let the run-level
+        // continuation logic auto-resume a rate-limited turn.
+        ...(statusCode !== undefined
+          ? { errorCode: `http_${statusCode}`, statusCode }
+          : isConnectionError || timedOut
+            ? {
+                errorCode: "provider_network_error",
+                providerRetryable: true,
+              }
+            : {}),
       };
       throw err;
+    } finally {
+      firstEventAbort.cleanup();
     }
   }
 }
