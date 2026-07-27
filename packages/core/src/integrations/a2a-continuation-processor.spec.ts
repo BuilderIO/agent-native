@@ -809,6 +809,7 @@ describe("A2A continuation processor", () => {
       {
         idempotencyKey: "a2a-continuation:cont-1",
         reconcileAfter: expect.any(Number),
+        signal: expect.any(AbortSignal),
         placeholderRef: undefined,
         strictTargetRef: true,
       },
