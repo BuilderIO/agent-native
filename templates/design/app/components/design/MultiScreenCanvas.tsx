@@ -82,6 +82,10 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "./canvas-primitive-style";
+import {
+  CONTENT_SIZE_REPORT_MESSAGE_TYPE,
+  appendContentSizeReporter,
+} from "./design-canvas/content-size-report";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
 import { dndHostLog } from "./dnd-debug";
@@ -297,6 +301,7 @@ import {
 import {
   angleBetween,
   cloneFrameGeometryById,
+  deviceViewportFloorForWidth,
   findTopFrameEntryAtPoint,
   frameGeometryWithOverrides,
   frameStyleLeftTop,
@@ -314,6 +319,7 @@ import {
   resolveFrameGeometrySync,
   rotatePointAroundCenter,
   sameFrameGeometry,
+  visibleBreakpointWidths,
 } from "./multi-screen/frame-geometry";
 import {
   angleFromDraggedEndpoint,
@@ -489,6 +495,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
+  // Measured content height per [data-screen-iframe-id] (primary = screen id,
+  // breakpoint = getBreakpointIframeId); drives content-fit auto-height.
+  const [measuredIframeHeights, setMeasuredIframeHeights] = useState<
+    Record<string, number>
+  >({});
   const liveFrameDragPositionsRef = useRef(
     new Map<string, { left: number; top: number }>(),
   );
@@ -7237,15 +7248,86 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // entry object when a screen's own screen/metadata/geometry are unchanged
   // by value, so mapping over canvasFrames for the N-1 screens NOT being
   // dragged doesn't allocate anything new for them on this same tick.
+  // Opaque-origin sandboxed iframes can't be read via contentDocument, so map a
+  // content-size report to its frame by matching event.source to contentWindow.
+  useEffect(() => {
+    const handleContentSize = (event: MessageEvent) => {
+      const data = event.data;
+      if (
+        !data ||
+        typeof data !== "object" ||
+        data.type !== CONTENT_SIZE_REPORT_MESSAGE_TYPE ||
+        typeof data.height !== "number" ||
+        !Number.isFinite(data.height) ||
+        data.height <= 0 ||
+        // Ignore an implausible height (matches the persist sanity ceiling) so a
+        // bogus postMessage can't blow a frame up to an unusable size.
+        data.height > 100_000
+      ) {
+        return;
+      }
+      const surface = surfaceRef.current;
+      if (!surface || !event.source) return;
+      const iframes = surface.querySelectorAll<HTMLIFrameElement>(
+        "iframe[data-screen-iframe-id]",
+      );
+      let iframeId: string | null = null;
+      for (const iframe of iframes) {
+        if (iframe.contentWindow === event.source) {
+          iframeId = iframe.getAttribute("data-screen-iframe-id");
+          break;
+        }
+      }
+      if (!iframeId) return;
+      const key = iframeId;
+      const height = Math.round(data.height);
+      setMeasuredIframeHeights((prev) => {
+        const current = prev[key];
+        // Ignore sub-pixel churn so a report can't trigger a re-render that
+        // triggers another report.
+        if (current !== undefined && Math.abs(current - height) <= 1) {
+          return prev;
+        }
+        return { ...prev, [key]: height };
+      });
+    };
+    window.addEventListener("message", handleContentSize);
+    return () => window.removeEventListener("message", handleContentSize);
+  }, []);
+
   const canvasFrames = useMemo(() => {
     const cache = canvasFrameEntryCacheRef.current;
     const nextIds = new Set<string>();
     const next = renderedScreens.map((screen) => {
       nextIds.add(screen.id);
       const metadata = getResolvedMetadata(screen);
-      const geometry =
+      const rawGeometry =
         frameGeometry[screen.id] ??
         getInitialFrameGeometry(screenIndexById.get(screen.id) ?? 0, metadata);
+      // Content-fit height, applied ONLY once the frame's own content has been
+      // measured, and only for inline (srcdoc) screens — URL-backed
+      // localhost/fusion screens render src= and never report. Until a
+      // measurement arrives the persisted geometry is kept untouched, so the
+      // canvas scale and resize gestures are unaffected. Floors by the natural
+      // metadata width (not the resizable box width, which would flip the
+      // responsive scale on resize) and only grows; never shrinks a larger
+      // user-set height.
+      const measuredPrimaryHeight = measuredIframeHeights[screen.id];
+      const isInlineScreen = !(
+        metadata.previewUrl ?? getPreviewUrl(screen.content)
+      );
+      const autoHeight =
+        isInlineScreen && measuredPrimaryHeight
+          ? Math.max(
+              deviceViewportFloorForWidth(metadata.width),
+              rawGeometry.height ?? 0,
+              measuredPrimaryHeight,
+            )
+          : (rawGeometry.height ?? 0);
+      const geometry =
+        !autoHeight || autoHeight === rawGeometry.height
+          ? rawGeometry
+          : { ...rawGeometry, height: autoHeight };
       const prior = cache.get(screen.id);
       if (
         prior &&
@@ -7269,7 +7351,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     }
     pruneResolvedMetadataCache(resolvedMetadataCacheRef.current, nextIds);
     return next;
-  }, [frameGeometry, getResolvedMetadata, renderedScreens, screenIndexById]);
+  }, [
+    frameGeometry,
+    getResolvedMetadata,
+    measuredIframeHeights,
+    renderedScreens,
+    screenIndexById,
+  ]);
   // Interaction-protected screens are never eligible for LRU eviction. Active
   // screen/frame selection are the primary signals; layer selection, native
   // file-drop targeting, gradient editing, and in-flight frame transforms are
@@ -7323,7 +7411,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const next = computeBoundedScreenCullState({
       candidates: canvasFrames.map(({ screen, geometry }) => ({
         id: screen.id,
-        geometry: getResponsiveScreenCullGeometry(screen, geometry),
+        geometry: getResponsiveScreenCullGeometry(
+          screen,
+          geometry,
+          (widthPx) =>
+            measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
+        ),
         iframeCount: 1 + (screen.breakpointWidths?.length ?? 0),
       })),
       viewport,
@@ -7337,7 +7430,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     hasBeenVisibleScreenIdsRef.current = next.everVisibleScreenIds;
     lastVisibleEpochByScreenIdRef.current = next.lastVisibleEpochByScreenId;
     return next.tierByScreenId;
-  }, [canvasFrames, canvasZoom, pan, protectedLiveScreenIds, surfaceSize]);
+  }, [
+    canvasFrames,
+    canvasZoom,
+    measuredIframeHeights,
+    pan,
+    protectedLiveScreenIds,
+    surfaceSize,
+  ]);
   const topScreenId = useMemo(
     () =>
       selectedIds.find((id) =>
@@ -7692,6 +7792,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               screen={screen}
               metadata={metadata}
               geometry={geometry}
+              measuredIframeHeights={measuredIframeHeights}
               locked={lockedScreenIdSet.has(screen.id)}
               screenContent={screenContentById.get(screen.id)}
               renderBreakpointContent={renderBreakpointContent}
@@ -9008,6 +9109,9 @@ interface ScreenProps {
   screen: ScreenFile;
   metadata: ResolvedScreenMetadata;
   geometry: FrameGeometry;
+  /** Measured content heights by [data-screen-iframe-id]; drives breakpoint
+   * frame auto-height. */
+  measuredIframeHeights: Record<string, number>;
   locked: boolean;
   isActive: boolean;
   isSelected: boolean;
@@ -9079,6 +9183,7 @@ const Screen = memo(function Screen({
   screen,
   metadata,
   geometry,
+  measuredIframeHeights,
   locked,
   isActive,
   isSelected,
@@ -9174,7 +9279,7 @@ const Screen = memo(function Screen({
   // Keyed only on screen.content; the hit-test script itself is constant.
   const srcdocWithHitTest = useMemo(() => {
     return injectSessionReplayIframeBootstrap(
-      appendHitTestResponder(screen.content),
+      appendContentSizeReporter(appendHitTestResponder(screen.content)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen.content]);
@@ -9584,6 +9689,7 @@ const Screen = memo(function Screen({
         <BreakpointPreviewRow
           screen={screen}
           primaryGeometry={geometry}
+          measuredIframeHeights={measuredIframeHeights}
           // See getBreakpointFrameGeometry's doc comment: reusing the
           // primary frame's OWN previewViewport.scale (how far the user has
           // resized this screen's box away from its natural/metadata width)
@@ -9641,9 +9747,29 @@ const Screen = memo(function Screen({
   );
 }, areScreenPropsEqual);
 
+/** Compares only this screen's breakpoint heights so one frame's report
+ * re-renders only its owning screen (the primary rides on `geometry`). */
+function sameBreakpointMeasuredHeights(
+  screen: ScreenFile,
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  if (a === b) return true;
+  for (const width of screen.breakpointWidths ?? []) {
+    const key = getBreakpointIframeId(screen.id, width);
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
   return (
     prev.screen === next.screen &&
+    sameBreakpointMeasuredHeights(
+      prev.screen,
+      prev.measuredIframeHeights,
+      next.measuredIframeHeights,
+    ) &&
     prev.screenContent === next.screenContent &&
     prev.renderBreakpointContent === next.renderBreakpointContent &&
     prev.cullTier === next.cullTier &&
@@ -9717,6 +9843,7 @@ const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
 function BreakpointPreviewRow({
   screen,
   primaryGeometry,
+  measuredIframeHeights,
   primaryScale,
   naturalAspect,
   previewUrl,
@@ -9742,6 +9869,8 @@ function BreakpointPreviewRow({
 }: {
   screen: ScreenFile;
   primaryGeometry: FrameGeometry;
+  /** Measured content heights by [data-screen-iframe-id]. */
+  measuredIframeHeights: Record<string, number>;
   /** The primary frame's own resize scale (`getScreenPreviewViewport(...).
    *  scale`) — see getBreakpointFrameGeometry's doc comment for why this,
    *  not primaryGeometry alone, drives each breakpoint frame's on-canvas
@@ -9807,7 +9936,10 @@ function BreakpointPreviewRow({
   const frameActionLabel = interactMode
     ? t("multiScreenCanvas.fullView")
     : t("designEditor.modes.interact");
-  const breakpointWidths = screen.breakpointWidths ?? [];
+  const breakpointWidths = visibleBreakpointWidths(
+    screen.breakpointWidths,
+    primaryGeometry.width,
+  );
   // Place additional frames to the right of the primary, starting after the gap
   let offsetX = primaryGeometry.width + BREAKPOINT_FRAME_GAP;
 
@@ -9826,7 +9958,13 @@ function BreakpointPreviewRow({
     <>
       {breakpointWidths.map((widthPx) => {
         const { frameWidth, frameHeight, naturalHeight, scale } =
-          getBreakpointFrameGeometry({ widthPx, naturalAspect, primaryScale });
+          getBreakpointFrameGeometry({
+            widthPx,
+            naturalAspect,
+            primaryScale,
+            contentHeightPx:
+              measuredIframeHeights[getBreakpointIframeId(screen.id, widthPx)],
+          });
         const isActive = activeBreakpointWidth === widthPx;
         const editableContent = renderBreakpointContent?.(screen, metadata, {
           widthPx,

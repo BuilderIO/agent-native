@@ -714,15 +714,14 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       x: 0,
       y: 0,
       width: 1440,
-      height: 1024,
+      height: 900,
     });
     expect(data.breakpointSet).toMatchObject({
-      breakpoints: [
-        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
-        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
-        expect.objectContaining({ label: "Desktop", widthPx: 1440 }),
-      ],
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
     });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(1);
   });
 
   it("uses the requested mobile viewport when the agent supplies it", async () => {
@@ -744,6 +743,61 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
     expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
+
+  it("derives the base frame and breakpoint set from an explicit devices list", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive landing page",
+      devices: ["mobile", "tablet", "desktop"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Landing</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    // Widest device (desktop) seeds the primary frame.
+    expect(frame).toMatchObject({ width: 1440, height: 900 });
+    // Breakpoints are the narrower devices only, ascending, never the base width.
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [
+        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
+      ],
+    });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(2);
+  });
+
+  it("produces a single frame with no breakpoints for a one-device request", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a phone-only screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Phone</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({ width: 390, height: 844 });
+    // Single device => empty breakpoint set => no breakpointSet is seeded.
+    expect(data.breakpointSet).toBeUndefined();
   });
 
   it("pins session evidence to the saved frame and preserves exact versions", async () => {
@@ -856,5 +910,59 @@ describe("generate-design: new-file creation path (unchanged)", () => {
         ],
       }),
     );
+  });
+});
+
+describe("generate-design: new screens never stack on existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a second screen that requests the first screen's coordinates", async () => {
+    // A screen already sits at the origin (state after the first generation).
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a pricing screen",
+      files: [
+        {
+          filename: "pricing.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Pricing</body></html>",
+        },
+      ],
+      // The agent reuses the skill example's x:0,y:0 for the new screen.
+      canvasFrames: [
+        { filename: "pricing.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames["file-1"]!;
+    const second = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+
+    expect(first).toMatchObject({ x: 0, y: 0 });
+    const overlaps =
+      first.x < second.x + second.width &&
+      first.x + first.width > second.x &&
+      first.y < second.y + second.height &&
+      first.y + first.height > second.y;
+    expect(overlaps).toBe(false);
+    expect(second.x).toBeGreaterThanOrEqual(1440);
   });
 });
