@@ -4,7 +4,24 @@ import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DragHandle, type DragHandleOptions } from "./DragHandle.js";
+import {
+  DragHandle,
+  dragPreviewTransform,
+  type DragHandleOptions,
+} from "./DragHandle.js";
+
+describe("dragPreviewTransform", () => {
+  it("keeps the grabbed point under the pointer", () => {
+    expect(
+      dragPreviewTransform({
+        clientX: 180,
+        clientY: 240,
+        pointerOffsetX: 32,
+        pointerOffsetY: 9,
+      }),
+    ).toBe("translate3d(148px, 231px, 0)");
+  });
+});
 
 function makeRect({
   left,

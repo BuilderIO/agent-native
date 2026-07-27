@@ -7,6 +7,8 @@ import {
   useSensors,
   type Announcements,
   type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -17,24 +19,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  IconChevronDown,
-  IconChevronUp,
-  IconGripVertical,
-  IconListNumbers,
-} from "@tabler/icons-react";
-import {
   createContext,
   useContext,
+  useRef,
+  useState,
   type CSSProperties,
   type ReactNode,
 } from "react";
 
-import {
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 export interface SidebarReorderItem {
@@ -53,6 +45,10 @@ export interface SidebarReorderLabels {
 
 interface SidebarReorderContextValue {
   items: SidebarReorderItem[];
+  activeId: string | null;
+  overId: string | null;
+  dragBounds: { minY: number; maxY: number } | null;
+  registerItemNode: (itemId: string, node: HTMLElement | null) => void;
   onReorder: (
     itemIds: string[],
     moved: { itemId: string; position: number },
@@ -109,6 +105,23 @@ export function sidebarReorderAnnouncement(
   return `${labels.drag(item.label)}. ${labels.moveToPosition(position + 1)}.`;
 }
 
+export function constrainedSidebarTransform<
+  Transform extends { x: number; y: number },
+>(
+  transform: Transform,
+  isDragging: boolean,
+  bounds: { minY: number; maxY: number } | null,
+) {
+  return {
+    ...transform,
+    x: 0,
+    y:
+      isDragging && bounds
+        ? Math.min(Math.max(transform.y, bounds.minY), bounds.maxY)
+        : transform.y,
+  };
+}
+
 export function SidebarReorderProvider({
   items,
   labels,
@@ -123,6 +136,13 @@ export function SidebarReorderProvider({
   ) => void;
   children: ReactNode;
 }) {
+  const itemNodes = useRef(new Map<string, HTMLElement>());
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [dragBounds, setDragBounds] = useState<{
+    minY: number;
+    maxY: number;
+  } | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
@@ -150,27 +170,84 @@ export function SidebarReorderProvider({
       sidebarReorderAnnouncement(items, String(active.id), null, labels),
   };
 
+  function registerItemNode(itemId: string, node: HTMLElement | null) {
+    if (node) itemNodes.current.set(itemId, node);
+    else itemNodes.current.delete(itemId);
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const itemId = String(event.active.id);
+    const item = items.find((candidate) => candidate.id === itemId);
+    const activeNode = itemNodes.current.get(itemId);
+    if (!item || !activeNode) return;
+
+    const activeRect = activeNode.getBoundingClientRect();
+    const siblingRects = items
+      .filter((candidate) => candidate.parentId === item.parentId)
+      .flatMap((candidate) => {
+        const node = itemNodes.current.get(candidate.id);
+        return node ? [node.getBoundingClientRect()] : [];
+      });
+    setActiveId(itemId);
+    setOverId(itemId);
+    setDragBounds({
+      minY:
+        Math.min(...siblingRects.map((rect) => rect.top), activeRect.top) -
+        activeRect.top,
+      maxY:
+        Math.max(
+          ...siblingRects.map((rect) => rect.bottom),
+          activeRect.bottom,
+        ) - activeRect.bottom,
+    });
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    setOverId(event.over ? String(event.over.id) : null);
+  }
+
+  function clearDragState() {
+    setActiveId(null);
+    setOverId(null);
+    setDragBounds(null);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const overId = event.over?.id;
-    if (!overId) return;
-    const currentIds = items.map((item) => item.id);
-    const nextIds = reorderedSidebarItemIds(
-      items,
-      String(event.active.id),
-      String(overId),
-    );
-    if (nextIds.some((id, index) => id !== currentIds[index])) {
-      const itemId = String(event.active.id);
-      onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
+    if (overId) {
+      const currentIds = items.map((item) => item.id);
+      const nextIds = reorderedSidebarItemIds(
+        items,
+        String(event.active.id),
+        String(overId),
+      );
+      if (nextIds.some((id, index) => id !== currentIds[index])) {
+        const itemId = String(event.active.id);
+        onReorder(nextIds, { itemId, position: nextIds.indexOf(itemId) });
+      }
     }
+    clearDragState();
   }
 
   return (
-    <SidebarReorderContext.Provider value={{ items, onReorder }}>
+    <SidebarReorderContext.Provider
+      value={{
+        items,
+        activeId,
+        overId,
+        dragBounds,
+        registerItemNode,
+        onReorder,
+      }}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
+        autoScroll={false}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={clearDragState}
         accessibility={{
           announcements,
           screenReaderInstructions: {
@@ -201,6 +278,25 @@ export function useSidebarReorderItem(itemId: string) {
   const siblingIndex = siblings.findIndex(
     (candidate) => candidate.id === itemId,
   );
+  const activeSiblingIndex = siblings.findIndex(
+    (candidate) => candidate.id === context?.activeId,
+  );
+  const transform = sortable.transform
+    ? constrainedSidebarTransform(
+        sortable.transform,
+        sortable.isDragging,
+        context?.dragBounds ?? null,
+      )
+    : null;
+  const dropIndicator: "before" | "after" | null =
+    context?.activeId &&
+    context.activeId !== itemId &&
+    context.overId === itemId &&
+    activeSiblingIndex >= 0
+      ? activeSiblingIndex < siblingIndex
+        ? "after"
+        : "before"
+      : null;
 
   function moveToSibling(target: SidebarReorderItem | undefined) {
     if (!context || !target) return;
@@ -212,15 +308,19 @@ export function useSidebarReorderItem(itemId: string) {
   }
 
   return {
-    setNodeRef: sortable.setNodeRef,
+    setNodeRef: (node: HTMLElement | null) => {
+      sortable.setNodeRef(node);
+      context?.registerItemNode(itemId, node);
+    },
     style: {
-      transform: CSS.Transform.toString(sortable.transform),
+      transform: CSS.Transform.toString(transform),
       transition: sortable.transition,
       opacity: sortable.isDragging ? 0.55 : undefined,
     } satisfies CSSProperties,
     attributes: sortable.attributes,
     listeners: sortable.listeners,
     isDragging: sortable.isDragging,
+    dropIndicator,
     siblings,
     siblingIndex,
     moveUp: () => moveToSibling(siblings[siblingIndex - 1]),
@@ -229,71 +329,22 @@ export function useSidebarReorderItem(itemId: string) {
   };
 }
 
-export function SidebarDragHandle({
-  label,
-  reorder,
+export function SidebarDropIndicator({
+  placement,
   className,
 }: {
-  label: string;
-  reorder: ReturnType<typeof useSidebarReorderItem>;
+  placement: "before" | "after" | null;
   className?: string;
 }) {
+  if (!placement) return null;
   return (
-    <button
-      type="button"
+    <span
+      aria-hidden="true"
       className={cn(
-        "flex size-6 cursor-grab touch-none items-center justify-center rounded text-muted-foreground hover:bg-background hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing",
+        "pointer-events-none absolute inset-x-1 z-20 h-0.5 rounded-full bg-foreground",
+        placement === "before" ? "-top-px" : "-bottom-px",
         className,
       )}
-      aria-label={label}
-      {...reorder.attributes}
-      {...reorder.listeners}
-    >
-      <IconGripVertical className="size-3.5" />
-    </button>
-  );
-}
-
-export function SidebarReorderMenuItems({
-  reorder,
-  labels,
-}: {
-  reorder: ReturnType<typeof useSidebarReorderItem>;
-  labels: SidebarReorderLabels;
-}) {
-  return (
-    <>
-      <DropdownMenuItem
-        disabled={reorder.siblingIndex <= 0}
-        onSelect={reorder.moveUp}
-      >
-        <IconChevronUp className="me-2 size-4" />
-        {labels.moveUp}
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        disabled={reorder.siblingIndex >= reorder.siblings.length - 1}
-        onSelect={reorder.moveDown}
-      >
-        <IconChevronDown className="me-2 size-4" />
-        {labels.moveDown}
-      </DropdownMenuItem>
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <IconListNumbers className="me-2 size-4" />
-          {labels.moveTo}
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
-          {reorder.siblings.map((sibling, position) => (
-            <DropdownMenuItem
-              key={sibling.id}
-              disabled={position === reorder.siblingIndex}
-              onSelect={() => reorder.moveTo(position)}
-            >
-              {labels.moveToPosition(position + 1)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-    </>
+    />
   );
 }

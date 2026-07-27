@@ -9,7 +9,6 @@ import type {
   ContentSidebarViewOrder,
 } from "@shared/api";
 import {
-  IconArrowsSort,
   IconChevronDown,
   IconChevronRight,
   IconDatabase,
@@ -43,8 +42,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -57,8 +54,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
-  SidebarDragHandle,
-  SidebarReorderMenuItems,
+  SidebarDropIndicator,
   SidebarReorderProvider,
   useSidebarReorderItem,
   type SidebarReorderLabels,
@@ -75,11 +71,6 @@ import {
   defaultDatabaseViewConfig,
   normalizeClientDatabaseViewConfig,
 } from "./view-config";
-
-export interface ContentFilesSidebarOrderLabels {
-  button: (mode: ContentSidebarOrderMode) => string;
-  modes: Record<ContentSidebarOrderMode, string>;
-}
 
 export interface ContentFilesSidebarManualReorder {
   onReorder: (
@@ -186,9 +177,6 @@ export function ContentFilesSidebarView({
   labels,
   onSelectView,
   sidebarOrder,
-  onSidebarOrderChange,
-  sidebarOrderLabels,
-  sidebarOrderPending = false,
   manualReorder,
   onOpenItem,
   onCreateChildPage,
@@ -207,9 +195,6 @@ export function ContentFilesSidebarView({
   onSelectView?: (viewId: string) => void;
   /** A parent-owned, user-scoped Files order. It never writes database membership. */
   sidebarOrder?: ContentSidebarViewOrder;
-  onSidebarOrderChange?: (order: ContentSidebarViewOrder) => void;
-  sidebarOrderLabels?: ContentFilesSidebarOrderLabels;
-  sidebarOrderPending?: boolean;
   manualReorder?: ContentFilesSidebarManualReorder;
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
@@ -317,45 +302,6 @@ export function ContentFilesSidebarView({
           ))}
         </div>
       )}
-      {sidebarOrder && onSidebarOrderChange && sidebarOrderLabels ? (
-        <div className="flex items-center px-1 pb-1">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 gap-1 px-2 text-xs"
-                disabled={sidebarOrderPending}
-              >
-                <IconArrowsSort className="size-3.5" />
-                {sidebarOrderLabels.button(sidebarOrder.mode)}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuRadioGroup
-                value={sidebarOrder.mode}
-                onValueChange={(value) =>
-                  onSidebarOrderChange({
-                    ...sidebarOrder,
-                    mode: value as ContentSidebarOrderMode,
-                  })
-                }
-              >
-                {(
-                  Object.keys(
-                    sidebarOrderLabels.modes,
-                  ) as ContentSidebarOrderMode[]
-                ).map((mode) => (
-                  <DropdownMenuRadioItem key={mode} value={mode}>
-                    {sidebarOrderLabels.modes[mode]}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      ) : null}
       <DatabaseSidebarView
         {...labels}
         groups={groups}
@@ -691,7 +637,12 @@ function ReorderableRenderedSidebarItem({
 }) {
   const controls = useSidebarReorderItem(item.id);
   return (
-    <div ref={controls.setNodeRef} style={controls.style} className="min-w-0">
+    <div
+      ref={controls.setNodeRef}
+      style={controls.style}
+      className="relative min-w-0"
+    >
+      <SidebarDropIndicator placement={controls.dropIndicator} />
       {renderItem(item, { controls, labels })}
     </div>
   );
@@ -721,7 +672,8 @@ function ReorderableDatabaseSidebarRow({
 }) {
   const reorder = useSidebarReorderItem(props.item.id);
   return (
-    <div ref={reorder.setNodeRef} style={reorder.style}>
+    <div ref={reorder.setNodeRef} style={reorder.style} className="relative">
+      <SidebarDropIndicator placement={reorder.dropIndicator} />
       <DatabaseSidebarRow
         {...props}
         reorder={{ controls: reorder, labels: reorderLabels }}
@@ -775,9 +727,7 @@ function DatabaseSidebarRow({
     item.document.accessRole === "admin";
   const canCreateChild = canEdit && Boolean(onCreateChildPage);
   const hasMenuActions =
-    Boolean(onToggleFavorite) ||
-    Boolean(reorder) ||
-    (canManage && Boolean(onDeleteItem));
+    Boolean(onToggleFavorite) || (canManage && Boolean(onDeleteItem));
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -825,8 +775,12 @@ function DatabaseSidebarRow({
         ) : null}
         <Link
           to={`/page/${item.document.id}`}
+          {...reorder?.controls.attributes}
+          {...reorder?.controls.listeners}
           className={cn(
             "flex h-7 min-w-0 items-center gap-1.5 rounded pe-1.5 text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            reorder &&
+              "touch-none cursor-grab select-none active:cursor-grabbing",
             active && "font-semibold text-foreground",
           )}
           style={{
@@ -860,14 +814,8 @@ function DatabaseSidebarRow({
           </span>
         </Link>
 
-        {(hasMenuActions || canCreateChild || reorder) && (
+        {(hasMenuActions || canCreateChild) && (
           <div className="pointer-events-none absolute end-1 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded bg-sidebar px-0.5 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-            {reorder ? (
-              <SidebarDragHandle
-                label={reorder.labels.drag(title)}
-                reorder={reorder.controls}
-              />
-            ) : null}
             {hasMenuActions && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -880,17 +828,6 @@ function DatabaseSidebarRow({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-48">
-                  {reorder ? (
-                    <>
-                      <SidebarReorderMenuItems
-                        reorder={reorder.controls}
-                        labels={reorder.labels}
-                      />
-                      {onToggleFavorite || (canManage && onDeleteItem) ? (
-                        <DropdownMenuSeparator />
-                      ) : null}
-                    </>
-                  ) : null}
                   {onToggleFavorite ? (
                     <DropdownMenuItem onSelect={() => onToggleFavorite(item)}>
                       <IconStar

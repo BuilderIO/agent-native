@@ -38,6 +38,7 @@ import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
   IconFolder,
   IconFolderOpen,
+  IconArrowsSort,
   IconPlus,
   IconRestore,
   IconSearch,
@@ -84,6 +85,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -146,11 +149,7 @@ import {
   selectContentSpace,
   toggleExpandedWorkspaceIds,
 } from "./select-content-space";
-import {
-  SidebarDragHandle,
-  SidebarReorderMenuItems,
-  type SidebarReorderLabels,
-} from "./sidebar-reorder";
+import { type SidebarReorderLabels } from "./sidebar-reorder";
 import {
   WorkspaceSourceMenu,
   type CreatedWorkspace,
@@ -310,13 +309,18 @@ function withPersonalSidebarOrder(
   };
 }
 
-function WorkspaceFilesSection({
+function WorkspaceSidebarItem({
   space,
   selected,
+  expanded,
+  reorder,
+  createDocumentPending,
   activeDocumentId,
   expandedDocumentIds,
   onDocumentExpandedChange,
   onActivate,
+  onToggleExpanded,
+  onCreatePageInSpace,
   onCreateChildPage,
   onCreateChildDatabase,
   onDeleteItem,
@@ -324,10 +328,15 @@ function WorkspaceFilesSection({
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
+  expanded: boolean;
+  reorder?: ContentFilesSidebarRenderReorder;
+  createDocumentPending: boolean;
   activeDocumentId: string | null;
   expandedDocumentIds: ReadonlySet<string>;
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   onActivate: (space: ContentSpaceSummary, documentId?: string) => void;
+  onToggleExpanded: () => void;
+  onCreatePageInSpace: (space: ContentSpaceSummary) => void;
   onCreateChildPage: (
     space: ContentSpaceSummary,
     item: ContentDatabaseItem,
@@ -340,12 +349,13 @@ function WorkspaceFilesSection({
   onToggleFavorite: (item: ContentDatabaseItem) => void;
 }) {
   const t = useT();
-  const filesDatabase = useContentDatabaseById(space.filesDatabaseId);
+  const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null;
+  const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
   const filesPersonalView = useContentDatabasePersonalView(
-    space.filesDatabaseId,
+    activeFilesDatabaseId,
   );
   const updateFilesPersonalView = useUpdateContentDatabasePersonalView(
-    space.filesDatabaseId,
+    activeFilesDatabaseId,
   );
   const failed = filesDatabase.isError || filesPersonalView.isError;
   const { activeViewId, order: sidebarOrder } = personalSidebarOrderForDatabase(
@@ -389,74 +399,182 @@ function WorkspaceFilesSection({
   }
 
   return (
-    <div className="ms-3 border-s border-border/70 pb-1 ps-1">
-      {failed ? (
-        <QueryErrorState
-          compact
-          onRetry={() => {
-            void filesDatabase.refetch();
-            void filesPersonalView.refetch();
+    <div className="min-w-0">
+      <div
+        className={cn(
+          "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
+          selected
+            ? "text-foreground"
+            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
+          className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+          onClick={onToggleExpanded}
+        >
+          <span className="group-hover/workspace-header:opacity-0 group-focus-within/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
+            {expanded ? <IconFolderOpen size={14} /> : <IconFolder size={14} />}
+          </span>
+          <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
+            {expanded ? (
+              <IconChevronDown size={14} />
+            ) : (
+              <IconChevronRight size={14} />
+            )}
+          </span>
+        </button>
+        <Link
+          to={`/page/${space.filesDocumentId}`}
+          {...reorder?.controls.attributes}
+          {...reorder?.controls.listeners}
+          className={cn(
+            "flex h-7 min-w-0 flex-1 items-center truncate pe-2 text-start text-[10px] font-semibold uppercase leading-none tracking-wider",
+            reorder &&
+              "touch-none cursor-grab select-none active:cursor-grabbing",
+          )}
+          onClick={(event) => {
+            if (
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              !event.altKey
+            ) {
+              event.preventDefault();
+              onActivate(space);
+            }
           }}
-          retrying={filesDatabase.isFetching || filesPersonalView.isFetching}
-        />
-      ) : (
-        <ContentFilesSidebarView
-          data={filesDatabase.data}
-          overrides={filesPersonalView.data?.overrides}
-          isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
-          activeDocumentId={activeDocumentId}
-          expandedDocumentIds={expandedDocumentIds}
-          onDocumentExpandedChange={onDocumentExpandedChange}
-          onSelectView={(viewId) => {
-            const current = filesPersonalView.data?.overrides;
-            updateFilesPersonalView.mutate({
-              databaseId: space.filesDatabaseId,
-              overrides: {
-                version:
-                  current?.version ??
-                  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
-                activeViewId: viewId,
-                views: current?.views ?? [],
-              },
-            });
-          }}
-          sidebarOrder={sidebarOrder}
-          onSidebarOrderChange={updateSidebarOrder}
-          sidebarOrderLabels={{
-            button: (mode) =>
-              t("sidebar.orderButton", {
-                order: sidebarOrderModeLabels[mode],
-              }),
-            modes: sidebarOrderModeLabels,
-          }}
-          sidebarOrderPending={updateFilesPersonalView.isPending}
-          manualReorder={
-            updateFilesPersonalView.isPending
-              ? undefined
-              : {
-                  labels: reorderLabels,
-                  onReorder: (itemIds) =>
-                    updateSidebarOrder({ ...sidebarOrder, itemIds }),
+        >
+          {space.name}
+        </Link>
+        {expanded ? (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+                    aria-label={t("sidebar.orderButton", {
+                      order: sidebarOrderModeLabels[sidebarOrder.mode],
+                    })}
+                    disabled={
+                      filesDatabase.isLoading ||
+                      filesPersonalView.isLoading ||
+                      updateFilesPersonalView.isPending
+                    }
+                  >
+                    <IconArrowsSort size={14} />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("sidebar.orderButton", {
+                  order: sidebarOrderModeLabels[sidebarOrder.mode],
+                })}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={sidebarOrder.mode}
+                onValueChange={(value) =>
+                  updateSidebarOrder({
+                    ...sidebarOrder,
+                    mode: value as ContentSidebarViewOrder["mode"],
+                  })
                 }
-          }
-          onOpenItem={(item: ContentDatabaseItem) => {
-            if (selected) return false;
-            onActivate(space, item.document.id);
-            return true;
-          }}
-          onCreateChildPage={(item) => onCreateChildPage(space, item)}
-          onCreateChildDatabase={(item) => onCreateChildDatabase(space, item)}
-          onDeleteItem={onDeleteItem}
-          onToggleFavorite={onToggleFavorite}
-          labels={{
-            loadingLabel: t("sidebar.loadingFiles"),
-            noMatchesLabel: t("database.noRowsMatchThisView"),
-            clearLabel: t("database.clearSearchAndFilters"),
-            navigationLabel: `${space.name} ${t("sidebar.files")}`,
-            untitledLabel: t("sidebar.untitled"),
-          }}
-        />
-      )}
+              >
+                {(
+                  Object.keys(
+                    sidebarOrderModeLabels,
+                  ) as ContentSidebarViewOrder["mode"][]
+                ).map((mode) => (
+                  <DropdownMenuRadioItem key={mode} value={mode}>
+                    {sidebarOrderModeLabels[mode]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        <button
+          type="button"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
+          disabled={createDocumentPending}
+          aria-label={`${t("sidebar.newPage")} — ${space.name}`}
+          onClick={() => onCreatePageInSpace(space)}
+        >
+          <IconPlus size={14} />
+        </button>
+      </div>
+      {expanded ? (
+        <div className="ms-3 border-s border-border/70 pb-1 ps-1">
+          {failed ? (
+            <QueryErrorState
+              compact
+              onRetry={() => {
+                void filesDatabase.refetch();
+                void filesPersonalView.refetch();
+              }}
+              retrying={
+                filesDatabase.isFetching || filesPersonalView.isFetching
+              }
+            />
+          ) : (
+            <ContentFilesSidebarView
+              data={filesDatabase.data}
+              overrides={filesPersonalView.data?.overrides}
+              isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+              activeDocumentId={activeDocumentId}
+              expandedDocumentIds={expandedDocumentIds}
+              onDocumentExpandedChange={onDocumentExpandedChange}
+              onSelectView={(viewId) => {
+                const current = filesPersonalView.data?.overrides;
+                updateFilesPersonalView.mutate({
+                  databaseId: space.filesDatabaseId,
+                  overrides: {
+                    version:
+                      current?.version ??
+                      CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+                    activeViewId: viewId,
+                    views: current?.views ?? [],
+                  },
+                });
+              }}
+              sidebarOrder={sidebarOrder}
+              manualReorder={
+                updateFilesPersonalView.isPending
+                  ? undefined
+                  : {
+                      labels: reorderLabels,
+                      onReorder: (itemIds) =>
+                        updateSidebarOrder({ ...sidebarOrder, itemIds }),
+                    }
+              }
+              onOpenItem={(item: ContentDatabaseItem) => {
+                if (selected) return false;
+                onActivate(space, item.document.id);
+                return true;
+              }}
+              onCreateChildPage={(item) => onCreateChildPage(space, item)}
+              onCreateChildDatabase={(item) =>
+                onCreateChildDatabase(space, item)
+              }
+              onDeleteItem={onDeleteItem}
+              onToggleFavorite={onToggleFavorite}
+              labels={{
+                loadingLabel: t("sidebar.loadingFiles"),
+                noMatchesLabel: t("database.noRowsMatchThisView"),
+                clearLabel: t("database.clearSearchAndFilters"),
+                navigationLabel: `${space.name} ${t("sidebar.files")}`,
+                untitledLabel: t("sidebar.untitled"),
+              }}
+            />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1641,130 +1759,44 @@ export function DocumentSidebar({
   const renderWorkspaceRoot = (
     space: ContentSpaceSummary,
     reorder?: ContentFilesSidebarRenderReorder,
-  ) => {
-    const selected = selectedSpace?.id === space.id;
-    const expanded = expandedWorkspaceIds.includes(space.id);
-    return (
-      <div className="min-w-0">
-        <div
-          className={cn(
-            "group/workspace-header flex h-7 w-full min-w-0 items-center rounded-md",
-            selected
-              ? "text-foreground"
-              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-          )}
-        >
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-            className="group/workspace-toggle relative flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
-            onClick={() =>
-              updateExpandedWorkspaceIds((current) =>
-                toggleExpandedWorkspaceIds(current, space.id),
-              )
-            }
-          >
-            <span className="group-hover/workspace-header:opacity-0 group-focus-visible/workspace-toggle:opacity-0">
-              {expanded ? (
-                <IconFolderOpen size={14} />
-              ) : (
-                <IconFolder size={14} />
-              )}
-            </span>
-            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/workspace-header:opacity-100 group-focus-visible/workspace-toggle:opacity-100">
-              {expanded ? (
-                <IconChevronDown size={14} />
-              ) : (
-                <IconChevronRight size={14} />
-              )}
-            </span>
-          </button>
-          <Link
-            to={`/page/${space.filesDocumentId}`}
-            className="h-7 min-w-0 flex-1 truncate pe-2 text-start text-[10px] font-semibold uppercase tracking-wider"
-            onClick={(event) => {
-              if (
-                !event.metaKey &&
-                !event.ctrlKey &&
-                !event.shiftKey &&
-                !event.altKey
-              ) {
-                event.preventDefault();
-                void handleSelectContentSpace(space);
-              }
-            }}
-          >
-            {space.name}
-          </Link>
-          {reorder ? (
-            <>
-              <SidebarDragHandle
-                label={reorder.labels.drag(space.name)}
-                reorder={reorder.controls}
-                className="opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100"
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 hover:bg-background/60 hover:text-foreground group-hover/workspace-header:opacity-100 group-focus-within/workspace-header:opacity-100 focus-visible:opacity-100"
-                    aria-label={t("sidebar.moreActionsFor", {
-                      label: space.name,
-                    })}
-                  >
-                    <IconDots size={14} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <SidebarReorderMenuItems
-                    reorder={reorder.controls}
-                    labels={reorder.labels}
-                  />
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/60 hover:text-foreground disabled:opacity-50"
-            disabled={createDocument.isPending}
-            aria-label={`${t("sidebar.newPage")} — ${space.name}`}
-            onClick={() => void handleCreatePageInSpace(space)}
-          >
-            <IconPlus size={14} />
-          </button>
-        </div>
-        {expanded && (
-          <WorkspaceFilesSection
-            space={space}
-            selected={selected}
-            activeDocumentId={activeDocumentId}
-            expandedDocumentIds={expandedDocumentIdSet}
-            onDocumentExpandedChange={handleDocumentExpandedChange}
-            onActivate={(nextSpace, documentId) =>
-              void handleSelectContentSpace(nextSpace, documentId)
-            }
-            onCreateChildPage={(nextSpace, item) =>
-              void handleCreatePage(
-                item.document.id,
-                nextSpace.id,
-                undefined,
-                nextSpace.filesDatabaseId,
-              )
-            }
-            onCreateChildDatabase={(nextSpace, item) =>
-              void handleCreateDatabase(item.document.id, nextSpace.id)
-            }
-            onDeleteItem={(item) => void handleDelete(item.document.id)}
-            onToggleFavorite={(item) =>
-              handleToggleFavorite(item.document.id, !item.document.isFavorite)
-            }
-          />
-        )}
-      </div>
-    );
-  };
+  ) => (
+    <WorkspaceSidebarItem
+      space={space}
+      selected={selectedSpace?.id === space.id}
+      expanded={expandedWorkspaceIds.includes(space.id)}
+      reorder={reorder}
+      createDocumentPending={createDocument.isPending}
+      activeDocumentId={activeDocumentId}
+      expandedDocumentIds={expandedDocumentIdSet}
+      onDocumentExpandedChange={handleDocumentExpandedChange}
+      onToggleExpanded={() =>
+        updateExpandedWorkspaceIds((current) =>
+          toggleExpandedWorkspaceIds(current, space.id),
+        )
+      }
+      onActivate={(nextSpace, documentId) =>
+        void handleSelectContentSpace(nextSpace, documentId)
+      }
+      onCreatePageInSpace={(nextSpace) =>
+        void handleCreatePageInSpace(nextSpace)
+      }
+      onCreateChildPage={(nextSpace, item) =>
+        void handleCreatePage(
+          item.document.id,
+          nextSpace.id,
+          undefined,
+          nextSpace.filesDatabaseId,
+        )
+      }
+      onCreateChildDatabase={(nextSpace, item) =>
+        void handleCreateDatabase(item.document.id, nextSpace.id)
+      }
+      onDeleteItem={(item) => void handleDelete(item.document.id)}
+      onToggleFavorite={(item) =>
+        handleToggleFavorite(item.document.id, !item.document.isFavorite)
+      }
+    />
+  );
 
   const renderWorkspaceNavigation = () => (
     <div className="mb-2 min-w-0 overflow-x-hidden px-2">

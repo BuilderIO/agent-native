@@ -1,499 +1,354 @@
-# Content sidebar ordering
+# Content sidebar personal ordering
 
-> WORK AUTHORIZED
+> SHAPE V3 APPROVED FOR WORK
 >
-> Alice approved this replacement fingerprint by invoking `/work` on July 26, 2026. Implementation is bound to the frozen outcome, three shipping surfaces,
-> governing architecture, acceptance story, and system-ready risk strategy.
+> Alice supplied a concrete feedback recording and explicitly requested that the
+> revised plan be shaped, implemented, and returned on PR #2423's existing
+> preview. This revision supersedes the earlier handle-and-menu interaction
+> plan while retaining its personal-order persistence boundary.
 
 ## Refresher
 
-The first shape recommended custom ordering only for **Pinned**. Alice has now
-agreed to the broader product direction:
+Content now supports personal custom order for Pinned references, workspace
+roots, and each workspace's Files list. The first implementation proved the
+data boundary but exposed too much implementation chrome: visible grip handles,
+full-width `Order: Custom` rows, and overflow commands for moving an item.
+Pointer dragging could also escape horizontally and create an oversized scroll
+region, and its landing position was not explicit enough.
 
-- Pinned is always personal and custom-orderable.
-- Workspace roots are personally custom-orderable.
-- Each workspace's Files section offers `Custom`, `Last edited`, `Name`, and
-  `Created` order modes.
-- `Custom` is personal by default. A future “Save this order for everyone” is an
-  explicit shared-view capability, not an implicit consequence of dragging.
-- Dragging and its keyboard/menu equivalents reorder sidebar references. They
-  never reparent a page, move it between workspaces, change access, or change
-  ownership.
+Alice's July 27 feedback establishes the revised interaction:
 
-The implementation should remain Content-local. There is no current Toolkit
-controller for ordered pinned/navigation resources, while Content already has
-the required database-membership and personal-view substrate. A shared
-headless controller becomes worth proposing after a second non-chat app needs
-the same behavior.
+- The primary surface of a reorderable sidebar row is the drag target. There is
+  no dedicated visible grip.
+- Drag motion is vertical and bounded to valid visible slots in its current
+  list. A clear horizontal insertion bar shows the landing slot.
+- Interactive children such as expand, add, overflow, and sort controls remain
+  ordinary controls and never initiate a drag.
+- Keyboard dragging remains available from the focusable primary row; the new
+  `Move up`, `Move down`, and `Move to position` overflow commands are removed.
+- In an expanded workspace, a compact sort icon next to its add button replaces
+  the separate `Order: Custom` row and opens `Custom`, `Last edited`, `Name`,
+  and `Created`; collapsed workspaces stay data-lazy.
+- Workspace folder icons and labels share one visual baseline.
+- The editor block preview stays aligned to the point where the user grabbed
+  the block instead of floating below the pointer.
 
-This passes the public-constituency gate: a source-blind developer installing
-the public Content template receives the same generic workspace navigation,
-with no Builder-internal data, identity, or operating assumption required.
+All sidebar dragging changes only the current viewer's order. It never reparents
+a document, moves it between workspaces, changes access or ownership, or
+rewrites shared Files membership.
 
-## Interaction boundary
+## Interaction contract
 
 ```text
-NORMAL                         DRAG / POINTER                 KEYBOARD / MENU
-┌──────────────────────┐       ┌──────────────────────┐       ┌──────────────────────┐
-│ PINNED               │       │ PINNED               │       │ Roadmap          ••• │
-│  ⋮⋮ Launch brief     │       │  ⋮⋮ Launch brief     │       │ ┌──────────────────┐ │
-│  ⋮⋮ Roadmap          │  →    │  ── drop here ──     │  =    │ │ Move up          │ │
-│  ⋮⋮ Research notes   │       │  ⋮⋮ Roadmap          │       │ │ Move down        │ │
-└──────────────────────┘       │  ⋮⋮ Research notes   │       │ │ Move to…         │ │
-                               └──────────────────────┘       │ └──────────────────┘ │
-                                                            └──────────────────────┘
+NORMAL                              DRAGGING
+┌────────────────────────────┐      ┌────────────────────────────┐
+│ PINNED                     │      │ PINNED                     │
+│   Launch brief             │      │   Launch brief             │
+│   Roadmap                  │  →   │ ━ landing slot ━━━━━━━━━━ │
+│   Research notes           │      │   Roadmap                  │
+└────────────────────────────┘      │   Research notes           │
+                                    └────────────────────────────┘
 
-Changes: my Pinned reference order
-Does not change: page parent, Files membership, workspace, sharing, or ownership
+Primary row: click opens; drag reorders; Space picks up for keyboard reorder
+Row controls: expand/add/sort/overflow keep their ordinary click behavior
+Movement: vertical, clamped to the current visible list, same-parent where needed
 
-FILES — CUSTOM                FILES — NAME / LAST EDITED / CREATED
-┌──────────────────────┐       ┌──────────────────────┐
-│ Order: Custom      ▾ │       │ Order: Name        ▾ │
-│  ⋮⋮ Brief            │       │    Brief             │
-│  ⋮⋮ Assets           │       │    Launch            │
-│  ⋮⋮ Launch           │       │    Assets            │
-└──────────────────────┘       └──────────────────────┘
- drag/menu enabled              drag/menu disabled; custom order is preserved
+WORKSPACE HEADER
+┌───────────────────────────────────┐
+│ ▾  Personal                 ⇅  + │
+└───────────────────────────────────┘
+                              │
+                              └─ Custom / Last edited / Name / Created
 ```
 
-For hierarchical Files, reorder is limited to the visible sibling set. A drop
-across parent boundaries is rejected; nesting remains an explicit `Move to…`
-content operation. If the active view is filtered or grouped, manual reorder is
-disabled because hidden/grouped rows make a target position ambiguous.
+The insertion bar uses normal foreground contrast. It is a slot marker, not a
+document hierarchy affordance. Files drops across parent boundaries remain
+invalid; nesting still uses the explicit document-move capability.
+
+## Desired outcome
+
+Each signed-in Content user can quietly arrange Pinned references, workspace
+roots, and eligible Files siblings through a familiar row-drag interaction,
+choose useful computed Files orders from the workspace header, and trust that
+the operation affects only their personal navigation view.
 
 ## Product decisions
 
-| Surface         | Default scope                  | Durable order                                                              | Available modes                    | Manual reorder                             |
-| --------------- | ------------------------------ | -------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------ |
-| Pinned          | Current user                   | Personal Pinned database membership `position`                             | Custom                             | Always, when the row is visible            |
-| Workspace roots | Current user                   | Personal Workspaces catalog membership `position`                          | Custom                             | Always, when the row is visible            |
-| Workspace Files | Current user per database/view | Personal database-view override containing mode and ordered membership IDs | Custom, Last edited, Name, Created | Only in Custom with no active filter/group |
+| Surface         | Durable order                                    | Pointer interaction                                | Keyboard interaction                   | Order modes                        |
+| --------------- | ------------------------------------------------ | -------------------------------------------------- | -------------------------------------- | ---------------------------------- |
+| Pinned          | Personal Pinned membership positions             | Drag primary row                                   | Focus row, Space/arrow reorder         | Custom                             |
+| Workspace roots | Personal Workspaces catalog membership positions | Drag primary row                                   | Focus row, Space/arrow reorder         | Custom                             |
+| Workspace Files | Per-user database-view ordered membership IDs    | Drag primary row in eligible Custom view           | Focus row, Space/arrow reorder         | Custom, Last edited, Name, Created |
+| Editor blocks   | Existing document structure                      | Existing block grip; preview preserves grab offset | Existing block-menu behavior unchanged | Not applicable                     |
 
-New Pinned items, newly joined workspaces, and new Files memberships append to
-the end of the stored custom order. Deleted or inaccessible IDs are ignored on
-read and pruned on the next successful write. Switching to a computed mode does
-not erase the custom order.
+Computed Files modes retain the saved Custom sequence. Manual Files reorder is
+available only in `Custom` with no active grouping/filter ambiguity and only
+within the visible sibling set. New references append; inaccessible or stale
+IDs are ignored and pruned by the existing normalization path.
 
-`Home`, `Add workspace`, and `Trash` remain fixed chrome; only workspace roots
-inside the Workspaces collection move.
+## Architecture grounding and fit
 
-## Current product truth
+Architecture grounding is required because one feedback item touches the
+shared editor Toolkit.
 
-- Pinned is still internally named Favorites. Its personal system database
-  already appends memberships with a `position`, but `list-documents` reduces
-  them to a boolean set and the sidebar therefore discards the stored order
-  ([`_content-favorites.ts`](../../actions/_content-favorites.ts),
-  [`list-documents.ts`](../../actions/list-documents.ts),
-  [`document-sidebar-sections.ts`](../../app/components/sidebar/document-sidebar-sections.ts)).
-- Workspace roots are already rendered from the signed-in user's Workspaces
-  catalog database. Each catalog row has an exact membership item ID and
-  position; `ContentFilesSidebarView` already renders that response
-  ([`list-content-spaces.ts`](../../actions/list-content-spaces.ts),
-  [`DocumentSidebar.tsx`](../../app/components/sidebar/DocumentSidebar.tsx)).
-- Each expanded workspace already fetches its Files database and its per-user,
-  per-database view overrides. The sidebar applies personal filters and sorts
-  without changing the shared saved view
-  ([`sidebar.tsx`](../../app/components/editor/database/sidebar.tsx),
-  [`_content-database-personal-view.ts`](../../actions/_content-database-personal-view.ts)).
-- `move-database-item` atomically resequences membership positions, but it also
-  accepts ambiguous `documentId` and performs its read/reorder calculation
-  before the transaction. Sidebar callers must use exact `{databaseId, itemId}`
-  identity, and the action should be hardened with the existing per-database
-  position lock ([`move-database-item.ts`](../../actions/move-database-item.ts),
-  [`_position-utils.ts`](../../actions/_position-utils.ts)).
-- The active document-tree drag handler calls `move-document`, which changes
-  canonical page hierarchy/position. It is deliberately not the persistence
-  path for this feature
-  ([`DocumentSidebar.tsx`](../../app/components/sidebar/DocumentSidebar.tsx),
-  [`move-document.ts`](../../actions/move-document.ts)).
-- The general sidebar setting stores expansion only. Ordering does not belong
-  there: Pinned and Workspaces already have membership state; Files ordering is
-  scoped to a database view
-  ([`_content-sidebar-state.ts`](../../actions/_content-sidebar-state.ts)).
+### Demonstrated callers
 
-No schema migration is required for Pinned or Workspace roots. Files personal
-custom order requires a backward-compatible version bump to the existing
-personal-view setting schema, not a new SQL table or shared membership rewrite.
+- Content sidebar user dragging Pinned, workspace, and Files rows in the PR
+  #2423 preview.
+- Content `VisualEditor` user dragging a text block and observing its clone
+  below the pointer in the July 27 feedback recording.
+
+### Existing primitives and ownership boundaries
+
+- `templates/content/app/components/sidebar/sidebar-reorder.tsx` owns the
+  Content-local sortable controller, personal-order semantics, keyboard sensor,
+  and announcements.
+- `templates/content/app/components/editor/database/sidebar.tsx` owns Files
+  presentation and order-mode selection.
+- `templates/content/app/components/sidebar/DocumentSidebar.tsx` owns workspace
+  headers and the Pinned/workspace integration.
+- `packages/toolkit/src/editor/DragHandle.ts` owns the shared floating block
+  preview and drop geometry used by Content and Plan. Host apps own its CSS.
+
+### Legacy contracts that remain unchanged
+
+- Exact Pinned/workspace membership persistence and per-user Files settings.
+- Same-parent Files validation, optimistic rollback, and canonical refetch.
+- Native link activation, modified click, middle click, context menu, focus, and
+  nested action controls.
+- Toolkit block selection, action menu, before/after reorder, side-column drops,
+  cross-editor transfer, drop indicators, and wrapper configuration.
+
+### Smallest compatible delta
+
+Keep sidebar sorting Content-local. Replace handle-only listeners with primary
+row listeners, expose one slot indicator from the existing sortable context,
+and bound pointer transforms to the list's vertical geometry without changing
+the persistence actions. In Toolkit, record the pointer-to-source-block offset
+when a drag begins and reuse that offset for the floating preview transform.
+
+### Deferred capabilities
+
+- Shared Toolkit sidebar-sortable controller.
+- Shared organization Files order.
+- Drag-to-reparent or drag-to-move between workspaces.
+- A permanently visible keyboard reorder menu.
+- Rich auto-scroll for lists longer than the visible sidebar; this slice favors
+  bounded visible slots over runaway off-screen motion.
+
+### Evidence classification
+
+Direct evidence:
+
+- The July 27 clip demonstrates visible handles, horizontal escape, oversized
+  scrolling, absent landing clarity, block-preview offset, workspace icon
+  misalignment, the full-width order control, and move-command menu clutter.
+- Current source shows the sidebar listeners attached only to
+  `SidebarDragHandle` and the Toolkit preview positioned with hard-coded pointer
+  offsets.
+
+Inference:
+
+- Preserving keyboard drag on the primary row satisfies the accessibility goal
+  without retaining the menus Alice asked to remove. This must be proven in the
+  real interface.
+
+Unresolved owner questions: none.
 
 ## Implementation plan
 
-### 1. Establish one explicit ordering contract
+### 1. Revise the Content-local reorder primitive
 
-Add shared API types for:
+- Remove the exported visible drag-handle and move-command menu components.
+- Expose sortable attributes/listeners as primary-row drag props.
+- Track active and over IDs and expose a before/after slot indicator only for a
+  valid same-parent target.
+- Force pointer transforms onto the vertical axis, clamp them to the current
+  reorder container, and suppress runaway auto-scroll.
+- Preserve keyboard sensors, localized announcements, and optimistic reorder
+  callbacks.
 
-```ts
-type OrderedMembershipRef = {
-  databaseId: string;
-  itemId: string;
-  documentId: string;
-  position: number;
-};
+### 2. Apply row dragging across all three sidebar surfaces
 
-type ContentSidebarOrderMode = "custom" | "last_edited" | "name" | "created";
+- Put drag props on each row's primary link/surface, not on expand/add/sort or
+  overflow controls.
+- Render the slot indicator at the correct row boundary.
+- Remove reorder commands from Pinned, workspace, and Files overflow menus while
+  preserving pin, delete, add, and other non-reorder actions.
+- Keep Files hierarchy and computed-mode guards intact.
 
-type ContentSidebarViewOrder = {
-  mode: ContentSidebarOrderMode;
-  itemIds: string[]; // retained when mode is computed
-};
-```
+### 3. Simplify workspace order controls and alignment
 
-The personal database-view override gains optional `sidebarOrder` per view.
-Version 2 settings normalize forward with `mode: "custom"` and no saved IDs;
-the current membership order is then the fallback. The field is explicitly
-sidebar-only so choosing a sidebar order does not silently rewrite the full
-database view's personal sort controls.
+- Lift the Files order menu into the workspace header next to `+` as an icon-only
+  shadcn dropdown with tooltip and mode-aware accessible name.
+- Remove the separate full-width order row from `ContentFilesSidebarView`.
+- Align folder/toggle icon and label within the same header flex geometry.
 
-Primary files:
+### 4. Align the shared block drag preview
 
-- [`shared/api.ts`](../../shared/api.ts)
-- [`actions/_content-database-personal-view.ts`](../../actions/_content-database-personal-view.ts)
-- [`actions/get-content-database-personal-view.ts`](../../actions/get-content-database-personal-view.ts)
-- [`actions/update-content-database-personal-view.ts`](../../actions/update-content-database-personal-view.ts)
+- Extend the Toolkit drag session with the pointer's offset from the source
+  block at mouse-down.
+- Position the preview from that captured offset rather than fixed `+12/+10`
+  values.
+- Add focused Toolkit tests covering offset capture and transform behavior and a
+  Toolkit changeset; keep every drop contract unchanged.
 
-### 2. Harden the atomic membership move
+### 5. Verify and return to the same preview
 
-Extend `move-database-item` so sidebar calls provide `databaseId`, `itemId`, and
-the destination position. Validate that the item belongs to that database,
-acquire the existing database-position lock, calculate the new order inside the
-locked transaction, resequence once, and return the canonical database
-response.
+- Update focused component/source tests, i18n expectations, Content docs, and
+  the existing changelog entry if its wording becomes inaccurate.
+- Run format, focused sidebar/Toolkit tests, Content typecheck, and the relevant
+  Content build.
+- Obtain independent technical review for the final material diff.
+- Run independent real-interface QA against the exact new PR head and the
+  existing dummy account/fixture.
+- Commit and push the current task branch so Netlify updates
+  `deploy-preview-2423--agent-native-content.netlify.app`; verify the exact head
+  and interaction before returning the link.
 
-Keep legacy `documentId` compatibility for existing callers during this slice,
-but do not use it in new sidebar code. Add a later cleanup issue rather than
-mixing an unrelated breaking action change into this feature.
+## Acceptance story
 
-The action must preserve its existing Files child-document mirroring where
-that remains required by the database editor. Tests must prove Pinned and
-Workspaces reference moves do not mutate the underlying content page's
-`parentId`, position, sharing, or other memberships.
+Successful-user story `content-sidebar-personal-order-v3`:
 
-Primary files:
+A signed-in Content user drags a Pinned row, workspace root, or eligible Files
+row from its primary surface; the item stays inside the visible vertical list,
+a clear insertion bar marks the landing slot, and reload preserves only that
+user's order. Workspace order mode is chosen from the compact header icon.
+Underlying documents and shared memberships never move. An editor block preview
+stays aligned with its grab point.
 
-- [`actions/move-database-item.ts`](../../actions/move-database-item.ts)
-- [`actions/_position-utils.ts`](../../actions/_position-utils.ts)
-- [`app/hooks/use-content-database.ts`](../../app/hooks/use-content-database.ts)
+Required assertions:
 
-### 3. Make Pinned and Workspaces consume their real ordered memberships
+1. No visible sidebar grip handles or reorder-only overflow commands remain.
+2. Dragging starts from the primary row surface while nested controls remain
+   independently clickable.
+3. Pointer motion is vertical and bounded; horizontal escape and giant drag
+   scroll regions do not occur.
+4. A visible insertion bar identifies every valid landing slot, including first
+   and last positions, and invalid cross-parent targets show no slot.
+5. Keyboard dragging remains operable from the primary row with accurate
+   localized announcements.
+6. Pinned, workspace, and eligible Files orders persist across reload and a
+   second tab without changing another user's order.
+7. Computed Files modes disable manual reorder and returning to Custom restores
+   the saved sequence.
+8. For an expanded workspace, the order icon sits beside `+`, exposes the
+   current mode accessibly, and opens all four order choices; the old full-width
+   row is absent and collapsed workspaces do not fetch their Files view.
+9. Folder/toggle icons and workspace labels share a consistent baseline.
+10. Row links preserve ordinary, modified, middle-click, context-menu, and
+    keyboard navigation behavior.
+11. Reorder never changes document parentage, canonical position, workspace,
+    access, visibility, sharing, ownership, or shared Files membership.
+12. Failed persistence rolls back visibly and refetches canonical state.
+13. Content and Plan block dragging retain existing drop behavior while the
+    floating preview preserves the pointer's source-block offset.
 
-Render Pinned from `get-content-database(favoritesDatabaseId)` instead of the
-favorite-filtered `list-documents` array. This yields exact item identity and
-membership order. Keep `isFavorite` on document metadata for commands/search,
-but stop treating it as the Pinned list's ordering source.
-
-Workspace roots already render from the Workspaces catalog database. Add drag
-and menu reorder using each row's exact catalog membership ID. Also make
-`list-content-spaces` deterministic by ordering its joined memberships and
-returning catalog position; this keeps the action truthful for agent callers
-even though the rendered list comes from `get-content-database`.
-
-For both surfaces, use optimistic cache reorder, one mutation on drop/menu
-activation, rollback to the snapshot on failure, a visible toast, and a
-canonical refetch. A read-only underlying page remains reorderable in Pinned
-because the user owns the personal Pinned membership.
-
-Primary files:
-
-- [`app/components/sidebar/DocumentSidebar.tsx`](../../app/components/sidebar/DocumentSidebar.tsx)
-- [`app/components/sidebar/document-sidebar-sections.ts`](../../app/components/sidebar/document-sidebar-sections.ts)
-- [`actions/list-content-spaces.ts`](../../actions/list-content-spaces.ts)
-- [`app/hooks/use-content-spaces.ts`](../../app/hooks/use-content-spaces.ts)
-
-### 4. Add Files order modes without changing shared Files membership
-
-Extend `ContentFilesSidebarView` to compute the effective sidebar order in this
-sequence:
-
-1. Apply the active view's filters.
-2. Select the order source:
-   - `Custom`: saved personal item IDs, then unsaved/new memberships by their
-     base membership position.
-   - `Last edited`: document `updatedAt` descending.
-   - `Name`: locale-aware title ascending, with stable item-ID tie-break.
-   - `Created`: document `createdAt` descending.
-3. Apply hierarchy/group presentation while preserving the resulting sibling
-   order.
-
-Do not call `move-database-item` for an organization Files custom order: Files
-membership positions are shared workspace data and may be viewer-only. Instead,
-one `update-content-database-personal-view` call writes the full personal custom
-item-ID sequence for that database view. This keeps two users independent and
-allows a viewer to arrange references to pages they cannot edit.
-
-Manual reorder is enabled only when `mode === "custom"`, no filters are active,
-no grouping is active, and source/target share the same hierarchy parent.
-Computed modes visibly suppress drag handles and disabled menu commands explain
-that Custom is required. Switching modes is optimistic and preserves the
-stored custom IDs.
-
-Primary files:
-
-- [`app/components/editor/database/sidebar.tsx`](../../app/components/editor/database/sidebar.tsx)
-- [`app/components/editor/database/filter-sort.ts`](../../app/components/editor/database/filter-sort.ts)
-- [`app/components/sidebar/DocumentSidebar.tsx`](../../app/components/sidebar/DocumentSidebar.tsx)
-- [`app/hooks/use-content-database.ts`](../../app/hooks/use-content-database.ts)
-
-### 5. Build one Content-local accessible reorder primitive
-
-Create a small headless/app-local controller used by all three surfaces. It
-owns pointer and keyboard sensors, same-list/same-parent validation, optimistic
-`arrayMove`, live-region announcements, and semantic commands:
-
-- `Move up`
-- `Move down`
-- `Move to…` (choose a position within the eligible sibling/list set)
-
-Use shadcn `DropdownMenu` and existing `@dnd-kit` dependencies. Preserve native
-link behavior: row titles are real links supporting Cmd/Ctrl-click,
-middle-click, focus, and context menus; drag starts only from a dedicated
-handle. The current Pinned overlay-button navigation should be replaced with
-the modifier-safe `Link` pattern already used by the database sidebar row.
-
-Keep the primitive under Content for now. If a second app adopts it, propose a
-Toolkit headless controller whose host supplies IDs, capabilities, persistence,
-and mutation callbacks.
-
-Likely files:
-
-- new `app/components/sidebar/use-sidebar-reorder.ts`
-- new `app/components/sidebar/SidebarReorderMenu.tsx`
-- [`app/components/sidebar/DocumentTreeItem.tsx`](../../app/components/sidebar/DocumentTreeItem.tsx)
-- [`app/components/editor/database/sidebar.tsx`](../../app/components/editor/database/sidebar.tsx)
-
-### 6. Complete agent parity, language, and product record
-
-The existing `get-content-database`, `move-database-item`, and personal-view
-actions provide the agent surface; document the exact membership identity and
-personal/shared boundary in the Content instructions. `list-content-spaces`
-must expose deterministic catalog order. Personal sidebar order mode is already
-readable through `get-content-database-personal-view`; no expansion-state action
-needs to become an agent tool.
-
-Rename user-visible Favorites copy to the settled `Pinned` / `Pin to sidebar`
-language in every locale while retaining internal system IDs for compatibility.
-Add a user-visible changelog entry after the behavior is complete.
-
-Primary files/surfaces:
-
-- [`AGENTS.md`](../../AGENTS.md) or the narrow Content navigation skill selected during `/work`
-- [`app/i18n`](../../app/i18n)
-- focused action descriptions and generated action metadata
-- `changelog/` through `agent-native changelog add`
-
-## Verification plan
-
-### Data and action tests
-
-- One page belongs to Files, Pinned, and another database. Moving its exact
-  Pinned item changes only Pinned positions.
-- Membership positions remain gapless after first, middle, and last moves.
-- Concurrent moves serialize through the database position lock.
-- Unauthorized database/item pairs fail closed; a personally owned Pinned
-  membership around a read-only page remains movable.
-- Workspace catalog action order is deterministic and new workspaces append.
-- Personal-view v2 data normalizes to the new version; invalid, duplicate,
-  deleted, and inaccessible custom IDs cannot escape normalization.
-- User A's Files custom order and mode do not alter User B's personal override
-  or the shared Files membership positions.
-
-### Component and interaction tests
-
-- Pointer drag, keyboard drag, `Move up`, `Move down`, and `Move to…` produce
-  the same final order on Pinned, Workspaces, and eligible Files siblings.
-- Optimistic success does not jump after the response; failure restores the
-  snapshot, announces the error, and refetches canonical state.
-- Computed modes sort stably, disable manual controls, and preserve Custom.
-- New items append; stale IDs disappear without hiding valid items.
-- Filters/grouping and cross-parent Files drops disable or reject reorder.
-- Links retain normal pointer, keyboard, modifier, middle-click, and context-menu
-  behavior in LTR and RTL.
-- All user-visible copy resolves in every supported locale.
-
-### Real-interface acceptance
-
-Run on a production-like preview with two authenticated users and two tabs:
-
-1. Reorder Pinned by pointer, keyboard, and menu; reload and observe persistence.
-2. Reorder workspace roots; confirm the other user keeps their order.
-3. In an organization Files section, set a personal Custom order as each user;
-   confirm independence and unchanged shared Files membership positions.
-4. Switch through Name, Last edited, and Created; return to Custom and recover
-   the prior sequence.
-5. Attempt cross-parent drag, filtered/grouped reorder, and reorder in a
-   computed mode; observe a clear non-destructive boundary.
-6. Open rows normally, in a new tab, and with keyboard. Confirm no accidental
-   drag or navigation regression.
-7. Force a mutation failure and confirm rollback plus a visible error.
-
-Fresh focused tests and real-interface proof are required during `/work`; the
-prior shape could not run Vitest because this worktree did not have dependencies
-installed at that time.
-
-## Delivery sequence
-
-1. Land the API normalization and locked action hardening with database tests.
-2. Land the Content-local reorder controller and Pinned/Workspace integration.
-3. Land Files personal order modes and schema-version compatibility.
-4. Complete accessibility, RTL/i18n, instructions, and changelog coverage.
-5. Run focused tests, typecheck/format checks, and the two-user real-interface
-   acceptance story before declaring the work complete.
-
-These are reviewable commits within one work unit, not independently shippable
-half-features. Do not expose drag handles until the corresponding persistence,
-rollback, and non-drag controls are present.
-
-## Non-goals
-
-- Drag-to-reparent or drag-to-move between workspaces.
-- A shared organization Files custom order.
-- Changing page parentage, ownership, access, or canonical database membership.
-- General saved sidebar filters/grouping UI beyond respecting existing active
-  filters/groups.
-- A new Toolkit package or ejection seam.
-- Renaming internal Favorites database identifiers.
-
-## Approved work-ready fingerprint
-
-### Material delta from shape-v1
-
-```yaml
-old-outcome: Personal custom order for Pinned references only.
-proposed-outcome: Personal custom order for Pinned, workspace roots, and each workspace Files sidebar, plus computed Files order modes.
-new-durable-surface:
-  - personal Workspaces catalog membership positions
-  - per-user per-database-view Files sidebar order mode and ordered item IDs
-new-acceptance-boundary:
-  - two-user independence for workspace and Files order
-  - computed-mode preservation
-  - same-parent-only hierarchical Files reorder
-```
+## Architecture fingerprint and authority envelope
 
 ```yaml
 stage: work
-authority-source: Alice's July 26 explicit invocation of /work after reviewing shape-v2-proposed
+authority-source: Alice's July 27 request to shape the new implementation plan, work it, and show the same preview
 authorized-scope:
-  repositories:
-    - builderio/agent-native
+  repositories: [builderio/agent-native]
   product-surfaces:
     - Content Pinned section
     - Content workspace-root navigation
     - Content workspace Files sidebar view
-  outcome: Let each signed-in user personally arrange sidebar references and choose useful Files order modes without moving or reparenting underlying pages.
+    - shared Toolkit editor block drag preview used by Content and Plan
+  outcome: Quiet, bounded row-drag personal sidebar ordering with compact workspace sort controls and pointer-aligned editor block previews.
 allowed-mutations:
   - artifact-write
   - branch
   - commit
   - push
   - pull-request
+  - deploy
+  - ephemeral-test-resource
 write-targets:
   artifacts:
     - templates/content/docs/solutions/content-sidebar-order-shape.md
   production-source:
-    - templates/content/actions
     - templates/content/app
-    - templates/content/shared
+    - templates/content/app/i18n
     - templates/content/.agents/skills
     - templates/content/changelog
-execution-lane:
-  checkout: isolated-git-worktree
-  branch: codex/content-sidebar-personal-order
-  refreshed-base: fbb2436d10cb9a285a227f5634a485a64161a41f
-  remote-default-branch: origin/main
+    - packages/toolkit/src/editor
+    - packages/toolkit tests
+    - .changeset
 governing-artifact:
   path: templates/content/docs/solutions/content-sidebar-order-shape.md
-  revision: shape-v2-approved-work-v1
+  revision: shape-v3-feedback-approved
 architecture-fingerprint:
-  outcome: Personal custom ordering across Pinned, workspace roots, and Files sidebar views, with computed Files modes.
+  outcome: Bounded primary-row sidebar dragging, compact Files ordering, and aligned shared block preview geometry.
   shipping-surfaces:
     - id: content-pinned-custom-order
       repository: builderio/agent-native
-      product-surface: templates/content sidebar Pinned section
+      product-surface: Content sidebar Pinned section
       constituency: signed-in Content users
-      durable-destination: user-scoped Pinned database membership positions
+      durable-destination: user-scoped Pinned membership positions
       integration-action: merge
     - id: content-workspace-custom-order
       repository: builderio/agent-native
-      product-surface: templates/content workspace-root navigation
+      product-surface: Content workspace-root navigation
       constituency: signed-in Content users
       durable-destination: user-scoped Workspaces catalog membership positions
       integration-action: merge
     - id: content-files-sidebar-order
       repository: builderio/agent-native
-      product-surface: templates/content workspace Files sidebar view
-      constituency: signed-in Content users with workspace view access
-      durable-destination: per-user content database personal-view settings
+      product-surface: Content workspace Files sidebar view
+      constituency: signed-in Content workspace viewers
+      durable-destination: per-user database personal-view settings
       integration-action: merge
-  governing-architecture: Sidebar ordering mutates personal reference or view state, never document parentage, access, ownership, or shared Files membership.
+    - id: toolkit-editor-drag-preview-alignment
+      repository: builderio/agent-native
+      product-surface: shared Toolkit editor drag preview
+      constituency: Content and Plan editor users
+      durable-destination: packages/toolkit editor primitive
+      integration-action: merge
+  governing-architecture: Content owns personal sidebar ordering; Toolkit owns shared block-preview geometry; neither path changes document hierarchy or authorization.
   acceptance-story:
-    id: content-sidebar-personal-order-v2
-    summary: Two signed-in users independently arrange Pinned, workspace roots, and workspace Files references; computed Files modes remain reversible; no underlying content or shared membership moves.
-    required-assertions:
-      - Pointer, keyboard, and menu controls produce the same persisted order.
-      - Pinned and workspace-root moves use exact personal membership identity.
-      - Files Custom order and mode are personal per database view.
-      - Name, Last edited, and Created disable manual reorder and preserve Custom.
-      - Files manual reorder is same-parent only and unavailable with active filters or grouping.
-      - Reload and a second tab converge on the persisted order.
-      - Two authenticated users retain independent orders.
-      - New references append and stale or unauthorized IDs fail safely.
-      - Reorder never changes document parentId, position, workspace, visibility, sharing, ownership, or shared Files membership.
-      - Read-only underlying pages can be personally arranged when the viewer owns the ordering surface.
-      - Failed mutations roll back, report a visible error, and refetch canonical state.
-      - Row links preserve native pointer, modifier, middle-click, context-menu, keyboard, and accessibility behavior.
-      - User-facing strings use Pinned and Pin to sidebar with all-locale coverage.
+    id: content-sidebar-personal-order-v3
+    summary: The successful-user story and thirteen required assertions above.
   risk-strategy:
     kind: system-ready
     production-validation-after-merge: false
-acceptance-state:
-  status: passed-with-bounded-gap
-  summary: Implementation, authoritative local verification, and independent real-interface H1-H6 acceptance are complete; forced-failure rollback was not safely exercised through the UI.
-  blockers: []
-work-evidence:
-  implementation:
-    - exact locked Pinned and workspace membership moves
-    - per-user per-view Files order with membership ID pruning
-    - sibling-local pointer, keyboard, and menu controls with label-aware announcements
-    - optimistic rollback and canonical refetch paths
-    - Pinned terminology, instructions, and changelog updates
-  verified:
-    - oxfmt check passed on all modified source files
-    - git diff --check passed
-    - 97 focused action, database, sidebar controller, presentation, native-link, and hook tests passed from the frozen lockfile install
-    - 141 Content database tests passed
-    - Content typecheck passed
-    - i18n catalog guard passed across 18 catalog directories
-    - Content production build passed; repository-wide doctor and externalized native-dependency warnings remain non-fatal
-    - independent review cleared the repaired sibling-locality and access-aware stale-ID pruning blockers
-    - independent browser QA passed Pinned pointer, keyboard, overflow-menu, reload, native-link, and second-tab behavior
-    - independent browser QA passed workspace-root overflow-menu reorder and reload persistence
-    - independent browser QA passed Files Custom persistence, all computed modes, disabled computed-mode drag controls, and Custom restoration
-    - independent browser QA proved two-user independence on one shared organization Files surface: the same unique row persisted first for account A and last for account B across reload and re-login
-  pending:
-    - safe user-visible forced-failure rollback, if the local interface exposes a non-destructive failure mechanism
-    - monorepo-wide fast-suite confirmation in its supported CI runtime; the local Node 26 run was stopped after 207 environment-caused failures among 9,393 passes and one skip
-ledger-revision: content-sidebar-order-work-v1
+architecture-grounding:
+  applicability: required
+  status: grounded
+  smallest-compatible-delta: Content-only sidebar interaction revision plus one pointer-offset correction in the existing shared Toolkit primitive.
+  unresolved-owner-questions: []
+test-resources:
+  - id: pr2423-sidebar-fixture
+    kind: account
+    surface: https://deploy-preview-2423--agent-native-content.netlify.app
+    ownership-marker: sidebar-fixture-2423-20260727@example.com and pages 3Bhw76VZaFfk, be8GwXDPsSdj, UdCg05CsA0M6
+    allowed-actions: [acquire, exercise, update]
+    cleanup-trigger: after Alice completes preview validation or preview teardown
+    cleanup-method: delete the dummy preview account and its task-created pages through the preview UI/action surface
+    cleanup-proof: authenticated absence check for the exact email and page IDs
+    shared-impact: none
+    isolation: branch-preview
+    ownership: task-exclusive
+    production-data: false
+    customer-data: false
+    cost: none
+    status: active
+    phase: work
+ledger-revision: content-sidebar-order-work-v3
 status: active
-product-boundary-gates:
-  agent-native-public-constituency: Any source-blind developer installing the public Content template can use personal sidebar ordering without Alice's vault, machines, credentials, or private orchestration.
 ```
 
-## Uncertainties and conscious tradeoffs
+## Non-goals
 
-- The linked Slack recording remains uninspected, so this plan answers the
-  agreed product direction rather than claiming exact reproduction of Matt's
-  gesture.
-- An ordered-ID array in a personal setting is intentionally the smallest
-  compatible Files-view seam. It matches the current client-loaded sidebar
-  dataset; if workspaces become too large for that model, pagination and a
-  normalized personal-rank table should be shaped together rather than
-  prematurely introduced here.
-- Files grouping is respected for display but excludes manual reorder in this
-  slice. Reordering within multiple groups can be designed later with an
-  explicit per-group contract.
-- `Move to…` in the reorder menu means “move to a position in this eligible
-  list,” not “move the document to another parent/workspace.” Copy and menu
-  grouping must keep those commands unmistakably separate.
+- Reparenting documents or moving them between workspaces.
+- Shared organization ordering.
+- New persistence actions or schema changes.
+- A general Toolkit sidebar navigation API.
+- Merge or production enablement; this Work unit ends at the updated PR preview.
 
 ## Natural next stage
 
-After every frozen assertion has current evidence and the exact artifact is
-merge-ready: `/land docs/solutions/content-sidebar-order-shape.md`
+After the exact PR head passes technical and independent real-interface evidence,
+return the same preview for Alice's validation. Merge remains a separate `/land`
+decision.

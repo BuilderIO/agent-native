@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  constrainedSidebarTransform,
   reorderedSidebarItemIds,
   sidebarReorderAnnouncement,
 } from "./sidebar-reorder";
@@ -20,6 +21,21 @@ describe("reorderedSidebarItemIds", () => {
       "one",
       "child-b",
     ]);
+  });
+
+  it("clamps only the dragged row and always removes horizontal motion", () => {
+    expect(
+      constrainedSidebarTransform({ x: 80, y: -40 }, true, {
+        minY: -20,
+        maxY: 60,
+      }),
+    ).toMatchObject({ x: 0, y: -20 });
+    expect(
+      constrainedSidebarTransform({ x: 80, y: -40 }, false, {
+        minY: 0,
+        maxY: 60,
+      }),
+    ).toMatchObject({ x: 0, y: -40 });
   });
 
   it("preserves non-sibling slots while changing sibling order", () => {

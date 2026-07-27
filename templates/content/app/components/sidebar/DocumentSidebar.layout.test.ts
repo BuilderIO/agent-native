@@ -220,12 +220,19 @@ describe("document sidebar layout", () => {
       "group-focus-within/workspace-header:opacity-100",
     );
     expect(sidebar).not.toContain('className="group/workspace min-w-0"');
-    expect(sidebar).toContain("{expanded && (");
-    expect(sidebar).toContain("<WorkspaceFilesSection");
+    expect(sidebar).toContain("{expanded ? (");
+    expect(sidebar).toContain("<WorkspaceSidebarItem");
+    expect(sidebar).toContain("<IconArrowsSort size={14} />");
+    expect(sidebar).toContain("<DropdownMenuRadioGroup");
+    expect(sidebar).toContain(
+      "const activeFilesDatabaseId = expanded ? space.filesDatabaseId : null",
+    );
+    expect(sidebar).not.toContain("<SidebarDragHandle");
+    expect(sidebar).not.toContain("<SidebarReorderMenuItems");
     expect(sidebar).toContain(
       'aria-label={`${t("sidebar.newPage")} — ${space.name}`}',
     );
-    expect(sidebar).toContain("selected={selected}");
+    expect(sidebar).toContain("selected={selectedSpace?.id === space.id}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
     expect(sidebar).toContain("void handleSelectContentSpace(space, null)");
     expect(sidebar).toContain(
@@ -245,7 +252,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("to={`/page/${space.filesDocumentId}`}");
     expect(sidebar).toContain("!event.metaKey");
     expect(sidebar).toContain("event.preventDefault()");
-    expect(sidebar).toContain("void handleSelectContentSpace(space)");
+    expect(sidebar).toContain(
+      "void handleSelectContentSpace(nextSpace, documentId)",
+    );
     expect(sidebar).toContain(
       'className="mb-2 min-w-0 overflow-x-hidden px-2"',
     );

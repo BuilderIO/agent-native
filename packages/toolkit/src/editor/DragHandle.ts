@@ -148,6 +148,8 @@ type DragSession = {
   sourceNodeSize: number;
   startX: number;
   startY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
   dragging: boolean;
   preview: HTMLElement | null;
   dropLine: HTMLElement | null;
@@ -193,6 +195,19 @@ let activeHoverRegistration: DragHandleRegistration | null = null;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+export const dragPreviewTransform = ({
+  clientX,
+  clientY,
+  pointerOffsetX,
+  pointerOffsetY,
+}: {
+  clientX: number;
+  clientY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+}) =>
+  `translate3d(${clientX - pointerOffsetX}px, ${clientY - pointerOffsetY}px, 0)`;
 
 const editorArea = (registration: DragHandleRegistration) => {
   const rect = registration.view.dom.getBoundingClientRect();
@@ -977,7 +992,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
     ) => {
       if (!session.preview) return;
 
-      session.preview.style.transform = `translate3d(${clientX + 12}px, ${clientY + 10}px, 0)`;
+      session.preview.style.transform = dragPreviewTransform({
+        clientX,
+        clientY,
+        pointerOffsetX: session.pointerOffsetX,
+        pointerOffsetY: session.pointerOffsetY,
+      });
     };
 
     const updateDropLine = (
@@ -1356,6 +1376,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
             if (!sourceNode) return;
 
             e.preventDefault();
+            const sourceRect = currentBlock.getBoundingClientRect();
             dragSession = {
               view: editorView,
               sourceBlock: currentBlock,
@@ -1363,6 +1384,8 @@ export const DragHandle = Extension.create<DragHandleOptions>({
               sourceNodeSize: sourceNode.nodeSize,
               startX: e.clientX,
               startY: e.clientY,
+              pointerOffsetX: e.clientX - sourceRect.left,
+              pointerOffsetY: e.clientY - sourceRect.top,
               dragging: false,
               preview: null,
               dropLine: null,

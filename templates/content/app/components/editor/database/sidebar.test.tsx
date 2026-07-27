@@ -180,7 +180,7 @@ describe("DatabaseSidebarView", () => {
     expect(markup).not.toContain("Drag First");
   });
 
-  it("renders an order control only when its parent can persist a personal order", () => {
+  it("leaves the compact order control to the workspace header", () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <TooltipProvider>
@@ -201,16 +201,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             sidebarOrder={{ mode: "name", itemIds: [] }}
-            onSidebarOrderChange={() => {}}
-            sidebarOrderLabels={{
-              button: (mode) => `Order: ${mode}`,
-              modes: {
-                custom: "Custom",
-                last_edited: "Last edited",
-                name: "Name",
-                created: "Created",
-              },
-            }}
             labels={{
               loadingLabel: "Loading",
               noMatchesLabel: "No matches",
@@ -223,7 +213,7 @@ describe("DatabaseSidebarView", () => {
       </MemoryRouter>,
     );
 
-    expect(markup).toContain("Order: name");
+    expect(markup).not.toContain("Order: name");
   });
 
   it("aligns sibling icons whether or not a page has children", () => {
