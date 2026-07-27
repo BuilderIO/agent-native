@@ -10,6 +10,7 @@
  *
  * Supported presets:
  * - cloudflare_pages: Outputs dist/ with _worker.js for Cloudflare Pages
+ * - cloudflare_module: Outputs a native Cloudflare Worker under .output/server
  *
  * Usage: node deploy/build.js (called automatically by `agent-native build`)
  */
@@ -73,6 +74,16 @@ import {
 
 const cwd = process.cwd();
 const preset = process.env.NITRO_PRESET || "node";
+export const CLOUDFLARE_MODULE_PRESETS = [
+  "cloudflare_module",
+  "cloudflare-module",
+] as const;
+
+export function isCloudflareModulePreset(targetPreset: string): boolean {
+  return (CLOUDFLARE_MODULE_PRESETS as readonly string[]).includes(
+    targetPreset,
+  );
+}
 export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.spec.ts",
   "**/*.spec.tsx",
@@ -4303,6 +4314,10 @@ async function main() {
       // Nitro's native presets produce split chunks that wrangler can't upload
       // as multi-module Workers. Use the custom esbuild-based bundler.
       await buildCloudflarePages();
+      break;
+    case "cloudflare_module":
+    case "cloudflare-module":
+      await buildWithNitro();
       break;
     default:
       // All other presets (netlify, vercel, deno_deploy, aws-lambda, etc.)
