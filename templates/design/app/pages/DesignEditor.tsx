@@ -29438,25 +29438,29 @@ function DesignEditor() {
                     />
                   )}
                   {showPendingVisualStyleApply ? (
-                    <div className="pointer-events-none absolute bottom-5 right-5 z-[70] flex items-end">
-                      <div className="pointer-events-auto flex h-11 overflow-hidden rounded-md shadow-[0_18px_40px_-20px_rgba(37,99,235,0.9)]">
+                    <div
+                      data-design-pending-visual-style-toolbar
+                      className="pointer-events-none absolute inset-x-0 top-4 z-[70] flex justify-center px-4"
+                    >
+                      <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur">
                         <Button
-                          className="h-11 cursor-pointer rounded-none rounded-l-md bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className="h-11 min-w-0 shrink-0 cursor-pointer rounded-md bg-blue-500 px-4 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={pendingStructureVerificationBusy}
                           onClick={handleApplyPendingVisualStylesWithAgent}
                         >
-                          <IconBrush className="h-4 w-4" />
-                          {t(
-                            pendingStructureVerificationBusy
-                              ? "designEditor.pendingVisualStyles.verifying"
-                              : pendingStructureVerificationStatus ===
-                                  "conflict"
-                                ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                : "designEditor.pendingVisualStyles.applyWithAgent",
-                          )}
+                          <span className="truncate">
+                            {t(
+                              pendingStructureVerificationBusy
+                                ? "designEditor.pendingVisualStyles.verifying"
+                                : pendingStructureVerificationStatus ===
+                                    "conflict"
+                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                            )}
+                          </span>
                           <span className="rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold text-white">
                             {pendingVisualStylePropertyCount}
                           </span>
@@ -29464,7 +29468,7 @@ function DesignEditor() {
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
-                              className="h-11 w-8 cursor-pointer rounded-none rounded-r-md border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                              className="h-11 w-8 shrink-0 cursor-pointer rounded-md border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
                               aria-label={t(
                                 "designEditor.pendingVisualStyles.previewLabel",
                               )}

@@ -875,10 +875,10 @@ const messages = {
       },
     },
     pendingVisualStyles: {
-      applyAria: "套用待處理的視覺樣式編輯",
+      applyAria: "套用設計更新",
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
-      applyWithAgent: "用 Design 代理套用",
+      applyDesignUpdates: "套用設計更新",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
