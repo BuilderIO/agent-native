@@ -90,4 +90,41 @@ describe("renderMarkdown", () => {
     expect(html).not.toContain("<svg");
     expect(html).toContain("<p>");
   });
+
+  it("falls back to plain text when a series length does not match labels", () => {
+    const html = renderMarkdown(
+      '/chart type=bar title="Mismatch" labels=["Mar","Apr","May"] data=[115,277]',
+    );
+
+    expect(html).not.toContain("<svg");
+    expect(html).toContain("<p>");
+  });
+
+  it("falls back to plain text when data contains negative values", () => {
+    const html = renderMarkdown(
+      '/chart type=bar title="Negative" labels=["Mar","Apr"] data=[-10,5]',
+    );
+
+    expect(html).not.toContain("<svg");
+    expect(html).toContain("<p>");
+  });
+
+  it("handles labels containing bracket characters", () => {
+    const html = renderMarkdown(
+      '/chart type=bar title="Channels" labels=["[Direct]","Organic"] data=[10,20]',
+    );
+
+    expect(html).toContain("<svg");
+    expect(html).toContain("Direct");
+  });
+
+  it("does not crash on an oversized data array", () => {
+    const hugeData = Array.from({ length: 200_000 }, () => 1).join(",");
+    const html = renderMarkdown(
+      `/chart type=bar title="Huge" labels=["A"] data=[${hugeData}]`,
+    );
+
+    expect(html).not.toContain("<svg");
+    expect(html).toContain("<p>");
+  });
 });

@@ -206,9 +206,17 @@ function extractBalancedArray(text: string, fromIndex: number): string | null {
   const start = text.indexOf("[", fromIndex);
   if (start === -1) return null;
   let depth = 0;
+  let inString = false;
   for (let idx = start; idx < text.length; idx++) {
     const ch = text[idx];
-    if (ch === "[" || ch === "{") depth++;
+    if (inString) {
+      if (ch === "\\")
+        idx++; // skip escaped character, including \"
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "[" || ch === "{") depth++;
     else if (ch === "]" || ch === "}") {
       depth--;
       if (depth === 0) return text.slice(start, idx + 1);
@@ -261,6 +269,10 @@ function tryParseLegacyChartShorthand(
     return null;
   }
   const safeLabels = parsedLabels.map((l) => String(l)).slice(0, 60);
+  const isValidSeriesData = (values: unknown): values is number[] =>
+    Array.isArray(values) &&
+    values.length === safeLabels.length &&
+    values.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0);
 
   const colorMatch = trimmed.match(/(?:^|\s)color=(#[0-9a-fA-F]{3,8})\b/);
   const topLevelColor =
@@ -269,27 +281,22 @@ function tryParseLegacyChartShorthand(
       : undefined;
 
   let chartSeries: LegacyChartShorthand["series"];
-  if (
-    Array.isArray(parsedData) &&
-    parsedData.every((v) => typeof v === "number" && Number.isFinite(v))
-  ) {
+  if (isValidSeriesData(parsedData)) {
     chartSeries = [
       {
         label: chartTitle || "Value",
-        data: parsedData as number[],
+        data: parsedData,
         color: topLevelColor,
       },
     ];
   } else if (
     Array.isArray(parsedData) &&
+    parsedData.length > 0 &&
     parsedData.every(
       (d) =>
         d &&
         typeof d === "object" &&
-        Array.isArray((d as { data?: unknown }).data) &&
-        (d as { data: unknown[] }).data.every(
-          (v) => typeof v === "number" && Number.isFinite(v),
-        ),
+        isValidSeriesData((d as { data?: unknown }).data),
     )
   ) {
     chartSeries = (
@@ -323,7 +330,13 @@ function renderLegacyChartShorthand(parsed: LegacyChartShorthand): string {
   const padding = { top: 16, right: 16, bottom: 44, left: 48 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
-  const maxVal = Math.max(1, ...series.flatMap((s) => s.data));
+  const maxVal = Math.max(
+    1,
+    series.reduce(
+      (acc, s) => s.data.reduce((seriesAcc, v) => Math.max(seriesAcc, v), acc),
+      0,
+    ),
+  );
   const groupW = innerW / labels.length;
 
   let gridSvg = "";
