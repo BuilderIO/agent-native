@@ -1392,7 +1392,7 @@ describe("slackAdapter", () => {
     );
   });
 
-  it("aborts reconciliation before a fresh terminal post can outlive its claim", async () => {
+  it("aborts a stalled reconciliation body before a fresh post outlives its claim", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const controller = new AbortController();
     const deliveryUrls: string[] = [];
@@ -1400,13 +1400,16 @@ describe("slackAdapter", () => {
       "fetch",
       vi.fn((url: string, init?: RequestInit) => {
         deliveryUrls.push(String(url));
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener(
-            "abort",
-            () => reject(init.signal?.reason),
-            { once: true },
-          );
-        });
+        return Promise.resolve({
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener(
+                "abort",
+                () => reject(init.signal?.reason),
+                { once: true },
+              );
+            }),
+        } as Response);
       }),
     );
 

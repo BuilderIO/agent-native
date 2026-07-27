@@ -513,16 +513,18 @@ export function slackAdapter(
       try {
         if (placeholderRef) {
           // Replace the "thinking…" placeholder in place.
-          const res = await slackApiFetch("https://slack.com/api/chat.update", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
+          const data = (await slackApiJson(
+            "https://slack.com/api/chat.update",
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
+              signal: opts?.signal,
             },
-            body: JSON.stringify({ ...baseBody, ts: placeholderRef }),
-            signal: opts?.signal,
-          });
-          const data = (await res.json()) as {
+          )) as {
             ok: boolean;
             error?: string;
             ts?: string;
@@ -684,7 +686,7 @@ export function slackAdapter(
         if (target.threadRef) body.thread_ts = target.threadRef;
 
         try {
-          const res = await slackApiFetch(
+          const data = (await slackApiJson(
             "https://slack.com/api/chat.postMessage",
             {
               method: "POST",
@@ -694,8 +696,7 @@ export function slackAdapter(
               },
               body: JSON.stringify(body),
             },
-          );
-          const data = (await res.json()) as { ok: boolean; error?: string };
+          )) as { ok: boolean; error?: string };
           if (!data.ok) {
             throw new Error(data.error || "chat.postMessage failed");
           }
@@ -1093,7 +1094,7 @@ function setSlackAssistantStatus(
   threadTs: string,
   status: string,
 ): void {
-  slackApiFetch("https://slack.com/api/assistant.threads.setStatus", {
+  slackApiJson("https://slack.com/api/assistant.threads.setStatus", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1167,7 +1168,7 @@ async function postFresh(
     channel: channelId,
   };
   if (threadTs && !payload.thread_ts) payload.thread_ts = threadTs;
-  const res = await slackApiFetch("https://slack.com/api/chat.postMessage", {
+  const data = (await slackApiJson("https://slack.com/api/chat.postMessage", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1175,8 +1176,7 @@ async function postFresh(
     },
     body: JSON.stringify(payload),
     signal,
-  });
-  const data = (await res.json()) as {
+  })) as {
     ok: boolean;
     error?: string;
     ts?: string;
@@ -1266,11 +1266,10 @@ async function reconcileSlackDeliveryChunks(
       url.searchParams.set("oldest", String(Math.floor(reconcileAfter / 1000)));
       url.searchParams.set("inclusive", "true");
     }
-    const response = await slackApiFetch(url.toString(), {
+    const body = (await slackApiJson(url.toString(), {
       headers: { Authorization: `Bearer ${token}` },
       signal,
-    });
-    const body = (await response.json()) as {
+    })) as {
       ok: boolean;
       error?: string;
       messages?: Array<{
@@ -1299,11 +1298,11 @@ async function reconcileSlackDeliveryChunks(
   );
 }
 
-async function slackApiFetch(
+async function slackApiJson(
   url: string,
   init: RequestInit,
   timeoutMs = SLACK_API_TIMEOUT_MS,
-): Promise<Response> {
+): Promise<Record<string, any>> {
   const controller =
     typeof AbortController !== "undefined" ? new AbortController() : undefined;
   const externalSignal = init.signal;
@@ -1320,10 +1319,11 @@ async function slackApiFetch(
     ? setTimeout(() => controller.abort(), timeoutMs)
     : undefined;
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...init,
       signal: controller?.signal ?? init.signal,
     });
+    return (await response.json()) as Record<string, any>;
   } finally {
     if (timer) clearTimeout(timer);
     externalSignal?.removeEventListener("abort", abortFromExternal);
@@ -1345,12 +1345,11 @@ async function resolveSlackThreadPermalink(
     const url = new URL("https://slack.com/api/chat.getPermalink");
     url.searchParams.set("channel", channelId);
     url.searchParams.set("message_ts", threadTs);
-    const res = await slackApiFetch(
+    const data = (await slackApiJson(
       url.toString(),
       { headers: { Authorization: `Bearer ${token}` } },
       SLACK_PERMALINK_TIMEOUT_MS,
-    );
-    const data = (await res.json()) as {
+    )) as {
       ok?: boolean;
       permalink?: unknown;
     };
@@ -1440,12 +1439,11 @@ async function slackJson(
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
     }
-    const response = await slackApiFetch(
+    const body = await slackApiJson(
       url.toString(),
       { headers: { Authorization: `Bearer ${token}` } },
       timeoutMs,
     );
-    const body = (await response.json()) as Record<string, any>;
     return body.ok ? body : null;
   } catch {
     return null;
@@ -1800,7 +1798,7 @@ async function postSlackJson(
   body: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<Record<string, any>> {
-  const response = await slackApiFetch(`https://slack.com/api/${method}`, {
+  const data = await slackApiJson(`https://slack.com/api/${method}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1809,7 +1807,6 @@ async function postSlackJson(
     body: JSON.stringify(body),
     signal,
   });
-  const data = (await response.json()) as Record<string, any>;
   if (!data.ok) throw new Error(data.error || `${method} failed`);
   return data;
 }
