@@ -11,6 +11,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import { getUserSetting } from "@agent-native/core/settings";
 import { getDb, schema } from "../server/db/index.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -248,9 +249,11 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
+  const timezone = await getCalendarTimezone(email);
   const range = resolveCalendarEventRange({
     from: args.from,
     to: args.to,
+    timezone,
   });
 
   // Fetch Google Calendar events

@@ -3,11 +3,19 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 import { putUserSetting, putSetting } from "@agent-native/core/settings";
 import type { Settings } from "../shared/api.js";
+import { isCalendarTimezone } from "../server/lib/calendar-settings.js";
 
 export default defineAction({
   description: "Update calendar settings",
   schema: z.object({
-    timezone: z.string().optional().describe("Timezone"),
+    timezone: z
+      .string()
+      .trim()
+      .refine(isCalendarTimezone, {
+        message: "Timezone must be a valid IANA timezone.",
+      })
+      .optional()
+      .describe("IANA timezone, e.g. Europe/Warsaw"),
     bookingPageTitle: z.string().optional().describe("Booking page title"),
     bookingPageDescription: z
       .string()
