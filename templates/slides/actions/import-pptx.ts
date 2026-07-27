@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import pLimit from "p-limit";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -22,7 +23,7 @@ import { readUserUploadedFile } from "./_uploaded-files.js";
 async function uploadFirstSlideImage(
   slide: ParsedSlide,
   slideIndex: number,
-  ownerEmail: string | undefined,
+  ownerEmail: string,
 ): Promise<string | undefined> {
   const image = slide.images[0];
   if (!image) return undefined;
@@ -32,7 +33,7 @@ async function uploadFirstSlideImage(
     data: Buffer.from(image.data),
     filename,
     mimeType: image.mimeType,
-    ownerEmail: ownerEmail ?? undefined,
+    ownerEmail,
     recordAsset: false,
   });
   return result?.url;
@@ -67,34 +68,44 @@ export default defineAction({
 
     const deckTitle = title || presentation.title || "Imported Presentation";
     const ownerEmail = getRequestUserEmail();
+    if (!ownerEmail) throw new Error("no authenticated user");
     const themeFont = presentation.theme?.fonts?.[0];
+
+    // Check edit access before uploading any embedded images — uploads are
+    // a side effect with real storage cost, so an unauthorized caller must
+    // be rejected before that side effect happens, not after.
+    if (deckId) {
+      await assertAccess("deck", deckId, "editor");
+    }
 
     // Convert each parsed slide to our HTML format, uploading the first
     // embedded image (if any) so it renders as a real image instead of a
-    // text placeholder.
+    // text placeholder. Concurrency is capped so a large deck doesn't fire
+    // one outbound upload per slide at once.
+    const uploadLimit = pLimit(4);
     const slides = await Promise.all(
-      presentation.slides.map(async (parsedSlide, i) => {
-        const imageUrl = await uploadFirstSlideImage(
-          parsedSlide,
-          i,
-          ownerEmail,
-        );
-        const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
-        return {
-          id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          content: html,
-          layout: parsedSlide.layoutHint ?? "content",
-          notes: parsedSlide.notes,
-        };
-      }),
+      presentation.slides.map((parsedSlide, i) =>
+        uploadLimit(async () => {
+          const imageUrl = await uploadFirstSlideImage(
+            parsedSlide,
+            i,
+            ownerEmail,
+          );
+          const html = convertToSlideHtml(parsedSlide, imageUrl, themeFont);
+          return {
+            id: `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            content: html,
+            layout: parsedSlide.layoutHint ?? "content",
+            notes: parsedSlide.notes,
+          };
+        }),
+      ),
     );
 
     const db = getDb();
     const now = new Date().toISOString();
 
     if (deckId) {
-      await assertAccess("deck", deckId, "editor");
-
       const existing = await db
         .select()
         .from(schema.decks)
@@ -133,10 +144,7 @@ export default defineAction({
       id,
       title: deckTitle,
       data: JSON.stringify(data),
-      ownerEmail: (() => {
-        if (!ownerEmail) throw new Error("no authenticated user");
-        return ownerEmail;
-      })(),
+      ownerEmail,
       orgId: getRequestOrgId(),
       createdAt: now,
       updatedAt: now,

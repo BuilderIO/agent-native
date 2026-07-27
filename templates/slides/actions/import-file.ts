@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import pLimit from "p-limit";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -132,11 +133,16 @@ export default defineAction({
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
+        await assertAccess("deck", deckId, "editor");
         const pptxOwnerEmail = getRequestUserEmail();
+        if (!pptxOwnerEmail) throw new Error("no authenticated user");
         const pptxThemeFont = presentation.theme?.fonts?.[0];
+        const uploadLimit = pLimit(4);
         const slides = await Promise.all(
           presentation.slides.map((slide, i) =>
-            buildPptxSlide(slide, i, pptxOwnerEmail, pptxThemeFont),
+            uploadLimit(() =>
+              buildPptxSlide(slide, i, pptxOwnerEmail, pptxThemeFont),
+            ),
           ),
         );
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
@@ -454,7 +460,7 @@ function newSlideId(): string {
 async function buildPptxSlide(
   slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
   slideIndex: number,
-  ownerEmail: string | undefined,
+  ownerEmail: string,
   themeFont: string | undefined,
 ): Promise<{
   id: string;
@@ -472,7 +478,7 @@ async function buildPptxSlide(
           filename:
             "pptx-import-" + Date.now() + "-s" + slideIndex + "-" + image.name,
           mimeType: image.mimeType,
-          ownerEmail: ownerEmail ?? undefined,
+          ownerEmail,
           recordAsset: false,
         })
       )?.url

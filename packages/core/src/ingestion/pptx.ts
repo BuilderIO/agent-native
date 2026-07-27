@@ -111,6 +111,12 @@ export async function parsePptxPresentation(
       // relationship scan has no way to know.
       const pictureShapes: PictureShape[] = [];
       collectPictureShapes(slide, pictureShapes);
+      addBackgroundFillShape(
+        slide,
+        pictureShapes,
+        slideWidthEmu,
+        slideHeightEmu,
+      );
       for (const shape of pictureShapes) {
         if (!shape.embedId) continue;
         const relationship = slideRelationships.get(shape.embedId);
@@ -268,6 +274,30 @@ function extractPictureShape(value: unknown): PictureShape {
     widthEmu: Number.isFinite(cx) && cx > 0 ? cx : undefined,
     heightEmu: Number.isFinite(cy) && cy > 0 ? cy : undefined,
   };
+}
+
+/** Read the embed relationship id of a slide's background picture fill (`p:cSld/p:bg/p:bgPr/a:blipFill/a:blip`), if any. */
+function extractBackgroundFillEmbedId(slide: unknown): string | undefined {
+  const cSld = record(record(slide)?.["p:cSld"]);
+  const bgPr = record(record(cSld?.["p:bg"])?.["p:bgPr"]);
+  const blip = record(record(bgPr?.["a:blipFill"])?.["a:blip"]);
+  return stringValue(blip?.["@_r:embed"]);
+}
+
+/** Add the slide's background picture fill, if any, as a synthetic full-slide-sized shape so it's treated like any other embedded photo. */
+function addBackgroundFillShape(
+  slide: unknown,
+  pictureShapes: PictureShape[],
+  slideWidthEmu: number | undefined,
+  slideHeightEmu: number | undefined,
+): void {
+  const embedId = extractBackgroundFillEmbedId(slide);
+  if (!embedId) return;
+  pictureShapes.push({
+    embedId,
+    widthEmu: slideWidthEmu,
+    heightEmu: slideHeightEmu,
+  });
 }
 
 function runProperties(

@@ -256,10 +256,14 @@ function buildStackedImageSlide(
   // — a fixed height forced `object-fit: cover` to crop whichever
   // orientation didn't match the assumed box.
   const aspectRatio = slide.images[0]?.aspectRatio ?? 16 / 9;
+  // `max-width` (not `width: 100%`) so the aspect-ratio box is never forced
+  // wider than the height cap allows — pinning width to 100% while also
+  // capping height made `object-fit: cover` crop the image to fit, which
+  // defeated the point of sizing the box to its real aspect ratio.
   const imageHtml = imageOrPlaceholder(
     imageUrl,
     imageName,
-    `width: 100%; aspect-ratio: ${aspectRatio}; max-height: 320px; border-radius: 12px; margin-bottom: 24px;`,
+    `display: block; max-width: 100%; max-height: 320px; aspect-ratio: ${aspectRatio}; border-radius: 12px; margin: 0 auto 24px;`,
   );
 
   return `<div class="fmd-slide" style="padding: 64px 90px; display: flex; flex-direction: column; justify-content: flex-start; font-family: ${fontFamily};">
