@@ -32,7 +32,11 @@ export function useRestoreDashboardRevision(dashboardId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
     { id: string; name: string; updatedAt: string },
-    { dashboardId: string; revisionId: string }
+    {
+      dashboardId: string;
+      revisionId: string;
+      expectedUpdatedAt?: string;
+    }
   >("restore-dashboard-revision", {
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -40,6 +44,9 @@ export function useRestoreDashboardRevision(dashboardId: string) {
       });
       queryClient.invalidateQueries({
         queryKey: ["dashboard", dashboardId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
   });

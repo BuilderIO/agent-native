@@ -43,6 +43,10 @@ export default defineAction({
   schema: z.object({
     dashboardId: z.string().describe("Dashboard id to restore"),
     revisionId: z.string().describe("Revision id to restore"),
+    expectedUpdatedAt: z
+      .string()
+      .optional()
+      .describe("The dashboard updatedAt value observed before this restore"),
   }),
   http: { method: "POST" },
   run: async (args) => {
@@ -50,6 +54,7 @@ export default defineAction({
       args.dashboardId,
       args.revisionId,
       resolveScope(),
+      args.expectedUpdatedAt,
     );
     if (!dashboard) {
       throw new Error(
