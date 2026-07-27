@@ -90,6 +90,8 @@ export const CLOUDFLARE_MODULE_WORKER_ENTRY = "worker.mjs";
 export function generateCloudflareModuleWorkerEntry(): string {
   return `let handler;
 
+export * from "./index.mjs";
+
 async function loadHandler() {
   handler ??= (await import("./index.mjs")).default;
   return handler;
@@ -166,12 +168,17 @@ export function patchCloudflareModuleNitroEntry(code: string): string {
     );
   }
 
-  const bindingInitialization = `globalThis.__env__=${envName},Ai(${requestName},{env:${envName},context:${contextName}});`;
-  if (!code.includes(bindingInitialization)) {
+  const bindingMatch = code.match(
+    new RegExp(
+      `globalThis\\.__env__=${envName},([A-Za-z_$][\\w$]*)\\(${requestName},\\{env:${envName},context:${contextName}\\}\\);?`,
+    ),
+  );
+  if (!bindingMatch) {
     throw new Error(
       `[deploy] Nitro's ${factoryName} handler does not initialize Cloudflare bindings as expected`,
     );
   }
+  const bindingInitialization = bindingMatch[0];
 
   let patched = code.replace(
     eagerInitialization,

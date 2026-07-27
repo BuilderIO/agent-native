@@ -83,7 +83,7 @@ describe("isCloudflareModulePreset", () => {
 describe("Cloudflare module Worker entry", () => {
   it("defers Nitro's handler and lifecycle initialization", () => {
     const source =
-      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,Ai(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}';
 
     const patched = patchCloudflareModuleNitroEntry(source);
 
@@ -100,6 +100,7 @@ describe("Cloudflare module Worker entry", () => {
     expect(entry).not.toContain("globalThis.__cf_ctx");
     expect(entry).toContain("request.waitUntil = ctx.waitUntil.bind(ctx);");
     expect(entry).toContain("function initializeBindings(env)");
+    expect(entry).toContain('export * from "./index.mjs";');
     expect(entry).toContain(
       "initializeBindings(env);\n    return (await loadHandler())",
     );
@@ -122,7 +123,7 @@ describe("Cloudflare module Worker entry", () => {
     );
     fs.writeFileSync(
       path.join(serverDir, "index.mjs"),
-      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,Ai(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
+      'function ki(e){let t=Ei(),n=Di();return{async fetch(n,r,i){globalThis.__env__=r,g(n,{env:r,context:i});return await t.fetch(n)},scheduled(e,t,r){r.waitUntil(n.callHook("scheduled",e))}}',
     );
 
     configureCloudflareModuleWorkerOutput(serverDir);
