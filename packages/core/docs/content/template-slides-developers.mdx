@@ -1,11 +1,11 @@
 ---
 title: "Slides: Developer Guide"
-description: "The Slides data model, persistence model, full action inventory, routes, and where to make common changes when forking or extending the template."
+description: "The Slides data model, persistence model, full action inventory, routes, and where to make common changes when customizing or extending the template."
 ---
 
 # Developer Guide
 
-This page is for anyone forking the Slides template or extending it: the SQL data model, how concurrent writers are kept safe, every agent-callable action, the route map, and where to make common changes.
+This page is for anyone customizing the Slides template or extending it: the SQL data model, how concurrent writers are kept safe, every agent-callable action, the route map, and where to make common changes.
 
 ## Quick start
 
@@ -313,7 +313,7 @@ Each slide inside `decks.data` is:
 
 - `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system` (link one to a deck)
 - `analyze-brand-assets`, `import-document`, `import-from-url` — gather raw brand signals (website CSS/fonts, uploaded document metadata) for a **local**, agent-drafted design system
-- `index-design-system-with-builder`, `import-design-project` — the Builder-indexed path for Figma files, connected code/GitHub repos, and `design.md`; `import-design-project` forks from an existing design system rather than a raw source
+- `index-design-system-with-builder`, `import-design-project` — the Builder-indexed path for Figma files, connected code/GitHub repos, and `design.md`; `import-design-project` starts from an existing design system rather than a raw source
 
 ### Creative Context
 
