@@ -85,7 +85,7 @@ import {
   useChatThreads,
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
-import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   callAction,
@@ -1478,10 +1478,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
       return;
     }
-    fetch(appApiPath("/api/theme"))
-      .then((r) => r.json())
+    callAction("get-theme", {}, { method: "GET" })
       .then((d) => {
-        if (d.theme === "light" || d.theme === "dark") {
+        if (d?.theme === "light" || d?.theme === "dark") {
           setTheme(d.theme);
         }
       })
@@ -1531,6 +1530,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const {
     data: favoritesData,
     isLoading: favoritesLoading,
+    isError: favoritesError,
+    isSuccess: favoritesLoaded,
     save: saveFavorites,
   } = useUserPref<{
     ids: string[];
@@ -1541,6 +1542,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
   const toggleFavorite = useCallback(
     (id: string) => {
+      if (favoritesError || !favoritesLoaded) {
+        toast.error(t("sidebar.favoritesUnavailable"));
+        return;
+      }
       const next = new Set(favoriteIds);
       if (next.has(id)) {
         next.delete(id);
@@ -1549,7 +1554,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       }
       saveFavorites({ ids: Array.from(next) });
     },
-    [favoriteIds, saveFavorites],
+    [favoriteIds, favoritesError, favoritesLoaded, saveFavorites],
   );
 
   const setDashboardSortMode = useCallback((mode: SidebarSortMode) => {

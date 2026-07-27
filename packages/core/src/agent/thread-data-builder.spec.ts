@@ -63,6 +63,19 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "thinking", text: "First, " } },

@@ -18,6 +18,8 @@ Actions in `actions/` are the **single source of truth** for app operations. The
 
 Before creating any custom REST/API route for app data, inspect `actions/` and the action table in `AGENTS.md`. If an action already exists, call it directly from the agent or with `useActionQuery` / `useActionMutation` from the UI. If the capability is missing, create or update a `defineAction`. Do not add `/api/*`, `server/routes/*`, or other pass-through endpoints whose main job is to call, repackage, or re-export an action.
 
+**Stop trigger:** the moment you are about to create a file under `server/routes/api/` — or add server middleware to guard one — stop and check it against the exception list in *When You Still Need Custom `/api/` Routes* below. If it is not on that list, write a `defineAction` instead. This applies even when you already started the route; abandoning a half-written action to hand-roll routes is the exact failure this rule exists to prevent.
+
 ## Why
 
 Actions give the agent callable tools with structured input/output, AND they give the frontend a typed client contract through hooks. One implementation serves both the agent and the UI. They keep the agent's chat context clean, they're reusable, and they can be tested independently.
@@ -390,12 +392,28 @@ This is the canonical approach for new apps. Action names must be lowercase with
 
 ## When You Still Need Custom `/api/` Routes
 
-Most operations should be actions. You only need custom routes in `server/routes/api/` for:
+This is the complete exception list. A route in `server/routes/api/` is only
+justified when the caller is not your own UI or agent, or when the payload is
+not JSON:
 
 - **File uploads** — actions receive JSON params, not multipart form data
 - **Streaming responses** — SSE or chunked responses that need direct H3 control
 - **Webhooks** — external services POST to a specific URL
 - **OAuth callbacks** — redirect-based flows that need specific URL patterns
+- **Public unauthenticated endpoints** — SEO/OG images, share links, and other
+  URLs opened directly by a browser or crawler
+- **Binary or non-JSON responses** — media, exports, generated assets
+
+Everything else is an action: CRUD, settings, search, list/detail reads, auth
+state, and anything the UI fetches as JSON. If a route needs new middleware to
+scope it to the current user, that is a signal it should be an action — actions
+already run inside request context with access checks.
+
+Existing first-party templates still contain a shrinking, explicitly
+grandfathered set of older `/api/*` CRUD routes for app data. The repository's
+`guard:no-action-twin-routes` CI check ratchets that baseline down across the
+first-party template route trees (with the separately owned Plan template
+fenced out); it is not a substitute for keeping generated apps action-first.
 
 When the agent needs a durable image or file URL, call the core `upload-image`
 action or use `uploadFile()` in server code. Do not write base64 into SQL,

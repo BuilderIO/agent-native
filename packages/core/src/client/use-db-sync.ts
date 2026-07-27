@@ -18,6 +18,7 @@ import { bumpChangeVersion } from "./use-change-version.js";
 
 interface Query {
   queryKey: readonly unknown[];
+  state?: { error?: unknown };
 }
 
 interface QueryClient {
@@ -177,6 +178,18 @@ function isAuthFailure(error: unknown): boolean {
     ((error as { status?: unknown }).status === 401 ||
       (error as { status?: unknown }).status === 403)
   );
+}
+
+/**
+ * True for a query whose last fetch failed authorization. Such a query needs a
+ * new session, not another request: every background invalidation reissues the
+ * identical 401. One expired session used to turn the sync loop into a poll
+ * storm (135k 401s over 20h across a handful of action queries), so sync-driven
+ * invalidation skips these. A remount, a mutation, or an explicit refetch still
+ * retries them.
+ */
+function hasTerminalAuthFailure(query: Query): boolean {
+  return isAuthFailure(query.state?.error);
 }
 
 /**
@@ -1190,10 +1203,17 @@ export function useDbSync(
         // in flight, let it finish instead of aborting and immediately
         // launching the same request again. Repeated action events otherwise
         // turn a slow endpoint into a cancel/restart loop that never settles.
-        const invalidateWithoutCancel = (filters?: {
+        const invalidateWithoutCancel = (requested?: {
           queryKey?: string[];
           predicate?: (query: Query) => boolean;
         }) => {
+          const callerPredicate = requested?.predicate;
+          const filters = {
+            ...requested,
+            predicate: (query: Query) =>
+              !hasTerminalAuthFailure(query) &&
+              (callerPredicate?.(query) ?? true),
+          };
           const needsTrailingRefresh =
             (queryClient.isFetching?.(filters) ?? 0) > 0;
           const completion = queryClient.invalidateQueries(filters, {

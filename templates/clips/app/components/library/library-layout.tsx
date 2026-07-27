@@ -390,7 +390,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <NavLink
-                      to="/record"
+                      to="/record?autoUpload=1"
                       aria-label={t("preRecord.uploadVideo")}
                       className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
                     >
@@ -456,7 +456,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   variant="ghost"
                   asChild
                 >
-                  <NavLink to="/record">
+                  <NavLink to="/record?autoUpload=1">
                     <IconUpload className="h-4 w-4" />
                     {t("preRecord.uploadVideo")}
                   </NavLink>

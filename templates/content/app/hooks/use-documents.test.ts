@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
   documentPropertiesQueryKey,
   documentQueryKey,
@@ -20,6 +21,16 @@ import {
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
 } from "./use-documents";
+
+describe("document query freshness", () => {
+  it("always replaces seeded row snapshots before the editor mounts", () => {
+    expect(DOCUMENT_QUERY_FRESHNESS_OPTIONS).toMatchObject({
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    });
+  });
+});
 
 function doc(id: string, parentId: string | null, position = 0): Document {
   return {
@@ -489,7 +500,7 @@ describe("isDocumentUpdateConflict", () => {
 });
 
 describe("seedDatabaseItemDocumentCaches", () => {
-  it("warms get-document and list-document-properties from a database row", () => {
+  it("warms properties without treating a database row snapshot as an editable document", () => {
     const queryClient = new QueryClient();
     const item: ContentDatabaseItem = {
       id: "item-a",
@@ -529,14 +540,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
 
     seedDatabaseItemDocumentCaches(queryClient, item);
 
-    expect(
-      queryClient.getQueryData(documentQueryKey("row-page")),
-    ).toMatchObject({
-      id: "row-page",
-      title: "Builder blog launch",
-      icon: "B",
-      properties: item.properties,
-    });
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
     expect(
       queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
     ).toEqual({

@@ -4108,7 +4108,7 @@ export function DesignCanvas({
       data-node-rewrite-canvas-target={
         nodeRewriteCanvasTarget ? "true" : undefined
       }
-      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
+      className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
       onDragLeave={handleWrapperDragLeave}

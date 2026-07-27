@@ -36,6 +36,10 @@ const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
 const BUILDER_RELAY_TTL_MS = 10 * 60 * 1000;
 const BUILDER_RELAY_REQUEST_SKEW_MS = 2 * 60 * 1000;
+const IMMUTABLE_NETLIFY_RELAY_HOST =
+  /^(?<deploy>[a-f0-9]{24})--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
+const NETLIFY_DEPLOY_PREVIEW_HOST =
+  /^deploy-preview-\d+--(?<site>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.netlify\.app$/;
 
 export interface BuilderPreviewRelayState {
   v: 1;
@@ -164,6 +168,45 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
       hostname.endsWith(suffix),
     )
   );
+}
+
+/**
+ * Netlify's deploy-preview alias is convenient for people but mutable, so it
+ * must never be the signed relay destination. The deploy builder embeds
+ * Netlify's DEPLOY_ID into the Nitro server bundle, while SITE_NAME remains
+ * available to Functions at runtime. Use that pair only when it
+ * identifies the same site as the visible preview alias; otherwise preserve
+ * the visible origin so callback validation fails closed.
+ */
+export function resolveBuilderPreviewRelayTargetOrigin(
+  previewOrigin: string,
+): string {
+  let previewUrl: URL;
+  try {
+    previewUrl = new URL(previewOrigin);
+  } catch {
+    return previewOrigin;
+  }
+  const previewMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    previewUrl.hostname.toLowerCase(),
+  );
+  if (!previewMatch?.groups?.site) return previewOrigin;
+
+  const buildId = process.env.AGENT_NATIVE_BUILD_ID?.trim().toLowerCase();
+  const siteName = process.env.SITE_NAME?.trim().toLowerCase();
+  if (
+    !buildId ||
+    !siteName ||
+    !/^[a-f0-9]{24}$/.test(buildId) ||
+    siteName !== previewMatch.groups.site
+  ) {
+    return previewOrigin;
+  }
+
+  const immutableOrigin = `https://${buildId}--${siteName}.netlify.app`;
+  return IMMUTABLE_NETLIFY_RELAY_HOST.test(new URL(immutableOrigin).hostname)
+    ? immutableOrigin
+    : previewOrigin;
 }
 export function signBuilderPreviewRelayState(input: {
   ownerEmail: string;
@@ -1226,6 +1269,39 @@ export function resolveSafePreviewUrl(
     return previewUrl;
   }
   return getBuilderBrowserOriginForEvent(event);
+}
+
+export function resolveBuilderPreviewRelayParentOrigin(options: {
+  openerOrigin?: string | null;
+  targetOrigin: string;
+}): string {
+  if (!options.openerOrigin) return options.targetOrigin;
+  let openerUrl: URL;
+  let targetUrl: URL;
+  try {
+    openerUrl = new URL(options.openerOrigin);
+    targetUrl = new URL(options.targetOrigin);
+  } catch {
+    return options.targetOrigin;
+  }
+  if (
+    openerUrl.origin !== options.openerOrigin ||
+    !isSafeBuilderRelayTargetOrigin(openerUrl.origin)
+  ) {
+    return options.targetOrigin;
+  }
+  if (openerUrl.origin === targetUrl.origin) return openerUrl.origin;
+
+  const openerMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    openerUrl.hostname.toLowerCase(),
+  );
+  const targetMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
+    targetUrl.hostname.toLowerCase(),
+  );
+  return openerMatch?.groups?.site &&
+    openerMatch.groups.site === targetMatch?.groups?.site
+    ? openerUrl.origin
+    : options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {

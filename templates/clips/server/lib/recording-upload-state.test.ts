@@ -13,7 +13,6 @@ vi.mock("@agent-native/core/db", () => ({
 import {
   deleteRecordingChunks,
   listRecordingChunkKeys,
-  pruneStaleRecordingChunks,
   recordingChunkIndexFromKey,
   sumRecordingChunkBytes,
   validateRecordingChunkKeys,
@@ -77,39 +76,6 @@ describe("recording upload state helpers", () => {
       sql: expect.stringContaining("DELETE FROM application_state"),
       args: ["owner@example.com", "recording-chunks-rec!_1-%"],
     });
-  });
-
-  it("prunes stale chunks without returning blob values", async () => {
-    dbMock.execute
-      .mockResolvedValueOnce({
-        rows: [
-          { key: "recording-chunks-rec_1-000000" },
-          { key: "recording-chunks-rec_1-000001" },
-        ],
-        rowsAffected: 0,
-      })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
-      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 });
-
-    const purged = await pruneStaleRecordingChunks("owner@example.com", {
-      now: Date.parse("2026-07-08T12:00:00.000Z"),
-      ttlMs: 60_000,
-      minIntervalMs: 0,
-    });
-
-    expect(purged).toBe(2);
-    expect(dbMock.execute).toHaveBeenNthCalledWith(1, {
-      sql: expect.stringContaining("SELECT key FROM application_state"),
-      args: [
-        "owner@example.com",
-        "recording-chunks-%",
-        "2026-07-08T11:59:00.000Z",
-        100,
-      ],
-    });
-    expect(String(dbMock.execute.mock.calls[0]?.[0]?.sql)).not.toContain(
-      "data",
-    );
   });
 
   it("uses the Postgres JSON aggregate when deployed on Postgres", async () => {

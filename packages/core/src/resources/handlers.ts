@@ -114,12 +114,8 @@ async function resolveEmail(event: any): Promise<string> {
 }
 
 async function resolveOrgId(event: any): Promise<string | null> {
-  try {
-    const ctx = await getOrgContext(event);
-    return ctx.orgId ?? null;
-  } catch {
-    return null;
-  }
+  const ctx = await getOrgContext(event);
+  return ctx.orgId ?? null;
 }
 
 /**

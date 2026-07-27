@@ -36,7 +36,9 @@ function normalizeDirectVideoMimeType(
 ): string | null {
   const mimeType =
     (headerValue ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  if (mimeType.startsWith("video/")) return mimeType;
+  if (mimeType === "video/mp4" || mimeType === "video/webm") {
+    return mimeType;
+  }
   if (!mimeType || mimeType === "application/octet-stream") {
     return guessMimeTypeFromUrl(sourceUrl);
   }

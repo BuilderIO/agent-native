@@ -446,6 +446,14 @@ const messages = {
     remove: "Remove",
     save: "Save",
     loading: "Loading...",
+    dangerZone: "Danger zone",
+    deleteOrg: "Delete organization",
+    deleteOrgDescription:
+      "Permanently deletes this organization, its members, and its pending invitations. Data owned by the organization becomes inaccessible. This cannot be undone.",
+    deleteOrgConfirmPrompt: "Type {{name}} to confirm.",
+    deleteOrgConfirmPlaceholder: "Organization name",
+    deleteOrgConfirmCta: "Delete organization",
+    deleteOrgPending: "Deleting…",
   },
   integrations: {
     webhookUrl: "Webhook URL",

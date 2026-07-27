@@ -1648,18 +1648,30 @@ function baseRedirectGuard(): Plugin {
         if (serveMountedEmbedRuntimeModule(server, req, res, base)) {
           return;
         }
-        // Nitro's pre-middleware only intercepts document/iframe/frame/empty
-        // fetch-dest requests. For video/audio/image etc. it calls next() and
-        // the post-internal Nitro middleware handles them instead. If we strip
-        // the base path here for those requests, Vite's base middleware sees the
-        // stripped path (e.g. /api/video/:id without /clips/) and responds with
-        // a "did you mean /clips/api/video/:id" error before Nitro can handle it.
-        // Only strip when the request type matches Nitro's pre-middleware gate.
+        // stripMountedDevApiPath only rewrites paths that resolve to /api/**
+        // (see isApiDevPath below), so this never touches static asset or
+        // document requests — only mounted API calls. Nitro's dev router
+        // matches routes against req.url with the mount prefix still in
+        // place (its own baseURL is unset in dev), so a mounted API request
+        // must have that prefix stripped before Nitro's router ever sees it,
+        // regardless of Sec-Fetch-Dest — otherwise it falls through to
+        // Vite/connect's generic 404 instead of the real handler. This used
+        // to be gated to document/iframe/frame/empty only, because stripping
+        // for video/audio/image previously made Vite's base middleware see
+        // the stripped path (e.g. /api/video/:id without /clips/) before
+        // Nitro's router got a chance to match it. That gate is stale: image
+        // and video requests hit the exact same "Cannot GET" fallback today,
+        // because the browser sends Sec-Fetch-Dest: image/video/audio/track
+        // for <img>/<video>/<audio> fetches, not empty — so those requests
+        // were never actually reaching Nitro pre-strip in the first place.
         const secFetchDest = req.headers["sec-fetch-dest"] as
           | string
           | undefined;
         const isNitroPreHandled =
-          !secFetchDest || /^(document|iframe|frame|empty)$/.test(secFetchDest);
+          !secFetchDest ||
+          /^(document|iframe|frame|empty|image|video|audio|track)$/.test(
+            secFetchDest,
+          );
         if (isNitroPreHandled) {
           req.url = stripMountedDevApiPath(req.url, base);
         }

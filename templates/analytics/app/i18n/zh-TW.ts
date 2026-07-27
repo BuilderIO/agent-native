@@ -43,6 +43,7 @@ const messages = {
     noAnalysesYet: "還沒有分析",
     dashboardsLoadFailed: "無法載入儀表板。",
     analysesLoadFailed: "無法載入分析。",
+    favoritesUnavailable: "收藏功能目前無法使用",
     retry: "重試",
     search: "搜尋",
     searchShortcut: "搜尋（{{shortcut}}）",

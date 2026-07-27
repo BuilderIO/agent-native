@@ -106,6 +106,64 @@ describe("A2A continuations store", () => {
     expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
+  it("loads recoverable continuation owners and scope without task N+1 reads", async () => {
+    const { listRecoverableA2AIntegrationTasks } = await loadStore();
+    executeMock.mockImplementation(async (query: string | { sql: string }) => {
+      if (querySql(query).includes("INNER JOIN integration_pending_tasks")) {
+        return {
+          rows: [
+            {
+              integration_task_id: "task-1",
+              platform: "slack",
+              external_thread_id: "C123:123.456",
+              dispatch_scope: "C123",
+              status: "processing",
+            },
+          ],
+        };
+      }
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(listRecoverableA2AIntegrationTasks(10)).resolves.toEqual([
+      {
+        id: "task-1",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        dispatchScope: "C123",
+        status: "processing",
+      },
+    ]);
+    const joinedReads = executeMock.mock.calls.filter(([query]) =>
+      querySql(query).includes("INNER JOIN integration_pending_tasks"),
+    );
+    expect(joinedReads).toHaveLength(1);
+    expect(queryArgs(joinedReads[0]![0]).at(-1)).toBe(10);
+  });
+
+  it("terminalizes all active A2A rows for a disabled durable task", async () => {
+    const { failA2AContinuationsForIntegrationTask } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 2 });
+
+    await failA2AContinuationsForIntegrationTask(
+      "task-disabled",
+      "durable scope disabled",
+    );
+
+    const update = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SET status = 'failed'"),
+    )?.[0];
+    expect(querySql(update!)).toContain(
+      "status IN ('pending', 'processing', 'delivering')",
+    );
+    expect(queryArgs(update!)).toEqual([
+      "durable scope disabled",
+      expect.any(Number),
+      expect.any(Number),
+      "task-disabled",
+    ]);
+  });
+
   it("does not swallow non-duplicate column migration errors", async () => {
     const { getA2AContinuationForIntegrationTask } = await loadStore();
     const migrationError = new Error("permission denied for table");
@@ -805,6 +863,52 @@ describe("A2A continuations store", () => {
     );
     expect(querySql(recoveryCall![0])).toContain("next_check_at = ?");
     expect(querySql(recoveryCall![0])).not.toContain("completed_at");
+  });
+
+  it("lists due/stale scheduler recovery ids without claiming terminal rows", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (sql.includes("SELECT id FROM integration_a2a_continuations")) {
+          return {
+            rows: [{ id: "cont-due" }, { id: "cont-stale-processing" }],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+
+    await expect(recoverDueA2AContinuationIds(2)).resolves.toEqual([
+      "cont-due",
+      "cont-stale-processing",
+    ]);
+
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes("attempts = attempts + 1"),
+      ),
+    ).toBe(false);
+    const selection = executeMock.mock.calls.find(([query]) =>
+      querySql(query).includes("SELECT id FROM integration_a2a_continuations"),
+    );
+    expect(querySql(selection![0])).toContain("status = 'pending'");
+    expect(querySql(selection![0])).not.toContain("completed");
+    expect(queryArgs(selection![0])).toHaveLength(2);
+  });
+
+  it("limits durable scheduler recovery updates to eligible task scopes", async () => {
+    const { recoverDueA2AContinuationIds } = await loadStore();
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+
+    await recoverDueA2AContinuationIds(5, ["task-canary"]);
+
+    const recoveryQueries = executeMock.mock.calls.slice(-3);
+    for (const [query] of recoveryQueries) {
+      expect(querySql(query)).toContain("integration_task_id IN (?)");
+      expect(queryArgs(query)).toContain("task-canary");
+    }
   });
 
   it("recovers processing continuations with stale next checks during due sweeps", async () => {

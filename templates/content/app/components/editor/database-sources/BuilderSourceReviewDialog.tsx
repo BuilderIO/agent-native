@@ -291,6 +291,7 @@ export function BuilderSourceReviewDialog({
   source,
   canEdit,
   pending,
+  executionPending = false,
   batchResult = null,
   error = null,
   checkedAt,
@@ -307,6 +308,7 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  executionPending?: boolean;
   // Optional so the inline-database caller (DatabaseView) that doesn't surface
   // batch results can still mount the dialog.
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
@@ -485,7 +487,7 @@ export function BuilderSourceReviewDialog({
       : review?.result.status,
   );
   const footerHint = pending
-    ? preparedForExecution
+    ? executionPending
       ? "Sending to Builder…"
       : "Preparing full review…"
     : hasUnconfirmedUnpublish
@@ -517,7 +519,7 @@ export function BuilderSourceReviewDialog({
             ? `Push ${selectedReviewRows.length} updates`
             : "Push update";
   const buttonLabel = pending
-    ? preparedForExecution
+    ? executionPending
       ? "Sending…"
       : "Preparing…"
     : checked && review?.result.status === "running"

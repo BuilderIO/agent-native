@@ -35,6 +35,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 
 const Button = React.forwardRef<
@@ -608,6 +609,7 @@ function AdHocKeysSection({
   onShowFormChange: (show: boolean) => void;
   showEmptyState: boolean;
 }) {
+  const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
@@ -769,48 +771,51 @@ function AdHocKeysSection({
             className="w-full text-[11px]"
             placeholder="Description (optional)"
           />
-          <div className="flex items-center gap-2">
-            <Picker
-              mode="select"
-              options={[
-                { value: "user", label: "Personal" },
-                { value: "workspace", label: "Workspace" },
-              ]}
-              value={formScope}
-              onChange={(value) => {
-                if (value === "user" || value === "workspace") {
-                  setFormScope(value);
-                }
-              }}
-              aria-label="Scope"
-              className="w-auto text-[11px]"
-            />
-            <div className="ms-auto flex items-center gap-1.5">
-              <Button
-                type="button"
-                intent="neutral"
-                emphasis="outline"
-                onClick={resetForm}
-                className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                intent="primary"
-                emphasis="solid"
-                onClick={handleAdd}
-                disabled={!formName.trim() || !formValue.trim() || formBusy}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                style={{ backgroundColor: "#00B5FF", color: "white" }}
-              >
-                {formBusy ? (
-                  <IconLoader2 size={10} className="animate-spin" />
-                ) : (
-                  "Save"
-                )}
-              </Button>
-            </div>
+          <Picker
+            mode="select"
+            options={[
+              { value: "user", label: t("secrets.scopePersonal") },
+              { value: "workspace", label: t("secrets.scopeWorkspace") },
+            ]}
+            value={formScope}
+            onChange={(value) => {
+              if (value === "user" || value === "workspace") {
+                setFormScope(value);
+              }
+            }}
+            aria-label={t("secrets.scopeLabel")}
+            description={t(
+              formScope === "user"
+                ? "secrets.scopePersonalDescription"
+                : "secrets.scopeWorkspaceDescription",
+            )}
+            className="text-[11px]"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={resetForm}
+              className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={handleAdd}
+              disabled={!formName.trim() || !formValue.trim() || formBusy}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+              style={{ backgroundColor: "#00B5FF", color: "white" }}
+            >
+              {formBusy ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
           </div>
           {formError && <p className="text-[10px] text-red-500">{formError}</p>}
         </div>

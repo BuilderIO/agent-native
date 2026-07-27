@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@agent-native/toolkit/ui/alert-dialog";
 import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   Select,
@@ -64,8 +75,10 @@ import {
   useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
+  useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
+  useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
@@ -238,6 +251,10 @@ function CreateOrgCard({ description }: { description?: string }) {
       <h3 className="text-sm font-medium">{t("org.createOrgCardTitle")}</h3>
       <p className="text-sm text-muted-foreground">
         {description || t("org.createOrgCardDescription")}
+      </p>
+      <p className="flex items-start gap-2 text-xs text-muted-foreground">
+        <IconKey className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>{t("org.createOrgVaultNotice")}</span>
       </p>
       {!showForm ? (
         <Button
@@ -427,7 +444,7 @@ function MembersCard() {
               ownerEmail={org.email}
             />
 
-            {isOwner && <A2ASecretSection secret={org.a2aSecret} />}
+            {isOwner && <A2ASecretSection isSet={Boolean(org.a2aSecretSet)} />}
           </div>
         )}
 
@@ -441,6 +458,8 @@ function MembersCard() {
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
       />
+
+      {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
   );
 }
@@ -540,6 +559,92 @@ function MembersTableCard({
           )}
         </TableBody>
       </Table>
+    </section>
+  );
+}
+
+function DangerZoneCard({ orgName }: { orgName: string }) {
+  const t = useT();
+  const deleteOrg = useDeleteOrg();
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+
+  const canConfirm =
+    confirmText.trim().toLowerCase() === orgName.trim().toLowerCase();
+
+  function handleConfirm(e: { preventDefault: () => void }) {
+    e.preventDefault();
+    if (!canConfirm || deleteOrg.isPending) return;
+    deleteOrg.mutate(orgName, { onSuccess: () => setOpen(false) });
+  }
+
+  return (
+    <section className="rounded-lg border border-destructive/40 bg-card p-4 space-y-3">
+      <div className="flex items-start gap-2.5">
+        <IconAlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium text-destructive">
+            {t("org.dangerZone")}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {t("org.deleteOrgDescription")}
+          </p>
+        </div>
+      </div>
+      <AlertDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setConfirmText("");
+        }}
+      >
+        <AlertDialogTrigger asChild>
+          <Button
+            type="button"
+            intent="danger"
+            emphasis="outline"
+            className="cursor-pointer rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+          >
+            {t("org.deleteOrg")}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("org.deleteOrg")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("org.deleteOrgConfirmPrompt", { name: orgName })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={t("org.deleteOrgConfirmPlaceholder")}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-destructive"
+            autoFocus
+          />
+          <ErrorText error={deleteOrg.error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("org.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canConfirm || deleteOrg.isPending}
+              onClick={handleConfirm}
+              className="cursor-pointer bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleteOrg.isPending ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <IconLoader2 size={14} className="animate-spin" />
+                  {t("org.deleteOrgPending")}
+                </span>
+              ) : (
+                t("org.deleteOrgConfirmCta")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -1218,10 +1323,11 @@ function DomainSettingsSection({
   );
 }
 
-function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
+function A2ASecretSection({ isSet }: { isSet: boolean }) {
+  const revealA2ASecret = useRevealA2ASecret();
   const setA2ASecret = useSetA2ASecret();
   const syncA2ASecret = useSyncA2ASecret();
-  const [revealed, setRevealed] = useState(false);
+  const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pasteMode, setPasteMode] = useState(false);
   const [pasteValue, setPasteValue] = useState("");
@@ -1229,11 +1335,32 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     null,
   );
 
-  function copyToClipboard() {
-    if (!secret) return;
-    navigator.clipboard.writeText(secret).then(() => {
+  function writeClipboard(value: string) {
+    navigator.clipboard.writeText(value).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function toggleReveal() {
+    if (secret) {
+      setSecret(null);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => setSecret(result.a2aSecret),
+    });
+  }
+
+  function copyToClipboard() {
+    if (secret) {
+      writeClipboard(secret);
+      return;
+    }
+    revealA2ASecret.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.a2aSecret) writeClipboard(result.a2aSecret);
+      },
     });
   }
 
@@ -1252,7 +1379,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
   function regenerate() {
     setA2ASecret.mutate(undefined, {
       onSuccess: (result) => {
-        setRevealed(false);
+        setSecret(null);
         // Auto-sync the new secret to all connected apps. Sign with the
         // PREVIOUS secret (which peers still hold) so verification on
         // their side succeeds and they accept the new value.
@@ -1275,7 +1402,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
     });
   }
 
-  const masked = secret ? "****" + secret.slice(-8) : "Not set";
+  const masked = isSet ? "••••••••••••" : "Not set";
 
   return (
     <div className="space-y-2">
@@ -1306,22 +1433,23 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono">
           <IconKey className="h-3.5 w-3.5 text-muted-foreground" />
-          {revealed && secret ? secret : masked}
+          {secret ?? masked}
         </span>
-        {secret && (
+        {isSet && (
           <>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
-                  onClick={() => setRevealed(!revealed)}
+                  onClick={toggleReveal}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {revealed ? <IconEyeOff size={14} /> : <IconEye size={14} />}
+                  {secret ? <IconEyeOff size={14} /> : <IconEye size={14} />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {revealed ? "Hide secret" : "Reveal secret"}
+                {secret ? "Hide secret" : "Reveal secret"}
               </TooltipContent>
             </Tooltip>
             <Tooltip>
@@ -1329,6 +1457,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                 <Button
                   type="button"
                   onClick={copyToClipboard}
+                  disabled={revealA2ASecret.isPending}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
@@ -1364,7 +1493,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             Regenerate secret and sync to connected apps
           </TooltipContent>
         </Tooltip>
-        {secret && (
+        {isSet && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -1474,6 +1603,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         </div>
       )}
 
+      <ErrorText error={revealA2ASecret.error} />
       <ErrorText error={setA2ASecret.error} />
       <ErrorText error={syncA2ASecret.error} />
     </div>

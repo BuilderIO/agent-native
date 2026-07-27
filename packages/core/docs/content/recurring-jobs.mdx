@@ -11,6 +11,12 @@ Recurring jobs fire on a clock. To react to _events_ (a booking created, an emai
 
 Jobs live in [Agent Resources](/docs/agent-resources) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
 
+<Callout id="doc-block-rj1" tone="info">
+
+**New to recurring jobs?** Jump to [Creating a job](#creating) — most people create one by asking the agent or with the Resources tab `+` menu, not by hand-editing the file format below.
+
+</Callout>
+
 ## A job file {#job-file}
 
 <AnnotatedCode
@@ -209,10 +215,16 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 </Callout>
 
+<Callout id="doc-block-rj2" tone="warning">
+
+**Disabled by default in local dev.** The scheduler's `setInterval` loop never starts when `NODE_ENV` is `development` or `test`, or when the app URL points at `localhost` / `127.0.0.1` / `*.localhost` — which covers most local dev setups. Set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` to run the scheduler locally anyway. On a hosted deployment that runs its own dedicated sweep instead of this in-process scheduler, set `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` as the matching kill switch.
+
+</Callout>
+
 ## Debugging a job {#debugging}
 
 - Open `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
-- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
+- **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron). This only works if the scheduler is actually running — see the local-dev caveat above; set `AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=1` first if you're testing on localhost.
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
 ## Agent tool {#agent-tool}
@@ -246,3 +258,4 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 - [**Actions**](/docs/actions) — the tools a job calls
 - [**MCP Clients**](/docs/mcp-clients) — connect remote or local MCP tools and OAuth grants
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work
+- [**Toolkit piece: Toolkit Capability Modules**](/docs/toolkit-capability-packages) — how this differs from the installable Scheduling package

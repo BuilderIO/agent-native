@@ -626,7 +626,20 @@ export function useCollabReconcile({
     // app's local mirror or autosave path (Content serializes an empty paragraph
     // as `<empty-block/>`, which is non-empty text and bypasses the generic
     // registerEmitted empty-string guard).
-    if (collab && !seededRef.current) return true;
+    if (collab && !seededRef.current) {
+      // Passive effects normally mark a synced empty document initialized
+      // before a person can type. Keep the event boundary correct too: if a
+      // genuine local edit wins that tiny race, it is itself proof that the
+      // synced empty document is ready. Remote Yjs transactions stay ignored.
+      const firstSyncedEmptyUserEdit =
+        collabSynced &&
+        !value.trim() &&
+        transaction.docChanged &&
+        Boolean(transaction.getMeta("uiEvent")) &&
+        !isChangeOrigin(transaction);
+      if (!firstSyncedEmptyUserEdit) return true;
+      seededRef.current = true;
+    }
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
       return true;
     }

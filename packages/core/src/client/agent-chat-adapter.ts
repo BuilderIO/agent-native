@@ -86,7 +86,12 @@ const MAX_STARTUP_RECOVERY_ATTEMPTS = 8;
 const MAX_QUEUED_CONFLICT_RETRIES = 120;
 const MAX_STALE_RUN_CONTINUATIONS = 3;
 const MAX_STALLED_TRANSIENT_CONTINUATIONS = 8;
-const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 32;
+// Ceiling across the whole turn. Every attempt re-POSTs the full history plus
+// attachments, so a high ceiling only burns tokens and wall time. Unproductive
+// turns are already stopped far earlier by the empty/stalled/repeat budgets;
+// this one only ever binds turns that keep making real progress, so it stays
+// just above the longest recovery we deliberately support.
+const MAX_TOTAL_TRANSIENT_CONTINUATIONS = 12;
 // How many consecutive continuations that produce NO progress (no streamed
 // text, no completed/in-flight tool) we tolerate before giving up. A complex
 // first turn can spend the whole soft-timeout window (~40s) "thinking" with no
@@ -180,6 +185,16 @@ const BACKGROUND_FOLLOW_POLL_INTERVAL_MS = 1_000;
 // agent-chat-plugin.ts) instead, and keep this comment's inequality chain
 // accurate if any of the four numbers change.
 export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 150_000;
+
+// Per-TURN follow budgets. BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS above is a
+// per-idle-WINDOW bound and resets every time a successor run appears, so a
+// server stuck redispatching the same failing chunk resets the only budget on
+// every poll tick and the follow loop never exits (prod: 26 chained runs over
+// 22 minutes, all error:stale_run, user watching a spinner). These bound the
+// whole turn instead, and an identical repeated failure counts as no progress.
+export const MAX_FOLLOWED_BACKGROUND_RUNS = 6;
+export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 10 * 60_000;
+const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
 // genuine "done" success) gets a short extra grace window before the follow
@@ -932,6 +947,43 @@ function hasInFlightToolCall(content: ContentPart[]): boolean {
       part.result === undefined &&
       part.activity !== true,
   );
+}
+
+/**
+ * Server truth for "does this run still look alive?", used to keep the client
+ * from aborting a run the server believes is healthy — the destructive half of
+ * the old client watchdog. Fails SAFE (true) when the lookup itself fails: an
+ * unreachable server is not evidence that the run is dead. A local content
+ * snapshot with an unresolved tool call is also treated as alive, matching the
+ * server's own in-flight suspension.
+ */
+export async function activeRunLooksAlive(args: {
+  apiUrl: string;
+  threadId: string | undefined;
+  runId: string;
+  content?: ContentPart[];
+}): Promise<boolean> {
+  if (args.content && hasInFlightToolCall(args.content)) return true;
+  if (!args.threadId) return false;
+  try {
+    const res = await fetch(
+      `${args.apiUrl}/runs/active?threadId=${encodeURIComponent(args.threadId)}`,
+      { credentials: "same-origin" },
+    );
+    if (!res.ok) return true;
+    const data = (await res.json()) as {
+      active?: boolean;
+      runId?: string;
+      status?: string;
+      hasInFlightWork?: boolean;
+    } | null;
+    if (data?.active !== true || String(data.runId ?? "") !== args.runId) {
+      return false;
+    }
+    return data.hasInFlightWork === true || data.status === "running";
+  } catch {
+    return true;
+  }
 }
 
 function lastActivityTool(
@@ -2038,9 +2090,6 @@ export function createAgentChatAdapter(
                 return true;
               }
               if (reconnectErr instanceof AgentAutoContinueSignal) {
-                if (reconnectErr.reason === "no_progress") {
-                  throw reconnectErr;
-                }
                 return false;
               }
               lastReconnectError = reconnectErr;
@@ -2054,23 +2103,6 @@ export function createAgentChatAdapter(
             );
           }
           return false;
-        };
-
-        const abortCurrentRun = async (): Promise<void> => {
-          if (!runId) return;
-          try {
-            await fetch(`${apiUrl}/runs/${encodeURIComponent(runId)}/abort`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ reason: "no_progress" }),
-              signal: abortSignal,
-            });
-          } catch {
-            // Best effort. The follow-up POST will still reconnect or 409 if
-            // the producer is alive and cannot be aborted cross-isolate.
-          } finally {
-            clearActiveRun();
-          }
         };
 
         const reconnectActiveRunForThread = async function* (): AsyncGenerator<
@@ -2469,6 +2501,36 @@ export function createAgentChatAdapter(
           };
           dispatchResumingUiEvent();
 
+          const durablyAbortBackgroundTurn = async (
+            reason: string,
+          ): Promise<boolean> => {
+            if (!threadId) return false;
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try {
+                const response = await fetch(
+                  `${apiUrl}/runs/turn/${encodeURIComponent(turnId)}/abort`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ threadId, reason }),
+                    signal: abortSignal,
+                  },
+                );
+                if (response.ok) return true;
+              } catch {
+                if (abortSignal.aborted) return false;
+              }
+            }
+            return false;
+          };
+
+          const stopBackgroundTurnBeforeReporting = async function* (
+            outcome: Parameters<typeof emitBackgroundTerminalError>[0],
+          ): AsyncGenerator<ChatModelRunResult> {
+            await durablyAbortBackgroundTurn(outcome.errorCode);
+            yield* emitBackgroundTerminalError(outcome);
+          };
+
           // Before surfacing a background terminal ERROR (never called for a
           // genuine "done" success — see call site), give the server's
           // reap-and-recover path a short extra window to insert a claimable
@@ -2515,6 +2577,33 @@ export function createAgentChatAdapter(
             return "timeout";
           };
 
+          const followStartedAt = Date.now();
+          const followedRunIds = new Set<string>();
+          let repeatedTerminalReason: string | null = null;
+          let repeatedTerminalReasonCount = 0;
+          // Returns true once the SAME terminal reason has come back from
+          // enough successive successors that produced no events at all.
+          const noteRepeatedTerminalReason = (
+            reason: string,
+            producedEvents: boolean,
+          ): boolean => {
+            if (producedEvents || !reason) {
+              repeatedTerminalReason = null;
+              repeatedTerminalReasonCount = 0;
+              return false;
+            }
+            if (reason === repeatedTerminalReason) {
+              repeatedTerminalReasonCount += 1;
+            } else {
+              repeatedTerminalReason = reason;
+              repeatedTerminalReasonCount = 1;
+            }
+            return (
+              repeatedTerminalReasonCount >=
+              MAX_REPEATED_BACKGROUND_TERMINAL_REASONS
+            );
+          };
+
           let idleSince: number | null = null;
           let lastSeenActive: Record<string, unknown> | null = null;
           // Terminal runs already replayed once. A recoverable terminal error
@@ -2531,6 +2620,17 @@ export function createAgentChatAdapter(
           while (true) {
             if (abortSignal.aborted) {
               clearActiveRun();
+              return "completed";
+            }
+            if (
+              Date.now() - followStartedAt >=
+              MAX_BACKGROUND_FOLLOW_WALL_TIME_MS
+            ) {
+              yield* stopBackgroundTurnBeforeReporting({
+                message: `The agent kept restarting this step for ${Math.round(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 60_000)} minutes without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
+                errorCode: "background_follow_time_budget_exhausted",
+                details: `followed_runs: ${followedRunIds.size}`,
+              });
               return "completed";
             }
             let active: Record<string, unknown> | null = null;
@@ -2617,7 +2717,7 @@ export function createAgentChatAdapter(
                     Date.now() - idleSince >=
                     BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                   ) {
-                    yield* emitBackgroundTerminalError({
+                    yield* stopBackgroundTurnBeforeReporting({
                       message:
                         "The agent's background run stopped between chunks and no continuation appeared. You can retry from the preserved chat context.",
                       errorCode: "background_run_lost",
@@ -2647,6 +2747,15 @@ export function createAgentChatAdapter(
                 yield* emitBackgroundTerminalOutcome(active);
                 return "completed";
               }
+              followedRunIds.add(activeRunId);
+              if (followedRunIds.size > MAX_FOLLOWED_BACKGROUND_RUNS) {
+                yield* stopBackgroundTurnBeforeReporting({
+                  message: `The agent restarted this step ${followedRunIds.size} times without finishing it. It was stopped so you can retry from the preserved chat context — a smaller request usually gets through.`,
+                  errorCode: "background_follow_run_budget_exhausted",
+                  details: `followed_runs: ${followedRunIds.size}`,
+                });
+                return "completed";
+              }
               const previousRunId = runId;
               runId = activeRunId;
               if (!attemptedRunIds.includes(activeRunId)) {
@@ -2656,12 +2765,31 @@ export function createAgentChatAdapter(
               if (threadId) {
                 setActiveRun({ threadId, runId: activeRunId, lastSeq });
               }
+              const seqBeforeAttach = lastSeq;
               const attach = yield* followAttachOnce();
               if (attach === "completed" || attach === "aborted") {
                 return "completed";
               }
               if (isTerminal) {
                 replayedTerminalRunIds.add(activeRunId);
+              }
+              const observedTerminalReason =
+                typeof active?.terminalReason === "string"
+                  ? active.terminalReason
+                  : "";
+              if (
+                noteRepeatedTerminalReason(
+                  observedTerminalReason,
+                  lastSeq > seqBeforeAttach,
+                )
+              ) {
+                yield* stopBackgroundTurnBeforeReporting({
+                  message:
+                    "The agent's background run failed the same way several times in a row without producing any output. It was stopped so you can retry from the preserved chat context.",
+                  errorCode: "background_follow_repeated_failure",
+                  details: `terminal_reason: ${observedTerminalReason}`,
+                });
+                return "completed";
               }
               // Server-authoritative "silently deferred, recovery in
               // progress" signal (see `awaitingRedispatch` on
@@ -2693,6 +2821,7 @@ export function createAgentChatAdapter(
                   Date.now() - idleSince >=
                   BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS
                 ) {
+                  await durablyAbortBackgroundTurn("background_run_lost");
                   yield* emitBackgroundTerminalOutcome(lastSeenActive);
                   return "completed";
                 }
@@ -2720,6 +2849,7 @@ export function createAgentChatAdapter(
                         : null,
                   },
                 );
+                await durablyAbortBackgroundTurn("background_run_lost");
                 yield* emitBackgroundTerminalOutcome(lastSeenActive);
                 return "completed";
               }
@@ -2745,6 +2875,7 @@ export function createAgentChatAdapter(
           ok: boolean;
           resetVisibleContent: boolean;
           completedToolName?: string;
+          emptyRun?: boolean;
         } => {
           lastAutoContinueReason = signal.reason;
           lastActivityTrail = [...signal.activityTrail];
@@ -2770,6 +2901,7 @@ export function createAgentChatAdapter(
           // Either real output or an actively-running tool counts as progress
           // for the stalled/empty caps.
           const madeProgress = madeContentProgress || hasInFlightTool;
+          const emptyRun = !madeProgress && signal.reason !== "loop_limit";
           const madeDurableToolProgress = visibleContent.some(
             (part) =>
               part.type === "tool-call" &&
@@ -3018,14 +3150,14 @@ export function createAgentChatAdapter(
           startupRecoveryAttempts = 0;
           clearActiveRun();
           if (!isTransient) {
-            return { ok: true, resetVisibleContent: false };
+            return { ok: true, resetVisibleContent: false, emptyRun };
           }
 
           // Keep everything visible during transient recovery. The continuation
           // prefix diff tracks what the next request has already seen, so
           // preserving text no longer causes duplicate continuation history.
           visibleContinuationPrefix = snapshotContent(content);
-          return { ok: true, resetVisibleContent: false };
+          return { ok: true, resetVisibleContent: false, emptyRun };
         };
 
         while (true) {
@@ -3325,15 +3457,20 @@ export function createAgentChatAdapter(
                 }
                 return;
               }
-              if (err.reason === "no_progress") {
-                await abortCurrentRun();
-              }
               if (err.reason === "run_timeout" && !err.errorInfo) {
                 const reconnected =
                   yield* reconnectBackgroundContinuationForRunTimeout();
                 if (reconnected) return;
               }
-              if (err.reason === "stream_ended") {
+              // A CLIENT watchdog expiring means "reattach", never "kill the
+              // run": the server owns recovery and still believes this run is
+              // healthy. Aborting here was the single largest source of
+              // user-visible failure. A server-sent `auto_continue` is a
+              // different thing entirely — it wants a fresh POST.
+              if (
+                err.reason === "stream_ended" ||
+                (err.reason === "no_progress" && err.clientWatchdog)
+              ) {
                 const reconnected = yield* reconnectCurrentRun();
                 if (reconnected) return;
                 const activeReconnected = yield* reconnectActiveRunForThread();
@@ -3441,7 +3578,17 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              await delay(250, abortSignal);
+              // A run that produced nothing visible never got past
+              // startup/gateway; re-POSTing the identical payload immediately
+              // just hits the identical wall. Back that case off instead.
+              if (continuation.emptyRun) {
+                await retryDelay(
+                  Math.max(0, emptyTransientContinuationAttempts - 1),
+                  abortSignal,
+                );
+              } else {
+                await delay(250, abortSignal);
+              }
               if (abortSignal.aborted) return;
               continue;
             }

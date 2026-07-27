@@ -229,6 +229,44 @@ describe("recordUsage", () => {
     expect(summary.byLabel.map((b) => b.key)).toEqual(["automation"]);
     expect(summary.byApp.map((b) => b.key)).toEqual(["calendar"]);
   });
+
+  it("persists run/thread/task attribution onto the row", async () => {
+    // Every one of 701 prod rows on analytics had NULL run_id/thread_id/task_id
+    // despite the columns existing, so no spend could be tied to a run, thread,
+    // or outcome. Pin that a supplied id actually lands in the INSERT.
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+      runId: "run-abc",
+      threadId: "thread-xyz",
+      taskId: "task-42",
+      orgId: "org-7",
+    });
+    const row = sqlite
+      .prepare(`SELECT run_id, thread_id, task_id, org_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({
+      run_id: "run-abc",
+      thread_id: "thread-xyz",
+      task_id: "task-42",
+      org_id: "org-7",
+    });
+  });
+
+  it("leaves attribution NULL rather than empty-string when the caller omits it", async () => {
+    await recordUsage({
+      ownerEmail: "a@example.com",
+      inputTokens: 100,
+      outputTokens: 50,
+      model: "claude-sonnet-4-5",
+    });
+    const row = sqlite
+      .prepare(`SELECT run_id, thread_id, task_id FROM token_usage`)
+      .get() as Record<string, string | null>;
+    expect(row).toEqual({ run_id: null, thread_id: null, task_id: null });
+  });
 });
 
 describe("getUserUsageCents scoping", () => {

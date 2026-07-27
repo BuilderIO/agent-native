@@ -1644,7 +1644,7 @@ function normalizeBuilderRunString(value: unknown, fieldName: string): string {
     throw new Error(`Builder app creation returned a blank ${fieldName}`);
   }
   const trimmed = value.trim();
-  if (/[ -]/.test(trimmed)) {
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
     throw new Error(`Builder app creation returned a malformed ${fieldName}`);
   }
   return trimmed;
