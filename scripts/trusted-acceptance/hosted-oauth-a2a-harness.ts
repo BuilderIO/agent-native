@@ -532,24 +532,34 @@ export async function startLoopbackCallbackListener(
   });
   callbackOrigin = `http://${host === "::1" ? `[${host}]` : host}:${bound.port}`;
   let closed = false;
+  let closePromise: Promise<void> | undefined;
+  const closeServer = () => {
+    closePromise ??= new Promise<void>((resolve, reject) => {
+      if (!server.listening) {
+        resolve();
+        return;
+      }
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    return closePromise;
+  };
   timeout = setTimeout(() => {
     closed = true;
     rejectCallback?.(new Error("loopback callback listener timed out"));
-    server.close();
+    void closeServer().catch(() => undefined);
   }, timeoutMs);
   return {
     redirectUri: `${callbackOrigin}${path}`,
     waitForCallback: () => received,
     close: async () => {
-      if (closed) return;
-      closed = true;
-      if (timeout) clearTimeout(timeout);
-      rejectCallback?.(
-        new Error("loopback callback listener closed before callback"),
-      );
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
+      if (!closed) {
+        closed = true;
+        if (timeout) clearTimeout(timeout);
+        rejectCallback?.(
+          new Error("loopback callback listener closed before callback"),
+        );
+      }
+      await closeServer();
     },
   };
 }

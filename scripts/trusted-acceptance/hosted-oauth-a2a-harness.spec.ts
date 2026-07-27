@@ -287,6 +287,16 @@ describe("hosted OAuth and A2A acceptance harness", () => {
     }
   });
 
+  it("awaits loopback listener shutdown after a callback timeout", async () => {
+    const listener = await startLoopbackCallbackListener({ timeoutMs: 5 });
+    await assert.rejects(
+      listener.waitForCallback(),
+      /loopback callback listener timed out/,
+    );
+    await listener.close();
+    await assert.rejects(fetch(listener.redirectUri));
+  });
+
   it("polls the same ask_app task after trusted directory withdrawal and returns redacted evidence", async () => {
     const calls: Array<{ name: string; taskId?: string }> = [];
     let withdrawn = false;
