@@ -872,7 +872,10 @@ async function deliverA2AContinuationResponse(
     }
   }
   const receipt = await adapter.sendResponse(message, continuation.incoming, {
-    placeholderRef: continuation.placeholderRef ?? undefined,
+    idempotencyKey: `a2a-continuation:${continuation.id}`,
+    placeholderRef:
+      progress?.responseTargetRef ?? continuation.placeholderRef ?? undefined,
+    strictTargetRef: true,
   });
   if (receipt?.status !== "delivered") {
     throw new Error("Continuation response completed without delivery proof");

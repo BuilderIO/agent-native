@@ -5,7 +5,10 @@ import {
   buildA2ARecoverableArtifactMessage,
 } from "../a2a/artifact-response.js";
 import type { A2AContinuation } from "./a2a-continuations-store.js";
-import type { PlatformAdapter } from "./types.js";
+import type {
+  PlatformAdapter,
+  PlatformDeliveryOptions,
+} from "./types.js";
 
 const claimA2AContinuationMock = vi.hoisted(() => vi.fn());
 const claimDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => []));
@@ -432,7 +435,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("/page/content-1"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
@@ -806,7 +809,11 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      {
+        idempotencyKey: "a2a-continuation:cont-1",
+        placeholderRef: undefined,
+        strictTargetRef: true,
+      },
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(fetch).not.toHaveBeenCalled();
@@ -832,6 +839,52 @@ describe("A2A continuation processor", () => {
     );
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
     expect(completeA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses one provider delivery identity after Slack succeeds but receipt persistence fails", async () => {
+    const providerDeliveries = new Set<string>();
+    let visibleProviderDeliveries = 0;
+    const sendResponse = vi.fn(
+      async (
+        _message: unknown,
+        _incoming: unknown,
+        opts?: PlatformDeliveryOptions,
+      ) => {
+        if (!opts?.idempotencyKey) throw new Error("missing idempotency key");
+        if (!providerDeliveries.has(opts.idempotencyKey)) {
+          visibleProviderDeliveries += 1;
+        }
+        providerDeliveries.add(opts.idempotencyKey);
+        return {
+          status: "delivered" as const,
+          messageRefs: [opts.idempotencyKey],
+        };
+      },
+    );
+    claimA2AContinuationMock
+      .mockResolvedValueOnce(continuation())
+      .mockResolvedValueOnce(continuation());
+    recordA2ATerminalDeliveryReceiptMock
+      .mockRejectedValueOnce(new Error("receipt database unavailable"))
+      .mockRejectedValueOnce(new Error("receipt database unavailable"))
+      .mockRejectedValueOnce(new Error("receipt database unavailable"));
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledTimes(2);
+    expect(providerDeliveries).toEqual(
+      new Set(["a2a-continuation:cont-1"]),
+    );
+    expect(visibleProviderDeliveries).toBe(1);
+    expect(retainA2AUnconfirmedDeliveryClaimMock).toHaveBeenCalledOnce();
+    expect(completeA2AContinuationMock).toHaveBeenCalledOnce();
   });
 
   it("closes the waiting parent campaign and wakes its successor after the last A2A reply", async () => {
@@ -1304,7 +1357,7 @@ describe("A2A continuation processor", () => {
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
   });
 
-  it("falls back to a thread reply when finalizing a resumed Slack stream fails", async () => {
+  it("falls back through the stable stream target when finalizing a resumed Slack stream fails", async () => {
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => {
       throw new Error("chat.stopStream rejected");
@@ -1313,6 +1366,7 @@ describe("A2A continuation processor", () => {
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      responseTargetRef: "1719000000.000001",
       onEvent: vi.fn(async () => ({ status: "delivered" as const })),
       complete,
       fail,
@@ -1345,7 +1399,11 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
       expect.objectContaining({ platform: "slack" }),
-      { placeholderRef: undefined },
+      expect.objectContaining({
+        idempotencyKey: "a2a-continuation:cont-1",
+        placeholderRef: "1719000000.000001",
+        strictTargetRef: true,
+      }),
     );
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
@@ -1386,13 +1444,13 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(fail).toHaveBeenCalled();
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
-  it("still posts the final answer when closing a failed resumed stream also fails", async () => {
+  it("still updates the stable target when closing a failed resumed stream also fails", async () => {
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => {
       throw new Error("chat.stopStream rejected");
@@ -1403,6 +1461,7 @@ describe("A2A continuation processor", () => {
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      responseTargetRef: "1719000000.000001",
       onEvent: vi.fn(async () => ({ status: "delivered" as const })),
       complete,
       fail,
@@ -1428,7 +1487,11 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
       expect.objectContaining({ platform: "slack" }),
-      { placeholderRef: undefined },
+      expect.objectContaining({
+        idempotencyKey: "a2a-continuation:cont-1",
+        placeholderRef: "1719000000.000001",
+        strictTargetRef: true,
+      }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
@@ -1465,7 +1528,7 @@ describe("A2A continuation processor", () => {
         text: "Report: https://agent-workspace.builder.io/analytics/analyses/qa-report",
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
@@ -1501,7 +1564,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("could not verify the design URL"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain("design_fake");
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
@@ -1545,7 +1608,7 @@ describe("A2A continuation processor", () => {
         ),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain(
       "could not verify",
@@ -1810,7 +1873,7 @@ describe("A2A continuation processor", () => {
         ),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledWith(
       "cont-1",
@@ -2134,7 +2197,7 @@ describe("A2A continuation processor", () => {
         ),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledWith(
       "cont-1",
@@ -2290,7 +2353,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("request_final_b"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain(
       "request_checkpoint_a",
@@ -2335,7 +2398,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("/page/content-1"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(failA2AContinuationMock).not.toHaveBeenCalled();
@@ -2365,7 +2428,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("/page/content-1"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledWith(
@@ -2424,7 +2487,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("request_checkpoint_retry"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).toContain(
       "did not finish its full response",
@@ -2486,7 +2549,7 @@ describe("A2A continuation processor", () => {
         text: expect.stringContaining("request_org_checkpoint"),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
     expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
@@ -2536,7 +2599,7 @@ describe("A2A continuation processor", () => {
         ),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledWith(
       "cont-1",
@@ -2658,7 +2721,7 @@ describe("A2A continuation processor", () => {
         text: "https://slides.agent-native.test/deck/deck-qa",
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
   });
 
@@ -2717,7 +2780,7 @@ describe("A2A continuation processor", () => {
         ),
       }),
       expect.any(Object),
-      { placeholderRef: undefined },
+      expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(recordA2ATerminalDeliveryReceiptMock).toHaveBeenCalledWith(
       "cont-1",

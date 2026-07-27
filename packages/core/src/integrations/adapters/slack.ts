@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { H3Event } from "h3";
 import { createError, getHeader, readRawBody } from "h3";
 
@@ -24,6 +25,7 @@ import type {
   PlatformRunProgress,
   PlatformRunProgressRef,
   PlatformDeliveryReceipt,
+  PlatformDeliveryOptions,
   IntegrationContextMessage,
   IntegrationFileReference,
 } from "../types.js";
@@ -441,7 +443,7 @@ export function slackAdapter(
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-      opts?: { placeholderRef?: string },
+      opts?: PlatformDeliveryOptions,
     ): Promise<void | PlatformDeliveryReceipt> {
       const token = await resolveBotToken(context);
       if (!token) {
@@ -456,6 +458,10 @@ export function slackAdapter(
         | unknown[]
         | undefined;
       const placeholderRef = opts?.placeholderRef;
+      const clientMessageId = (chunkIndex: number) =>
+        opts?.idempotencyKey
+          ? slackClientMessageId(opts.idempotencyKey, chunkIndex)
+          : undefined;
 
       // Block-rich path: split text into chunks but render the FIRST chunk as
       // blocks (so we keep the in-place edit + button) and any overflow as
@@ -506,12 +512,16 @@ export function slackAdapter(
           };
           if (!data.ok) {
             console.error("[slack] chat.update error:", data.error);
+            if (opts?.strictTargetRef) {
+              throw new Error(data.error || "chat.update failed");
+            }
             // Fall back to a fresh post so the user still sees a reply
             const postedTs = await postFresh(
               token,
               channelId,
               threadTs,
               baseBody,
+              clientMessageId(0),
             );
             if (postedTs) messageRefs.push(postedTs);
           } else {
@@ -523,6 +533,7 @@ export function slackAdapter(
             channelId,
             threadTs,
             baseBody,
+            clientMessageId(0),
           );
           if (postedTs) messageRefs.push(postedTs);
         }
@@ -534,14 +545,20 @@ export function slackAdapter(
         }
 
         // Overflow chunks (rare) — post as plain follow-ups in the same thread
-        for (const chunk of restChunks) {
-          const postedTs = await postFresh(token, channelId, threadTs, {
-            channel: channelId,
-            text: chunk,
-            unfurl_links: false,
-            unfurl_media: false,
-            mrkdwn: true,
-          });
+        for (const [index, chunk] of restChunks.entries()) {
+          const postedTs = await postFresh(
+            token,
+            channelId,
+            threadTs,
+            {
+              channel: channelId,
+              text: chunk,
+              unfurl_links: false,
+              unfurl_media: false,
+              mrkdwn: true,
+            },
+            clientMessageId(index + 1),
+          );
           if (postedTs) messageRefs.push(postedTs);
         }
         return {
@@ -1094,6 +1111,7 @@ async function postFresh(
   channelId: string,
   threadTs: string | undefined,
   body: Record<string, unknown>,
+  clientMessageId?: string,
 ): Promise<string | undefined> {
   const hasBlocks =
     Array.isArray(body.blocks) && (body.blocks as unknown[]).length > 0;
@@ -1108,6 +1126,7 @@ async function postFresh(
   const payload: Record<string, unknown> = {
     ...body,
     channel: channelId,
+    ...(clientMessageId ? { client_msg_id: clientMessageId } : {}),
   };
   if (threadTs && !payload.thread_ts) payload.thread_ts = threadTs;
   const res = await slackApiFetch("https://slack.com/api/chat.postMessage", {
@@ -1128,6 +1147,19 @@ async function postFresh(
     throw new Error(data.error || "chat.postMessage failed");
   }
   return data.ts;
+}
+
+function slackClientMessageId(key: string, chunkIndex: number): string {
+  const digest = createHash("sha256")
+    .update(`${key}:${chunkIndex}`)
+    .digest("hex");
+  return [
+    digest.slice(0, 8),
+    digest.slice(8, 12),
+    `5${digest.slice(13, 16)}`,
+    `a${digest.slice(17, 20)}`,
+    digest.slice(20, 32),
+  ].join("-");
 }
 
 async function slackApiFetch(
@@ -1775,6 +1807,7 @@ function createSlackRunProgress(
 
   return {
     ref: { kind: "slack-stream", streamTs },
+    responseTargetRef: streamTs,
     async onEvent(event) {
       if (!cancelControl) {
         const context = getIntegrationRequestContext();

@@ -134,6 +134,15 @@ export interface PlatformDeliveryReceipt {
   messageRefs?: string[];
 }
 
+export interface PlatformDeliveryOptions {
+  /** Provider-owned message reference that should be updated in place. */
+  placeholderRef?: string;
+  /** Stable logical delivery key for provider-side retry deduplication. */
+  idempotencyKey?: string;
+  /** Do not fall back to a fresh post if the stable target cannot be updated. */
+  strictTargetRef?: boolean;
+}
+
 /**
  * Proactive outbound message target for a platform.
  * Used when the agent needs to send to a saved destination instead of replying
@@ -201,6 +210,8 @@ export interface PlatformRunProgress {
    * credentials, or provider payload.
    */
   ref?: PlatformRunProgressRef;
+  /** Stable provider message target that can receive the terminal answer. */
+  responseTargetRef?: string;
   /** Receive normalized agent events. Implementations should throttle writes. */
   onEvent(event: AgentChatEvent): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
@@ -322,7 +333,7 @@ export interface PlatformAdapter {
   sendResponse(
     message: OutgoingMessage,
     context: IncomingMessage,
-    opts?: { placeholderRef?: string },
+    opts?: PlatformDeliveryOptions,
   ): Promise<void | PlatformDeliveryReceipt>;
 
   /**
