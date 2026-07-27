@@ -133,6 +133,13 @@ export function validateTrustedAcceptanceWorkflow(
       issues.push("artifact provenance must be checked before deployment");
     }
     if (
+      !deploy.includes("lstatSync") ||
+      !deploy.includes("Candidate artifact contains a symlink")
+    )
+      issues.push(
+        "candidate artifacts must reject symlinks and non-regular files before privileged custody",
+      );
+    if (
       !deploy.includes('readFileSync("scripts/netlify-sites.json"') ||
       !deploy.includes("known production site ID")
     ) {
@@ -140,18 +147,25 @@ export function validateTrustedAcceptanceWorkflow(
         "resolved acceptance site must be rejected if it is a production site",
       );
     }
-    if (!deploy.includes("netlify deploy --prod --no-build")) {
-      issues.push("privileged deployment must never rebuild candidate code");
-    }
     if (
+      !deploy.includes("run-hosted-acceptance.ts") ||
       !deploy.includes(
-        '--functions "$artifact_dir/.netlify/functions-internal"',
+        '--deploy-manifest "$RUNNER_TEMP/trusted-deploy-manifest.json"',
       )
-    ) {
+    )
       issues.push(
-        "deployment must upload the prebuilt Netlify function bundle",
+        "protected deployment must use the generic trusted hosted runner",
       );
-    }
+    if (!deploy.includes("playwright install --with-deps chromium"))
+      issues.push("Playwright must be installed before credentials enter");
+    if (
+      !deploy.includes("directory-fixture.ts") ||
+      !deploy.includes("artifactSha256") ||
+      !deploy.includes('hash.update(relative).update("\\0")')
+    )
+      issues.push(
+        "trusted directory artifact must be staged and digest-bound before credentials enter",
+      );
     if (
       !deploy.includes(
         "working-directory: ${{ runner.temp }}/trusted-acceptance-deploy",
@@ -168,8 +182,12 @@ export function validateTrustedAcceptanceWorkflow(
       issues.push("privileged authority must operate on one whole workspace");
     }
     if (
-      !deploy.includes("Acquire one whole-workspace disposable lease") ||
-      !deploy.includes("Revoke one whole-workspace disposable lease") ||
+      !deploy.includes(
+        "Run trusted hosted OAuth, harness, deployment, and cleanup",
+      ) ||
+      !deploy.includes(
+        "Revoke one whole-workspace disposable lease after interruption",
+      ) ||
       !deploy.includes("if: ${{ always() }}")
     ) {
       issues.push("whole-workspace cleanup must run unconditionally");
@@ -200,9 +218,9 @@ export function validateTrustedAcceptanceWorkflow(
     }
   }
 
-  if (count(source, /secrets\.ACCEPTANCE_NETLIFY_AUTH_TOKEN/g) !== 3) {
+  if (count(source, /secrets\.ACCEPTANCE_NETLIFY_AUTH_TOKEN/g) !== 2) {
     issues.push(
-      "acceptance Netlify credential must appear only in acquire, deploy, and revoke steps",
+      "acceptance Netlify credential must appear only in hosted-runner and interruption-cleanup steps",
     );
   }
   if (

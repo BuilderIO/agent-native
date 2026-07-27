@@ -15,13 +15,23 @@ credential isolation.
 
 The `calendar-content` pilot in
 `scripts/trusted-acceptance-workspaces.json` is checked in with `enabled: false`.
-The workflow can validate an open PR, produce the generic app matrix, and build
-the candidate without runtime or deployment credentials. The repository also
-contains the provider-neutral `trusted-lease-v1` controller contract, bounded
-provider adapters, acceptance-only directory fixture, hosted OAuth/A2A harness,
-and independent reaper entrypoint. None of those declarations activates the
-pilot. A live deployment fails closed because the checked-in workspace has an
-`unconfigured` provisioner as well as `enabled: false`.
+Its reviewed source contract selects the generic `trusted-lease-v1`
+provisioner, fixed Calendar-to-Content withdrawal harness, and an exact
+acceptance-only directory origin. The workflow can validate an open PR, produce
+the generic app matrix, and build the candidate without runtime or deployment
+credentials. The repository also contains the bounded provider adapters,
+hosted OAuth/A2A runner, Playwright adapter, and independent reaper entrypoint.
+None of those declarations activates the pilot. A live deployment fails closed
+while `enabled` remains false, and activation still requires an exact protected
+authority profile backed by resources that do not yet exist as part of this
+source change.
+
+The `tasks-hosted-oauth-proof` workspace is also disabled and intentionally
+unconfigured. It declares the same generic hosted OAuth path plus one harmless
+read-only Tasks tool. That is the source-blind third-template acceptance story;
+it does not claim that a Tasks site or authority profile has already been
+provisioned. I8 belongs to that separate Tasks receipt rather than being marked
+passed inside a Calendar/Content run that did not execute Tasks.
 
 Activation is a separate reviewed change. It must name an allowlisted protected
 authority profile, prove the dedicated resources exist, and change the flag.
@@ -44,18 +54,25 @@ The jobs deliberately have different custody:
    inert build artifacts and SHA metadata.
 3. The privileged controller uses the protected `trusted-acceptance` GitHub
    Environment. It
-   checks out trusted controller code, installs dependencies and the pinned
-   Netlify client before credentials enter,
+   checks out trusted controller code, installs dependencies, Playwright
+   Chromium, and the pinned Netlify client before credentials enter,
    rejects any resolved site ID present in the production-site inventory,
    downloads and verifies inert artifacts, then uploads them from an empty
    trusted directory using explicit paths. Candidate `netlify.toml`, plugins,
-   and hooks never cross into this job. Only then do the fixed trusted
+   and hooks never cross into this job, and recursive inspection rejects
+   symlinks and non-regular artifact entries. Only then do the fixed trusted
    acquire/upload/revoke steps receive scoped provider credentials. The upload
    uses `--no-build`, and no candidate or dependency script runs after that
    boundary.
-4. `receipt` records a redacted artifact. Until the real OAuth/A2A harness is
-   run, behavioral assertions remain `blocked`; a deployment alone is not a
-   passing acceptance result.
+4. The trusted hosted runner creates the disposable lease, deploys only the
+   verified artifacts, signs into each app with a lease-bound synthetic QA
+   identity, and performs real authorization-code plus S256 PKCE. It then runs
+   the workspace's declared harness and negative isolation probes. The runner
+   keeps passwords, authorization codes, verifiers, client secrets, access
+   tokens, and provider credentials in process memory only.
+5. `receipt` records status, origins, public OAuth metadata, timestamps, and
+   SHA-256 proof digests only. Any missing live probe remains `blocked`; a
+   deployment alone is not a passing acceptance result.
 
 Runs share a non-cancelling concurrency group per workspace, so two candidate
 SHAs cannot interleave across the same apps.
@@ -70,8 +87,9 @@ candidate configuration runs after that boundary.
 `scripts/trusted-acceptance/runtime-authority.ts` separates two kinds of state:
 
 - transient runtime material, which contains the database URL, freshly
-  generated Better Auth and A2A values, and an optional bounded inference key;
-  and
+  generated Better Auth and A2A values, the hosted-QA verification flag, a
+  five-minute acceptance access-token lifetime, and an optional bounded
+  inference key; and
 - a durable redacted lease record containing only deterministic lease identity,
   opaque provider handles, timestamps, state transitions, and cleanup results.
 
@@ -84,6 +102,10 @@ The provider contract is generic, while the first protected profile uses:
 - one expiring OpenRouter child key for each member that declares inference,
   with a small USD cap and no automatic limit reset; and
 - a trusted tombstone artifact deployed after runtime values are removed.
+
+Every leased Netlify value is scoped to the production deploy context of its
+dedicated acceptance site. Branch, preview, and development contexts never
+receive the disposable database, authentication, A2A, or inference values.
 
 The OpenRouter management key, Neon API key, and Netlify control token remain in
 the protected controller environment. Candidate code sees only the disposable
@@ -124,17 +146,31 @@ Separately hosted templates do not form a local filesystem workspace. Hosted
 acceptance lane supplies a small trusted fixture implementing only that public
 contract; it does not reuse production Dispatch data or authority.
 
-The fixture validates the disposable A2A bearer and returns only the members
-declared by the trusted workspace profile. Its mode is controller-owned and has
-two allowlisted states: stable membership and withdrawal of one declared
-member. There is no candidate-callable control endpoint and no request field
-that selects arbitrary apps or URLs.
+The fixture is a separate, database-free Netlify runtime. It validates the
+disposable A2A bearer and returns only the members declared by the trusted
+workspace profile. Its mode is controller-owned and has two allowlisted states:
+stable membership and withdrawal of one declared member. There is no
+candidate-callable control endpoint and no request field that selects arbitrary
+apps or URLs. Changing that allowlisted state is not sufficient by itself: the
+controller redeploys the same digest-pinned trusted fixture artifact so the
+running function observes the new state before status polling continues.
+Each leased member receives the fixture's exact origin through
+`AGENT_NATIVE_ORG_DIRECTORY_URL`. A freshly registered QA account may not have
+an organization row yet, so the fixture accepts its signed email domain as the
+organization scope only when the JWT omits `org_domain` and that domain exactly
+matches the protected fixture profile.
 
 The hosted harness first proves stable discovery, calls `ask_app`, records the
 returned task ID only in redacted form, asks the trusted controller to withdraw
-the target member, and polls `ask_app_status` for that same task. This makes
-directory loss a discriminating test of preserved task routing instead of a
-simulation that skips discovery.
+the target member, and redeploys both the trusted fixture and the caller from
+their already verified artifacts. Redeploying the caller clears its bounded
+directory cache; `list_apps` must then prove the target is absent before the
+harness polls `ask_app_status` for that same task. The configured poll budget is
+preserved exactly, with a bounded delay between attempts, and the completed
+result must contain a controller-rendered, lease-unique marker carried in the
+task prompt. The marker is not stored in an app database and its digest, not its
+value, enters evidence. This makes directory loss a discriminating test of
+preserved task routing without adding an undeclared seed-data dependency.
 
 ## Provision the first workspace
 
@@ -173,6 +209,44 @@ progress. Its authority must become useless when cleanup completes; production,
 ordinary previews, other workspaces, and later acceptance runs remain outside
 the blast radius.
 
+## Hosted QA identity and OAuth
+
+The hosted-QA identity uses the framework's normal email/password session path,
+not `AUTH_DISABLED`, direct session seeding, a provider account, or a production
+identity. The controller creates a synthetic `+qa` email and a random 256-bit
+password for one lease, registers it at the exact acceptance origin, verifies a
+wrong password fails in an isolated browser context, and closes the credential
+over an in-memory callback. `AUTH_SKIP_EMAIL_VERIFICATION=1` is installed only
+after exact lease-marker ownership is proven and is removed by normal cleanup
+and the independent reaper.
+
+After sign-in, the browser approves the app's real MCP OAuth authorization
+surface. The runner uses dynamic client registration, an exact loopback
+callback, exact state matching, and RFC 7636 S256 PKCE before exchanging the
+code for a five-minute access token. The browser and protocol adapters reject
+cross-origin authorization, consent, registration, and token endpoints.
+
+The runner also creates a second synthetic user in a separate browser context.
+The first user writes a lease-bound display-name marker through the shared
+`update-user-profile` action; the second reads through `get-user-profile` and
+must not receive that marker, while the first must still receive it. This is the
+generic tenant-data isolation probe used by I4 and does not depend on a
+template-specific schema.
+
+The isolation story does not require a valid production token. An acceptance
+token must fail at the production resource and a different acceptance resource,
+and a controller-created foreign-domain sentinel must fail at the acceptance
+resource. The receipt also requires public issuer/resource metadata to remain
+distinct and records expiry, replay, wrong-audience, and post-cleanup failures.
+If the running framework does not expose a safe way to perform one of those
+probes, that assertion stays blocked rather than being inferred. Only response
+status and proof digests are durable.
+
+The controller imposes a hard hosted-harness deadline shorter than the lease,
+and every HTTP phase has a bounded timeout. The loopback callback listener also
+closes itself on timeout. Any stall enters the same verified revoke path; the
+independent reaper remains the recovery layer for runner or host termination.
+
 For each app, the infrastructure owner may prepare:
 
 - create a dedicated Netlify site and stable acceptance domain matching the
@@ -195,20 +269,22 @@ Configure the protected GitHub Environment named `trusted-acceptance` with:
   and
 - non-secret `ACCEPTANCE_AUTHORITY_PROFILES_JSON`, an object keyed by workspace
   ID. Each profile allowlists exact member origins, Neon project/database/role
-  IDs, Netlify account/site IDs, the tiny inference cap, and the verified
-  tombstone artifact. It contains no provider token or runtime credential.
+  IDs, Netlify account/site IDs, the tiny inference cap, the verified tombstone
+  artifact, and the directory fixture's exact account, site, origin, member map,
+  withdrawal target, trusted artifact path, artifact SHA-256, and the exact
+  synthetic hosted-QA domain `agent-native.acceptance.invalid`. It contains no
+  provider token or runtime credential.
 
 The repository contains key names and resource references only. Never put
 secret values, synthetic login credentials, tokens, or raw provider responses
 in the workspace config, workflow, docs, logs, or receipt.
 
 After a redacted inventory proves those resources are isolated and the trusted
-provision/cleanup implementation has its own security review and tests, replace
-the `{ "kind": "unconfigured" }` provisioner with a `trusted-lease-v1`
-descriptor, add its exact entry to the protected profile map, then change the
-workspace to `enabled: true` in a separate reviewed PR. The descriptor's
-`profileMapVariable` must be exactly `ACCEPTANCE_AUTHORITY_PROFILES_JSON`;
-changing only the flag still fails closed.
+provision/cleanup implementation has its own security review and tests, add the
+workspace's exact entry to the protected profile map, then change the workspace
+to `enabled: true` in a separate reviewed activation PR. The checked-in
+descriptor's `profileMapVariable` must remain exactly
+`ACCEPTANCE_AUTHORITY_PROFILES_JSON`; changing only the flag still fails closed.
 Keep GitHub Environment approval rules in place; enabling configuration is not
 permission to bypass them.
 
@@ -229,10 +305,12 @@ For a live run after activation, set `deploy` to true. The stable apps must then
 be tested with a real authorization-code plus PKCE client: inspect protected
 resource metadata, connect to Calendar, require Content from `list_apps`, call a
 bounded read-only `ask_app`, and poll the returned ID through `ask_app_status`.
-After `ask_app`, the trusted directory fixture withdraws the target member;
-`ask_app_status` must still complete that exact task through its preserved
-route. Run production-to-acceptance, acceptance-to-production, and
-cross-resource token replay negatives before marking the receipt passed.
+After `ask_app`, the trusted directory fixture withdraws the target member and
+both fixture and caller are redeployed from their same verified artifacts;
+`list_apps` must no longer name the target, while `ask_app_status` must still
+complete that exact task through its preserved route and return the expected
+synthetic result. The declared isolation probes must all return their required
+fail-closed status before the receipt can pass.
 
 ## Roll back
 
@@ -243,8 +321,13 @@ requires the prior run to be a successful `main` dispatch of this exact
 workflow, and matches its controller SHA, workspace, and current known-good SHA.
 It then verifies that the commit still resolves exactly in
 `BuilderIO/agent-native`, rebuilds it without credentials, and redeploys it
-through the same isolated path. Rollback never promotes acceptance code or data
-to production.
+through the same isolated path. A14 passes only when the rollback operation's
+own hosted controller receipt passes and every workspace member records a
+deployment ID; selecting a rollback operation is not evidence by itself.
+Candidate receipts intentionally omit rollback-only A14, allowing a fully
+passing candidate to establish the known-good SHA that a later rollback run
+must cite. Rollback receipts include A14 and re-run the other configured proofs.
+Rollback never promotes acceptance code or data to production.
 
 ## Add another hosted template
 
@@ -271,7 +354,8 @@ pnpm tsx --test scripts/trusted-acceptance/*.spec.ts
 pnpm guard:trusted-acceptance
 ```
 
-The generic fixture in `scripts/trusted-acceptance.spec.ts` uses the repository's
-real Tasks template to demonstrate that a third template validates and produces
-a plan without changing workflow code. A real secretless Tasks build remains an
-activation-time proof, not something this schema test claims to establish.
+The disabled `tasks-hosted-oauth-proof` workspace uses the repository's real
+Tasks template to demonstrate that the same runner can select a generic
+`mcp-read-only-tool` harness without a template branch or template auth change.
+A real hosted Tasks run remains a later activation-time proof, not something
+this source contract claims to establish.

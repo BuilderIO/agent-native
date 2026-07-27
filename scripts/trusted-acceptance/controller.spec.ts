@@ -10,6 +10,8 @@ import {
   assertRedacted,
   executeTrustedAcceptance,
   reapTrustedAcceptanceLeases,
+  settleBeforeCleanup,
+  updateTrustedAcceptanceDirectoryScenario,
   validateTrustedAuthorityProfile,
   type TrustedAuthorityProfile,
 } from "./controller.ts";
@@ -96,6 +98,26 @@ function providers() {
   };
 }
 
+function directoryFixture() {
+  return {
+    origin: "https://directory.acceptance.example.test",
+    netlifyAccountId: "directory-account",
+    netlifySiteId: "directory-site",
+    orgDomain: "agent-native.acceptance.invalid",
+    members: [
+      {
+        id: "calendar",
+        name: "Calendar",
+        url: "https://calendar.acceptance.example.test",
+        a2aUrl: "https://calendar.acceptance.example.test",
+      },
+    ],
+    withdrawnMemberId: "calendar",
+    artifactDirectory: "trusted-directory",
+    artifactSha256: "b".repeat(64),
+  };
+}
+
 describe("trusted acceptance controller", () => {
   it("keeps the protected controller and independent reaper main-pinned and fail-closed", () => {
     const workflow = readFileSync(
@@ -112,8 +134,15 @@ describe("trusted acceptance controller", () => {
       workflow,
       /Verify every artifact provenance before credentials/,
     );
-    assert.match(workflow, /Acquire one whole-workspace disposable lease/);
-    assert.match(workflow, /Revoke one whole-workspace disposable lease/);
+    assert.match(
+      workflow,
+      /Run trusted hosted OAuth, harness, deployment, and cleanup/,
+    );
+    assert.match(workflow, /run-hosted-acceptance\.ts/);
+    assert.match(
+      workflow,
+      /Revoke one whole-workspace disposable lease after interruption/,
+    );
     assert.match(workflow, /if: \$\{\{ always\(\) \}\}/);
     assert.match(workflow, /persist-credentials: false/);
     assert.match(reaper, /schedule:/);
@@ -168,6 +197,65 @@ describe("trusted acceptance controller", () => {
       validateTrustedAuthorityProfile(credentialValue).join("\n"),
       /credential-shaped/,
     );
+    const fixture = profile();
+    fixture.directoryFixture = directoryFixture();
+    assert.deepEqual(validateTrustedAuthorityProfile(fixture), []);
+    fixture.directoryFixture.netlifySiteId = "site";
+    assert.match(
+      validateTrustedAuthorityProfile(fixture).join("\n"),
+      /duplicates an app Netlify site/,
+    );
+    const arbitraryTarget = profile();
+    arbitraryTarget.directoryFixture = directoryFixture();
+    arbitraryTarget.directoryFixture.members[0]!.url =
+      "https://attacker.acceptance.example.test";
+    assert.match(
+      validateTrustedAuthorityProfile(arbitraryTarget).join("\n"),
+      /exactly match a declared app origin/,
+    );
+  });
+
+  it("exposes an in-process controller seam that changes only the fixed directory scenario", async () => {
+    const trusted = profile();
+    trusted.directoryFixture = directoryFixture();
+    const lease = {
+      id: "a".repeat(24),
+      createdAt: "2026-07-26T00:00:00.000Z",
+      expiresAt: "2026-07-26T01:00:00.000Z",
+      state: "active" as const,
+      members: [
+        { memberId: "calendar", netlifySiteId: "site", runtimeOwned: true },
+      ],
+      directoryFixture: {
+        netlifySiteId: "directory-site",
+        runtimeOwned: true,
+        scenario: "stable" as const,
+      },
+      journal: [],
+      verification: {
+        inferenceDisabled: false,
+        runtimeVariablesAbsent: false,
+        tombstoneActive: false,
+        branchesDeleted: false,
+      },
+    };
+    const writes: Array<Record<string, string>> = [];
+    const injected = providers();
+    injected.netlify.setRuntime = async (_account, site, values) => {
+      assert.equal(site, "directory-site");
+      writes.push(values);
+    };
+    const result = await updateTrustedAcceptanceDirectoryScenario(
+      trusted,
+      lease,
+      injected,
+      () => new Date("2026-07-26T00:00:00.000Z"),
+      { async save() {} },
+    );
+    assert.equal(result.directoryFixture?.scenario, "withdraw-member");
+    assert.deepEqual(writes, [
+      { AGENT_NATIVE_ACCEPTANCE_DIRECTORY_SCENARIO: "withdraw-member" },
+    ]);
   });
 
   it("persists only redacted journals and receipts after every authority mutation", async () => {
@@ -214,6 +302,75 @@ describe("trusted acceptance controller", () => {
       },
     });
     assert.equal(receipt.result, "failed");
+  });
+
+  it("revokes the lease when the hosted harness exceeds its deadline", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "trusted-acceptance-timeout-"));
+    const receiptFile = join(dir, "receipt.json");
+    await assert.rejects(
+      executeTrustedAcceptance(profile(), {
+        providers: providers(),
+        journalFile: join(dir, "lease.json"),
+        receiptFile,
+        ttlMs: 60_000,
+        harnessTimeoutMs: 5,
+        expectedAssertionIds: ["required"],
+        async deployArtifact() {},
+        async runStableHarness(_lease, signal) {
+          return new Promise((_, reject) =>
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            }),
+          );
+        },
+        async runWithdrawalHarness() {
+          return [];
+        },
+      }),
+      /timed out/,
+    );
+    const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as {
+      result: string;
+      lease?: { state?: string };
+    };
+    assert.equal(receipt.result, "failed");
+    assert.equal(receipt.lease?.state, "revoked");
+  });
+
+  it("settles an accepted late deploy before placing the cleanup tombstone", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "trusted-acceptance-barrier-"));
+    const events: string[] = [];
+    const runtimeProviders = providers();
+    runtimeProviders.netlify.deployTombstoneAndVerify = async () => {
+      events.push("tombstone");
+      return { deployId: "tombstone" };
+    };
+    await assert.rejects(
+      executeTrustedAcceptance(profile(), {
+        providers: runtimeProviders,
+        journalFile: join(dir, "lease.json"),
+        receiptFile: join(dir, "receipt.json"),
+        ttlMs: 60_000,
+        harnessTimeoutMs: 5,
+        expectedAssertionIds: ["required"],
+        async deployArtifact() {},
+        async runStableHarness() {
+          return [];
+        },
+        async runWithdrawalHarness(_lease, signal) {
+          const lateDeploy = new Promise<void>((resolve) =>
+            setTimeout(() => {
+              events.push("late-deploy-settled");
+              resolve();
+            }, 20),
+          );
+          await settleBeforeCleanup([lateDeploy], signal);
+          return [];
+        },
+      }),
+      /timed out/,
+    );
+    assert.deepEqual(events, ["late-deploy-settled", "tombstone"]);
   });
 
   it("reaps only deterministic acceptance leases through an injected discovery seam", async () => {
