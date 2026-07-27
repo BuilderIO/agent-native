@@ -34,6 +34,23 @@ export type TrustedAuthorityProfile = {
     artifactDirectory: string;
     withdrawnDirectoryMember?: boolean;
   }>;
+  /** Optional trusted infrastructure, never a candidate app member. */
+  directoryFixture?: {
+    origin: string;
+    netlifyAccountId: string;
+    netlifySiteId: string;
+    orgDomain: string;
+    members: Array<{
+      id: string;
+      name: string;
+      url: string;
+      a2aUrl: string;
+      capabilities?: string[];
+    }>;
+    withdrawnMemberId: string;
+    artifactDirectory: string;
+    artifactSha256: string;
+  };
 };
 
 export type RedactedAcceptanceReceipt = {
@@ -49,11 +66,31 @@ export type ControllerExecution = {
   deployArtifact: (
     member: TrustedAuthorityProfile["members"][number],
   ) => Promise<void>;
-  runStableHarness: () => Promise<RedactedAcceptanceReceipt["evidence"]>;
-  runWithdrawalHarness: () => Promise<RedactedAcceptanceReceipt["evidence"]>;
+  deployDirectoryArtifact?: (
+    fixture: NonNullable<TrustedAuthorityProfile["directoryFixture"]>,
+  ) => Promise<void>;
+  /** The lease is redacted and is the exact controller-owned lease for this run. */
+  runStableHarness: (
+    lease: RuntimeLease,
+    signal: AbortSignal,
+  ) => Promise<RedactedAcceptanceReceipt["evidence"]>;
+  runWithdrawalHarness: (
+    lease: RuntimeLease,
+    signal: AbortSignal,
+  ) => Promise<RedactedAcceptanceReceipt["evidence"]>;
+  /**
+   * Runs only after revoke completed. Transient browser/token state remains in
+   * the caller closure; this controller never receives or persists it.
+   */
+  runPostCleanupHarness?: (
+    lease: RuntimeLease,
+    signal: AbortSignal,
+  ) => Promise<RedactedAcceptanceReceipt["evidence"]>;
   journalFile: string;
   receiptFile: string;
   ttlMs: number;
+  harnessTimeoutMs?: number;
+  postCleanupTimeoutMs?: number;
   expectedAssertionIds: readonly string[];
   now?: () => Date;
 };
@@ -106,7 +143,15 @@ function assertExactKeys(
 function assertProfileShape(profile: TrustedAuthorityProfile): void {
   assertExactKeys(
     profile,
-    ["version", "workspace", "enabled", "leasePrefix", "runtime", "members"],
+    [
+      "version",
+      "workspace",
+      "enabled",
+      "leasePrefix",
+      "runtime",
+      "members",
+      "directoryFixture",
+    ],
     "profile",
   );
   assertExactKeys(
@@ -140,6 +185,28 @@ function assertProfileShape(profile: TrustedAuthorityProfile): void {
       ["id", "origin", "artifactDirectory", "withdrawnDirectoryMember"],
       `profile.members[${index}]`,
     );
+  if (profile.directoryFixture) {
+    assertExactKeys(
+      profile.directoryFixture,
+      [
+        "origin",
+        "netlifyAccountId",
+        "netlifySiteId",
+        "orgDomain",
+        "members",
+        "withdrawnMemberId",
+        "artifactDirectory",
+        "artifactSha256",
+      ],
+      "profile.directoryFixture",
+    );
+    for (const [index, member] of profile.directoryFixture.members.entries())
+      assertExactKeys(
+        member,
+        ["id", "name", "url", "a2aUrl", "capabilities"],
+        `profile.directoryFixture.members[${index}]`,
+      );
+  }
 }
 
 function stableAcceptanceUrl(value: string): boolean {
@@ -235,6 +302,58 @@ export function validateTrustedAuthorityProfile(
       issues.push(`runtime member ${member.id} has a duplicate Neon project`);
     neonProjectIds.add(member.neonProjectId);
   }
+  const fixture = profile.directoryFixture;
+  if (fixture) {
+    if (!stableAcceptanceUrl(fixture.origin))
+      issues.push("directory fixture has an unsafe acceptance origin");
+    if (!fixture.netlifyAccountId || !fixture.netlifySiteId)
+      issues.push("directory fixture has incomplete Netlify identity");
+    if (/(?:^|[-_])(?:prod|production)(?:[-_]|$)/i.test(fixture.netlifySiteId))
+      issues.push("directory fixture must not name a production Netlify site");
+    if (siteIds.has(fixture.netlifySiteId))
+      issues.push("directory fixture duplicates an app Netlify site");
+    if (origins.has(fixture.origin))
+      issues.push("directory fixture duplicates an app acceptance origin");
+    if (fixture.orgDomain !== "agent-native.acceptance.invalid")
+      issues.push(
+        "directory fixture orgDomain must match the synthetic hosted-QA email domain",
+      );
+    if (
+      !fixture.artifactDirectory ||
+      fixture.artifactDirectory.startsWith("/") ||
+      fixture.artifactDirectory.split("/").includes("..")
+    )
+      issues.push("directory fixture has an unsafe artifact directory");
+    if (!/^[a-f0-9]{64}$/i.test(fixture.artifactSha256))
+      issues.push("directory fixture must pin a trusted artifact sha256");
+    const fixtureIds = new Set<string>();
+    for (const member of fixture.members) {
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(member.id) || fixtureIds.has(member.id))
+        issues.push(
+          `directory fixture member ${member.id || "<empty>"} is unsafe or duplicated`,
+        );
+      fixtureIds.add(member.id);
+      const declared = profile.members.find(({ id }) => id === member.id);
+      if (
+        !declared ||
+        member.url !== declared.origin ||
+        member.a2aUrl !== declared.origin
+      )
+        issues.push(
+          `directory fixture member ${member.id} must exactly match a declared app origin`,
+        );
+      if (!member.name.trim())
+        issues.push(`directory fixture member ${member.id} has no name`);
+    }
+    if (!fixtureIds.has(fixture.withdrawnMemberId))
+      issues.push(
+        "directory fixture withdrawal target must be a fixed declared member",
+      );
+    if (profile.members.some(({ id }) => !fixtureIds.has(id)))
+      issues.push(
+        "directory fixture must map every declared app member exactly once",
+      );
+  }
   if (
     !Number.isFinite(profile.runtime.maxInferenceUsd) ||
     profile.runtime.maxInferenceUsd <= 0 ||
@@ -261,6 +380,18 @@ export function validateTrustedAuthorityProfile(
 function runtimeConfig(profile: TrustedAuthorityProfile): TrustedRuntimeConfig {
   return {
     ...profile.runtime,
+    ...(profile.directoryFixture
+      ? {
+          directoryFixture: {
+            origin: profile.directoryFixture.origin,
+            netlifyAccountId: profile.directoryFixture.netlifyAccountId,
+            netlifySiteId: profile.directoryFixture.netlifySiteId,
+            orgDomain: profile.directoryFixture.orgDomain,
+            members: profile.directoryFixture.members,
+            withdrawnMemberId: profile.directoryFixture.withdrawnMemberId,
+          },
+        }
+      : {}),
     tombstone: {
       sha256: profile.runtime.tombstone.sha256,
       zip: new Uint8Array(
@@ -330,6 +461,45 @@ function hasCompleteEvidence(
   );
 }
 
+async function withDeadline<T>(
+  work: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+    throw new Error("trusted harness timeout must be positive");
+  const controller = new AbortController();
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error("trusted hosted harness timed out"));
+    }, timeoutMs);
+    const result = await work(controller.signal);
+    if (timedOut) throw new Error("trusted hosted harness timed out");
+    return result;
+  } catch (error) {
+    if (timedOut) throw new Error("trusted hosted harness timed out");
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Provider writes that may already have been accepted must settle before the
+ * cleanup tombstone is placed. Abort is observed only after that barrier.
+ */
+export async function settleBeforeCleanup(
+  operations: readonly Promise<unknown>[],
+  signal: AbortSignal,
+): Promise<void> {
+  const results = await Promise.allSettled(operations);
+  signal.throwIfAborted();
+  const rejected = results.find((result) => result.status === "rejected");
+  if (rejected?.status === "rejected") throw rejected.reason;
+}
+
 /** Runs only after a trusted workflow has verified inert artifact provenance. */
 export async function executeTrustedAcceptance(
   profile: TrustedAuthorityProfile,
@@ -338,6 +508,10 @@ export async function executeTrustedAcceptance(
   const issues = validateTrustedAuthorityProfile(profile);
   if (issues.length)
     throw new Error(`trusted authority profile rejected: ${issues.join("; ")}`);
+  if (profile.directoryFixture && !execution.deployDirectoryArtifact)
+    throw new Error(
+      "directory fixture requires a controller-owned artifact deployer",
+    );
   const journalStore = new JsonLeaseJournalStore(execution.journalFile);
   const authority = new DisposableRuntimeAuthority(
     runtimeConfig(profile),
@@ -353,22 +527,44 @@ export async function executeTrustedAcceptance(
     const acquired = await authority.acquire(execution.ttlMs);
     lease = acquired.lease;
     // Secrets remain in the acquire return value only; no controller output receives it.
+    if (profile.directoryFixture && execution.deployDirectoryArtifact)
+      await execution.deployDirectoryArtifact(profile.directoryFixture);
     for (const member of profile.members)
       await execution.deployArtifact(member);
-    evidence = [
-      ...(await execution.runStableHarness()),
-      ...(await execution.runWithdrawalHarness()),
-    ];
+    evidence = await withDeadline(
+      async (signal) => [
+        ...(await execution.runStableHarness(lease, signal)),
+        ...(await execution.runWithdrawalHarness(lease, signal)),
+      ],
+      execution.harnessTimeoutMs ?? 10 * 60_000,
+    );
   } catch (error) {
     failure = error;
   } finally {
-    if (lease) await authority.revoke(lease);
+    if (lease) {
+      await authority.revoke(lease);
+      if (execution.runPostCleanupHarness) {
+        try {
+          evidence = [
+            ...evidence,
+            ...(await withDeadline(
+              (signal) => execution.runPostCleanupHarness!(lease!, signal),
+              execution.postCleanupTimeoutMs ?? 60_000,
+            )),
+          ];
+        } catch (error) {
+          failure ??= error;
+        }
+      }
+    }
     const clean =
       lease?.state === "revoked" &&
       lease.verification.tombstoneActive &&
       lease.members.every(
         (member) => !member.runtimeOwned || Boolean(member.tombstoneDeployId),
-      );
+      ) &&
+      (!lease.directoryFixture?.runtimeOwned ||
+        Boolean(lease.directoryFixture.tombstoneDeployId));
     const receipt = receiptFor(
       profile,
       lease,
@@ -390,6 +586,26 @@ export async function executeTrustedAcceptance(
   if (!completedReceipt)
     throw new Error("trusted acceptance did not produce a controller receipt");
   return completedReceipt;
+}
+
+/** In-process trusted-runner seam; it accepts only an opaque redacted lease. */
+export async function updateTrustedAcceptanceDirectoryScenario(
+  profile: TrustedAuthorityProfile,
+  lease: RuntimeLease,
+  providers: RuntimeProviders,
+  now?: () => Date,
+  journalStore: LeaseJournalStore,
+): Promise<RuntimeLease> {
+  const issues = validateTrustedAuthorityProfile(profile);
+  if (issues.length)
+    throw new Error(`trusted authority profile rejected: ${issues.join("; ")}`);
+  assertRedacted(lease);
+  return new DisposableRuntimeAuthority(
+    runtimeConfig(profile),
+    providers,
+    now,
+    journalStore,
+  ).updateDirectoryScenario(lease, "withdraw-member");
 }
 
 /** Discovery is injected so providers can be reconciled without candidate code or stored credentials. */
@@ -434,16 +650,22 @@ function requiredAmbientCredentials(): Record<string, string> {
   ) as Record<string, string>;
 }
 
-function ambientProviders(): RuntimeProviders {
+/** Management credentials are read only from the protected process environment. */
+export function createAmbientRuntimeProviders(): RuntimeProviders {
   const credentials = requiredAmbientCredentials();
+  const boundedFetch: typeof fetch = (input, init) =>
+    fetch(input, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(30_000),
+    });
   return {
-    neon: new NeonBranches(fetch, credentials.ACCEPTANCE_NEON_API_KEY),
+    neon: new NeonBranches(boundedFetch, credentials.ACCEPTANCE_NEON_API_KEY),
     netlify: new NetlifyRuntime(
-      fetch,
+      boundedFetch,
       credentials.ACCEPTANCE_NETLIFY_AUTH_TOKEN,
     ),
     openrouter: new OpenRouterKeys(
-      fetch,
+      boundedFetch,
       credentials.ACCEPTANCE_OPENROUTER_API_KEY,
     ),
   };
@@ -463,7 +685,9 @@ function assertRevoked(lease: RuntimeLease): void {
     !lease.verification.tombstoneActive ||
     !lease.members.every(
       (member) => !member.runtimeOwned || Boolean(member.tombstoneDeployId),
-    )
+    ) ||
+    (lease.directoryFixture?.runtimeOwned &&
+      !lease.directoryFixture.tombstoneDeployId)
   ) {
     throw new Error(
       "cleanup verification failed: lease was not revoked with tombstone IDs",
@@ -494,7 +718,7 @@ async function main(): Promise<void> {
   const profileFile = option("--profile");
   if (!command || !profileFile)
     throw new Error(
-      "usage: controller <validate-profile|acquire|revoke|reap> --profile <file> --journal <file>",
+      "usage: controller <validate-profile|acquire|withdraw-directory-member|revoke|reap> --profile <file> --journal <file>",
     );
   const profile = await profileFromFile(profileFile);
   if (command === "validate-profile") {
@@ -505,7 +729,11 @@ async function main(): Promise<void> {
     if (issues.length) process.exitCode = 1;
     return;
   }
-  if (!new Set(["acquire", "revoke", "reap"]).has(command))
+  if (
+    !new Set(["acquire", "withdraw-directory-member", "revoke", "reap"]).has(
+      command,
+    )
+  )
     throw new Error(`unknown controller command: ${command}`);
   const issues = validateTrustedAuthorityProfile(profile, {
     requireEnabled: command === "acquire",
@@ -515,7 +743,7 @@ async function main(): Promise<void> {
   const journalFile = option("--journal");
   if (!journalFile)
     throw new Error("live controller commands require --journal");
-  const providers = ambientProviders();
+  const providers = createAmbientRuntimeProviders();
   const authority = new DisposableRuntimeAuthority(
     runtimeConfig(profile),
     providers,
@@ -536,6 +764,16 @@ async function main(): Promise<void> {
     assertRevoked(revoked);
     process.stdout.write(
       `${JSON.stringify({ ok: true, leaseId: revoked.id, state: revoked.state })}\n`,
+    );
+    return;
+  }
+  if (command === "withdraw-directory-member") {
+    const updated = await authority.updateDirectoryScenario(
+      await leaseFromFile(journalFile),
+      "withdraw-member",
+    );
+    process.stdout.write(
+      `${JSON.stringify({ ok: true, leaseId: updated.id, directoryScenario: updated.directoryFixture?.scenario })}\n`,
     );
     return;
   }

@@ -1,5 +1,48 @@
 # @agent-native/core
 
+## 0.124.3
+
+### Patch Changes
+
+- c385fed: Keep emoji and other multi-code-point grapheme clusters intact while streaming text. The incremental segmentation cache re-segmented from a fixed character offset, so a cluster straddling that offset was cut in half and characters were silently dropped from the smoothed output. The re-segmentation window now starts on a grapheme boundary.
+
+## 0.124.2
+
+### Patch Changes
+
+- 7568c67: Fix system email sending failing on serverless (ENOENT reading the branding
+  favicon). The inline email logo is now bundled as a base64 TS module instead of
+  read from disk at send time, so verification/invite/reset emails work in
+  production where raw assets aren't traced into the deploy bundle.
+
+## 0.124.1
+
+### Patch Changes
+
+- 661ee71: Register the CRM template in the CLI template catalog.
+
+  `crm` is added to `TEMPLATES` as a **hidden** entry (dev port 8107,
+  `defaultMode: "dev"`), so `agent-native new` can scaffold it by name while it
+  stays out of the public catalog until it is explicitly unhidden. The mirrored
+  list in `@agent-native/shared-app-config` is updated to match.
+
+  Two cross-template specs are widened to cover it: the UI-primitives sync check
+  now includes `crm`, and the page-chat handoff check reads CRM's layout from
+  `app/components/layout/CrmLayout.tsx` and expects `requireActiveHandoff: false`,
+  since CRM's full-page chat lives on its own `/ask` route.
+
+## 0.124.0
+
+### Minor Changes
+
+- e9dd025: `agent-native dev --inspect` (and `--inspect-brk`, optionally `=<port>`) now
+  attaches the Node inspector to **only** the Nitro API-server process, on a
+  single known port (default 9229). It selects Nitro's `node-process` dev runner
+  so the server is a real, attachable process, and injects `NODE_OPTIONS` through
+  a Vite preload that runs before Vite's own startup — so Vite, pnpm, and the CLI
+  are never inspected and there is exactly one debugger target. Set
+  `NITRO_DEV_RUNNER` yourself to override the runner.
+
 ## 0.123.2
 
 ### Patch Changes

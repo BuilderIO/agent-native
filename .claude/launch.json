@@ -328,6 +328,23 @@
       "port": 3216
     },
     {
+      "name": "crm-board-geom",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/2ff1542f-d313-4872-9a6f-06ce63e13924/scratchpad/crm-board-geom.sqlite",
+        "PORT=8127",
+        "AUTH_MODE=local",
+        "APP_URL=http://localhost:8127",
+        "pnpm",
+        "--dir",
+        "templates/crm",
+        "dev",
+        "--port",
+        "8127"
+      ],
+      "port": 8127
+    },
+    {
       "name": "clips-desktop-overlays",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": [
@@ -356,6 +373,39 @@
         "9330"
       ],
       "port": 9330
+    },
+    {
+      "name": "crm",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/2ff1542f-d313-4872-9a6f-06ce63e13924/scratchpad/crm-showcase.sqlite",
+        "PORT=8107",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/crm",
+        "dev",
+        "--port",
+        "8107"
+      ],
+      "port": 8107
+    },
+    {
+      "name": "crm-verify-529",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/2ff1542f-d313-4872-9a6f-06ce63e13924/scratchpad/crm-verify-529-fresh.sqlite",
+        "PORT=8117",
+        "AUTH_MODE=local",
+        "APP_URL=http://localhost:8117",
+        "pnpm",
+        "--dir",
+        "templates/crm",
+        "dev",
+        "--port",
+        "8117"
+      ],
+      "port": 8117
     },
     {
       "name": "analytics-watchdog",

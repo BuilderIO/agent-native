@@ -362,6 +362,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "Bereich anpassen",
     loadFailedTitle: "Dieser Datensatz konnte nicht geladen werden",
     loadFailedDescription:
       "CRM konnte diesen Datensatz nicht lesen. Möglicherweise liegt er außerhalb deiner Zugriffsrechte.",

@@ -240,6 +240,7 @@ export const TEMPLATES: TemplateMeta[] = [
     color: "#2563EB",
     colorRgb: "37 99 235",
     devPort: 8107,
+    prodUrl: "https://crm.agent-native.com",
     hidden: true,
     defaultMode: "dev",
     core: false,

@@ -9,10 +9,15 @@
  */
 
 import { useT } from "@agent-native/core/client/i18n";
-import { IconAlertTriangle } from "@tabler/icons-react";
+import { IconAlertTriangle, IconPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -29,13 +34,20 @@ import type {
 import {
   activeOptions,
   editorDraftFor,
+  editorInputType,
+  referenceMembers,
+  referenceSearchKind,
+  toggleReferenceValue,
   valueSpecFor,
 } from "../shared/attribute-value";
 import {
   AttributeOptionChip,
   AttributeRating,
 } from "../shared/AttributeValueParts";
+import { RecordReferencePicker } from "../shared/RecordReferencePicker";
+import { overlayProps } from "../shared/ui-tokens";
 import {
+  fieldEditability,
   fieldInputValue,
   formatFieldValue,
   parseFieldInput,
@@ -48,6 +60,7 @@ const CLEAR_OPTION = "__crm_clear__";
 type EditableAttribute = Pick<
   CrmAttributeDefinition,
   | "apiSlug"
+  | "label"
   | "attributeType"
   | "multi"
   | "options"
@@ -134,6 +147,9 @@ export function FieldEditor({
   const [state, setState] = useState(() => editorDraftFor(undefined, seed));
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Set the moment the input takes focus, cleared by the click that follows.
+  // See `selectOnFocus` below.
+  const selectedOnFocus = useRef(false);
 
   // Re-seeded during render, not from an effect: an effect re-seed lands after
   // the browser has already applied the keystroke it is about to overwrite.
@@ -146,11 +162,63 @@ export function FieldEditor({
     const input = inputRef.current;
     if (!input) return;
     input.focus();
-    // Select, not just focus — the grid does the same. A bare focus leaves the
-    // caret inside the existing text, so the first thing typed is inserted into
-    // the old value rather than replacing it.
+    // Select here as well as in `onFocus`, not instead of it. A programmatic
+    // `focus()` fires no focus event while the document itself is unfocused
+    // (a background tab, a devtools-driven run), so an `onFocus`-only select
+    // silently leaves the caret at the end of the old value and the first
+    // thing typed is appended to it.
     input.select();
   }, [autoFocus]);
+
+  /**
+   * Select the whole value whenever the field takes focus, so the next thing
+   * typed *replaces* it.
+   *
+   * This hangs off focus rather than off `autoFocus` alone because
+   * `FieldEditor` is also rendered as an always-live input (list entry rows),
+   * where nothing ever mounts it focused: a caller that does not pass
+   * `autoFocus` would otherwise get an editor that appends to the old value.
+   * Selecting is the editor's own property, not something each caller has to
+   * remember — that is how the same append bug came back twice.
+   *
+   * The `mouseUp` half matters: when focus came from a click, the browser
+   * places the caret on mouse-up and would drop the selection made here.
+   */
+  const selectOnFocus = {
+    onFocus: (event: React.FocusEvent<HTMLInputElement>) => {
+      selectedOnFocus.current = true;
+      event.currentTarget.select();
+    },
+    onMouseUp: (event: React.MouseEvent<HTMLInputElement>) => {
+      if (!selectedOnFocus.current) return;
+      selectedOnFocus.current = false;
+      event.preventDefault();
+    },
+  };
+
+  const input = editorInputType(attribute);
+
+  /**
+   * Commit what the control actually holds, and refuse when it cannot say.
+   *
+   * `validity.badInput` is the browser reporting "the user typed something I
+   * cannot express" — a half-written date, a stray `e` in a number. In that
+   * state `value` is the empty string, which `parse` reads as *cleared* and
+   * would store as null. Committing it turns a typo into silent data loss, so
+   * the editor says so and keeps the value the record already has.
+   */
+  function commitFromInput(node: HTMLInputElement) {
+    selectedOnFocus.current = false;
+    if (node.validity.badInput) {
+      setError(
+        input.type === "date" || input.type === "datetime-local"
+          ? t("record.invalidDate")
+          : t("record.invalidNumber"),
+      );
+      return;
+    }
+    commit(node.value);
+  }
 
   function commit(raw: string | boolean) {
     const parsed = parseFieldInput(attribute, raw);
@@ -169,6 +237,21 @@ export function FieldEditor({
     setError(null);
     onCommit(parsed.value);
     onDone?.();
+  }
+
+  /**
+   * Commit a typed value the picker produced directly. It skips text parsing —
+   * a reference display name may contain the comma a multi value splits on —
+   * but not the editability gate, which is what keeps a doomed write off the
+   * wire.
+   */
+  function commitValue(next: CrmValue) {
+    if (!fieldEditability(attribute).editable) {
+      setError(t("record.notEditable"));
+      return;
+    }
+    setError(null);
+    onCommit(next);
   }
 
   const spec = valueSpecFor(attribute);
@@ -209,27 +292,41 @@ export function FieldEditor({
     );
   }
 
-  // A multi value is a comma-separated list, which no typed input accepts.
-  const inputType = attribute.multi ? "text" : spec.inputType;
+  if (spec.control === "reference") {
+    return (
+      <div className="grid gap-1">
+        <ReferenceField
+          attribute={attribute}
+          value={value}
+          autoFocus={autoFocus}
+          onCommit={commitValue}
+          onDone={onDone}
+        />
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-1">
       <Input
         ref={inputRef}
         className="h-8"
-        type={inputType}
+        type={input.type}
+        {...(input.inputMode ? { inputMode: input.inputMode } : {})}
         value={draft}
         aria-label={attribute.apiSlug}
         placeholder={attribute.multi ? t("record.multiValueHint") : undefined}
         maxLength={4_000}
+        {...selectOnFocus}
         onChange={(event) =>
           setState({ ...current, draft: event.target.value })
         }
-        onBlur={() => commit(draft)}
+        onBlur={(event) => commitFromInput(event.currentTarget)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            commit(draft);
+            commitFromInput(event.currentTarget);
           }
           if (event.key === "Escape") {
             event.preventDefault();
@@ -241,5 +338,100 @@ export function FieldEditor({
       />
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
+  );
+}
+
+/**
+ * A link to another record: a searchable popover, and the committed value as
+ * chips. `multi` toggles membership instead of replacing, and a chip carries
+ * its own unlink control — the popover would otherwise be the only way to
+ * remove one, which needs the user to search for a record they can already see.
+ */
+function ReferenceField({
+  attribute,
+  value,
+  autoFocus,
+  onCommit,
+  onDone,
+}: {
+  attribute: EditableAttribute;
+  value: CrmValue | undefined;
+  /** The row was just activated, so open the search straight away rather than
+   *  making the user click the value twice to get to a picker. */
+  autoFocus: boolean;
+  onCommit: (next: CrmValue) => void;
+  onDone?: () => void;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(autoFocus);
+  const members = referenceMembers(value);
+
+  function pick(displayName: string) {
+    onCommit(toggleReferenceValue(value, displayName, attribute.multi));
+    if (!attribute.multi) {
+      setOpen(false);
+      onDone?.();
+    }
+  }
+
+  // `toggleReferenceValue` is a *pick*: on a single reference it replaces, so
+  // reusing it here would re-write the value the user is trying to remove.
+  function unlink(member: string) {
+    onCommit(
+      attribute.multi ? toggleReferenceValue(value, member, true) : null,
+    );
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) onDone?.();
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-1">
+        {members.map((member) => (
+          <span key={member} className="inline-flex items-center gap-0.5">
+            <AttributeOptionChip token={{ label: member }} />
+            <button
+              type="button"
+              className="cursor-pointer text-content-ghost hover:text-foreground"
+              aria-label={t("record.clearValue")}
+              onClick={() => unlink(member)}
+            >
+              <IconX className="size-3.5" />
+            </button>
+          </span>
+        ))}
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            {...overlayProps({
+              className:
+                "cursor-pointer rounded-lg px-2 py-1 text-left text-sm",
+            })}
+            aria-label={attribute.apiSlug}
+          >
+            {members.length ? (
+              <IconPlus className="size-3.5" />
+            ) : (
+              <span className="text-muted-foreground">
+                {t("record.fieldEmpty")}
+              </span>
+            )}
+          </button>
+        </PopoverTrigger>
+      </div>
+      <PopoverContent align="start" className="p-0">
+        <RecordReferencePicker
+          label={attribute.label}
+          kind={referenceSearchKind(attribute)}
+          selected={members}
+          onPick={pick}
+          onCancel={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -53,8 +53,22 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
+import {
+  HEADER_HEIGHT,
+  overlayProps,
+  ROW_HEIGHT,
+  SELECTION_RING_INSET,
+  selectionCornerRadius,
+} from "../shared/ui-tokens";
 import { decodeTsv, encodeTsv } from "./clipboard";
-import { CellDisplay, CellEditor, ProvenanceMarker } from "./GridCell";
+import {
+  AttributeTypeIcon,
+  CellDisplay,
+  CellEditor,
+  ProvenanceMarker,
+  RecordAvatar,
+  type CrmAvatarShape,
+} from "./GridCell";
 import {
   cellSpecFor,
   copyCell,
@@ -86,12 +100,26 @@ import {
   type CrmGridSortEntry,
 } from "./query";
 
-const ROW_HEIGHT = 34;
-const SELECT_WIDTH = 36;
-const NAME_WIDTH = 240;
-const DEFAULT_WIDTH = 200;
+const ICON_WIDTH = 36;
+const NAME_WIDTH = 333;
+const DEFAULT_WIDTH = 180;
 /** Rows from the bottom of the loaded set at which the next page is requested. */
 const PREFETCH_ROWS = 8;
+
+/**
+ * The frozen first columns. `clip-path` lets the blur spill to the right and
+ * nowhere else — unclipped it bleeds over the header and the row below, which
+ * reads as a smudge rather than a lifted edge.
+ */
+const STICKY_FLAT: React.CSSProperties = {
+  clipPath: "inset(0 -38px 0 0)",
+  boxShadow: "none",
+  transition: "box-shadow var(--motion-breezy) ease-in-out",
+};
+const STICKY_SCROLLED: React.CSSProperties = {
+  ...STICKY_FLAT,
+  boxShadow: "var(--crm-shadow-sticky)",
+};
 
 export interface CrmGridCommit {
   row: CrmGridRow;
@@ -116,6 +144,10 @@ export interface CrmGridProps {
   emptyDescription?: string;
   /** Header for the fixed record-name column. */
   nameLabel: string;
+  /** The object's own glyph, shown in the icon column until the row is hovered. */
+  objectIcon?: React.ComponentType<{ className?: string }>;
+  /** Avatar shape for this object type: round is a person, squircle is not. */
+  avatarShape?: CrmAvatarShape;
   /** Href for one row's record page; the name column links to it when given. */
   rowHref?: (row: CrmGridRow) => string;
   onCommitCell: (commit: CrmGridCommit) => Promise<void>;
@@ -144,6 +176,9 @@ export function CrmGrid(props: CrmGridProps) {
   } | null>(null);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Drives the frozen-column shadow. It exists only once there is something
+  // hidden underneath the frozen columns.
+  const [scrolled, setScrolled] = useState(false);
 
   const ordered = useMemo(
     () => resolveGridColumns(props.columns, props.attributes),
@@ -426,15 +461,18 @@ export function CrmGrid(props: CrmGridProps) {
   }, [hasNextPage, isFetchingNextPage, lastVisible, onLoadMore, rowCount]);
 
   const totalWidth =
-    SELECT_WIDTH +
+    ICON_WIDTH +
     NAME_WIDTH +
     visible.reduce(
       (sum, { column, attribute }) =>
         sum +
         (column.width ?? cellSpecFor(attribute).defaultWidth ?? DEFAULT_WIDTH),
       0,
-    ) +
-    40;
+    );
+  const stickyStyle = scrolled ? STICKY_SCROLLED : STICKY_FLAT;
+  const frozenWidth = ICON_WIDTH + NAME_WIDTH;
+  const ObjectIcon = props.objectIcon;
+  const avatarShape = props.avatarShape ?? "company";
 
   function toggleRow(rowId: string) {
     setSelectedRows((current) => {
@@ -468,9 +506,13 @@ export function CrmGrid(props: CrmGridProps) {
 
   if (props.isLoading && props.rows.length === 0) {
     return (
-      <div className="grid gap-1.5 p-5">
-        {Array.from({ length: 10 }, (_, index) => (
-          <Skeleton key={index} className="h-8 w-full" />
+      <div className="grid gap-px">
+        {Array.from({ length: 12 }, (_, index) => (
+          <Skeleton
+            key={index}
+            className="w-full rounded-none"
+            style={{ height: ROW_HEIGHT - 1 }}
+          />
         ))}
       </div>
     );
@@ -505,34 +547,56 @@ export function CrmGrid(props: CrmGridProps) {
           event.preventDefault();
           void pasteTsv(text);
         }}
+        onScroll={(event) => {
+          const next = event.currentTarget.scrollLeft > 0;
+          setScrolled((current) => (current === next ? current : next));
+        }}
         className="min-h-0 flex-1 overflow-auto outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <div style={{ width: totalWidth, minWidth: "100%" }}>
-          <div className="sticky top-0 z-20 flex h-9 items-stretch border-b border-border bg-background/95 backdrop-blur">
+          <div
+            className="sticky top-0 z-20 flex items-stretch border-y border-hairline bg-background"
+            style={{ height: HEADER_HEIGHT }}
+          >
             <div
-              className="flex shrink-0 items-center justify-center border-r border-border/60"
-              style={{ width: SELECT_WIDTH }}
+              className="sticky left-0 z-20 flex shrink-0 items-stretch bg-background"
+              style={{ ...stickyStyle, width: frozenWidth }}
             >
-              <Checkbox
-                checked={
-                  selectedRows.size > 0 &&
-                  selectedRows.size === props.rows.length
-                }
-                onCheckedChange={(next) =>
-                  setSelectedRows(
-                    next === true
-                      ? new Set(props.rows.map((row) => row.id))
-                      : new Set(),
-                  )
-                }
-                aria-label={t("grid.selectAllRows")}
-              />
-            </div>
-            <div
-              className="flex shrink-0 items-center border-r border-border/60 px-2 text-xs font-medium text-muted-foreground"
-              style={{ width: NAME_WIDTH }}
-            >
-              <span className="truncate">{props.nameLabel}</span>
+              <div
+                className="flex shrink-0 items-center justify-center"
+                style={{ width: ICON_WIDTH }}
+              >
+                <Checkbox
+                  checked={
+                    selectedRows.size > 0 &&
+                    selectedRows.size === props.rows.length
+                  }
+                  onCheckedChange={(next) =>
+                    setSelectedRows(
+                      next === true
+                        ? new Set(props.rows.map((row) => row.id))
+                        : new Set(),
+                    )
+                  }
+                  aria-label={t("grid.selectAllRows")}
+                />
+              </div>
+              <div
+                className="flex shrink-0 items-center gap-1.5 border-l border-hairline px-3 text-sm font-medium text-content-secondary"
+                style={{ width: NAME_WIDTH }}
+              >
+                <span className="min-w-0 truncate">{props.nameLabel}</span>
+                {/* The add-column affordance rides the primary column, not the
+                    far right of a header row that can be scrolled off-screen. */}
+                <ColumnPicker
+                  attributes={props.attributes}
+                  columns={ordered}
+                  onColumnsChange={props.onColumnsChange}
+                  {...(props.onAddAttribute
+                    ? { onAddAttribute: props.onAddAttribute }
+                    : {})}
+                />
+              </div>
             </div>
             {table.getHeaderGroups()[0]?.headers.map((header, index) => {
               const attribute = visible[index]?.attribute;
@@ -558,23 +622,27 @@ export function CrmGrid(props: CrmGridProps) {
                     }
                   }}
                   style={{ width: header.getSize() }}
-                  className="group/header relative flex shrink-0 items-center gap-1 border-r border-border/60 px-2 text-xs font-medium text-muted-foreground"
+                  className="group/header relative flex shrink-0 items-center gap-1 border-l border-hairline px-3 text-sm font-medium text-content-secondary"
                 >
                   <button
                     type="button"
                     onClick={() => toggleSort(attribute)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left hover:text-foreground"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left transition-colors hover:text-foreground"
                   >
-                    <span className="truncate">
+                    <AttributeTypeIcon
+                      type={attribute.attributeType}
+                      className="size-4 shrink-0 text-content-ghost"
+                    />
+                    <span className="min-w-0 truncate">
                       {flexRender(
                         header.column.columnDef.header,
                         header.getContext(),
                       )}
                     </span>
                     {sorted?.direction === "asc" ? (
-                      <IconArrowUp className="size-3 shrink-0" />
+                      <IconArrowUp className="size-3.5 shrink-0" />
                     ) : sorted?.direction === "desc" ? (
-                      <IconArrowDown className="size-3 shrink-0" />
+                      <IconArrowDown className="size-3.5 shrink-0" />
                     ) : null}
                   </button>
                   <DropdownMenu>
@@ -608,22 +676,21 @@ export function CrmGrid(props: CrmGridProps) {
                   <div
                     onMouseDown={header.getResizeHandler()}
                     onTouchStart={header.getResizeHandler()}
-                    className={cn(
-                      "absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-ring",
-                      header.column.getIsResizing() && "bg-ring",
-                    )}
-                  />
+                    className="absolute -right-[3px] top-0 z-10 flex h-full w-1.5 cursor-col-resize touch-none select-none justify-center"
+                  >
+                    {/* The 100ms delay before the handle appears is deliberate:
+                        without it, dragging a pointer across the header row
+                        strobes a handle at every column boundary. */}
+                    <span
+                      className={cn(
+                        "h-full w-0.5 rounded-[3px] bg-[hsl(var(--crm-accent))] opacity-0 transition-opacity duration-100 delay-100 group-hover/header:opacity-100",
+                        header.column.getIsResizing() && "opacity-100",
+                      )}
+                    />
+                  </div>
                 </div>
               );
             })}
-            <ColumnPicker
-              attributes={props.attributes}
-              columns={ordered}
-              onColumnsChange={props.onColumnsChange}
-              {...(props.onAddAttribute
-                ? { onAddAttribute: props.onAddAttribute }
-                : {})}
-            />
           </div>
 
           <div
@@ -633,45 +700,85 @@ export function CrmGrid(props: CrmGridProps) {
               const row = props.rows[virtualRow.index];
               if (!row) return null;
               const range = selection ? selectionRange(selection) : null;
+              const rowSelected = selectedRows.has(row.id);
               return (
                 <div
                   key={row.id}
-                  className={cn(
-                    "absolute left-0 flex items-stretch border-b border-border/50 hover:bg-muted/25",
-                    selectedRows.has(row.id) && "bg-primary/5",
-                  )}
+                  {...overlayProps({
+                    selected: rowSelected,
+                    className:
+                      "group/row absolute left-0 flex items-stretch border-b border-hairline",
+                  })}
                   style={{
                     top: virtualRow.start,
                     height: ROW_HEIGHT,
                     width: totalWidth,
+                    minWidth: "100%",
                   }}
                 >
+                  {/* The frozen columns paint their own background, so the row's
+                      overlay cannot reach them — they carry a second one driven
+                      by the row's hover instead of a background swap. */}
                   <div
-                    className="flex shrink-0 items-center justify-center border-r border-border/50"
-                    style={{ width: SELECT_WIDTH }}
+                    {...overlayProps({
+                      selected: rowSelected,
+                      className: cn(
+                        "sticky left-0 z-20 flex shrink-0 items-stretch bg-background",
+                        // Selection already owns the overlay at a stronger
+                        // alpha; letting hover win would lighten it.
+                        !rowSelected &&
+                          "group-hover/row:before:opacity-[var(--crm-overlay-hover)]",
+                      ),
+                    })}
+                    style={{ ...stickyStyle, width: frozenWidth }}
                   >
-                    <Checkbox
-                      checked={selectedRows.has(row.id)}
-                      onCheckedChange={() => toggleRow(row.id)}
-                      aria-label={t("grid.selectRow", {
-                        name: row.displayName,
-                      })}
-                    />
-                  </div>
-                  <div
-                    className="flex shrink-0 items-center overflow-hidden border-r border-border/50 px-2 text-sm font-medium"
-                    style={{ width: NAME_WIDTH }}
-                  >
-                    {props.rowHref ? (
-                      <Link
-                        to={props.rowHref(row)}
-                        className="truncate rounded-sm outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-                      >
-                        {row.displayName}
-                      </Link>
-                    ) : (
-                      <span className="truncate">{row.displayName}</span>
-                    )}
+                    <div
+                      className="relative flex shrink-0 items-center justify-center"
+                      style={{ width: ICON_WIDTH }}
+                    >
+                      {rowSelected || !ObjectIcon ? (
+                        <Checkbox
+                          checked={rowSelected}
+                          onCheckedChange={() => toggleRow(row.id)}
+                          aria-label={t("grid.selectRow", {
+                            name: row.displayName,
+                          })}
+                        />
+                      ) : (
+                        <>
+                          <ObjectIcon className="size-4 text-content-tertiary transition-opacity group-hover/row:opacity-0" />
+                          <Checkbox
+                            checked={false}
+                            onCheckedChange={() => toggleRow(row.id)}
+                            aria-label={t("grid.selectRow", {
+                              name: row.displayName,
+                            })}
+                            className="absolute inset-0 m-auto opacity-0 transition-opacity focus-visible:opacity-100 group-hover/row:opacity-100"
+                          />
+                        </>
+                      )}
+                    </div>
+                    <div
+                      className="flex shrink-0 items-center gap-2 overflow-hidden border-l border-hairline px-3 text-sm font-medium"
+                      style={{ width: NAME_WIDTH }}
+                    >
+                      <RecordAvatar
+                        name={row.displayName}
+                        shape={avatarShape}
+                      />
+                      {props.rowHref ? (
+                        <Link
+                          to={props.rowHref(row)}
+                          className="min-w-0 truncate rounded-sm underline decoration-transparent underline-offset-[0.14em] outline-none transition-colors hover:decoration-content-ghost focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          {row.displayName}
+                        </Link>
+                      ) : (
+                        <span className="min-w-0 truncate">
+                          {row.displayName}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {visible.map(({ column, attribute }, colIndex) => {
                     const ref = { row: virtualRow.index, col: colIndex };
@@ -682,6 +789,18 @@ export function CrmGrid(props: CrmGridProps) {
                     const isEditing =
                       editing?.ref.row === ref.row &&
                       editing.ref.col === ref.col;
+                    const spec = cellSpecFor(attribute);
+                    // A range is outlined once, not per cell: each cell draws
+                    // only the segments that sit on the range's boundary, and a
+                    // corner rounds only where two of them meet.
+                    const edges = range
+                      ? {
+                          top: ref.row === range.top,
+                          right: ref.col === range.right,
+                          bottom: ref.row === range.bottom,
+                          left: ref.col === range.left,
+                        }
+                      : null;
                     return (
                       <div
                         key={attribute.apiSlug}
@@ -704,21 +823,37 @@ export function CrmGrid(props: CrmGridProps) {
                         }}
                         style={{
                           width:
-                            column.width ??
-                            cellSpecFor(attribute).defaultWidth ??
-                            DEFAULT_WIDTH,
+                            column.width ?? spec.defaultWidth ?? DEFAULT_WIDTH,
                         }}
-                        className={cn(
-                          "relative flex shrink-0 items-center overflow-hidden border-r border-border/50 px-2 text-sm",
-                          cellSpecFor(attribute).align === "right" &&
-                            "justify-end",
-                          cellSpecFor(attribute).align === "center" &&
-                            "justify-center",
-                          inRange && !active && "bg-primary/10",
-                          active && "ring-1 ring-inset ring-primary",
-                          isEditing && "z-10 bg-background p-0",
-                        )}
+                        {...overlayProps({
+                          selected: inRange && !active,
+                          soft: true,
+                          className: cn(
+                            "relative flex shrink-0 items-start border-l border-hairline px-3 pt-2 text-sm",
+                            !isCellEditable(attribute) &&
+                              "text-content-tertiary",
+                            // The ring overhangs the shared divider by 1px, so
+                            // the cell has to paint above its neighbours or the
+                            // next cell's border repaints over it.
+                            inRange && "z-[1]",
+                            isEditing && "z-[2] bg-background p-0",
+                          ),
+                        })}
                       >
+                        {inRange && edges ? (
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute z-[2] border-[hsl(var(--crm-accent))]"
+                            style={{
+                              inset: SELECTION_RING_INSET,
+                              borderTopWidth: edges.top ? 1 : 0,
+                              borderRightWidth: edges.right ? 1 : 0,
+                              borderBottomWidth: edges.bottom ? 1 : 0,
+                              borderLeftWidth: edges.left ? 1 : 0,
+                              borderRadius: selectionCornerRadius(edges),
+                            }}
+                          />
+                        ) : null}
                         {isEditing ? (
                           <CellEditor
                             attribute={attribute}
@@ -737,24 +872,38 @@ export function CrmGrid(props: CrmGridProps) {
                           />
                         ) : (
                           <>
-                            <CellDisplay
-                              attribute={attribute}
-                              // A displayName that only duplicates this row's
-                              // name is hidden here, not dropped from the row:
-                              // an absent name must still show its own value.
-                              value={
-                                isSuppressedDisplayNameCell(
-                                  attribute.apiSlug,
-                                  row.values,
-                                )
-                                  ? null
-                                  : (row.values[attribute.apiSlug] ?? null)
-                              }
-                              {...(row.valuesSince?.[attribute.apiSlug]
-                                ? { since: row.valuesSince[attribute.apiSlug] }
-                                : {})}
-                              {...(props.now ? { now: props.now } : {})}
-                            />
+                            {/* One 20px line box, so a chip, a checkbox and a
+                                line of text all sit on the same baseline under
+                                the cell's 8px top padding. */}
+                            <span
+                              className={cn(
+                                "flex min-h-5 w-full min-w-0 items-center overflow-hidden",
+                                spec.align === "right" &&
+                                  "justify-end tabular-nums",
+                                spec.align === "center" && "justify-center",
+                              )}
+                            >
+                              <CellDisplay
+                                attribute={attribute}
+                                // A displayName that only duplicates this row's
+                                // name is hidden here, not dropped from the row:
+                                // an absent name must still show its own value.
+                                value={
+                                  isSuppressedDisplayNameCell(
+                                    attribute.apiSlug,
+                                    row.values,
+                                  )
+                                    ? null
+                                    : (row.values[attribute.apiSlug] ?? null)
+                                }
+                                {...(row.valuesSince?.[attribute.apiSlug]
+                                  ? {
+                                      since: row.valuesSince[attribute.apiSlug],
+                                    }
+                                  : {})}
+                                {...(props.now ? { now: props.now } : {})}
+                              />
+                            </span>
                             <ProvenanceMarker
                               provenance={row.provenance?.[attribute.apiSlug]}
                               attributeLabel={attribute.label}
@@ -769,7 +918,10 @@ export function CrmGrid(props: CrmGridProps) {
             })}
           </div>
           {props.isFetchingNextPage ? (
-            <div className="flex h-10 items-center px-3 text-xs text-muted-foreground">
+            <div
+              className="sticky left-0 flex items-center px-3 text-sm text-content-tertiary"
+              style={{ height: ROW_HEIGHT }}
+            >
               {t("grid.loadingMore")}
             </div>
           ) : null}
@@ -894,7 +1046,7 @@ function ColumnPicker({
         <button
           type="button"
           aria-label={t("grid.configureColumns")}
-          className="flex w-10 shrink-0 cursor-pointer items-center justify-center text-muted-foreground hover:text-foreground"
+          className="ml-auto grid size-5 shrink-0 cursor-pointer place-items-center rounded-badge text-content-ghost transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
         >
           <IconPlus className="size-4" />
         </button>
@@ -956,11 +1108,11 @@ function BulkBar({
   );
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
-      <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-border bg-background/95 py-1.5 pl-4 pr-2 shadow-lg backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-background/95 py-1.5 pl-4 pr-2 shadow-e2 backdrop-blur">
         <span className="text-sm font-medium">
           {t("grid.selectedCount", { count })}
         </span>
-        <span className="h-4 w-px bg-border" />
+        <span className="h-4 w-px bg-hairline" />
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="sm" className="gap-1.5">

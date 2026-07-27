@@ -67,6 +67,23 @@ describe("trusted acceptance directory fixture", () => {
     });
   });
 
+  it("accepts a signed hosted-QA email domain when no org row exists yet", async () => {
+    const response = await handleDirectoryFixtureRequest(
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token(
+            { org_domain: undefined },
+            "trusted-acceptance+fixture@acceptance.example.test",
+          )}`,
+        },
+      },
+      config,
+      "stable",
+    );
+    assert.equal(response.status, 200);
+  });
+
   it("withdraws only the configured declared member", async () => {
     const response = await handleDirectoryFixtureRequest(
       { method: "GET", headers: { authorization: `Bearer ${token()}` } },

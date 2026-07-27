@@ -361,6 +361,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "Redimensionar painel",
     loadFailedTitle: "Não foi possível carregar este registro",
     loadFailedDescription:
       "O CRM não conseguiu ler este registro. Ele pode estar fora do seu acesso.",
