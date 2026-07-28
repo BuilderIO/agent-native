@@ -119,8 +119,8 @@ function getFromAddress(
   override?: string,
   fromName?: string,
 ): string {
-  const explicit = override || config.from;
-  const base = explicit ?? defaultFromAddress(config);
+  if (override) return override;
+  const base = config.from ?? defaultFromAddress(config);
   return fromName ? withDisplayName(base, fromName) : base;
 }
 
@@ -297,8 +297,17 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
 
 function parseSendGridFrom(from: string): { email: string; name?: string } {
   const m = from.match(/^\s*(.*?)\s*<(.+)>\s*$/);
-  if (m && m[2]) return { name: m[1] || undefined, email: m[2] };
+  if (m && m[2]) return { name: unquoteDisplayName(m[1]), email: m[2] };
   return { email: from.trim() };
+}
+
+function unquoteDisplayName(name: string): string | undefined {
+  const trimmed = name.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1).replace(/\\(.)/g, "$1")
+      : trimmed;
+  return unquoted || undefined;
 }
 
 function stripHtml(html: string): string {
