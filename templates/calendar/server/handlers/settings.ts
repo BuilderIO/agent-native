@@ -8,13 +8,7 @@ import {
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 
 import type { Settings } from "../../shared/api.js";
-
-const DEFAULT_SETTINGS: Settings = {
-  timezone: "America/New_York",
-  bookingPageTitle: "Book a Meeting",
-  bookingPageDescription: "Select a time that works for you.",
-  defaultEventDuration: 30,
-};
+import { getDefaultSettings } from "../lib/calendar-settings.js";
 
 async function uEmail(event: H3Event): Promise<string> {
   const session = await getSession(event);
@@ -29,7 +23,8 @@ export const getSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
     const settings =
-      (await getUserSetting(email, "calendar-settings")) || DEFAULT_SETTINGS;
+      (await getUserSetting(email, "calendar-settings")) ||
+      getDefaultSettings();
     return settings;
   } catch (error: any) {
     setResponseStatus(event, 500);
@@ -40,7 +35,7 @@ export const getSettings = defineEventHandler(async (event: H3Event) => {
 export const getPublicSettings = defineEventHandler(async (_event: H3Event) => {
   const settings =
     ((await getSetting("calendar-settings")) as unknown as Settings | null) ||
-    DEFAULT_SETTINGS;
+    getDefaultSettings();
   return settings;
 });
 

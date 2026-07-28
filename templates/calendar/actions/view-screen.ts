@@ -2,10 +2,13 @@ import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
+import { addDays, parseISO, startOfWeek } from "date-fns";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
@@ -67,18 +70,18 @@ export default defineAction({
     const nav = navigation as any;
 
     if (nav?.view === "calendar" || !nav?.view) {
-      const now = new Date();
-      const viewDate = nav?.date ? new Date(nav.date) : now;
-
-      const from = new Date(viewDate);
-      from.setDate(from.getDate() - from.getDay());
-      from.setHours(0, 0, 0, 0);
-      const to = new Date(from);
-      to.setDate(to.getDate() + 7);
+      const email = getRequestUserEmail();
+      if (!email) throw new Error("no authenticated user");
+      const timezone = await getCalendarTimezone(email);
+      const viewDate = nav?.date
+        ? parseISO(nav.date)
+        : toZonedTime(new Date(), timezone);
+      const from = startOfWeek(viewDate);
+      const to = addDays(from, 7);
 
       const eventResult = await fetchEventsForRange(
-        from.toISOString(),
-        to.toISOString(),
+        fromZonedTime(from, timezone).toISOString(),
+        fromZonedTime(to, timezone).toISOString(),
       );
       const { events } = eventResult;
 

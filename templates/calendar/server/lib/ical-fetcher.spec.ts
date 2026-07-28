@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  isBlockedToolUrl: () => false,
   ssrfSafeFetch: ssrfSafeFetchMock,
 }));
 

@@ -3,14 +3,8 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { getDefaultSettings } from "../server/lib/calendar-settings.js";
 import type { Settings } from "../shared/api.js";
-
-const DEFAULT_SETTINGS: Settings = {
-  timezone: "America/New_York",
-  bookingPageTitle: "Book a Meeting",
-  bookingPageDescription: "Select a time that works for you.",
-  defaultEventDuration: 30,
-};
 
 export default defineAction({
   description: "Get calendar settings",
@@ -19,8 +13,10 @@ export default defineAction({
   run: async () => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    const settings =
-      (await getUserSetting(email, "calendar-settings")) || DEFAULT_SETTINGS;
-    return settings;
+    const settings = (await getUserSetting(
+      email,
+      "calendar-settings",
+    )) as Settings | null;
+    return settings || getDefaultSettings();
   },
 });

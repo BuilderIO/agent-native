@@ -14,6 +14,7 @@ import {
   addDays,
   min,
 } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
@@ -49,6 +50,7 @@ import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 
 interface DayViewProps {
   events: CalendarEvent[];
+  timezone: string;
   date: Date;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
@@ -182,9 +184,13 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
   return result;
 }
 
-function getEventStyleForDate(event: CalendarEvent, date: Date) {
-  const start = parseISO(event.start);
-  const end = parseISO(event.end);
+function getEventStyleForDate(
+  event: CalendarEvent,
+  date: Date,
+  timezone: string,
+) {
+  const start = toZonedTime(event.start, timezone);
+  const end = toZonedTime(event.end, timezone);
   const dayStart = set(startOfDay(date), { hours: START_HOUR });
   const dayEnd = addDays(startOfDay(date), 1);
   const cappedEnd = min([end, dayEnd]);
@@ -202,6 +208,7 @@ function getEventStyleForDate(event: CalendarEvent, date: Date) {
 
 interface DayEventCardProps {
   event: CalendarEvent;
+  timezone: string;
   date: Date;
   layout: Map<string, LayoutInfo>;
   now: Date;
@@ -243,6 +250,7 @@ interface DayEventCardProps {
  */
 const DayEventCard = memo(function DayEventCard({
   event,
+  timezone,
   date,
   layout,
   now,
@@ -284,7 +292,7 @@ const DayEventCard = memo(function DayEventCard({
         top: `${overrides.top}px`,
         height: `${overrides.height}px`,
       }
-    : getEventStyleForDate(event, date);
+    : getEventStyleForDate(event, date, timezone);
   const color = getEventDisplayColor(event, prefs);
   const evStart = parseISO(event.start);
   const rawEnd = parseISO(event.end);
@@ -529,6 +537,7 @@ const DayCreateGhost = memo(function DayCreateGhost({
 
 export const DayView = memo(function DayView({
   events,
+  timezone,
   date,
   onDeleteEvent,
   onEventTimeChange,
@@ -618,7 +627,10 @@ export const DayView = memo(function DayView({
     function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
       try {
         return (
-          new Intl.DateTimeFormat("en-US", { timeZoneName: token })
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            timeZoneName: token,
+          })
             .formatToParts(now)
             .find((p) => p.type === "timeZoneName")?.value ?? ""
         );
@@ -629,7 +641,7 @@ export const DayView = memo(function DayView({
 
     let iana = "";
     try {
-      iana = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+      iana = timezone;
     } catch {}
 
     const longGeneric = nameForToken("longGeneric");
@@ -648,10 +660,12 @@ export const DayView = memo(function DayView({
       tzLong: longGeneric || iana,
       tzIana: iana,
     };
-  }, []);
+  }, [now, timezone]);
 
+  const calendarNow = toZonedTime(now, timezone);
   const today = isToday(date);
-  const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+  const nowMinutes =
+    (calendarNow.getHours() - START_HOUR) * 60 + calendarNow.getMinutes();
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     today && nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
@@ -676,6 +690,7 @@ export const DayView = memo(function DayView({
     scrollContainerRef,
     onEventTimeChange: handleEventTimeChange,
     events,
+    timezone,
   });
 
   const canDrag = !!onEventTimeChange;
@@ -1109,6 +1124,7 @@ export const DayView = memo(function DayView({
                 <DayEventCard
                   key={event._tempId ?? event.id}
                   event={event}
+                  timezone={timezone}
                   date={date}
                   layout={layout}
                   now={now}

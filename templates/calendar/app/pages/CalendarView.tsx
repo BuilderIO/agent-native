@@ -30,6 +30,7 @@ import {
   parseISO,
   startOfDay,
 } from "date-fns";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -336,6 +337,7 @@ export default function CalendarView() {
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
+  const calendarTimezone = settings?.timezone || getLocalTimezone();
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -361,14 +363,20 @@ export default function CalendarView() {
         const ms = startOfMonth(selectedDate);
         const me = endOfMonth(selectedDate);
         return {
-          from: startOfWeek(ms).toISOString(),
-          to: endOfWeek(me).toISOString(),
+          from: fromZonedTime(startOfWeek(ms), calendarTimezone).toISOString(),
+          to: fromZonedTime(endOfWeek(me), calendarTimezone).toISOString(),
         };
       }
       case "week": {
         return {
-          from: startOfWeek(selectedDate).toISOString(),
-          to: endOfWeek(selectedDate).toISOString(),
+          from: fromZonedTime(
+            startOfWeek(selectedDate),
+            calendarTimezone,
+          ).toISOString(),
+          to: fromZonedTime(
+            endOfWeek(selectedDate),
+            calendarTimezone,
+          ).toISOString(),
         };
       }
       case "day": {
@@ -376,10 +384,13 @@ export default function CalendarView() {
         dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(selectedDate);
         dayEnd.setHours(23, 59, 59, 999);
-        return { from: dayStart.toISOString(), to: dayEnd.toISOString() };
+        return {
+          from: fromZonedTime(dayStart, calendarTimezone).toISOString(),
+          to: fromZonedTime(dayEnd, calendarTimezone).toISOString(),
+        };
       }
     }
-  }, [viewMode, selectedDate]);
+  }, [viewMode, selectedDate, calendarTimezone]);
 
   const {
     data: rawEventsData,
@@ -539,14 +550,18 @@ export default function CalendarView() {
     () =>
       viewMode === "day"
         ? events.filter((e) => {
-            const evStart = parseISO(e.start);
-            const evEnd = parseISO(e.end);
+            const evStart = e.allDay
+              ? parseISO(e.start)
+              : toZonedTime(e.start, calendarTimezone);
+            const evEnd = e.allDay
+              ? parseISO(e.end)
+              : toZonedTime(e.end, calendarTimezone);
             const dayStart = startOfDay(selectedDate);
             const dayEnd = addDays(dayStart, 1);
             return evStart < dayEnd && evEnd > dayStart;
           })
         : events,
-    [events, viewMode, selectedDate],
+    [events, viewMode, selectedDate, calendarTimezone],
   );
   const openNotificationEvent = useCallback(
     (event: CalendarEvent) => {
@@ -1730,6 +1745,7 @@ export default function CalendarView() {
             {viewMode === "month" && (
               <MonthView
                 events={events}
+                timezone={calendarTimezone}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
@@ -1744,6 +1760,7 @@ export default function CalendarView() {
             {viewMode === "week" && (
               <WeekView
                 events={events}
+                timezone={calendarTimezone}
                 selectedDate={selectedDate}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
@@ -1762,6 +1779,7 @@ export default function CalendarView() {
             {viewMode === "day" && (
               <DayView
                 events={dayEvents}
+                timezone={calendarTimezone}
                 date={selectedDate}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
@@ -1794,6 +1812,7 @@ export default function CalendarView() {
           open={commandPaletteOpen}
           onClose={() => setCommandPaletteOpen(false)}
           events={events}
+          timezone={calendarTimezone}
           onGoToDate={handleGoToDate}
           onEventClick={(event) => {
             setCommandPaletteOpen(false);

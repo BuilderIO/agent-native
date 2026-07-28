@@ -13,6 +13,7 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
@@ -578,11 +579,13 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
+  const timezone = await getCalendarTimezone(email);
   const range =
     options.range ??
     resolveCalendarEventRange({
       from: args.from,
       to: args.to,
+      timezone,
     });
 
   const sources = resolveInventorySources(args.sources);

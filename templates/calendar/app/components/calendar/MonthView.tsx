@@ -13,6 +13,7 @@ import {
   format,
   parseISO,
 } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { memo, useState, useMemo } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -25,6 +26,7 @@ import { EventDetailPopover } from "./EventDetailPopover";
 
 interface MonthViewProps {
   events: CalendarEvent[];
+  timezone: string;
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
   onDeleteEvent?: (eventId: string) => void;
@@ -75,6 +77,7 @@ interface DayOccurrence {
 
 export const MonthView = memo(function MonthView({
   events,
+  timezone,
   selectedDate,
   onDateSelect,
   onDeleteEvent,
@@ -115,8 +118,14 @@ export const MonthView = memo(function MonthView({
   const eventsByDay = useMemo(() => {
     const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
-      const evStart = parseISO(e.start);
-      const evEnd = e.end ? parseISO(e.end) : addDays(evStart, 1);
+      const evStart = e.allDay
+        ? parseISO(e.start)
+        : toZonedTime(e.start, timezone);
+      const evEnd = e.end
+        ? e.allDay
+          ? parseISO(e.end)
+          : toZonedTime(e.end, timezone)
+        : addDays(evStart, 1);
       for (const day of days) {
         const dayStart = startOfDay(day);
         const dayEnd = addDays(dayStart, 1);
@@ -134,7 +143,7 @@ export const MonthView = memo(function MonthView({
       }
     }
     return map;
-  }, [events, days]);
+  }, [events, days, timezone]);
 
   function handleDragOver(e: React.DragEvent, dayKey: string) {
     e.preventDefault();
@@ -275,6 +284,7 @@ export const MonthView = memo(function MonthView({
                         >
                           <EventCard
                             event={event}
+                            timezone={timezone}
                             colorPreferences={prefs}
                             compact
                             draggable={isStart}

@@ -22,6 +22,7 @@ import {
   addMinutes,
   min,
 } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
@@ -66,6 +67,7 @@ import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
   events: CalendarEvent[];
+  timezone: string;
   selectedDate: Date;
   onDateSelect: (date: Date) => void;
   onDeleteEvent: (eventId: string) => void;
@@ -231,9 +233,9 @@ function computeLayout(
   return result;
 }
 
-function getSegmentStyle(event: CalendarEvent, day: Date) {
-  const evStart = parseISO(event.start);
-  const evEnd = parseISO(event.end);
+function getSegmentStyle(event: CalendarEvent, day: Date, timezone: string) {
+  const evStart = toZonedTime(event.start, timezone);
+  const evEnd = toZonedTime(event.end, timezone);
   const dayBase = set(startOfDay(day), { hours: START_HOUR });
   const dayEnd = addDays(dayBase, 1);
   const segStart = evStart > dayBase ? evStart : dayBase;
@@ -248,6 +250,7 @@ function getSegmentStyle(event: CalendarEvent, day: Date) {
 
 interface WeekEventCardProps {
   event: CalendarEvent;
+  timezone: string;
   day: Date;
   dayIndex: number;
   layout: Map<string, LayoutInfo>;
@@ -302,6 +305,7 @@ interface WeekEventCardProps {
  */
 const WeekEventCard = memo(function WeekEventCard({
   event,
+  timezone,
   day,
   dayIndex,
   layout,
@@ -340,8 +344,8 @@ const WeekEventCard = memo(function WeekEventCard({
     overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
       ? { top: overrideTop, height: overrideHeight, dayIndex: overrideDayIndex }
       : null;
-  const start = parseISO(event.start);
-  const end = parseISO(event.end);
+  const start = toZonedTime(event.start, timezone);
+  const end = toZonedTime(event.end, timezone);
   const dayBase = startOfDay(day);
   const segDayEnd = addDays(dayBase, 1);
   const isStart = isSameDay(start, day);
@@ -377,7 +381,7 @@ const WeekEventCard = memo(function WeekEventCard({
         top: `${overrides.top}px`,
         height: `${overrides.height}px`,
       }
-    : getSegmentStyle(event, day);
+    : getSegmentStyle(event, day, timezone);
   const color = getEventDisplayColor(event, prefs);
   const segStart = isStart ? start : dayBase;
   const segEnd = min([end, segDayEnd]);
@@ -603,6 +607,7 @@ const WeekCreateGhost = memo(function WeekCreateGhost({
 
 export const WeekView = memo(function WeekView({
   events,
+  timezone,
   selectedDate,
   onDateSelect,
   onDeleteEvent,
@@ -811,7 +816,10 @@ export const WeekView = memo(function WeekView({
     function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
       try {
         return (
-          new Intl.DateTimeFormat("en-US", { timeZoneName: token })
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: timezone,
+            timeZoneName: token,
+          })
             .formatToParts(now)
             .find((p) => p.type === "timeZoneName")?.value ?? ""
         );
@@ -822,7 +830,7 @@ export const WeekView = memo(function WeekView({
 
     let iana = "";
     try {
-      iana = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
+      iana = timezone;
     } catch {}
 
     const longGeneric = nameForToken("longGeneric");
@@ -841,7 +849,7 @@ export const WeekView = memo(function WeekView({
       tzLong: longGeneric || iana,
       tzIana: iana,
     };
-  }, []);
+  }, [now, timezone]);
 
   // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
@@ -864,6 +872,7 @@ export const WeekView = memo(function WeekView({
     days,
     onEventTimeChange: handleEventTimeChange,
     events,
+    timezone,
   });
 
   const canDrag = !!onEventTimeChange;
@@ -1486,6 +1495,7 @@ export const WeekView = memo(function WeekView({
                       <WeekEventCard
                         key={event._tempId ?? event.id}
                         event={event}
+                        timezone={timezone}
                         day={day}
                         dayIndex={dayIndex}
                         layout={layout}
