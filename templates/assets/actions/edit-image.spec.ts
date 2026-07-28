@@ -33,12 +33,16 @@ describe("edit-image", () => {
   });
 
   it("delegates to generate-image as a source-guided full-image edit", async () => {
-    await action.run({
-      assetId: "asset-target",
-      instruction: "Make the background navy",
-      tier: "fast",
-      source: "chat",
-    });
+    const context = { threadId: "thread-1" };
+    await action.run(
+      {
+        assetId: "asset-target",
+        instruction: "Make the background navy",
+        tier: "fast",
+        source: "chat",
+      },
+      context,
+    );
 
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -53,6 +57,7 @@ describe("edit-image", () => {
         includeLogo: false,
         tier: "fast",
       }),
+      context,
     );
   });
 });
