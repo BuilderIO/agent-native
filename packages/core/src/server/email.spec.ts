@@ -200,6 +200,28 @@ describe("sendEmail", () => {
     expect(body.from).not.toContain("\n");
   });
 
+  it("carries branded sender and reply-to through the Resend payload", async () => {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <noreply@agent-native.com>");
+    const fetchMock = vi.fn(async () => Response.json({ id: "email_123" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await sendEmail({
+      to: "reader@example.com",
+      subject: "Verify your email",
+      html: "<p>hi</p>",
+      appSender: {
+        name: "Agent-Native Clips",
+        slug: "clips",
+        replyTo: "agent-native@builder.io",
+      },
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.from).toBe('"Agent-Native Clips" <clips@agent-native.com>');
+    expect(body.reply_to).toBe("agent-native@builder.io");
+  });
+
   it("maps inline CID attachments for Resend", async () => {
     vi.stubEnv("RESEND_API_KEY", "resend-example-key");
     vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
