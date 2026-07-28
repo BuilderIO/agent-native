@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router";
 
 import PresentationView from "@/components/presentation/PresentationView";
+import PresenterView from "@/components/presentation/PresenterView";
 import { useDecks } from "@/context/DeckContext";
 import type { Deck } from "@/context/DeckContext";
 
@@ -45,10 +46,14 @@ export default function Presentation() {
     };
   }, [contextDeck, id, loading]);
 
-  if (loading || fallbackState === "loading") {
+  if (!id) return <Navigate to="/" replace />;
+  // "Not fetched yet" is not "not found": on a cold load of this URL the deck
+  // context is empty and the fallback fetch has not run, so redirecting on a
+  // falsy deck bounced every direct/presenter/share link back to the index.
+  if (!deck && fallbackState !== "missing") {
     return <div className="h-screen bg-black" />;
   }
-  if (!deck || !id || fallbackState === "missing") {
+  if (!deck) {
     return <Navigate to="/" replace />;
   }
 
@@ -58,8 +63,11 @@ export default function Presentation() {
     ? Math.max(0, parsedSlide - 1)
     : 0;
 
+  const View =
+    searchParams.get("presenter") === "1" ? PresenterView : PresentationView;
+
   return (
-    <PresentationView
+    <View
       slides={Array.isArray(deck.slides) ? deck.slides : []}
       deckId={id}
       startIndex={startSlide}

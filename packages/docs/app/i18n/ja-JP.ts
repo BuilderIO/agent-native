@@ -18,6 +18,9 @@ const jaJP = {
     searchPlaceholder: "ドキュメントを検索...",
     askAssistant: "AI アシスタントに質問",
     toggleNavigation: "ナビゲーションメニューを切り替え",
+    copyLogoSvg: "ロゴ SVG をコピー",
+    copyWordmark: "ワードマークをコピー",
+    brandAssets: "ブランド素材",
   },
   footer: {
     download: "ダウンロード",

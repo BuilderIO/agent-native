@@ -16,6 +16,9 @@ const enUS = {
     searchPlaceholder: "Search docs...",
     askAssistant: "Ask the AI assistant",
     toggleNavigation: "Toggle navigation menu",
+    copyLogoSvg: "Copy Logo SVG",
+    copyWordmark: "Copy Wordmark",
+    brandAssets: "Brand Assets",
   },
   footer: {
     download: "Download",
@@ -363,7 +366,7 @@ const enUS = {
       uiSurfaces: "UI surfaces",
       i18n: "i18n",
       mcpAuth: "MCP Auth",
-      battleTestedComponents: "Battle-tested building blocks",
+      battleTestedComponents: "Built-in building blocks",
       mcpA2a: "MCP + A2A",
       externalAgents: "External agents",
       a2aHandoffs: "A2A handoffs",

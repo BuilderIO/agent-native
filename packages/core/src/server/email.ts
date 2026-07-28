@@ -30,6 +30,13 @@ export interface SendEmailArgs {
   html: string;
   text?: string;
   from?: string;
+  /**
+   * Display-name-only override. Keeps the configured (domain-verified) sending
+   * address and just changes the name shown to the recipient, e.g.
+   * "Alice via Clips". Ignored when `from` is set. Prefer this over `from` for
+   * per-user senders: putting a user's own address in `From` breaks SPF/DKIM.
+   */
+  fromName?: string;
   cc?: string | string[];
   replyTo?: string;
   /**
@@ -118,9 +125,14 @@ export async function getEmailProvider(): Promise<EmailProvider> {
 function getFromAddress(
   config: EmailTransportConfig,
   override?: string,
+  fromName?: string,
 ): string {
-  const explicit = override || config.from;
-  if (explicit) return explicit;
+  if (override) return override;
+  const base = config.from ?? defaultFromAddress(config);
+  return fromName ? withDisplayName(base, fromName) : base;
+}
+
+function defaultFromAddress(config: EmailTransportConfig): string {
   // Resend lets unverified accounts send from its sandbox domain; SendGrid
   // does not, so falling back there would cause silent 403s at runtime.
   if (config.provider === "sendgrid") {
@@ -131,38 +143,39 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
+/**
+ * Swap the display name while keeping the verified address. The name is
+ * sanitized and quoted because it lands in a header: CR/LF would allow header
+ * injection, and quotes/angle brackets would break address parsing.
+ */
+function withDisplayName(from: string, name: string): string {
+  const safe = name
+    .replace(/[\r\n"<>\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!safe) return from;
+  const address = from.match(/<([^>]+)>/)?.[1]?.trim() ?? from.trim();
+  return `"${safe}" <${address}>`;
+}
+
 const AGENT_NATIVE_SENDER_DOMAIN = "agent-native.com";
 
 /**
- * The display name derives from the operator-set APP_NAME, so it can contain
- * characters that terminate the address portion of a From header. Angle
- * brackets in particular would make the naive parser below read the address as
- * part of the name and emit a malformed sender the provider rejects.
- */
-function sanitizeSenderDisplayName(name: string): string {
-  return name
-    .replace(/[<>(),;:\\"\r\n]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * Resolve per-app sender branding, but only for deployments whose configured
- * sender is already on agent-native.com. Any other (or missing) EMAIL_FROM
- * means we cannot prove the branded address is a verified sender, so the
- * deployment's own configuration is left untouched.
+ * Resolve the per-app sender address, but only for deployments whose
+ * configured sender is already on agent-native.com. Any other (or missing)
+ * EMAIL_FROM means we cannot prove the branded address is a verified sender,
+ * so the deployment's own configuration is left untouched.
  */
 function resolveAppSender(
   configuredFrom: string | undefined,
   appSender: SendEmailArgs["appSender"],
-): { from: string; replyTo?: string } | undefined {
+): { address: string; name: string; replyTo?: string } | undefined {
   if (!configuredFrom || !appSender) return undefined;
   const address = parseSendGridFrom(configuredFrom).email.toLowerCase();
   if (!address.endsWith(`@${AGENT_NATIVE_SENDER_DOMAIN}`)) return undefined;
-  const brandedAddress = `${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}`;
-  const displayName = sanitizeSenderDisplayName(appSender.name);
   return {
-    from: displayName ? `${displayName} <${brandedAddress}>` : brandedAddress,
+    address: `${appSender.slug}@${AGENT_NATIVE_SENDER_DOMAIN}`,
+    name: appSender.name,
     replyTo: appSender.replyTo,
   };
 }
@@ -175,7 +188,10 @@ async function sendEmailWithSignal(
   signal?.throwIfAborted();
   const provider = config.provider;
   const branded = resolveAppSender(config.from, args.appSender);
-  const from = getFromAddress(config, args.from ?? branded?.from);
+  const from =
+    branded && !args.from
+      ? withDisplayName(branded.address, args.fromName ?? branded.name)
+      : getFromAddress(config, args.from, args.fromName);
   const replyTo = args.replyTo ?? branded?.replyTo;
   const attachments = resolveAttachments(args);
 
@@ -316,8 +332,17 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
 
 function parseSendGridFrom(from: string): { email: string; name?: string } {
   const m = from.match(/^\s*(.*?)\s*<(.+)>\s*$/);
-  if (m && m[2]) return { name: m[1] || undefined, email: m[2] };
+  if (m && m[2]) return { name: unquoteDisplayName(m[1]), email: m[2] };
   return { email: from.trim() };
+}
+
+function unquoteDisplayName(name: string): string | undefined {
+  const trimmed = name.trim();
+  const unquoted =
+    trimmed.startsWith('"') && trimmed.endsWith('"')
+      ? trimmed.slice(1, -1).replace(/\\(.)/g, "$1")
+      : trimmed;
+  return unquoted || undefined;
 }
 
 function stripHtml(html: string): string {
