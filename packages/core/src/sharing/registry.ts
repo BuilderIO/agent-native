@@ -17,6 +17,8 @@
  *   });
  */
 
+import type { UserProfile } from "../user-profile/shared.js";
+
 export interface ShareableResourceRegistration {
   /** Stable identifier used across actions, UI, and analytics. e.g. "document". */
   type: string;
@@ -55,6 +57,23 @@ export interface ShareableResourceRegistration {
     resource: any,
   ) => string | undefined | Promise<string | undefined>;
   /**
+   * Optional resolver for who the share-notification email appears to come
+   * from. `fromName` changes only the display name and keeps the configured,
+   * domain-verified sending address (e.g. "Alice via Clips"); `replyTo` routes
+   * replies to the sharer. `ctx.sender` is the account doing the sharing, so the
+   * template decides how to present them (name, email, avatar).
+   *
+   * Do not put a user's address in the sending address itself — SPF/DKIM sign
+   * the app's domain, so recipients would bounce or spam-filter it.
+   */
+  getSender?: (
+    resource: any,
+    ctx: { sender: UserProfile },
+  ) =>
+    | { fromName?: string; replyTo?: string }
+    | undefined
+    | Promise<{ fromName?: string; replyTo?: string } | undefined>;
+  /**
    * Optional resolver for a preview block shown above the CTA in the
    * share-notification email — e.g. a recording thumbnail with a play badge.
    * Return trusted HTML (built by template code, dynamic values escaped) that
@@ -62,7 +81,7 @@ export interface ShareableResourceRegistration {
    * link to the resource; `ctx.alt` is its title. The template owns the entire
    * preview markup so the generic share action stays app-agnostic.
    */
-  getShareEmailHeroHtml?: (
+  getHeroHtml?: (
     resource: any,
     ctx: { href: string; alt?: string },
   ) => string | undefined | Promise<string | undefined>;

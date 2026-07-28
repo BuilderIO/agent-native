@@ -8,6 +8,7 @@ import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import {
@@ -319,11 +320,27 @@ export default defineAction({
             );
           }
         }
+        let fromName: string | undefined;
+        let replyTo: string | undefined;
+        if (reg.getSender) {
+          try {
+            const sender = await reg.getSender(resource, {
+              sender: await getUserProfile(actor),
+            });
+            fromName = sender?.fromName?.trim() || undefined;
+            replyTo = sender?.replyTo?.trim() || undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] sender resolver failed; using default sender:",
+              err,
+            );
+          }
+        }
         let heroHtml: string | undefined;
-        if (reg.getShareEmailHeroHtml) {
+        if (reg.getHeroHtml) {
           try {
             heroHtml =
-              (await reg.getShareEmailHeroHtml(resource, {
+              (await reg.getHeroHtml(resource, {
                 href: notificationUrl,
                 alt: resourceTitle,
               })) ?? undefined;
@@ -348,7 +365,14 @@ export default defineAction({
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
-        await sendEmail({ to: principalId, subject, html, text });
+        await sendEmail({
+          to: principalId,
+          subject,
+          html,
+          text,
+          fromName,
+          replyTo,
+        });
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

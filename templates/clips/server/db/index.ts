@@ -108,8 +108,13 @@ registerShareableResource({
   getResourcePath: (recording) => `/r/${recording.id}`,
   getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
   getBrandName: (recording) => orgBrandName(recording.organizationId),
-  getShareEmailHeroHtml: (recording, ctx) =>
-    recordingShareHeroHtml(recording, ctx),
+  // Replies reach the person who shared the clip; the sending address stays
+  // the verified one so SPF/DKIM still pass.
+  getSender: (_recording, ctx) => ({
+    fromName: `${ctx.sender.name} via Clips`,
+    replyTo: ctx.sender.email,
+  }),
+  getHeroHtml: (recording, ctx) => recordingShareHeroHtml(recording, ctx),
   getDb,
   ownerAccessIgnoresOrg: true,
 });

@@ -30,6 +30,13 @@ export interface SendEmailArgs {
   html: string;
   text?: string;
   from?: string;
+  /**
+   * Display-name-only override. Keeps the configured (domain-verified) sending
+   * address and just changes the name shown to the recipient, e.g.
+   * "Alice via Clips". Ignored when `from` is set. Prefer this over `from` for
+   * per-user senders: putting a user's own address in `From` breaks SPF/DKIM.
+   */
+  fromName?: string;
   cc?: string | string[];
   replyTo?: string;
   inReplyTo?: string;
@@ -110,9 +117,14 @@ export async function getEmailProvider(): Promise<EmailProvider> {
 function getFromAddress(
   config: EmailTransportConfig,
   override?: string,
+  fromName?: string,
 ): string {
   const explicit = override || config.from;
-  if (explicit) return explicit;
+  const base = explicit ?? defaultFromAddress(config);
+  return fromName ? withDisplayName(base, fromName) : base;
+}
+
+function defaultFromAddress(config: EmailTransportConfig): string {
   // Resend lets unverified accounts send from its sandbox domain; SendGrid
   // does not, so falling back there would cause silent 403s at runtime.
   if (config.provider === "sendgrid") {
@@ -123,6 +135,21 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
+/**
+ * Swap the display name while keeping the verified address. The name is
+ * sanitized and quoted because it lands in a header: CR/LF would allow header
+ * injection, and quotes/angle brackets would break address parsing.
+ */
+function withDisplayName(from: string, name: string): string {
+  const safe = name
+    .replace(/[\r\n"<>\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!safe) return from;
+  const address = from.match(/<([^>]+)>/)?.[1]?.trim() ?? from.trim();
+  return `"${safe}" <${address}>`;
+}
+
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
@@ -130,7 +157,7 @@ async function sendEmailWithSignal(
   const config = await resolveEmailTransport();
   signal?.throwIfAborted();
   const provider = config.provider;
-  const from = getFromAddress(config, args.from);
+  const from = getFromAddress(config, args.from, args.fromName);
   const attachments = resolveAttachments(args);
 
   if (provider === "resend") {
