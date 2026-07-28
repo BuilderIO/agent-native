@@ -1,4 +1,5 @@
 export { ContextMeterView } from "./ContextMeter.js";
+export type { ContextMeterFreshness } from "./ContextMeter.js";
 export {
   ContextSegmentRowView,
   SegmentProvenancePopoverView,

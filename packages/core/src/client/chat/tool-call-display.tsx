@@ -15,6 +15,7 @@ import {
   IconSearch,
   IconFileCode,
   IconShieldCheck,
+  IconAlertTriangle,
   IconX,
 } from "@tabler/icons-react";
 import React, {
@@ -42,7 +43,11 @@ import { ConnectBuilderCard } from "../ConnectBuilderCard.js";
 import { useT } from "../i18n.js";
 import { McpAppRenderer } from "../mcp-apps/McpAppRenderer.js";
 import { findMcpIntegrationForToolName } from "../resources/mcp-integration-catalog.js";
-import type { AgentCallProgress, ContentPart } from "../sse-event-processor.js";
+import {
+  isUnknownToolOutcome,
+  type AgentCallProgress,
+  type ContentPart,
+} from "../sse-event-processor.js";
 import {
   BashCell,
   EditCell,
@@ -814,13 +819,16 @@ function ToolCallDisplayGeneric({
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
   const resultPayload = toolResultPayload(result);
 
+  const outcomeUnknown = !isRunning && isUnknownToolOutcome(result);
   const displayName = isAgentCall
     ? isRunning
       ? `Asking ${agentName}...`
       : isAgentError
         ? `Error asking ${agentName}`
         : `Asked ${agentName}`
-    : humanizeToolName(toolName);
+    : outcomeUnknown
+      ? `${humanizeToolName(toolName)} — outcome unknown`
+      : humanizeToolName(toolName);
 
   const canExpand = isAgentCall
     ? hasStreamText
@@ -865,6 +873,8 @@ function ToolCallDisplayGeneric({
             <IconLoader2 className="size-3.5 animate-spin" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
+          ) : outcomeUnknown ? (
+            <IconAlertTriangle className="size-3.5 text-amber-500" />
           ) : (
             <>
               <ToolIcon

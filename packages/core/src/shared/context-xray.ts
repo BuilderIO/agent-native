@@ -36,6 +36,14 @@ export type ContextSystemProvenance =
   | "model-overlay"
   | "runtime-context";
 export type ContextGovernanceTier = "required" | "inherited" | "user";
+/** Outcome of the last attempt to persist a manifest for a thread. */
+export type ContextManifestWriteStatus = "written" | "failed";
+/**
+ * How much the manifest can be trusted to describe the newest turn.
+ * `stale` and `unavailable` exist so the meter can never render a previous
+ * turn's percentage as if it were the current one.
+ */
+export type ContextManifestFreshness = "current" | "stale" | "unavailable";
 
 export interface ContextManifestSourceRef {
   resourceId?: string;
@@ -109,6 +117,18 @@ export interface ContextManifest {
   threadId: string;
   turnId?: string;
   computedAt: number;
+  /** Wall clock of the persist attempt. Old manifests omit this. */
+  updatedAt?: number;
+  /**
+   * Set to `failed` when the newest persist attempt for this thread threw, so
+   * a reader can tell "this is the previous turn's manifest because the write
+   * failed" from "this is simply the newest manifest".
+   */
+  writeStatus?: ContextManifestWriteStatus;
+  /** Newest turn known to the run store, resolved at read time (not persisted). */
+  latestTurnId?: string;
+  /** Start time of `latestTurnId`, used when a manifest predates `turnId`. */
+  latestTurnStartedAt?: number;
   model?: string;
   totalTokens: number;
   rawTokens: number;
@@ -142,6 +162,39 @@ export function manifestConversationTokens(manifest: ContextManifest): number {
     manifest.conversationTokens ??
     Math.max(0, manifest.totalTokens - manifestSystemTokens(manifest))
   );
+}
+
+/**
+ * Decide whether a manifest actually describes the thread's newest turn.
+ *
+ * A manifest that cannot be related to the newest turn resolves to
+ * `unavailable`, never to `current`: the meter showing "—" is recoverable,
+ * the meter confidently showing a previous turn's percentage is not.
+ */
+export function resolveManifestFreshness(input: {
+  manifest?: Pick<
+    ContextManifest,
+    "turnId" | "updatedAt" | "writeStatus"
+  > | null;
+  latestTurnId?: string | null;
+  latestTurnStartedAt?: number | null;
+}): ContextManifestFreshness {
+  const { manifest, latestTurnId, latestTurnStartedAt } = input;
+  if (!manifest) return "unavailable";
+  if (manifest.writeStatus === "failed") return "unavailable";
+  // No run has ever been recorded for the thread (or the caller has no run
+  // context, e.g. a preview manifest): there is no newer turn to trail.
+  if (!latestTurnId) return "current";
+  if (manifest.turnId) {
+    return manifest.turnId === latestTurnId ? "current" : "stale";
+  }
+  if (
+    typeof manifest.updatedAt !== "number" ||
+    typeof latestTurnStartedAt !== "number"
+  ) {
+    return "unavailable";
+  }
+  return manifest.updatedAt >= latestTurnStartedAt ? "current" : "stale";
 }
 
 export function emptyContextManifest(

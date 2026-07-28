@@ -48,6 +48,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { getRunErrorMetadata } from "./run-recovery.js";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1266,6 +1267,98 @@ function isAssistantToolSummaryPart(
     .some((candidate) => candidate.type === "tool-call");
 }
 
+type TimestampedWorkPart = {
+  type?: string;
+  startedAt?: number;
+  completedAt?: number;
+};
+
+/**
+ * Index of the last part of this message that belongs to a work group, or -1.
+ * The whole-turn duration can only honestly be attached to the group that ends
+ * the turn, so the fallback path needs to know which group that is.
+ */
+export function lastAssistantWorkPartIndex(
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[] = [],
+): number {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (groupAssistantWorkParts(parts[index]!, index, parts) !== null) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Duration to print on one work group. A turn can contain several groups and
+ * the whole-turn duration belongs to none of them individually — printing it on
+ * each one told users a 17-minute turn happened three times. Prefer the group's
+ * own stamps; fall back to the whole-turn value only for the group that ends
+ * the turn (messages persisted before parts carried stamps), and render nothing
+ * rather than a duration we cannot attribute to this group.
+ */
+export function workGroupDurationMs(
+  parts: readonly TimestampedWorkPart[] | undefined,
+  indices: readonly number[],
+  wholeTurnDurationMs: number | null | undefined,
+  isLastWorkGroup: boolean,
+): number | null {
+  let earliestStart: number | undefined;
+  let latestEnd: number | undefined;
+  for (const index of indices) {
+    const part = parts?.[index];
+    if (!part) continue;
+    if (typeof part.startedAt === "number") {
+      earliestStart =
+        earliestStart === undefined
+          ? part.startedAt
+          : Math.min(earliestStart, part.startedAt);
+    }
+    if (typeof part.completedAt === "number") {
+      latestEnd =
+        latestEnd === undefined
+          ? part.completedAt
+          : Math.max(latestEnd, part.completedAt);
+    }
+  }
+  if (earliestStart !== undefined && latestEnd !== undefined) {
+    return Math.max(0, latestEnd - earliestStart);
+  }
+  if (!isLastWorkGroup) return null;
+  return wholeTurnDurationMs ?? null;
+}
+
+/**
+ * Compact, permanent record that this turn ended in an error. Deliberately not
+ * actionable: retry belongs to the newest turn only, but the fact that a turn
+ * failed is part of the transcript forever.
+ */
+function AssistantRunErrorMarker({
+  message,
+  errorCode,
+}: {
+  message: string;
+  errorCode?: string;
+}) {
+  return (
+    <p
+      role="status"
+      className="mt-1 flex items-start gap-1.5 text-[13px] text-muted-foreground"
+      title={errorCode ? `${errorCode}: ${message}` : message}
+    >
+      <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+      <span>This turn ended with an error: {message}</span>
+    </p>
+  );
+}
+
 export function AssistantMessage() {
   const [restoreState, setRestoreState] = useState<
     "idle" | "confirming" | "restoring" | "error"
@@ -1405,6 +1498,10 @@ export function AssistantMessage() {
 
   // Collect parts for the files-changed summary (code-agent turns only).
   const msgContent = msg.content as ContentPart[] | undefined;
+  // Rendered on every turn that failed, not just the newest one. The
+  // actionable recovery card is derived from the last message alone, so
+  // sending anything after a failure used to erase all trace of it.
+  const runError = getRunErrorMetadata(msg);
   const hasCodeAgentTools =
     Array.isArray(msgContent) &&
     msgContent.some(
@@ -1429,6 +1526,7 @@ export function AssistantMessage() {
     chatRunning,
     isLast,
   });
+  const lastWorkPartIndex = lastAssistantWorkPartIndex(msgContent);
 
   if (!hasRenderableContent) return null;
 
@@ -1451,7 +1549,13 @@ export function AssistantMessage() {
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary
-                    durationMs={capturedDurationMs ?? persistedDurationMs}
+                    durationMs={workGroupDurationMs(
+                      msgContent,
+                      part.indices,
+                      capturedDurationMs ?? persistedDurationMs,
+                      lastWorkPartIndex >= 0 &&
+                        part.indices.includes(lastWorkPartIndex),
+                    )}
                     defaultOpen={hasCustomUi}
                     autoCollapse={animateCollapse && !hasCustomUi}
                   >
@@ -1512,6 +1616,12 @@ export function AssistantMessage() {
         )}
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />
+        )}
+        {!isLast && runError && (
+          <AssistantRunErrorMarker
+            message={runError.message}
+            errorCode={runError.errorCode}
+          />
         )}
       </div>
       {isComplete && (

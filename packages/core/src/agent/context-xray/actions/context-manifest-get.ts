@@ -9,7 +9,9 @@ import {
   type ContextManifest,
 } from "../../../shared/context-xray.js";
 import { callerOwnsThread } from "../../run-ownership.js";
+import { getRunByThread } from "../../run-store.js";
 import { readContextManifest } from "../directives-store.js";
+import { getContextManifestWriteOutcome } from "../manifest.js";
 import {
   contextXrayAuthError,
   contextXrayThreadNotFoundError,
@@ -62,14 +64,29 @@ export default defineAction({
     if (!ownerEmail) throw contextXrayAuthError();
     const ownsThread = await callerOwnsThread(ownerEmail, args.threadId);
     if (!ownsThread) throw contextXrayThreadNotFoundError();
+    const stored = await readContextManifest(args.threadId);
     const manifest =
-      (await readContextManifest(args.threadId)) ??
-      emptyContextManifest(args.threadId, { enforceable: true });
+      stored ?? emptyContextManifest(args.threadId, { enforceable: true });
+    const latestRun = await getRunByThread(args.threadId, {
+      includeTerminal: true,
+    });
+    const latestTurnId = latestRun
+      ? (latestRun.turnId ?? latestRun.id)
+      : undefined;
+    // A persist failure recorded after the stored manifest was written means
+    // the stored manifest describes an older turn than the one that just ran.
+    const outcome = getContextManifestWriteOutcome(args.threadId);
+    const writeFailedAfterStored =
+      outcome?.status === "failed" &&
+      outcome.failedAt > (stored?.updatedAt ?? 0);
     return {
       ...manifest,
       url: contextXrayDeepLink(args.threadId),
       enforceable: manifest.enforceable ?? true,
       source: manifest.source ?? "structured",
+      ...(latestTurnId ? { latestTurnId } : {}),
+      ...(latestRun ? { latestTurnStartedAt: latestRun.startedAt } : {}),
+      ...(writeFailedAfterStored ? { writeStatus: "failed" as const } : {}),
     };
   },
 });

@@ -11,6 +11,12 @@ import { cn } from "../utils.js";
 import { formatContextTokens } from "./format.js";
 import type { ContextManifestViewData } from "./types.js";
 
+/**
+ * How much the caller trusts the numbers it is passing in. Declared locally
+ * on purpose: the toolkit must not import core types.
+ */
+export type ContextMeterFreshness = "current" | "stale" | "unavailable";
+
 function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
   const radius = 7.5;
   const circumference = 2 * Math.PI * radius;
@@ -47,21 +53,39 @@ function ContextDonut({ pct, advisory }: { pct: number; advisory: boolean }) {
 export function ContextMeterView({
   manifest,
   contextWindow,
+  freshness = "current",
   open,
   onOpenChange,
   children,
 }: {
   manifest: ContextManifestViewData;
   contextWindow: number;
+  /** Defaults to `current` so existing callers render unchanged. */
+  freshness?: ContextMeterFreshness;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const unavailable = freshness === "unavailable";
+  const stale = freshness === "stale";
   const pct = Math.min(
     100,
     Math.round((manifest.totalTokens / contextWindow) * 100),
   );
   const { conversationTokens, systemTokens } = manifest;
+  const pctLabel = unavailable ? "\u2014" : `${pct}%`;
+  const tokenLabel = unavailable
+    ? "\u2014"
+    : formatContextTokens(manifest.totalTokens);
+  const breakdown =
+    unavailable || systemTokens <= 0
+      ? ""
+      : ` (${formatContextTokens(systemTokens)} system + ${formatContextTokens(conversationTokens)} conversation)`;
+  const freshnessNote = unavailable
+    ? " \u00b7 Context usage is unavailable for this turn."
+    : stale
+      ? " \u00b7 Measured on an earlier turn; the current turn has not reported yet."
+      : "";
   return (
     <TooltipProvider delayDuration={200}>
       <Popover open={open} onOpenChange={onOpenChange}>
@@ -70,21 +94,27 @@ export function ContextMeterView({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                aria-label={`Context ${pct}%, ${formatContextTokens(manifest.totalTokens)}${systemTokens > 0 ? ` total: ${formatContextTokens(systemTokens)} system + ${formatContextTokens(conversationTokens)} conversation` : ""}. Open Context X-Ray.`}
+                aria-label={`Context ${pctLabel}, ${tokenLabel}${breakdown}${freshnessNote} Open Context X-Ray.`}
                 className={cn(
                   "flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                   open && "bg-accent/60 text-foreground",
+                  (stale || unavailable) && "opacity-50",
                 )}
               >
-                <ContextDonut pct={pct} advisory={!manifest.enforceable} />
+                {unavailable ? (
+                  <span aria-hidden="true" className="text-xs leading-none">
+                    {"\u2014"}
+                  </span>
+                ) : (
+                  <ContextDonut pct={pct} advisory={!manifest.enforceable} />
+                )}
               </button>
             </PopoverTrigger>
           </TooltipTrigger>
           <TooltipContent>
-            Context {pct}% · {formatContextTokens(manifest.totalTokens)}
-            {systemTokens > 0
-              ? ` (${formatContextTokens(systemTokens)} system + ${formatContextTokens(conversationTokens)} conversation)`
-              : ""}
+            Context {pctLabel} · {tokenLabel}
+            {breakdown}
+            {freshnessNote}
           </TooltipContent>
         </Tooltip>
         <PopoverContent
