@@ -18,7 +18,11 @@ const WorkflowStateSchema = z
   .passthrough();
 
 const WorkflowRequestSchema = z
-  .object({ requestedAt: z.string() })
+  .object({
+    requestedAt: z.string(),
+    deliveredAt: z.string().optional(),
+    deliveredTabId: z.string().optional(),
+  })
   .passthrough();
 
 export default defineAction({
@@ -26,7 +30,7 @@ export default defineAction({
     "Track and reconcile the agent run responsible for a generated workflow.",
   agentTool: false,
   schema: z.object({
-    operation: z.enum(["track", "consume", "stop"]),
+    operation: z.enum(["track", "mark-delivered", "consume", "stop"]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
     tabId: z.string().min(1),
@@ -35,7 +39,7 @@ export default defineAction({
     await assertAccess("recording", recordingId, "viewer");
 
     const requestKey = `clips-ai-request-${recordingId}`;
-    if (operation === "consume") {
+    if (operation === "mark-delivered" || operation === "consume") {
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
         return {
@@ -53,6 +57,33 @@ export default defineAction({
           reconciled: false,
           consumed: false,
           reason: "newer-request" as const,
+        };
+      }
+      if (operation === "mark-delivered") {
+        if (parsedRequest.data.deliveredTabId === tabId) {
+          return { reconciled: false, delivered: true };
+        }
+        if (parsedRequest.data.deliveredTabId) {
+          return {
+            reconciled: false,
+            delivered: false,
+            reason: "different-run" as const,
+          };
+        }
+        const delivered = await compareAndSetAppState(requestKey, rawRequest, {
+          ...rawRequest,
+          deliveredAt: new Date().toISOString(),
+          deliveredTabId: tabId,
+        });
+        return delivered
+          ? { reconciled: false, delivered: true }
+          : { reconciled: false, delivered: false, reason: "stale" as const };
+      }
+      if (parsedRequest.data.deliveredTabId !== tabId) {
+        return {
+          reconciled: false,
+          consumed: false,
+          reason: "not-delivered" as const,
         };
       }
       const consumed = await compareAndSetAppState(

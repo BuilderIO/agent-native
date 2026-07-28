@@ -59,12 +59,37 @@ describe("reconcile-workflow-generation", () => {
     );
   });
 
+  it("persists confirmed delivery before consuming the request", async () => {
+    const request = {
+      kind: "generate-workflow",
+      workflowKind: "email",
+      recordingId: "rec_123",
+      requestedAt,
+    };
+    mocks.readAppState.mockResolvedValue(request);
+
+    await expect(
+      action.run({
+        operation: "mark-delivered",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, delivered: true });
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-ai-request-rec_123",
+      request,
+      expect.objectContaining({ deliveredTabId: tabId }),
+    );
+  });
+
   it("consumes the matching request after dispatch", async () => {
     const request = {
       kind: "generate-workflow",
       workflowKind: "email",
       recordingId: "rec_123",
       requestedAt,
+      deliveredTabId: tabId,
     };
     mocks.readAppState.mockResolvedValue(request);
 

@@ -1,6 +1,7 @@
 import {
   generateTabId,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   type AgentChatMessage,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -46,6 +47,8 @@ interface AiRequest {
   message?: string;
   includeFullVideoInAi?: boolean;
   openInChat?: boolean;
+  deliveredAt?: string;
+  deliveredTabId?: string;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
@@ -198,6 +201,26 @@ export function useAutoTitleBridge(): void {
               request.kind === "generate-workflow" &&
               typeof request.requestedAt === "string"
             ) {
+              if (request.deliveredTabId) {
+                try {
+                  const result = (await callAction(
+                    "reconcile-workflow-generation" as any,
+                    {
+                      operation: "consume",
+                      recordingId: rec.id,
+                      requestedAt: request.requestedAt,
+                      tabId: request.deliveredTabId,
+                    } as any,
+                  )) as { consumed?: boolean };
+                  if (result.consumed !== true) {
+                    fallbackTimer = setTimeout(() => void tick(), 1000);
+                  }
+                } catch {
+                  fallbackTimer = setTimeout(() => void tick(), 1000);
+                }
+                continue;
+              }
+
               const tabId = workflowTabId(rec.id, request.requestedAt);
               try {
                 const result = (await callAction(
@@ -217,35 +240,45 @@ export function useAutoTitleBridge(): void {
                 fallbackTimer = setTimeout(() => void tick(), 1000);
                 continue;
               }
-              try {
-                dispatchAiRequest(rec, request, tabId);
-              } catch {
+              const delivery = await sendToAgentChatAndConfirm({
+                ...buildAiRequestChatOptions(rec, request),
+                tabId,
+                chatTarget: "local",
+              });
+              if (!delivery.delivered) {
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+                continue;
+              }
+              const delivered = (await callAction(
+                "reconcile-workflow-generation" as any,
+                {
+                  operation: "mark-delivered",
+                  recordingId: rec.id,
+                  requestedAt: request.requestedAt,
+                  tabId,
+                } as any,
+              )) as { delivered?: boolean };
+              if (delivered.delivered !== true) {
                 fallbackTimer = setTimeout(() => void tick(), 1000);
                 continue;
               }
               dispatched.current.add(dispatchKey);
-              const consumeRequest = {
-                operation: "consume",
-                recordingId: rec.id,
-                requestedAt: request.requestedAt,
-                tabId,
-              };
-              void callAction(
-                "reconcile-workflow-generation" as any,
-                consumeRequest as any,
-              )
-                .catch(() =>
-                  callAction(
-                    "reconcile-workflow-generation" as any,
-                    consumeRequest as any,
-                  ),
-                )
-                .catch((error) => {
-                  console.error(
-                    "Failed to consume dispatched workflow request",
-                    error,
-                  );
-                });
+              try {
+                const result = (await callAction(
+                  "reconcile-workflow-generation" as any,
+                  {
+                    operation: "consume",
+                    recordingId: rec.id,
+                    requestedAt: request.requestedAt,
+                    tabId,
+                  } as any,
+                )) as { consumed?: boolean };
+                if (result.consumed !== true) {
+                  fallbackTimer = setTimeout(() => void tick(), 1000);
+                }
+              } catch {
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+              }
               continue;
             }
             dispatchAiRequest(rec, request);

@@ -7,11 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
   sendToAgentChat: vi.fn((options: { tabId?: string }) => options.tabId),
+  sendToAgentChatAndConfirm: vi.fn(async (options: { tabId?: string }) => ({
+    tabId: options.tabId,
+    delivered: true,
+  })),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
   generateTabId: () => "chat-123",
   sendToAgentChat: mocks.sendToAgentChat,
+  sendToAgentChatAndConfirm: mocks.sendToAgentChatAndConfirm,
 }));
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
@@ -70,6 +75,9 @@ beforeEach(async () => {
       if (payload?.operation === "track") {
         return { reconciled: false, tracked: true };
       }
+      if (payload?.operation === "mark-delivered") {
+        return { reconciled: false, delivered: true };
+      }
       if (payload?.operation === "consume") {
         return { reconciled: false, consumed: true };
       }
@@ -86,7 +94,9 @@ beforeEach(async () => {
   await act(async () => {
     root.render(<TestBridge />);
   });
-  await vi.waitFor(() => expect(mocks.sendToAgentChat).toHaveBeenCalledOnce());
+  await vi.waitFor(() =>
+    expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+  );
   expect(mocks.callAction).toHaveBeenCalledWith(
     "reconcile-workflow-generation",
     {
@@ -95,6 +105,17 @@ beforeEach(async () => {
       requestedAt,
       tabId: workflowTabId,
     },
+  );
+  await vi.waitFor(() =>
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      {
+        operation: "mark-delivered",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId: workflowTabId,
+      },
+    ),
   );
   await vi.waitFor(() =>
     expect(mocks.callAction).toHaveBeenCalledWith(
@@ -115,18 +136,23 @@ afterEach(async () => {
 });
 
 describe("workflow generation cancellation", () => {
-  it("preserves the queued request when dispatch throws", async () => {
+  it("preserves the queued request when chat delivery is rejected", async () => {
     await act(async () => root.unmount());
     mocks.callAction.mockClear();
-    mocks.sendToAgentChat.mockClear();
-    mocks.sendToAgentChat.mockImplementationOnce(() => {
-      throw new Error("postMessage failed");
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    mocks.sendToAgentChatAndConfirm.mockResolvedValueOnce({
+      tabId: workflowTabId,
+      delivered: false,
     });
     root = createRoot(container);
     await act(async () => root.render(<TestBridge />));
 
     await vi.waitFor(() =>
-      expect(mocks.sendToAgentChat).toHaveBeenCalledOnce(),
+      expect(mocks.sendToAgentChatAndConfirm).toHaveBeenCalledOnce(),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      expect.objectContaining({ operation: "mark-delivered" }),
     );
     expect(mocks.callAction).not.toHaveBeenCalledWith(
       "reconcile-workflow-generation",
@@ -136,7 +162,7 @@ describe("workflow generation cancellation", () => {
 
   it("does not dispatch when persisted tracking rejects the request", async () => {
     await act(async () => root.unmount());
-    mocks.sendToAgentChat.mockClear();
+    mocks.sendToAgentChatAndConfirm.mockClear();
     mocks.callAction.mockImplementation(
       async (name: string, payload?: { operation?: string }) => {
         if (name === "list-ai-requests") {
@@ -165,7 +191,48 @@ describe("workflow generation cancellation", () => {
         expect.objectContaining({ operation: "track" }),
       ),
     );
-    expect(mocks.sendToAgentChat).not.toHaveBeenCalled();
+    expect(mocks.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
+  });
+
+  it("consumes a delivered request after reload without redispatching", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockClear();
+    mocks.sendToAgentChatAndConfirm.mockClear();
+    mocks.callAction.mockImplementation(
+      async (name: string, payload?: { operation?: string }) => {
+        if (name === "list-ai-requests") {
+          return {
+            requests: [
+              {
+                kind: "generate-workflow",
+                recordingId: "rec_123",
+                requestedAt,
+                deliveredTabId: workflowTabId,
+                message: "Generate an email summary",
+              },
+            ],
+          };
+        }
+        return payload?.operation === "consume"
+          ? { reconciled: false, consumed: true }
+          : { reconciled: true };
+      },
+    );
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.callAction).toHaveBeenCalledWith(
+        "reconcile-workflow-generation",
+        {
+          operation: "consume",
+          recordingId: "rec_123",
+          requestedAt,
+          tabId: workflowTabId,
+        },
+      ),
+    );
+    expect(mocks.sendToAgentChatAndConfirm).not.toHaveBeenCalled();
   });
 
   it("reconciles the exact workflow agent tab after a page reload", async () => {
