@@ -217,12 +217,40 @@ export function useAutoTitleBridge(): void {
                 fallbackTimer = setTimeout(() => void tick(), 1000);
                 continue;
               }
-              dispatchAiRequest(rec, request, tabId);
-            } else {
-              dispatchAiRequest(rec, request);
-              void clearRequest(rec.id);
+              try {
+                dispatchAiRequest(rec, request, tabId);
+              } catch {
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+                continue;
+              }
+              dispatched.current.add(dispatchKey);
+              const consumeRequest = {
+                operation: "consume",
+                recordingId: rec.id,
+                requestedAt: request.requestedAt,
+                tabId,
+              };
+              void callAction(
+                "reconcile-workflow-generation" as any,
+                consumeRequest as any,
+              )
+                .catch(() =>
+                  callAction(
+                    "reconcile-workflow-generation" as any,
+                    consumeRequest as any,
+                  ),
+                )
+                .catch((error) => {
+                  console.error(
+                    "Failed to consume dispatched workflow request",
+                    error,
+                  );
+                });
+              continue;
             }
+            dispatchAiRequest(rec, request);
             dispatched.current.add(dispatchKey);
+            void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
             // No server-queued delegation. Only dispatch the fallback for
             // recordings that are old enough (>2 min) that the server has had

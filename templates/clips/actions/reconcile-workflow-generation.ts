@@ -1,7 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import {
   compareAndSetAppState,
-  compareAndSetManyAppState,
   readAppState,
 } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -27,13 +26,44 @@ export default defineAction({
     "Track and reconcile the agent run responsible for a generated workflow.",
   agentTool: false,
   schema: z.object({
-    operation: z.enum(["track", "stop"]),
+    operation: z.enum(["track", "consume", "stop"]),
     recordingId: z.string().min(1),
     requestedAt: z.string().min(1),
     tabId: z.string().min(1),
   }),
   run: async ({ operation, recordingId, requestedAt, tabId }) => {
     await assertAccess("recording", recordingId, "viewer");
+
+    const requestKey = `clips-ai-request-${recordingId}`;
+    if (operation === "consume") {
+      const rawRequest = await readAppState(requestKey);
+      if (rawRequest === null) {
+        return {
+          reconciled: false,
+          consumed: false,
+          reason: "missing" as const,
+        };
+      }
+      const parsedRequest = WorkflowRequestSchema.safeParse(rawRequest);
+      if (!parsedRequest.success) {
+        throw new Error(`Invalid workflow request state for ${recordingId}`);
+      }
+      if (parsedRequest.data.requestedAt !== requestedAt) {
+        return {
+          reconciled: false,
+          consumed: false,
+          reason: "newer-request" as const,
+        };
+      }
+      const consumed = await compareAndSetAppState(
+        requestKey,
+        rawRequest,
+        null,
+      );
+      return consumed
+        ? { reconciled: false, consumed: true }
+        : { reconciled: false, consumed: false, reason: "stale" as const };
+    }
 
     const stateKey = `clips-workflow-${recordingId}`;
     const rawState = await readAppState(stateKey);
@@ -55,7 +85,6 @@ export default defineAction({
     }
 
     if (operation === "track") {
-      const requestKey = `clips-ai-request-${recordingId}`;
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
         return { reconciled: false, reason: "request-missing" as const };
@@ -68,18 +97,10 @@ export default defineAction({
         return { reconciled: false, reason: "newer-request" as const };
       }
 
-      const tracked = await compareAndSetManyAppState([
-        {
-          key: stateKey,
-          expectedValue: rawState,
-          nextValue: { ...rawState, tabId },
-        },
-        {
-          key: requestKey,
-          expectedValue: rawRequest,
-          nextValue: null,
-        },
-      ]);
+      const tracked = await compareAndSetAppState(stateKey, rawState, {
+        ...rawState,
+        tabId,
+      });
       return tracked
         ? { reconciled: false, tracked: true }
         : { reconciled: false, reason: "stale" as const };

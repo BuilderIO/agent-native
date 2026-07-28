@@ -67,9 +67,13 @@ beforeEach(async () => {
           ],
         };
       }
-      return payload?.operation === "track"
-        ? { reconciled: false, tracked: true }
-        : { reconciled: true };
+      if (payload?.operation === "track") {
+        return { reconciled: false, tracked: true };
+      }
+      if (payload?.operation === "consume") {
+        return { reconciled: false, consumed: true };
+      }
+      return { reconciled: true };
     },
   );
   vi.stubGlobal(
@@ -92,6 +96,17 @@ beforeEach(async () => {
       tabId: workflowTabId,
     },
   );
+  await vi.waitFor(() =>
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      {
+        operation: "consume",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId: workflowTabId,
+      },
+    ),
+  );
 });
 
 afterEach(async () => {
@@ -100,6 +115,25 @@ afterEach(async () => {
 });
 
 describe("workflow generation cancellation", () => {
+  it("preserves the queued request when dispatch throws", async () => {
+    await act(async () => root.unmount());
+    mocks.callAction.mockClear();
+    mocks.sendToAgentChat.mockClear();
+    mocks.sendToAgentChat.mockImplementationOnce(() => {
+      throw new Error("postMessage failed");
+    });
+    root = createRoot(container);
+    await act(async () => root.render(<TestBridge />));
+
+    await vi.waitFor(() =>
+      expect(mocks.sendToAgentChat).toHaveBeenCalledOnce(),
+    );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      expect.objectContaining({ operation: "consume" }),
+    );
+  });
+
   it("does not dispatch when persisted tracking rejects the request", async () => {
     await act(async () => root.unmount());
     mocks.sendToAgentChat.mockClear();

@@ -158,6 +158,18 @@ describe("application-state store", () => {
     );
   });
 
+  it("does not report read failures as missing state", async () => {
+    rawClient.execute.mockRejectedValueOnce(new Error("connection dropped"));
+    await expect(appStateGet(SESSION, "apollo")).rejects.toThrow(
+      "connection dropped",
+    );
+
+    rawClient.execute.mockRejectedValueOnce(new Error("connection dropped"));
+    await expect(appStateGetMany(SESSION, ["apollo", "gong"])).rejects.toThrow(
+      "connection dropped",
+    );
+  });
+
   it("deletes literal prefixes without treating LIKE metacharacters as wildcards", async () => {
     await appStatePut(SESSION, "compose_%", { id: "draft" });
     await appStatePut(SESSION, "compose_X", { id: "not-draft" });
