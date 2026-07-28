@@ -1,5 +1,85 @@
 # @agent-native/core
 
+## 0.128.0
+
+### Minor Changes
+
+- ce559da: Add per-app member roles: `defineAppRoles`, an `authorize` gate on `defineAction`, and an `appRoles` column on `TeamPage`.
+
+  Apps that need permissions of their own no longer have to hand-roll a members table or collapse a rich vocabulary into the org's three roles. `defineAppRoles({ appId, roles })` declares an app's role set; `authorize: myApp.requireAny("admin")` gates an action for every caller (agent tool, HTTP, frontend, MCP, A2A, CLI) because it wraps `run` rather than hanging off a flag the dispatchers each have to remember; `<TeamPage appRoles={descriptor} />` adds the assignment column to the existing roster instead of forcing a second members view.
+
+  Org membership stays canonical — an app role only narrows what an existing member may do inside one app. Roles are an unordered set, not a ladder: authorization always names the accepted roles explicitly. `defaultRole` is a display value and never satisfies a guard, membership and assignment resolve in one statement so a stale row cannot authorize, and a failed lookup throws rather than resolving to a deny-shaped status.
+
+### Patch Changes
+
+- ce559da: Keep serverless startup bounded by moving legacy chat-thread repair, global stale-run cleanup, and remote MCP connection setup out of route initialization, and batch additive Postgres schema introspection into one query.
+- ce559da: Keep the hidden-mode agent sidebar on chat when restoring persisted panel state.
+- ce559da: Fix browser live transcription silently freezing mid-recording. `useLiveTranscription` now restarts recognition off the event loop instead of synchronously inside `onend` (Chrome throws `InvalidStateError` there), retries a failed restart with backoff instead of giving up after one throw, and exposes `getIncompleteReason()` so callers can tell a partial capture from a finished one.
+- ce559da: Make two first-run failures explain themselves instead of looking like a broken app.
+
+  The full-screen loading shell now reveals an explanatory line after 10 seconds
+  ("a first run compiles dependencies…, otherwise check the terminal"). The reveal
+  is a pure-CSS `animation-delay`, not a timer, because the states that strand a
+  user on this screen — hydration never running, a route module 404ing, a cold dev
+  compile — are exactly the states where none of our JS executes. A featureless
+  spinner is indistinguishable from a blank page and reads as "the app is broken"
+  rather than "look at the terminal".
+
+  Missing-table database errors now name the likely cause. The driver reports
+  `no such table: x` from whichever query touched it first, so the stack lands in
+  an action and reads as a bug there; the real cause is almost always that no
+  migration created it, which is what a template with no `server/plugins/db.ts`
+  does. The hint is appended to the driver's original message, so existing error
+  classifiers that match its substrings are unaffected.
+
+- ce559da: Stop refusing real deck URLs in A2A responses. The artifact guard only accepted
+  decks from `create-deck`, `duplicate-deck`, `get-deck`, `list-decks`, and
+  `add-slide`, and rejected a `create-deck` that saved an empty deck — so the
+  documented "create empty, then fill" flow, `patch-deck`, `save-deck`,
+  `update-slide`, `import-pptx`, and `restore-deck-version` all produced "I could
+  not verify the deck URL" for decks that were genuinely saved. Any successful
+  result that names a deck (an explicit `deckId`, or a canonical `/deck/<id>` URL
+  the action itself returned) now verifies it.
+- ce559da: Fix the cold-start failure mode that turns a serverless page load into a burst of 502/504s, and stop the chat spinner from hanging forever when the run-status probe is unreachable.
+
+  **Container-killing 502.** `createCoreRoutesPlugin` rethrew after `rejectInit(error)`.
+  Nitro invokes plugins as `try { plugin(app) } catch`, which cannot catch an async
+  rejection, so that rethrow surfaced as an `unhandledRejection`: Node exits, the
+  serverless container dies, and every in-flight request on it returns a bare 502.
+  `rejectInit` already routes the failure to the readiness gate's retryable 503, so
+  the rethrow only destroyed the container.
+
+  **Unbounded readiness gate.** Requests to `/_agent-native/*` waited on plugin
+  bootstrap with no deadline, so a slow cold boot parked them until the platform
+  killed the invocation — the client got nothing it could act on. The gate now
+  releases after `AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS` (default 25s, deliberately
+  below the shortest deployment target's request wall) and answers with a retryable
+  503 instead.
+
+  **155MB function bundles.** Serverless builds copied every platform variant of
+  `@libsql` and `@resvg` into the output — darwin, win32, android and 32-bit arm
+  binaries a Lambda can never execute, ~66MB of dead weight, paid again for each
+  additional emitted function. Cold start scales with bundle size, and a page that
+  opens several requests at once scales out to that many cold containers, which is
+  why this surfaced as 502/504 on a page's first burst rather than as a slow deploy.
+
+  **Eternal "Thinking…".** `AssistantChat` treated a failed `/runs/active` probe as
+  "no active run" and returned early. That probe is the only path that clears the
+  stored active run and no caller reschedules it, so a transient 5xx left the
+  spinner up permanently — surviving reloads, because the stored run lives in
+  `sessionStorage`. It now retries, then clears the stored run and raises a
+  recoverable `run_status_unavailable` error. `activeRunLooksStale` also falls back
+  to the heartbeat when a run was killed before recording any progress, so those
+  runs no longer read as perpetually fresh.
+
+  **Dead tools advertised in production.** `source-search` was registered for the
+  production agent even where its corpus is not deployed, so its only possible
+  answer was "not found". It is now registered only when the corpus exists, and
+  `docs-search` says when framework doc pages are absent from the deployment
+  instead of letting a miss read as "that page does not exist".
+
+- ce559da: Teach visual-edit to open Design in supported inline browser panes and document multi-page, flow, state, and responsive canvas reviews.
+
 ## 0.127.3
 
 ### Patch Changes
