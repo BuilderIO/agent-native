@@ -218,17 +218,26 @@ function renderChartHeader({
       ? wrapToWidth(subtitle, 13, maxWidth, 2)
       : [subtitle];
 
+  // Email cards already render the title and description as HTML, so the report
+  // path passes neither and the header collapses to nothing. Legacy callers
+  // always supply a title, so their output is unchanged.
+  const collapsed = fit && !titleText && subtitleLines.length === 0;
+
   return {
-    titleMarkup: `<text x="${HEADER_INSET}" y="${TITLE_BASELINE}" font-family="${fontFamily}" font-size="22" font-weight="700" fill="${theme.titleColor}">${escapeXml(titleText)}</text>`,
+    titleMarkup: collapsed
+      ? ""
+      : `<text x="${HEADER_INSET}" y="${TITLE_BASELINE}" font-family="${fontFamily}" font-size="22" font-weight="700" fill="${theme.titleColor}">${escapeXml(titleText)}</text>`,
     subtitleMarkup: subtitleLines
       .map(
         (line, index) =>
           `<text x="${HEADER_INSET}" y="${SUBTITLE_BASELINE + index * SUBTITLE_LINE_HEIGHT}" font-family="${fontFamily}" font-size="13" fill="${theme.tickColor}">${escapeXml(line)}</text>`,
       )
       .join(""),
-    headerBottom: subtitleLines.length
-      ? SUBTITLE_BASELINE + (subtitleLines.length - 1) * SUBTITLE_LINE_HEIGHT
-      : TITLE_BASELINE,
+    headerBottom: collapsed
+      ? 0
+      : subtitleLines.length
+        ? SUBTITLE_BASELINE + (subtitleLines.length - 1) * SUBTITLE_LINE_HEIGHT
+        : TITLE_BASELINE,
   };
 }
 
@@ -428,7 +437,11 @@ function renderCartesianChartSvg({
     fontFamily,
     fit,
   });
-  const legendTop = subtitle ? header.headerBottom + 4 : 42;
+  const legendTop = !header.headerBottom
+    ? 18
+    : subtitle
+      ? header.headerBottom + 4
+      : 42;
   // A static image has no tooltip to reveal which scale a series belongs to.
   const legendSeries = dualAxis
     ? series.map((entry) =>

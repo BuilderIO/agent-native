@@ -21,6 +21,7 @@ describe("db/client dialect detection", () => {
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
     );
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
   });
 
@@ -63,6 +64,16 @@ describe("db/client dialect detection", () => {
     const { getDialect, isPostgres } = await import("./client.js");
     expect(getDialect()).toBe("sqlite");
     expect(isPostgres()).toBe(false);
+  });
+
+  it("detects a D1 binding from Nitro's native Worker environment", async () => {
+    vi.stubEnv("DATABASE_URL", "");
+    const binding = { prepare: vi.fn() };
+    (globalThis as Record<string, unknown>).__env__ = { DB: binding };
+    const { getCloudflareD1Binding, getDialect } = await import("./client.js");
+
+    expect(getCloudflareD1Binding()).toBe(binding);
+    expect(getDialect()).toBe("d1");
   });
 
   it("detects sqlite for remote libsql URLs", async () => {
@@ -766,6 +777,44 @@ describe("isTransientDatabaseError", () => {
     expect(isTransientDatabaseError(new Error("duplicate key value"))).toBe(
       false,
     );
+  });
+});
+
+describe("annotateMissingTable", () => {
+  it("points SQLite and Postgres missing-table errors at the db plugin", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    for (const message of [
+      "no such table: text_analyses",
+      'relation "text_analyses" does not exist',
+    ]) {
+      const annotated = annotateMissingTable(
+        new Error(message),
+        "SELECT * FROM text_analyses",
+      ) as Error;
+      expect(annotated.message).toContain(message);
+      expect(annotated.message).toContain("text_analyses");
+      expect(annotated.message).toContain("server/plugins/db.ts");
+    }
+  });
+
+  it("leaves unrelated errors and non-Errors untouched", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const unrelated = new Error("duplicate column name: title");
+    expect((annotateMissingTable(unrelated, "") as Error).message).toBe(
+      "duplicate column name: title",
+    );
+    expect(annotateMissingTable("not an error", "")).toBe("not an error");
+  });
+
+  it("does not stack the hint when the same error passes through twice", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const err = new Error("no such table: forms");
+    const once = annotateMissingTable(err, "SELECT 1") as Error;
+    const twice = annotateMissingTable(once, "SELECT 1") as Error;
+    expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);
   });
 });
 

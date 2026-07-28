@@ -87,14 +87,11 @@ export default defineAction({
   run: async (args) => {
     const ctx = tryRequestCredentialContext();
     if (!ctx) {
-      return {
-        error: "missing_api_key",
-        key: "AUTH",
-        label: "Authentication",
-        message: "Sign in to view credential status.",
-        settingsPath: "/data-sources",
-        dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
-      };
+      // Returning 200 here let callers read "signed out" as an authoritative
+      // "nothing is configured".
+      throw Object.assign(new Error("Sign in to view credential status."), {
+        statusCode: 401,
+      });
     }
 
     const { configs, known } = resolveCredentialConfigs(args.key);
@@ -195,12 +192,16 @@ export default defineAction({
             workspace.connections,
             workspace.grants,
           );
+        const configured =
+          hasRequiredCredentials ||
+          workspaceConnection.grantState === "connected";
         return {
           provider: provider.provider,
           label: provider.label,
-          configured:
-            hasRequiredCredentials ||
-            workspaceConnection.grantState === "connected",
+          // A failed workspace-connection lookup cannot prove a provider is
+          // disconnected — a workspace-held connection lives in exactly the
+          // data we could not read. Report null, never false.
+          configured: configured ? true : workspace.error ? null : false,
           configuredKeys: configuredProviderKeys,
           missingRequiredKeys,
           optionalKeys,
@@ -231,13 +232,21 @@ export default defineAction({
     const connectedExternalDataSources = configuredDataSources.filter(
       (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
     );
+    const hasUnknownProviderStatus = providers.some(
+      (provider) => provider.configured === null,
+    );
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
       hasConfiguredDataSources: configuredDataSources.length > 0,
       configuredDataSourceCount: configuredDataSources.length,
       configuredDataSources,
-      hasConnectedExternalDataSources: connectedExternalDataSources.length > 0,
+      hasConnectedExternalDataSources:
+        connectedExternalDataSources.length > 0
+          ? true
+          : hasUnknownProviderStatus
+            ? null
+            : false,
       connectedExternalDataSourceCount: connectedExternalDataSources.length,
       dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
       credentials: results,

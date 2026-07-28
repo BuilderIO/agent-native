@@ -312,6 +312,46 @@ describe("BuilderSourceReviewDialog row selection", () => {
     );
   });
 
+  it("never labels dry-run preparation as sending to Builder", () => {
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={review}
+          source={source}
+          canEdit
+          pending
+          preparedForExecution
+          checkedAt={null}
+          onClose={vi.fn()}
+          onValidate={vi.fn()}
+        />,
+      );
+    });
+    expect(document.body.textContent).toContain("Preparing full review…");
+    expect(document.body.textContent).toContain("Preparing…");
+    expect(document.body.textContent).not.toContain("Sending to Builder…");
+
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={review}
+          source={source}
+          canEdit
+          pending
+          executionPending
+          preparedForExecution
+          checkedAt={null}
+          onClose={vi.fn()}
+          onValidate={vi.fn()}
+        />,
+      );
+    });
+    expect(document.body.textContent).toContain("Sending to Builder…");
+    expect(document.body.textContent).toContain("Sending…");
+  });
+
   it("keeps a prepare failure visible and clears it when the selection changes", () => {
     const onSelectionChange = vi.fn();
     act(() => {

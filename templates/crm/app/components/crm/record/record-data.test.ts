@@ -95,9 +95,16 @@ describe("fieldEditability", () => {
   });
 
   it("locks types this panel has no editor for", () => {
+    expect(fieldEditability(attribute({ attributeType: "location" }))).toEqual({
+      editable: false,
+      reason: "unsupported-type",
+    });
+  });
+
+  it("allows a record reference now that the panel has a picker", () => {
     expect(
       fieldEditability(attribute({ attributeType: "record-reference" })),
-    ).toEqual({ editable: false, reason: "unsupported-type" });
+    ).toEqual({ editable: true });
   });
 });
 

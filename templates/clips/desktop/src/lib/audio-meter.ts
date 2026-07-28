@@ -14,13 +14,42 @@ export const METER_IDLE_HEIGHT = 0.14;
 export const METER_LEVEL_DECAY = 0.82;
 /** Floor a new sample must clear, so the meter falls smoothly instead of snapping. */
 export const METER_ATTACK_DECAY = 0.55;
-export const METER_SAMPLE_MS = 50;
+/**
+ * How long the meter waits for the next capture buffer before decaying on its
+ * own. Capture drives the bars; this only covers pause / teardown, where the
+ * events stop and a frozen tall bar would claim someone is still talking.
+ */
+export const METER_IDLE_MS = 120;
 
 /** Fold an incoming 0-1 audio level into the current level. */
 export function nextMeterLevel(current: number, incoming: number): number {
   if (!Number.isFinite(incoming)) return current;
   const clamped = Math.max(0, Math.min(1, incoming));
   return Math.max(current * METER_ATTACK_DECAY, clamped);
+}
+
+export type MeterSource = "mic" | "system";
+export type MeterSourceLevels = Record<MeterSource, number>;
+
+export const EMPTY_METER_SOURCES: MeterSourceLevels = { mic: 0, system: 0 };
+
+/**
+ * Fold one capture buffer into the per-source levels. Mic and system audio
+ * interleave on a single event, so each stream has to decay on its own frames
+ * only — one shared level lets a silent mic halve the level of whoever is
+ * actually talking on every other event, which pins the meter to its floor.
+ */
+export function foldMeterSources(
+  levels: MeterSourceLevels,
+  source: MeterSource,
+  incoming: number,
+): MeterSourceLevels {
+  return { ...levels, [source]: nextMeterLevel(levels[source], incoming) };
+}
+
+/** What the bars show: whichever side of the conversation is louder. */
+export function combinedMeterLevel(levels: MeterSourceLevels): number {
+  return Math.max(levels.mic, levels.system);
 }
 
 /** One decay tick. Snaps to silence below a threshold so bars settle at rest. */
@@ -46,6 +75,6 @@ export function advanceMeterLevels(levels: number[], sample: number): number[] {
 export function meterBarHeight(level: number, barIndex: number): number {
   const gain = METER_BAR_GAINS[barIndex] ?? 1;
   const safe = Number.isFinite(level) ? Math.max(0, Math.min(1, level)) : 0;
-  const shaped = safe > 0 ? Math.min(1, Math.pow(safe, 0.52) * 1.08) : 0;
+  const shaped = safe > 0 ? Math.min(1, Math.pow(safe, 0.45) * 1.25) : 0;
   return (METER_IDLE_HEIGHT + shaped * gain * (1 - METER_IDLE_HEIGHT)) * 100;
 }

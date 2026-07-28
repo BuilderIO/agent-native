@@ -15,6 +15,9 @@ export interface WorkspaceAppSummary {
   builderUrl?: string | null;
   branchName?: string | null;
   createdAt?: string | null;
+  createdBy?: string | null;
+  owner?: string | null;
+  teams?: string[];
   agentCardUrl?: string | null;
   agentCardReachable?: boolean;
   a2aEndpointUrl?: string | null;

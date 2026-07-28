@@ -4,7 +4,41 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const actionMocks = vi.hoisted(() => ({ callAction: vi.fn() }));
+
+vi.mock("./use-action.js", () => actionMocks);
+
 import { useChatModels } from "./use-chat-models.js";
+
+/** Serve the three requests refreshEngines makes: engines, env keys, builder. */
+function stubCatalog(options: {
+  engines: unknown[];
+  configuredKeys?: string[];
+  current?: { engine: string; model: string };
+}) {
+  actionMocks.callAction.mockResolvedValue({
+    engines: options.engines,
+    ...(options.current ? { current: options.current } : {}),
+  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("env-status")) {
+        return Response.json(
+          (options.configuredKeys ?? []).map((key) => ({
+            key,
+            configured: true,
+          })),
+        );
+      }
+      if (url.includes("builder/status")) {
+        return Response.json({ configured: false });
+      }
+      return new Response("{}");
+    }),
+  );
+}
 
 function ChatModelsProbe({
   enabled,
@@ -97,6 +131,56 @@ describe("useChatModels", () => {
     });
 
     expect(container.textContent).toContain("claude-sonnet-5:medium:");
+  });
+
+  // DEFAULT_MODEL is a builder-gateway id, and the builder engine is hidden
+  // from the picker unless Builder is connected. Keeping it as the selection
+  // submitted a model no engine could serve, which the server then quietly
+  // replaced with its own default — the picker said one thing, every turn ran
+  // another.
+  it("replaces an unroutable default with a model the catalog can serve", async () => {
+    stubCatalog({
+      engines: [
+        {
+          name: "anthropic",
+          label: "Claude",
+          supportedModels: ["claude-sonnet-5", "claude-opus-4-8"],
+          requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        },
+      ],
+      configuredKeys: ["ANTHROPIC_API_KEY"],
+    });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="routable-selection" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const selected = container.querySelector(
+      '[data-testid="probe-selected-model"]',
+    )?.textContent;
+    expect(selected).not.toBe("gpt-5-6-luna");
+    expect(["claude-sonnet-5", "claude-opus-4-8"]).toContain(selected);
+  });
+
+  it("clears the selection when the catalog can route nothing", async () => {
+    // Zero groups: an empty selection hides the picker and submits no model, so
+    // the server's own resolved default is used instead of an unroutable id.
+    stubCatalog({ engines: [] });
+
+    await act(async () => {
+      root.render(<ChatModelsProbe enabled storageKey="empty-catalog" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('[data-testid="probe-selected-model"]')
+        ?.textContent,
+    ).toBe("");
   });
 
   it("syncs same-page model changes between hooks sharing a storage key", async () => {

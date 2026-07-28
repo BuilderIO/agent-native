@@ -476,6 +476,18 @@ export async function runTemplate(
   }
 
   const rest = args.slice(1);
+
+  // `materialize` produces a fresh post-processed template tree at --out; it has
+  // no existing app to resolve, so it runs before target resolution.
+  if (command === "materialize") {
+    try {
+      return await materializeCommand(rest, io);
+    } catch (err) {
+      io.err(err instanceof Error ? err.message : String(err));
+      return 1;
+    }
+  }
+
   const appArg = positionalArgs(rest)[0];
   const flags = {
     to: flagValue(rest, "--to"),
@@ -537,6 +549,87 @@ async function runForTarget(
       io.err(`Unknown template command "${command}".`);
       io.err(templateUsage());
       return 1;
+  }
+}
+
+/**
+ * Write the post-processed template tree to a directory — the pristine,
+ * template-derived output `create` would produce (no install/git/skills).
+ * `--to` defaults to the local template (walked up from the package); pass a ref
+ * to fetch from GitHub instead.
+ */
+async function materializeCommand(
+  rest: string[],
+  io: TemplateIO,
+): Promise<number> {
+  const outDir = flagValue(rest, "--out");
+  const template = flagValue(rest, "--template");
+  const name = flagValue(rest, "--name");
+  const ref = flagValue(rest, "--to") ?? null;
+  if (!outDir) {
+    io.err("template materialize requires --out <dir>.");
+    return 1;
+  }
+  if (!template) {
+    io.err("template materialize requires --template <name>.");
+    return 1;
+  }
+  // Stage into a unique sibling dir, then swap it in crash-safely: move the old
+  // tree aside, move the staged tree in, and restore the old one if that fails.
+  // Directory replacement isn't atomic on POSIX (you can't rename onto a non-empty
+  // dir), so the old tree is only ever moved — never deleted before the new one is
+  // in place — and a crash between the two renames leaves it recoverable under
+  // `backup`. Unique same-filesystem siblings keep each rename atomic and
+  // collision-free.
+  const parent = path.dirname(path.resolve(outDir));
+  fs.mkdirSync(parent, { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
+  // `backup` is a unique dir too, so a concurrent process can't occupy the path;
+  // renaming a directory onto an existing *empty* dir is a valid replace on POSIX,
+  // so the `hadOld` rename below still lands cleanly on it.
+  const backup = fs.mkdtempSync(
+    path.join(parent, ".template-materialize-backup-"),
+  );
+  let backupHoldsOriginal = false;
+  try {
+    const result = await materializeTemplate({
+      appName: name ?? template,
+      template,
+      ref,
+      shape: "standalone",
+      destDir: tmp,
+    });
+    const hadOld = fs.existsSync(outDir);
+    if (hadOld) {
+      fs.renameSync(outDir, backup);
+      backupHoldsOriginal = true;
+    }
+    try {
+      fs.renameSync(tmp, outDir);
+      backupHoldsOriginal = false;
+    } catch (err) {
+      if (hadOld) {
+        fs.renameSync(backup, outDir);
+        backupHoldsOriginal = false;
+      }
+      throw err;
+    }
+    io.out(
+      `Materialized "${template}" (${result.source}@${result.ref}) to ${outDir}.`,
+    );
+    return 0;
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    // If restoring from `backup` above itself threw, `backupHoldsOriginal` is still
+    // true and `backup` is the only remaining copy of the pre-existing output —
+    // leave it on disk instead of deleting the last copy of the user's data.
+    if (!backupHoldsOriginal) {
+      fs.rmSync(backup, { recursive: true, force: true });
+    } else {
+      io.err(
+        `Failed to restore ${outDir}; the previous contents were preserved at ${backup}.`,
+      );
+    }
   }
 }
 
@@ -995,6 +1088,9 @@ function templateUsage(): string {
     "  baseline [app]          Record a baseline for an app scaffolded before",
     "                          provenance existed [--ref <ref>] [--template <name>]",
     "  accept [app]            Advance the baseline after resolving conflicts",
+    "  materialize --template <name> --out <dir>",
+    "                          Write the post-processed template tree to a dir",
+    "                          (no app needed) [--name <appName>] [--to <ref>]",
     "",
     "With no [app], operates on the current app, or on every app in a workspace",
     "when run from the workspace root. --to defaults to the ref matching the",

@@ -94,7 +94,8 @@ For App Operations](/docs/server#actions-first).
 
 On this page: [Start with one action](#hello-action), [Defining an action](#defining),
 [Run context](#run-context), [Access control](#access-control),
-[Human-in-the-loop approval](#needs-approval), [Audit logging](#audit),
+[Authorization](#authorize), [Human-in-the-loop approval](#needs-approval),
+[Audit logging](#audit),
 [Calling from the UI](#ui), [Native chat UI](#native-chat-ui),
 [Calling from the CLI](#cli), [A2A](#a2a), [MCP](#mcp),
 [Standard actions](#standard-actions), and [Feature flags](#feature-flags).
@@ -258,7 +259,7 @@ POST by default; `http: { method: "GET" }` makes it a GET. The React hooks and `
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — default `POST`. `GET` actions are auto-marked `readOnly` so successful calls don't trigger a UI poll-refresh.
 - **`http: { path: "..." }`** — override the mounted URL under `/_agent-native/actions/`. Defaults to the filename. **Path overrides change the URL only for direct HTTP callers** — `useActionQuery`, `useActionMutation`, and `callAction` always call `/_agent-native/actions/<name>` regardless of this override, so overriding the path makes those hooks 404. Use path overrides only for external HTTP callers. Note also that `:param` route segments in the override path are **not** parsed into `run()` args — only query-string params and JSON body fields are.
 - **`http: false`** — disable the HTTP endpoint entirely. Agent + CLI only.
-- **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate.
+- **`readOnly: true`** — explicitly skip the poll-refresh even for POST actions that don't mutate. It is **not** access control: it does not restrict who may call the action, and it does not affect `useActionQuery`, `useActionMutation`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. To hide an action from the model use `agentTool: false`; to gate callers use the auth/access options above.
 - **`parallelSafe: true`** — allow a mutating action to run concurrently with other same-turn tool calls. Only set this when the action is internally concurrency-safe and order-independent; mutating actions serialize by default.
 
 ### Keep the action surface small {#small-surface}
@@ -274,7 +275,7 @@ A repo-level advisory helper, `node scripts/audit-template-actions.mjs [template
 
 ### Exposure flags {#exposure-flags}
 
-Four flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
+Five flags control _who_ can invoke an action. All default to the permissive value, so you only set one to tighten a specific surface. This table is the glanceable summary; the subsections add the one detail each needs.
 
 | Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                     |
 | --------------- | ------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -282,8 +283,9 @@ Four flags control _who_ can invoke an action. All default to the permissive val
 | `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Auth-adjacent ops (delete account, change org membership/roles) |
 | `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read/ingest tools reachable without authentication         |
 | `needsApproval` | `false`       | `true` → the agent **pauses**; a human must approve the specific call       | Consequential side effects (send email, charge a card, delete)  |
+| `authorize`     | none          | a guard function → only callers it accepts, on **every** surface            | Operations restricted to a role (per-app RBAC, admin-only ops)  |
 
-These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), and `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below.
+These are independent: `agentTool` controls the model's view, `toolCallable` controls only the extension iframe, `publicAgent` adds an opt-in public surface (public web routes never imply public tool exposure), `needsApproval` gates execution after the call is made — see [Human-in-the-loop approval](#needs-approval) below — and `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run` is entered — see [Authorization](#authorize).
 
 #### `agentTool` — hide from the model {#agent-tool}
 
@@ -402,6 +404,47 @@ export default defineAction({
 ```
 
 For list and read actions, use `accessFilter` to scope the query to the current user and org. For actions that update or delete a specific row, use `assertAccess` to confirm the caller is allowed before writing. See [Security](/docs/security#access-guards) and [Sharing](/docs/sharing) for the full helper API.
+
+### Authorization {#authorize}
+
+`accessFilter` / `assertAccess` scope _which rows_ a permitted caller may touch. `authorize` answers the question before that one: **may this caller run this operation at all?** Give it a guard function and it runs before `run()` on every caller — agent tool, HTTP, frontend, MCP, A2A, and CLI:
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+The guard wraps `run` itself rather than hanging off the action entry, because `run` is the one thing all six dispatch sites go through — there is no caller that can reach the body without passing the check. A guard that throws denies with its own message; one that returns `false` denies with a generic 403; anything else, including `undefined`, allows. Because the gate needs a caller identity, an unattended CLI or cron invocation with no user email is denied rather than waved through.
+
+The wrappers compose in this order:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+Authorization sits _inside_ input validation, so a guard that inspects `args` is handed the parsed, coerced value its type promises rather than whatever shape the caller sent. Auditing is outermost, so a denial is still recorded.
+
+`requireAny` fails at definition time, not at request time: calling it with no roles, or with a role outside the declared vocabulary, throws when the module loads. `authorize: coachAccess.requireAny()` is a dropped argument, and it should break where the mistake is rather than surface later as an unexplained 403.
+
+The three mechanisms are not interchangeable:
+
+| Mechanism                     | Question it answers                                | Applies to                  |
+| ----------------------------- | -------------------------------------------------- | --------------------------- |
+| `authorize`                   | May this caller perform the operation at all?      | All six dispatch sites      |
+| `needsApproval`               | Should a human bless this specific permitted call? | The agent loop only         |
+| `accessFilter`/`assertAccess` | Which rows may this permitted caller see or write? | Inside `run`, per query/row |
+
+A restricted write action typically needs both `authorize` and `assertAccess`: the first keeps non-coaches out of the operation, the second keeps a coach out of another org's plan. `needsApproval` is a separate axis again — it never restricts _who_ may call, only whether the agent may proceed unattended.
+
+`coachAccess` above comes from `defineAppRoles`, the per-app role overlay on org membership. See [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) for the role model and its guarantees.
 
 ### Human-in-the-loop approval {#needs-approval}
 

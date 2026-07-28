@@ -96,10 +96,10 @@ export interface CrmRecordPage {
 // ---------------------------------------------------------------------------
 
 /**
- * Controls this panel implements. The registry says a `record-reference` is
- * edited with a record picker; a labelled panel row has no picker yet, so the
- * field is honestly locked here instead of offering a text input that would
- * store whatever display name the user typed.
+ * Controls this panel implements. A type whose control is missing here is
+ * locked with `unsupported-type` rather than offered a text input that would
+ * store whatever the user typed — so this set and the branches in
+ * `field-editors.tsx` have to move together.
  */
 const PANEL_CONTROLS: ReadonlySet<CrmAttributeControl> = new Set([
   "text",
@@ -109,6 +109,7 @@ const PANEL_CONTROLS: ReadonlySet<CrmAttributeControl> = new Set([
   "datetime",
   "options",
   "rating",
+  "reference",
 ]);
 
 export type FieldLockReason =

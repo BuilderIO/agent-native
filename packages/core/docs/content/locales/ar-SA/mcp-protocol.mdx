@@ -224,7 +224,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -234,8 +238,9 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 عند عدم إتاحة قراءة حالة عابرة ومحدودة المدة، يمكن أن تُرجع `ask_app_status` القيم
 `status: "unknown"` و`statusRead: "unavailable"` و`retryable: true`، إلى جانب
 `app` و`taskId` الأصليين و`pollAfterMs` / `poll`. يعني ذلك أن قراءة الحالة غير
-متاحة، وليس أن المهمة الدائمة قد فشلت. أعد محاولة `ask_app_status` باستخدام `app`
-و`taskId` نفسيهما تمامًا؛ ولا تعِد إرسال `ask_app` للاسترداد مطلقًا، إذ قد يكرر
+متاحة، وليس أن المهمة الدائمة قد فشلت. أعد محاولة `ask_app_status` باستخدام
+`poll.arguments` المُرجعة نفسها، بما فيها `taskHandle` عند وجودها؛ أما النتائج القديمة
+من دون مقبض فيجب أن تعيد استخدام `app` و`taskId` نفسيهما. لا تعِد إرسال `ask_app` للاسترداد مطلقًا، إذ قد يكرر
 الإرسال العمل. تظل أخطاء المصادقة الدائمة أو عدم العثور أو البروتوكول أخطاءً.
 
 ## المصادقة {#authentication}

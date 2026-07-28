@@ -1,6 +1,11 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconSearch } from "@tabler/icons-react";
+import {
+  IconBuilding,
+  IconRoute,
+  IconSearch,
+  IconUser,
+} from "@tabler/icons-react";
 import {
   useInfiniteQuery,
   useQueries,
@@ -36,6 +41,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import type { CrmKind, CrmRecordSummary } from "@/lib/types";
+
+/** The glyph the grid's icon column shows until a row is hovered, and the
+ *  avatar shape that goes with it — round is a person, squircle is not. */
+const KIND_ICONS: Record<
+  CrmKind,
+  React.ComponentType<{ className?: string }>
+> = {
+  account: IconBuilding,
+  person: IconUser,
+  opportunity: IconRoute,
+};
 
 /** One `list-crm-record-values` request per chunk; the action caps at 200. */
 const VALUES_CHUNK = 100;
@@ -355,7 +371,9 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
     // shell's <main> is a scroll container, not a flex column, so `flex-1` here
     // would collapse. Switch to flex-1 if <main> ever becomes display:flex.
     <div className="flex h-[calc(100vh-9.5rem)] min-h-[320px] flex-col">
-      <div className="flex items-center gap-2 border-b border-border/70 px-5 py-2.5">
+      {/* No bottom rule here: the grid header carries its own top border, and
+          two adjacent lines read as a heavy divider. */}
+      <div className="flex items-center gap-2 px-5 py-2.5">
         <div className="flex w-full max-w-sm items-center gap-2 rounded-md border border-input bg-background px-3">
           <IconSearch className="size-4 shrink-0 text-muted-foreground" />
           <Input
@@ -381,6 +399,8 @@ export function RecordGrid({ kind, emptyTitle }: RecordGridProps) {
         onRetry={() => void list.refetch()}
         emptyTitle={emptyTitle}
         nameLabel={t(`grid.name.${kind}`)}
+        objectIcon={KIND_ICONS[kind]}
+        avatarShape={kind === "person" ? "person" : "company"}
         rowHref={(row) => `/records/${encodeURIComponent(row.id)}`}
         onCommitCell={commitCell}
         onAddToList={setAddToListIds}

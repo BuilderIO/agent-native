@@ -345,6 +345,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "調整面板大小",
     loadFailedTitle: "無法載入此記錄",
     loadFailedDescription: "CRM 無法讀取此記錄，它可能不在你的存取範圍內。",
     unavailableTitle: "此 CRM 記錄無法使用",

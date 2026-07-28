@@ -112,6 +112,39 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders the provider logo for catalog-backed MCP tools", async () => {
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="mcp__slack__search"
+          args={{}}
+          result="ok"
+          isRunning={false}
+        />,
+      );
+    });
+
+    const logo = container.querySelector("img");
+    expect(logo?.getAttribute("src")).toMatch(/^data:image\//);
+    expect(logo?.getAttribute("title")).toBe("Slack");
+  });
+
+  it("falls back to a generic icon for MCP tools with no catalog match", async () => {
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="mcp__acme-internal__lookup"
+          args={{}}
+          result="ok"
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+  });
+
   it("renders explicit data widgets natively", async () => {
     await act(async () => {
       root.render(

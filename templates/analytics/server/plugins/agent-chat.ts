@@ -302,7 +302,6 @@ function dataSourceStatusSummary(
       .replace(/[\s_]+/g, "-");
     if (normalizedName !== "data-source-status" || result.isError) continue;
 
-    checked = true;
     let parsed: Record<string, unknown>;
     try {
       const value = JSON.parse(String(result.content ?? ""));
@@ -312,6 +311,19 @@ function dataSourceStatusSummary(
       parsed = value as Record<string, unknown>;
     } catch {
       continue;
+    }
+
+    const workspaceConnections =
+      parsed.workspaceConnections &&
+      typeof parsed.workspaceConnections === "object" &&
+      !Array.isArray(parsed.workspaceConnections)
+        ? (parsed.workspaceConnections as Record<string, unknown>)
+        : null;
+    // A status result that errored, or whose workspace-connection lookup
+    // failed, says "we could not look", not "nothing is connected". Only a
+    // trustworthy result may mark the turn as checked.
+    if (!parsed.error && workspaceConnections?.available !== false) {
+      checked = true;
     }
 
     let foundSetupLink = false;
@@ -392,12 +404,6 @@ function dataSourceStatusSummary(
       }
     }
 
-    const workspaceConnections =
-      parsed.workspaceConnections &&
-      typeof parsed.workspaceConnections === "object" &&
-      !Array.isArray(parsed.workspaceConnections)
-        ? (parsed.workspaceConnections as Record<string, unknown>)
-        : null;
     const workspaceProviders = Array.isArray(workspaceConnections?.providers)
       ? workspaceConnections.providers
       : [];
@@ -479,10 +485,14 @@ export function realDataFinalGuard(
   );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
+  // Only a `data-source-status` result can show something is missing. A turn
+  // that never called it has empty label lists, which is "we did not look",
+  // not "nothing is connected" — treating those the same made the guard demand
+  // a Connect-data-sources link on turns whose sources were working fine.
   const needsDataSourceLink =
-    !sourceStatus.checked ||
-    (externalSourceRequest &&
-      (noConnectedExternalSources || missingRequestedExternalSource));
+    sourceStatus.checked &&
+    externalSourceRequest &&
+    (noConnectedExternalSources || missingRequestedExternalSource);
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -674,6 +684,46 @@ export function realDataFinalGuard(
   };
 }
 
+export async function searchDashboardMentions(query: string, event?: any) {
+  if (!event) return [];
+  try {
+    const { getOrgContext } = await import("@agent-native/core/org");
+    const { listDashboardSummaries } =
+      await import("../lib/dashboards-store.js");
+    const ctx = await getOrgContext(event);
+    const rows = await listDashboardSummaries(
+      { email: ctx.email, orgId: ctx.orgId ?? null },
+      { kind: "sql", hidden: query ? "all" : "visible" },
+    );
+    const items = rows.map((dashboard) => ({
+      id: dashboard.id,
+      name: dashboard.name,
+    }));
+
+    const q = (query || "").toLowerCase().trim();
+    const filtered = q
+      ? items.filter(
+          (dashboard) =>
+            (dashboard.name || "").toLowerCase().includes(q) ||
+            dashboard.id.toLowerCase().includes(q),
+        )
+      : items;
+
+    return filtered.slice(0, 20).map((dashboard) => ({
+      id: `dashboard:${dashboard.id}`,
+      label: dashboard.name || "Untitled dashboard",
+      description: `/dashboards/${dashboard.id}`,
+      icon: "deck",
+      refType: "dashboard",
+      refId: dashboard.id,
+      refPath: `/dashboards/${dashboard.id}`,
+    }));
+  } catch (err) {
+    console.error("[analytics] Dashboard mention provider failed:", err);
+    return [];
+  }
+}
+
 export default createAgentChatPlugin({
   appId: "analytics",
   actions: applyAnalyticsPlanModePolicy(
@@ -752,41 +802,7 @@ export default createAgentChatPlugin({
     dashboards: {
       label: "Dashboards",
       icon: "deck",
-      search: async (query: string, event?: any) => {
-        if (!event) return [];
-        try {
-          const { getOrgContext } = await import("@agent-native/core/org");
-          const { listDashboards } = await import("../lib/dashboards-store.js");
-          const ctx = await getOrgContext(event);
-          const rows = await listDashboards(
-            { email: ctx.email, orgId: ctx.orgId ?? null },
-            { kind: "sql", hidden: query ? "all" : "visible" },
-          );
-          const items = rows.map((d) => ({ id: d.id, name: d.title }));
-
-          const q = (query || "").toLowerCase().trim();
-          const filtered = q
-            ? items.filter(
-                (d) =>
-                  (d.name || "").toLowerCase().includes(q) ||
-                  d.id.toLowerCase().includes(q),
-              )
-            : items;
-
-          return filtered.slice(0, 20).map((d) => ({
-            id: `dashboard:${d.id}`,
-            label: d.name || "Untitled dashboard",
-            description: `/dashboards/${d.id}`,
-            icon: "deck",
-            refType: "dashboard",
-            refId: d.id,
-            refPath: `/dashboards/${d.id}`,
-          }));
-        } catch (err) {
-          console.error("[analytics] Dashboard mention provider failed:", err);
-          return [];
-        }
-      },
+      search: searchDashboardMentions,
     },
   },
 });

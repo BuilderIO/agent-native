@@ -1,5 +1,276 @@
 # @agent-native/core
 
+## 0.128.1
+
+### Patch Changes
+
+- 9140268: Update Builder design-system indexing to call the current `/design-systems/v1/index`
+  endpoint with a structured `sources` array (uploaded files, public repos, connected
+  projects) instead of the retired `generate` endpoint and its flat `uploads` payload.
+  File selections are now attached per source, and the incomplete-response guard only
+  requires a `designSystemId`. "Open in Builder" now links into the actual
+  project/branch (`branchUrl`) when the service returns one, falling back to the
+  design-system-intelligence docs URL. When `/index` returns only a `jobId`, the
+  Fusion branch URL is read from `GET /design-systems/v1/decode-jobs/:jobId`
+  (exposed as `fetchBuilderDesignSystemDecodeJobStatus`) so "Open in Builder" lands
+  on the branch. Large files (notably `.fig`) now stream to
+  storage in 16 MiB resumable chunks with retry and offset recovery instead of a
+  single unbounded request body. Indexing is split into `startBuilderDesignSystemUpload`
+  (opens signed resumable-upload slots) and `indexBuilderDesignSystem` (finalizes from
+  resolved sources) so browsers can stream `.fig` bytes straight to storage and never
+  hit the serverless request-body cap; `startBuilderDesignSystemIndex` still handles
+  small in-memory server-side payloads. Also exports `builderProjectBranchUrl`.
+
+## 0.128.0
+
+### Minor Changes
+
+- ce559da: Add per-app member roles: `defineAppRoles`, an `authorize` gate on `defineAction`, and an `appRoles` column on `TeamPage`.
+
+  Apps that need permissions of their own no longer have to hand-roll a members table or collapse a rich vocabulary into the org's three roles. `defineAppRoles({ appId, roles })` declares an app's role set; `authorize: myApp.requireAny("admin")` gates an action for every caller (agent tool, HTTP, frontend, MCP, A2A, CLI) because it wraps `run` rather than hanging off a flag the dispatchers each have to remember; `<TeamPage appRoles={descriptor} />` adds the assignment column to the existing roster instead of forcing a second members view.
+
+  Org membership stays canonical — an app role only narrows what an existing member may do inside one app. Roles are an unordered set, not a ladder: authorization always names the accepted roles explicitly. `defaultRole` is a display value and never satisfies a guard, membership and assignment resolve in one statement so a stale row cannot authorize, and a failed lookup throws rather than resolving to a deny-shaped status.
+
+### Patch Changes
+
+- ce559da: Keep serverless startup bounded by moving legacy chat-thread repair, global stale-run cleanup, and remote MCP connection setup out of route initialization, and batch additive Postgres schema introspection into one query.
+- ce559da: Keep the hidden-mode agent sidebar on chat when restoring persisted panel state.
+- ce559da: Fix browser live transcription silently freezing mid-recording. `useLiveTranscription` now restarts recognition off the event loop instead of synchronously inside `onend` (Chrome throws `InvalidStateError` there), retries a failed restart with backoff instead of giving up after one throw, and exposes `getIncompleteReason()` so callers can tell a partial capture from a finished one.
+- ce559da: Make two first-run failures explain themselves instead of looking like a broken app.
+
+  The full-screen loading shell now reveals an explanatory line after 10 seconds
+  ("a first run compiles dependencies…, otherwise check the terminal"). The reveal
+  is a pure-CSS `animation-delay`, not a timer, because the states that strand a
+  user on this screen — hydration never running, a route module 404ing, a cold dev
+  compile — are exactly the states where none of our JS executes. A featureless
+  spinner is indistinguishable from a blank page and reads as "the app is broken"
+  rather than "look at the terminal".
+
+  Missing-table database errors now name the likely cause. The driver reports
+  `no such table: x` from whichever query touched it first, so the stack lands in
+  an action and reads as a bug there; the real cause is almost always that no
+  migration created it, which is what a template with no `server/plugins/db.ts`
+  does. The hint is appended to the driver's original message, so existing error
+  classifiers that match its substrings are unaffected.
+
+- ce559da: Stop refusing real deck URLs in A2A responses. The artifact guard only accepted
+  decks from `create-deck`, `duplicate-deck`, `get-deck`, `list-decks`, and
+  `add-slide`, and rejected a `create-deck` that saved an empty deck — so the
+  documented "create empty, then fill" flow, `patch-deck`, `save-deck`,
+  `update-slide`, `import-pptx`, and `restore-deck-version` all produced "I could
+  not verify the deck URL" for decks that were genuinely saved. Any successful
+  result that names a deck (an explicit `deckId`, or a canonical `/deck/<id>` URL
+  the action itself returned) now verifies it.
+- ce559da: Fix the cold-start failure mode that turns a serverless page load into a burst of 502/504s, and stop the chat spinner from hanging forever when the run-status probe is unreachable.
+
+  **Container-killing 502.** `createCoreRoutesPlugin` rethrew after `rejectInit(error)`.
+  Nitro invokes plugins as `try { plugin(app) } catch`, which cannot catch an async
+  rejection, so that rethrow surfaced as an `unhandledRejection`: Node exits, the
+  serverless container dies, and every in-flight request on it returns a bare 502.
+  `rejectInit` already routes the failure to the readiness gate's retryable 503, so
+  the rethrow only destroyed the container.
+
+  **Unbounded readiness gate.** Requests to `/_agent-native/*` waited on plugin
+  bootstrap with no deadline, so a slow cold boot parked them until the platform
+  killed the invocation — the client got nothing it could act on. The gate now
+  releases after `AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS` (default 25s, deliberately
+  below the shortest deployment target's request wall) and answers with a retryable
+  503 instead.
+
+  **155MB function bundles.** Serverless builds copied every platform variant of
+  `@libsql` and `@resvg` into the output — darwin, win32, android and 32-bit arm
+  binaries a Lambda can never execute, ~66MB of dead weight, paid again for each
+  additional emitted function. Cold start scales with bundle size, and a page that
+  opens several requests at once scales out to that many cold containers, which is
+  why this surfaced as 502/504 on a page's first burst rather than as a slow deploy.
+
+  **Eternal "Thinking…".** `AssistantChat` treated a failed `/runs/active` probe as
+  "no active run" and returned early. That probe is the only path that clears the
+  stored active run and no caller reschedules it, so a transient 5xx left the
+  spinner up permanently — surviving reloads, because the stored run lives in
+  `sessionStorage`. It now retries, then clears the stored run and raises a
+  recoverable `run_status_unavailable` error. `activeRunLooksStale` also falls back
+  to the heartbeat when a run was killed before recording any progress, so those
+  runs no longer read as perpetually fresh.
+
+  **Dead tools advertised in production.** `source-search` was registered for the
+  production agent even where its corpus is not deployed, so its only possible
+  answer was "not found". It is now registered only when the corpus exists, and
+  `docs-search` says when framework doc pages are absent from the deployment
+  instead of letting a miss read as "that page does not exist".
+
+- ce559da: Teach visual-edit to open Design in supported inline browser panes and document multi-page, flow, state, and responsive canvas reviews.
+
+## 0.127.3
+
+### Patch Changes
+
+- 750e90e: Add a `materialize --out <dir>` subcommand to `agent-native template` that writes the post-processed standalone template tree (e.g. `--template chat`, with the template's own identity, `_gitignore`→`.gitignore`, resolved deps, standalone `netlify.toml`) to a directory — no existing app required. This is the monorepo half of the vendor-branch starter mirror: the public monorepo materializes `templates/chat` and pushes it to the private starter's `template` branch, which the starter merges into `main` with git. Reuses the existing `materializeTemplate` engine.
+
+## 0.127.2
+
+### Patch Changes
+
+- c6ca76a: Fix the Builder Design Systems API base URL fallback incorrectly including an `agent-native/` prefix. The real route is registered as `/design-systems/v1/...` with no `agent-native/` prefix, so requests using the fallback base URL (when `BUILDER_DESIGN_SYSTEMS_BASE_URL` is unset) were hitting the wrong path.
+
+## 0.127.1
+
+### Patch Changes
+
+- bbd202b: Fix the model picker offering a model the app cannot route, and the chat bridge dropping submitted model overrides.
+  - The picker now defaults only to a configured engine group, and shows nothing when none is configured. `DEFAULT_MODEL` is a builder-gateway id that no group carries unless Builder is connected, so the old `?? DEFAULT_MODEL` / `?? groups[0]` fallbacks produced a selection the server silently replaced with its own default.
+  - A submitted `model`/`engine` pair is now applied regardless of whether the engine list has loaded, travels with cold-start queued sends, keeps the sender's engine, and treats a blank engine as absent. Previously it was honored only when the model already appeared in the (initially empty) engine list, so app-initiated first turns lost it.
+  - `[agent-chat] resolved …` now logs `requestModel` and `turnId`, making a server-side model substitution visible.
+
+## 0.127.0
+
+### Minor Changes
+
+- cbc6936: Make connecting one agent-native app to another a guided flow instead of three
+  blank text fields.
+  - New `GET /_agent-native/agents/probe` reads a peer's agent card and makes one
+    authenticated no-op call, reporting `reachable` and `authorized` as
+    independent fields. A peer that answers but rejects the caller's token is the
+    failure local dev hides — the receiver runs unauthenticated on localhost, so a
+    mismatched secret previously surfaced only after deploy.
+  - Settings → Manage agent → Connected Agents is URL-first: paste a peer URL,
+    press Check, and the name and description come from its card. Unreachable
+    never blocks the save. Rows carry a liveness dot from one batched probe.
+  - The section now shows shared-secret state and a Sync to apps action inline,
+    reusing the existing org hooks. A caller who cannot see the secret is told so
+    rather than being shown "not set".
+  - After an add, the UI states that registration is one-directional and deep
+    links to the peer's own settings with the values prefilled.
+  - The Connected Agents list collapses a remote agent that still has its
+    pre-migration `agents/*.json` row alongside the canonical
+    `remote-agents/*.json` one, instead of listing it twice with the same URL.
+  - `list-connected-agents` keys custom manifests by the normalized agent id, so
+    an agent registered as `images`/`asset` no longer appears once as a discovered
+    agent and again as a custom one.
+  - Export `resolveA2ACallerAuth` from `@agent-native/core/a2a` so app code can
+    authenticate outbound A2A calls without reimplementing org-secret lookup.
+  - The `a2a-protocol` skill documents the real setup path — A2A is auto-mounted,
+    peers are `remote-agents/*.json` resources, and auth is a JWT signed with
+    `A2A_SECRET` or the per-org secret — replacing the `mountA2A` + per-peer
+    `apiKeyEnv` flow the framework no longer wires up.
+
+### Patch Changes
+
+- f8df095: Keep cross-app `ask_app_status` polling attached to the original task route with an encrypted task handle, report the configured app identity in standalone MCP discovery, and reject unknown cross-app targets instead of running them locally.
+- cbc6936: Hide pending workspace apps by default and expose app ownership metadata from each card's overflow menu.
+- cbc6936: Show the provider's brand logo on agent tool rows for catalog-backed MCP tools, instead of a generic code icon.
+- cbc6936: Settings → Connections: the "New" key menu is now a searchable, scrolling combobox instead of a cropped dropdown, so every registered key is reachable.
+- cbc6936: Send `X-Content-Type-Options: nosniff` on CDN-served static assets.
+
+  `/assets/**`, `/favicon.*`, `/manifest.json`, `/icon-*.svg`, and
+  `/library-presets/**` are served straight off the CDN, so the security-headers
+  h3 middleware never runs for them and they shipped without the `nosniff` header
+  that every function-served response already carries.
+
+- cbc6936: Make the chat Stop button actually stop the turn.
+
+  A turn runs as a chain of runs: every `loop_limit` / `auto_continue` boundary
+  and every background handoff starts a successor under a new run id but the same
+  turn id. Stop only aborted the run id the client happened to hold, so the
+  successor claimed itself and the agent kept looping — the turn-abort marker that
+  `isTurnAborted` consults was only ever written on the pre-run path, which is
+  dead as soon as a run id exists.
+
+  `POST /runs/:id/abort` now escalates user-intent reasons (`user`, `abort`,
+  `user_stuck_cancel`, `user_stuck_retry`) to a turn-wide abort. Watchdog reasons
+  (`no_progress`, `auto_stuck_retry`) keep single-run semantics so they cannot
+  kill a server-side continuation chain that is still making progress.
+
+- Updated dependencies [cbc6936]
+  - @agent-native/toolkit@0.10.9
+
+## 0.126.0
+
+### Minor Changes
+
+- b99b899: **Breaking:** rename the `registerShareableResource` resolver `getShareEmailLogoUrl` (added in 0.125.0) to `getLogoUrl`. Update any registration that used the old name.
+
+  Add `getBrandName`, `getSender`, and `getHeroHtml` resolvers to `registerShareableResource`, plus an optional `heroHtml` on `renderEmail` and `fromName` on `sendEmail`. Share-notification emails can now render a template-owned preview block above the CTA (injected verbatim, so a template supplies its own markup — e.g. a video thumbnail with a play badge), override the brand name shown beside the logo, and appear to come from the sharing user ("Alice via Clips") with replies routed to them while keeping the configured domain-verified sending address so SPF/DKIM still pass.
+
+## 0.125.0
+
+### Minor Changes
+
+- c7ed52a: Add an optional `brandLogoUrl` to `renderEmail` and a `getShareEmailLogoUrl` resolver on `registerShareableResource`, so share-notification emails show the sharing org's logo (absolute `https://`) when available and fall back to the embedded Agent Native logo otherwise.
+
+## 0.124.6
+
+### Patch Changes
+
+- ac8794b: Clarify credential resolver organization scope in generated workspace guidance.
+
+## 0.124.5
+
+### Patch Changes
+
+- fc5f2db: Extract picture shape size and slide dimensions when parsing PPTX files, so importers can tell a full-bleed cover photo from a small inset image and preserve each image's real aspect ratio.
+
+## 0.124.4
+
+### Patch Changes
+
+- c849ba0: Recover clicked routes in the desktop app when a stale lazy route chunk is encountered.
+- c849ba0: Label final-response-guard corrective retries as framework directives. They are
+  appended as user-role messages, so an unlabeled one reads like an injected user
+  turn — models were refusing them out loud to the real user ("this message looks
+  like a prompt injection attempt") instead of revising the draft.
+
+## 0.124.3
+
+### Patch Changes
+
+- c385fed: Keep emoji and other multi-code-point grapheme clusters intact while streaming text. The incremental segmentation cache re-segmented from a fixed character offset, so a cluster straddling that offset was cut in half and characters were silently dropped from the smoothed output. The re-segmentation window now starts on a grapheme boundary.
+
+## 0.124.2
+
+### Patch Changes
+
+- 7568c67: Fix system email sending failing on serverless (ENOENT reading the branding
+  favicon). The inline email logo is now bundled as a base64 TS module instead of
+  read from disk at send time, so verification/invite/reset emails work in
+  production where raw assets aren't traced into the deploy bundle.
+
+## 0.124.1
+
+### Patch Changes
+
+- 661ee71: Register the CRM template in the CLI template catalog.
+
+  `crm` is added to `TEMPLATES` as a **hidden** entry (dev port 8107,
+  `defaultMode: "dev"`), so `agent-native new` can scaffold it by name while it
+  stays out of the public catalog until it is explicitly unhidden. The mirrored
+  list in `@agent-native/shared-app-config` is updated to match.
+
+  Two cross-template specs are widened to cover it: the UI-primitives sync check
+  now includes `crm`, and the page-chat handoff check reads CRM's layout from
+  `app/components/layout/CrmLayout.tsx` and expects `requireActiveHandoff: false`,
+  since CRM's full-page chat lives on its own `/ask` route.
+
+## 0.124.0
+
+### Minor Changes
+
+- e9dd025: `agent-native dev --inspect` (and `--inspect-brk`, optionally `=<port>`) now
+  attaches the Node inspector to **only** the Nitro API-server process, on a
+  single known port (default 9229). It selects Nitro's `node-process` dev runner
+  so the server is a real, attachable process, and injects `NODE_OPTIONS` through
+  a Vite preload that runs before Vite's own startup — so Vite, pnpm, and the CLI
+  are never inspected and there is exactly one debugger target. Set
+  `NITRO_DEV_RUNNER` yourself to override the runner.
+
+## 0.123.2
+
+### Patch Changes
+
+- 14818b6: Route Builder authorization callbacks for Netlify previews through the immutable deployment URL while returning popup status to the visible preview.
+- Updated dependencies [14818b6]
+  - @agent-native/toolkit@0.10.8
+
 ## 0.123.1
 
 ### Patch Changes

@@ -236,9 +236,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       '<span className="min-w-0 flex-1 truncate">{space.name}</span>',
     );
-    expect(sidebar).toContain(
-      'className="absolute inset-y-0 start-3 border-s border-border/70"',
-    );
+    expect(sidebar).toContain('className="min-w-0 pb-1 ps-4"');
     expect(sidebar).not.toContain(
       'className="ms-3 border-s border-border/70 pb-1 ps-1"',
     );
@@ -438,6 +436,18 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).not.toContain("<FavoriteDocumentItem");
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
+  });
+
+  it("keeps the Content sidebar quiet while lists load", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).not.toContain('from "@/components/ThemeToggle"');
+    expect(sidebar).not.toContain('from "./NotionButton"');
+    expect(sidebar).not.toContain("border-s border-border/70");
+    expect(sidebar).not.toContain("border-t border-border/60");
+    expect(sidebar).toContain("isLoading");
+    expect(sidebar).toContain("renderTreeSkeleton()");
+    expect(sidebar).toContain("<Skeleton");
   });
 
   it("routes Favorites into its provisioned full database page", () => {

@@ -980,6 +980,7 @@ export interface RefreshContentDatabaseSourceRequest {
   documentId?: string;
   sourceId?: string;
   fullRefresh?: boolean;
+  expectedBuilderContinuationOffset?: number;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {

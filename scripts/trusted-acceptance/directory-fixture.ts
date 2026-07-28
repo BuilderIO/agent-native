@@ -16,7 +16,7 @@ export type DirectoryFixtureConfig = {
   a2aSecret: string;
   fixtureOrigin: string;
   members: readonly DirectoryMember[];
-  withdrawnMemberId?: string;
+  withdrawnMemberId: string;
 };
 
 export type DirectoryRequest = {
@@ -87,7 +87,6 @@ export function validateDirectoryFixtureConfig(
     }
   }
   if (
-    config.withdrawnMemberId &&
     !config.members.some((member) => member.id === config.withdrawnMemberId)
   ) {
     issues.push("withdrawnMemberId must name a declared member");
@@ -133,10 +132,17 @@ async function isTrustedCaller(
     if (typeof payload.nbf === "number" && now < payload.nbf) return false;
     const scope =
       typeof payload.scope === "string" ? payload.scope.split(/\s+/) : [];
+    const subject = typeof payload.sub === "string" ? payload.sub.trim() : "";
+    const subjectDomain = subject.includes("@")
+      ? subject.slice(subject.lastIndexOf("@") + 1).toLowerCase()
+      : undefined;
+    const callerDomain =
+      typeof payload.org_domain === "string"
+        ? payload.org_domain.toLowerCase()
+        : subjectDomain;
     return (
-      typeof payload.sub === "string" &&
-      payload.sub.trim().length > 0 &&
-      payload.org_domain === config.orgDomain &&
+      subject.length > 0 &&
+      callerDomain === config.orgDomain.toLowerCase() &&
       !scope.includes("identity") &&
       !scope.includes("mcp-connect")
     );

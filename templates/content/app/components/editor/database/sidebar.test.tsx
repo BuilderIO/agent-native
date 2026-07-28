@@ -166,7 +166,6 @@ describe("DatabaseSidebarView", () => {
               },
             }}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -203,7 +202,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             sidebarOrder={{ mode: "name", itemIds: [] }}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -243,7 +241,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -255,6 +252,30 @@ describe("DatabaseSidebarView", () => {
     );
 
     expect(markup).toContain('aria-label="Files"');
+  });
+
+  it("renders skeleton rows without loading copy or a spinner", () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <DatabaseSidebarView
+          groups={[]}
+          grouped={false}
+          isLoading
+          hasActiveConstraints={false}
+          openPagesIn="full_page"
+          noMatchesLabel="No pages"
+          clearLabel="Clear"
+          navigationLabel="Pages"
+          untitledLabel="Untitled"
+          onClearResultConstraints={() => {}}
+          onPreview={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain("Loading");
+    expect(markup).not.toContain("animate-spin");
+    expect(markup).toContain("animate-pulse");
   });
 
   it("renders compact router links for an ungrouped saved view", () => {
@@ -275,7 +296,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -334,7 +354,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -433,7 +452,6 @@ describe("DatabaseSidebarView", () => {
               isLoading={false}
               hasActiveConstraints={false}
               openPagesIn="full_page"
-              loadingLabel="Loading list"
               noMatchesLabel="No rows match this view"
               clearLabel="Clear"
               navigationLabel="Database pages"
@@ -501,7 +519,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -560,7 +577,6 @@ describe("DatabaseSidebarView", () => {
             overrides={null}
             isLoading={false}
             labels={{
-              loadingLabel: "Loading",
               noMatchesLabel: "No matches",
               clearLabel: "Clear",
               navigationLabel: "Files",
@@ -593,7 +609,6 @@ describe("DatabaseSidebarView", () => {
           isLoading={false}
           hasActiveConstraints={false}
           openPagesIn="full_page"
-          loadingLabel="Loading workspaces"
           noMatchesLabel="No workspaces"
           clearLabel="Clear"
           navigationLabel="Content navigation"
@@ -648,7 +663,6 @@ describe("DatabaseSidebarView", () => {
           overrides={null}
           isLoading={false}
           labels={{
-            loadingLabel: "Loading workspaces",
             noMatchesLabel: "No workspaces match this view",
             clearLabel: "Show all",
             navigationLabel: "Content navigation",
@@ -685,7 +699,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -737,7 +750,6 @@ describe("DatabaseSidebarView", () => {
             isLoading={false}
             hasActiveConstraints={false}
             openPagesIn="full_page"
-            loadingLabel="Loading list"
             noMatchesLabel="No rows match this view"
             clearLabel="Clear"
             navigationLabel="Database pages"
@@ -805,7 +817,6 @@ describe("DatabaseSidebarView", () => {
               isLoading={false}
               hasActiveConstraints={false}
               openPagesIn="full_page"
-              loadingLabel="Loading list"
               noMatchesLabel="No rows match this view"
               clearLabel="Clear"
               navigationLabel="Database pages"

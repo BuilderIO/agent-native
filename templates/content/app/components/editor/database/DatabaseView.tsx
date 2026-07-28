@@ -159,6 +159,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  applyOptimisticBuilderWriteMode,
+  contentDatabaseQueryFilter,
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
@@ -915,6 +917,7 @@ function DatabaseTable({
   );
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
+  const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
@@ -1120,14 +1123,24 @@ function DatabaseTable({
     ),
   };
   const runSourceRefresh = useCallback(
-    (sourceId: string, onError?: () => void) => {
+    (
+      sourceId: string,
+      onError?: () => void,
+      expectedBuilderContinuationOffset?: number,
+      onSuccess?: () => void,
+    ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
       }
       refreshSource.mutate(
-        { documentId: document.id, sourceId },
+        {
+          documentId: document.id,
+          sourceId,
+          expectedBuilderContinuationOffset,
+        },
         {
           onError,
+          onSuccess,
           onSettled: () => {
             releaseDatabaseSourceOperation(refreshSourceInFlightRef, sourceId);
           },
@@ -1136,6 +1149,25 @@ function DatabaseTable({
       return true;
     },
     [document.id, refreshSource.mutate],
+  );
+  const handleBuilderContinuationError = useCallback(
+    (continuationKey: string) => {
+      const failures =
+        (builderContinuationFailureRef.current.get(continuationKey) ?? 0) + 1;
+      builderContinuationFailureRef.current.set(continuationKey, failures);
+      if (builderSourceContinuationFailureDecision(failures) === "error") {
+        setBuilderContinuationClientErrorKeys((current) =>
+          addUniqueKey(current, continuationKey),
+        );
+      }
+    },
+    [],
+  );
+  const handleBuilderContinuationSuccess = useCallback(
+    (continuationKey: string) => {
+      builderContinuationFailureRef.current.delete(continuationKey);
+    },
+    [],
   );
   const runBuilderHydration = useCallback(
     (
@@ -1202,10 +1234,11 @@ function DatabaseTable({
       continuationKey,
     );
     if (
-      !runSourceRefresh(candidate.id, () =>
-        setBuilderContinuationClientErrorKeys((current) =>
-          addUniqueKey(current, continuationKey),
-        ),
+      !runSourceRefresh(
+        candidate.id,
+        () => handleBuilderContinuationError(continuationKey),
+        candidate.metadata.lastReadNextOffset,
+        () => handleBuilderContinuationSuccess(continuationKey),
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1215,6 +1248,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1278,10 +1313,11 @@ function DatabaseTable({
         return;
       }
       if (
-        runSourceRefresh(candidate.id, () =>
-          setBuilderContinuationClientErrorKeys((current) =>
-            addUniqueKey(current, continuationKey),
-          ),
+        runSourceRefresh(
+          candidate.id,
+          () => handleBuilderContinuationError(continuationKey),
+          candidate.metadata.lastReadNextOffset,
+          () => handleBuilderContinuationSuccess(continuationKey),
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -1300,6 +1336,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -2550,10 +2588,12 @@ function DatabaseTable({
                 continuationKey,
               );
               builderContinuationWatchdogRef.current.set(continuationKey, 0);
-              runSourceRefresh(builderSource.id, () =>
-                setBuilderContinuationClientErrorKeys((current) =>
-                  addUniqueKey(current, continuationKey),
-                ),
+              builderContinuationFailureRef.current.delete(continuationKey);
+              runSourceRefresh(
+                builderSource.id,
+                () => handleBuilderContinuationError(continuationKey),
+                builderSource.metadata.lastReadNextOffset,
+                () => handleBuilderContinuationSuccess(continuationKey),
               );
             }}
           />
@@ -2902,36 +2942,44 @@ function DatabaseTable({
         onReviewBuilderUpdate={(sourceId) => {
           openBuilderReview(sourceId);
         }}
-        onSetBuilderLiveWrites={(settings) =>
-          setSourceWriteMode.mutate(
-            {
-              documentId: document.id,
-              sourceId: settings.sourceId,
-              writeMode: settings.writeMode,
-              allowPublicationTransitions:
-                settings.writeMode === "publish_updates" &&
-                settings.allowPublicationTransitions === true,
+        onSetBuilderLiveWrites={(settings) => {
+          const request = {
+            documentId: document.id,
+            sourceId: settings.sourceId,
+            writeMode: settings.writeMode,
+            allowPublicationTransitions:
+              settings.writeMode === "publish_updates" &&
+              settings.allowPublicationTransitions === true,
+          };
+          const previous = queryClient.getQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+          );
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            contentDatabaseQueryFilter(document.id),
+            (current) => applyOptimisticBuilderWriteMode(current, request),
+          );
+          setSourceWriteMode.mutate(request, {
+            onSuccess: () => {
+              toast.success(dbText("builderWriteModeUpdated"), {
+                description:
+                  settings.writeMode === "publish_updates"
+                    ? "Approved updates can write through to Builder while preserving publication state."
+                    : settings.writeMode === "stage_only"
+                      ? "Approved updates will stage Builder autosave revisions."
+                      : "Builder writes are disabled for this source.",
+              });
             },
-            {
-              onSuccess: () => {
-                toast.success(dbText("builderWriteModeUpdated"), {
-                  description:
-                    settings.writeMode === "publish_updates"
-                      ? "Approved updates can write through to Builder while preserving publication state."
-                      : settings.writeMode === "stage_only"
-                        ? "Approved updates will stage Builder autosave revisions."
-                        : "Builder writes are disabled for this source.",
-                });
-              },
-              onError: (error) => {
-                toast.error(dbText("builderWriteModeWasNotChanged"), {
-                  description:
-                    error instanceof Error ? error.message : dbText("tryAgain"),
-                });
-              },
+            onError: (error) => {
+              for (const [queryKey, data] of previous) {
+                queryClient.setQueryData(queryKey, data);
+              }
+              toast.error(dbText("builderWriteModeWasNotChanged"), {
+                description:
+                  error instanceof Error ? error.message : dbText("tryAgain"),
+              });
             },
-          )
-        }
+          });
+        }}
         sourceActionPending={
           attachSource.isPending ||
           changeSourceRole.isPending ||
@@ -2972,6 +3020,7 @@ function DatabaseTable({
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
+        executionPending={executeBuilderExecution.isPending}
         error={
           builderReviewError ??
           (builderReviewPreviewQuery.error instanceof Error
@@ -10199,6 +10248,10 @@ export function builderSourceContinuationFetchedCountDetail(
 
 export function builderSourceContinuationWatchdogDecision(refires: number) {
   return "refire";
+}
+
+export function builderSourceContinuationFailureDecision(failures: number) {
+  return failures <= 1 ? "retry" : "error";
 }
 
 export function builderSourceContinuationWatchdogDelay(refires: number) {

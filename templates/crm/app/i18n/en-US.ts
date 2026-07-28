@@ -358,6 +358,7 @@ const messages = {
     },
   },
   record: {
+    resizePanel: "Resize panel",
     loadFailedTitle: "This record could not be loaded",
     loadFailedDescription:
       "CRM could not read this record. It may be outside the records you can access.",

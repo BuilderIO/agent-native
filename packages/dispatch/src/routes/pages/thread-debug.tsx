@@ -87,6 +87,7 @@ interface ThreadDebugResponse {
   };
   access: { viewerEmail: string; scope: string; canInspectAll: boolean };
   thread: ThreadSearchResult;
+  lookup?: { requestedId: string; threadId: string; runId: string | null };
   messages: ThreadMessage[];
   debug: any;
   debugRuns: any[];
@@ -424,7 +425,7 @@ export default function ThreadDebugRoute() {
   const [sourceId, setSourceId] = useState(initialSourceId);
   const [query, setQuery] = useState(initialQuery);
   const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail);
-  const [threadId, setThreadId] = useState("");
+  const [lookupId, setLookupId] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState({
     sourceId: initialSourceId,
     query: initialQuery,
@@ -432,7 +433,8 @@ export default function ThreadDebugRoute() {
   });
   const [selected, setSelected] = useState<{
     sourceId: string;
-    threadId: string;
+    lookupId: string;
+    lookupKind: "thread" | "run";
     ownerEmail?: string;
   } | null>(null);
 
@@ -475,7 +477,9 @@ export default function ThreadDebugRoute() {
   const detailParams = useMemo(
     () => ({
       sourceId: selected?.sourceId ?? "current",
-      threadId: selected?.threadId ?? "",
+      ...(selected?.lookupKind === "run"
+        ? { runId: selected.lookupId }
+        : { threadId: selected?.lookupId ?? "" }),
       ownerEmail: selected?.ownerEmail,
       maxRuns: 20,
       maxEvents: 800,
@@ -492,7 +496,7 @@ export default function ThreadDebugRoute() {
     "get-agent-thread-debug",
     detailParams,
     {
-      enabled: Boolean(selected?.threadId),
+      enabled: Boolean(selected?.lookupId),
     },
   );
 
@@ -512,10 +516,21 @@ export default function ThreadDebugRoute() {
         sourceId,
         query,
         ownerEmail: ownerEmail.trim() || undefined,
-        threadId: selected?.threadId ?? (threadId.trim() || undefined),
+        threadId:
+          selected?.lookupKind === "thread"
+            ? selected.lookupId
+            : !selected && lookupId.trim() && !lookupId.startsWith("run-")
+              ? lookupId.trim()
+              : undefined,
+        runId:
+          selected?.lookupKind === "run"
+            ? selected.lookupId
+            : !selected && lookupId.trim() && lookupId.startsWith("run-")
+              ? lookupId.trim()
+              : undefined,
       }),
     }).catch(() => {});
-  }, [ownerEmail, query, selected?.threadId, sourceId, threadId]);
+  }, [ownerEmail, query, selected, sourceId, lookupId]);
 
   return (
     <DispatchShell
@@ -573,20 +588,21 @@ export default function ThreadDebugRoute() {
 
           <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
             <Input
-              value={threadId}
-              onChange={(event) => setThreadId(event.target.value)}
-              placeholder="Paste thread ID"
+              value={lookupId}
+              onChange={(event) => setLookupId(event.target.value)}
+              placeholder="Paste thread or request/run ID"
               className="font-mono"
             />
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                const trimmed = threadId.trim();
+                const trimmed = lookupId.trim();
                 if (!trimmed) return;
                 setSelected({
                   sourceId,
-                  threadId: trimmed,
+                  lookupId: trimmed,
+                  lookupKind: trimmed.startsWith("run-") ? "run" : "thread",
                   ownerEmail: ownerEmail.trim() || undefined,
                 });
               }}
@@ -660,11 +676,15 @@ export default function ThreadDebugRoute() {
                 <ResultCard
                   key={result.id}
                   result={result}
-                  selected={selected?.threadId === result.id}
+                  selected={
+                    selected?.lookupKind === "thread" &&
+                    selected.lookupId === result.id
+                  }
                   onSelect={() =>
                     setSelected({
                       sourceId: submittedSearch.sourceId,
-                      threadId: result.id,
+                      lookupId: result.id,
+                      lookupKind: "thread",
                       ownerEmail: submittedSearch.ownerEmail || undefined,
                     })
                   }
@@ -691,7 +711,7 @@ export default function ThreadDebugRoute() {
             ) : (
               <div className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-dashed bg-card px-4 text-center text-sm text-muted-foreground">
                 <IconFileSearch className="mb-2 h-5 w-5" />
-                Select or inspect a thread.
+                Select or inspect a thread or request/run ID.
               </div>
             )}
           </section>

@@ -129,6 +129,8 @@ import {
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
@@ -1567,6 +1569,73 @@ export function createCoreRoutesPlugin(
       // middleware any plugin's route can possibly land behind, regardless of
       // plugin init ordering.
 
+      // Peer reachability + auth probe for the settings UI. Deliberately
+      // separate from `${P}/agents` (discovery) — this route makes live
+      // network calls to the peer, so it is session-gated and answers one
+      // peer (`?url=`) or every registered peer (no query) via `discoverAgents`.
+      //
+      // MUST be mounted BEFORE `${P}/agents` below: h3's `.use()` matches by
+      // path prefix, and that handler always returns a value (never calls
+      // `next()`), so it would swallow `/agents/probe` requests before they
+      // ever reached this route if registered second (same hazard as the A2A
+      // `_process-task` route vs. its `/a2a` catch-all — see a2a/server.ts).
+      getH3App(nitroApp).use(
+        `${P}/agents/probe`,
+        defineEventHandler(async (event) => {
+          if (getMethod(event) !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const session = await getSession(event).catch(() => null);
+          if (!session?.email) {
+            setResponseStatus(event, 401);
+            return { error: "Authentication required" };
+          }
+
+          return runWithRequestContext(
+            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            async () => {
+              const { probePeerAgent, probeAllPeerAgents } =
+                await import("./agent-peer-probe.js");
+              const query = getRequestURL(event).searchParams;
+              const urlParam = query.get("url");
+
+              if (urlParam === null) {
+                const selfAppId = query.get("selfAppId") ?? undefined;
+                const { discoverAgents } = await import("./agent-discovery.js");
+                const agents = await discoverAgents(selfAppId);
+                const results = await probeAllPeerAgents(agents);
+                return { results };
+              }
+
+              if (!urlParam.trim()) {
+                setResponseStatus(event, 400);
+                return { error: "url is required" };
+              }
+
+              const result = await probePeerAgent({
+                id: "probe",
+                name: urlParam,
+                description: "",
+                url: urlParam,
+                color: "",
+              });
+
+              // Reachability and auth are independent, but a malformed/SSRF-blocked
+              // URL is a caller input error, not a peer that failed to answer — the
+              // one case where the probe's "unreachable" result is reclassified into
+              // a 400 instead of a 200 with `reachable: false`.
+              if (result.error?.startsWith("SSRF blocked:")) {
+                setResponseStatus(event, 400);
+                return { url: urlParam, error: result.error };
+              }
+
+              return result;
+            },
+          );
+        }),
+      );
+
       // Agent discovery primitive — shared by headless CLI/A2A surfaces and
       // UI shells that need to show connected peer apps without depending on
       // the chat route namespace.
@@ -2225,7 +2294,8 @@ export function createCoreRoutesPlugin(
             try {
               relay = signBuilderPreviewRelayState({
                 ownerEmail,
-                targetOrigin: previewOrigin,
+                targetOrigin:
+                  resolveBuilderPreviewRelayTargetOrigin(previewOrigin),
                 basePath: getAppBasePath(),
               });
             } catch (err) {
@@ -2598,6 +2668,13 @@ export function createCoreRoutesPlugin(
               );
             }
 
+            const relayOpenerOrigin =
+              requestUrl.searchParams.get(BUILDER_OPENER_PARAM);
+            const relayParentOrigin = resolveBuilderPreviewRelayParentOrigin({
+              openerOrigin: relayOpenerOrigin,
+              targetOrigin: relayPayload.targetOrigin,
+            });
+
             const privateKey = requestUrl.searchParams.get("p-key");
             const publicKey = requestUrl.searchParams.get("api-key");
             if (!privateKey || !publicKey) {
@@ -2609,7 +2686,7 @@ export function createCoreRoutesPlugin(
               );
               return createBuilderBrowserCallbackErrorPage(
                 "Builder didn't return credentials. Restart the connect flow from settings.",
-                { parentOrigin: relayPayload.targetOrigin },
+                { parentOrigin: relayParentOrigin },
               );
             }
 
@@ -2665,7 +2742,7 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(message, {
-                parentOrigin: relayPayload.targetOrigin,
+                parentOrigin: relayParentOrigin,
               });
             }
 
@@ -2675,8 +2752,8 @@ export function createCoreRoutesPlugin(
               "text/html; charset=utf-8",
             );
             return createBuilderBrowserCallbackPage(
-              `${relayPayload.targetOrigin}${relayPayload.basePath || "/"}`,
-              { parentOrigin: relayPayload.targetOrigin },
+              `${relayParentOrigin}${relayPayload.basePath || "/"}`,
+              { parentOrigin: relayParentOrigin },
             );
           }
 
@@ -4174,8 +4251,13 @@ export function createCoreRoutesPlugin(
       }
       resolveInit();
     } catch (error) {
+      // Do NOT rethrow. Nitro invokes plugins as `try { plugin(app) } catch`,
+      // which cannot catch an async rejection, so rethrowing here surfaces as
+      // an unhandledRejection: Node exits, the serverless container dies, and
+      // every in-flight request on it returns a bare 502. `rejectInit` already
+      // routes this failure to the readiness gate, which answers the affected
+      // paths with a retryable 503 instead.
       rejectInit(error);
-      throw error;
     }
   };
 }

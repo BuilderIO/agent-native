@@ -423,6 +423,57 @@ export function valueSpecFor(attribute: CrmValueShape): CrmValueSpec {
   return ATTRIBUTE_VALUE_SPECS[attribute.attributeType];
 }
 
+/**
+ * The `<input>` type an inline text editor must use, for every surface.
+ *
+ * A numeric attribute deliberately gets `text`, not `number`. `<input
+ * type="number">` reports `value === ""` for anything the control cannot parse
+ * — a half-typed "91e", "1,2", a lone "-" — while `validity.badInput` is true.
+ * That empty string reaches `parse` as "the user cleared the field" and is
+ * stored as null, so a typed amount silently becomes NULL. Keeping the raw text
+ * lets `parse` fail loudly with `not-a-number` instead. `inputMode` keeps the
+ * numeric keypad on touch.
+ */
+export function editorInputType(attribute: CrmValueShape): {
+  type: CrmValueSpec["inputType"];
+  inputMode?: "decimal";
+} {
+  // A multi value is a comma-separated list, which no typed input accepts.
+  if (attribute.multi) return { type: "text" };
+  const spec = valueSpecFor(attribute);
+  if (spec.inputType === "number") {
+    return { type: "text", inputMode: "decimal" };
+  }
+  return { type: spec.inputType };
+}
+
+const REFERENCE_OBJECT_KINDS: Record<string, string> = {
+  accounts: "account",
+  people: "person",
+  opportunities: "opportunity",
+};
+
+/**
+ * The record kind a reference picker may narrow its search to, read from
+ * `config.reference.allowedObjectTypes`.
+ *
+ * `null` means "do not narrow": either the attribute declares no scope, or it
+ * declares several object types, which `list-crm-records` takes one `kind` at a
+ * time and cannot express. Picking one of several would hide exactly the record
+ * the user is looking for, so an unexpressible scope stays open and the picker
+ * says which types the attribute accepts.
+ */
+export function referenceSearchKind(attribute: CrmValueShape): string | null {
+  const reference = attribute.config?.reference;
+  if (!reference || typeof reference !== "object") return null;
+  const allowed = (reference as { allowedObjectTypes?: unknown })
+    .allowedObjectTypes;
+  if (!Array.isArray(allowed) || allowed.length !== 1) return null;
+  const objectType = allowed[0];
+  if (typeof objectType !== "string") return null;
+  return REFERENCE_OBJECT_KINDS[objectType] ?? null;
+}
+
 /** Every type has a spec and no system-only type is editable anywhere. */
 export function assertValueRegistryComplete(): void {
   for (const type of CRM_ATTRIBUTE_TYPES) {
@@ -564,6 +615,39 @@ export function editorDraftFor(
 ): CrmEditorDraft {
   if (!state) return { draft: seed, seed };
   return state.seed === seed ? state : { draft: seed, seed };
+}
+
+// ---------------------------------------------------------------------------
+// Reference values
+// ---------------------------------------------------------------------------
+
+/** The individual records a reference value names, in stored order. */
+export function referenceMembers(
+  value: CrmAttributeValue | undefined,
+): string[] {
+  if (value === undefined || value === null) return [];
+  return (Array.isArray(value) ? value : [value])
+    .filter((entry): entry is string => typeof entry === "string")
+    .filter((entry) => entry !== "");
+}
+
+/**
+ * The value a reference picker produces for `pick`. A single reference is
+ * replaced outright; a multi reference toggles membership and collapses to
+ * `null` — not `[]` — when the last member goes, because an empty array and no
+ * value must not read as two different states downstream.
+ */
+export function toggleReferenceValue(
+  value: CrmAttributeValue | undefined,
+  pick: string,
+  multi: boolean,
+): CrmEditableValue {
+  if (!multi) return pick;
+  const members = referenceMembers(value);
+  const next = members.includes(pick)
+    ? members.filter((entry) => entry !== pick)
+    : [...members, pick];
+  return next.length ? next : null;
 }
 
 /**

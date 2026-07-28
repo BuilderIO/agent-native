@@ -66,6 +66,7 @@ import { zoomBridgeScript } from "../../../.generated/bridge/zoom.generated";
 import { isTrustedCanvasBridgeMessage } from "./bridge-security";
 import { captureAnnotatedScreenshot } from "./design-canvas/annotation-snapshot";
 import { submitDesignAnnotations } from "./design-canvas/annotation-submit";
+import { appendContentSizeReporter } from "./design-canvas/content-size-report";
 import {
   getScreenContentPointFromClient,
   getZoomToCursorScrollDelta,
@@ -314,6 +315,15 @@ ${editorChromeBridgeScript}
  * Baked into the injected bridge as `__LIVE_REFLOW_ENABLED__`.
  */
 const LIVE_REFLOW_ENABLED = true;
+
+/**
+ * Rollout gate: when on, a pointerdown inside the current selection's box keeps
+ * the selected element as the drag target even when an overlapping
+ * non-descendant sibling wins the hit test. Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`; flip to `false` for descendant-only
+ * behavior.
+ */
+const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
 
 interface DesignCanvasProps {
   content: string;
@@ -948,6 +958,10 @@ function buildEditorChromeBridgeScript(args: {
       .replace(
         "__LIVE_REFLOW_ENABLED__",
         LIVE_REFLOW_ENABLED ? "true" : "false",
+      )
+      .replace(
+        "__SELECTED_LAYER_DRAG_PRIORITY__",
+        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
   );
 }
@@ -2130,6 +2144,10 @@ export function DesignCanvas({
           .replace(
             "__LIVE_REFLOW_ENABLED__",
             LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
@@ -2180,6 +2198,13 @@ export function DesignCanvas({
         ),
       ].join("");
       frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+    }
+    // Overview frames report their own content height so the canvas can
+    // content-fit them (Framer-style). Embedded (overview) frames only — a
+    // focused single-screen view fills the viewport and must keep native
+    // 100vh/min-h-screen, which the reporter's guard would otherwise pin.
+    if (isEmbeddedFrame) {
+      frameDocument = appendContentSizeReporter(frameDocument);
     }
     return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
