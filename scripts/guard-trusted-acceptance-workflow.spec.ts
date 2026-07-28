@@ -204,6 +204,26 @@ describe("trusted acceptance workflow boundary", () => {
     assert.equal(result.ok, true, result.issues.join("\n"));
   });
 
+  it("accepts equivalent workflow step indentation", () => {
+    const stepsStart = workflow.indexOf(
+      "\n    steps:\n",
+      workflow.indexOf("\n  build:\n"),
+    );
+    const deployStart = workflow.indexOf("\n  deploy:\n", stepsStart);
+    const reindentedSteps = workflow
+      .slice(stepsStart, deployStart)
+      .split("\n")
+      .map((line) => {
+        const indent = line.search(/\S/);
+        if (indent < 6) return line;
+        return `${" ".repeat(indent - 4)}${line}`;
+      })
+      .join("\n");
+    const equivalent = `${workflow.slice(0, stepsStart)}${reindentedSteps}${workflow.slice(deployStart)}`;
+    const result = validateTrustedAcceptanceWorkflow(equivalent);
+    assert.equal(result.ok, true, result.issues.join("\n"));
+  });
+
   it("rejects candidate-controlled workflow triggers", () => {
     const unsafe = workflow.replace(
       "on:\n  workflow_dispatch:",

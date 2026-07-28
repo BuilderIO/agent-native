@@ -92,11 +92,16 @@ function parseWorkflowSteps(job: string): GuardedWorkflowStep[] {
   if (stepsIndex === -1) return [];
 
   const stepsIndent = lines[stepsIndex]!.search(/\S/);
-  const itemIndent = stepsIndent + 2;
-  const propertyIndent = itemIndent + 2;
-  const inputIndent = propertyIndent + 2;
+  const firstItem = lines.slice(stepsIndex + 1).find((line) => {
+    const indent = line.search(/\S/);
+    return indent > stepsIndent && line.trim().startsWith("-");
+  });
+  if (!firstItem) return [];
+  const itemIndent = firstItem.search(/\S/);
   const steps: GuardedWorkflowStep[] = [];
   let current: GuardedWorkflowStep | undefined;
+  let propertyIndent: number | undefined;
+  let inputIndent: number | undefined;
   let readingInputs = false;
 
   for (const line of lines.slice(stepsIndex + 1)) {
@@ -108,6 +113,8 @@ function parseWorkflowSteps(job: string): GuardedWorkflowStep[] {
     if (indent === itemIndent && trimmed.startsWith("-")) {
       current = { with: {} };
       steps.push(current);
+      propertyIndent = undefined;
+      inputIndent = undefined;
       readingInputs = false;
       const inlineUses = trimmed.match(/^-\s+uses:\s*(.+)$/);
       if (inlineUses) current.uses = parseYamlScalar(inlineUses[1]!);
@@ -115,11 +122,22 @@ function parseWorkflowSteps(job: string): GuardedWorkflowStep[] {
     }
     if (!current) continue;
 
+    if (propertyIndent === undefined && indent > itemIndent) {
+      propertyIndent = indent;
+    }
     if (indent === propertyIndent) {
       readingInputs = trimmed === "with:";
+      inputIndent = undefined;
       const uses = trimmed.match(/^uses:\s*(.+)$/);
       if (uses) current.uses = parseYamlScalar(uses[1]!);
       continue;
+    }
+    if (
+      readingInputs &&
+      propertyIndent !== undefined &&
+      indent > propertyIndent
+    ) {
+      inputIndent ??= indent;
     }
     if (readingInputs && indent === inputIndent) {
       const input = trimmed.match(/^([^:#]+):\s*(.+)$/);
