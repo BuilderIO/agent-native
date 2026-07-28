@@ -197,7 +197,7 @@ function trimTrailingSlash(value: string): string {
 export function getBuilderDesignSystemsBaseUrl(): string {
   return (
     process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL ||
-    `${trimTrailingSlash(getBuilderProxyOrigin())}/agent-native/design-systems/v1`
+    `${trimTrailingSlash(getBuilderProxyOrigin())}/design-systems/v1`
   );
 }
 
