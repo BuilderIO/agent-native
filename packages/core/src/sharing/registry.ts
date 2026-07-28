@@ -85,6 +85,34 @@ export interface ShareableResourceRegistration {
     resource: any,
     ctx: { href: string; alt?: string },
   ) => string | undefined | Promise<string | undefined>;
+  /** Optional app-specific copy and post-CTA content for share notifications. */
+  getNotificationContent?: (
+    resource: any,
+    ctx: {
+      sender: UserProfile;
+      recipientEmail: string;
+      role: "viewer" | "editor" | "admin";
+      href: string;
+    },
+  ) =>
+    | {
+        subject?: string;
+        heading: string;
+        paragraphs?: string[];
+        ctaLabel?: string;
+        afterCtaHtml?: string;
+        afterCtaText?: string;
+        footer?: string;
+      }
+    | Promise<{
+        subject?: string;
+        heading: string;
+        paragraphs?: string[];
+        ctaLabel?: string;
+        afterCtaHtml?: string;
+        afterCtaText?: string;
+        footer?: string;
+      }>;
   /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach

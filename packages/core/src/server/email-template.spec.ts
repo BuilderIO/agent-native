@@ -62,6 +62,23 @@ describe("renderEmail", () => {
     expect(html).not.toContain("custom-hero");
   });
 
+  it("renders trusted post-CTA content in HTML and plain text", () => {
+    const marker = '<div id="share-link">Copy this link</div>';
+    const { html, text } = renderEmail({
+      heading: "A clip was shared",
+      paragraphs: [],
+      cta: { label: "Open Recording", url: "https://clips.example.com/r/abc" },
+      afterCtaHtml: marker,
+      afterCtaText: "Copy this link: https://clips.example.com/r/abc",
+    });
+
+    expect(html).toContain(marker);
+    expect(html.indexOf(marker)).toBeGreaterThan(
+      html.indexOf("Open Recording"),
+    );
+    expect(text).toContain("Copy this link: https://clips.example.com/r/abc");
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",

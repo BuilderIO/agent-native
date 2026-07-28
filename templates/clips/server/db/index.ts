@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 
 import {
   absoluteUrl,
+  recordingShareEmailContent,
   recordingShareHeroHtml,
 } from "../lib/share-email-hero.js";
 import * as schema from "./schema.js";
@@ -58,6 +59,8 @@ registerShareableResource({
     replyTo: ctx.sender.email,
   }),
   getHeroHtml: (recording, ctx) => recordingShareHeroHtml(recording, ctx),
+  getNotificationContent: (recording, ctx) =>
+    recordingShareEmailContent(recording, ctx),
   getDb,
   ownerAccessIgnoresOrg: true,
 });

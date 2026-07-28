@@ -320,12 +320,13 @@ export default defineAction({
             );
           }
         }
+        const senderProfile = await getUserProfile(actor);
         let fromName: string | undefined;
         let replyTo: string | undefined;
         if (reg.getSender) {
           try {
             const sender = await reg.getSender(resource, {
-              sender: await getUserProfile(actor),
+              sender: senderProfile,
             });
             fromName = sender?.fromName?.trim() || undefined;
             replyTo = sender?.replyTo?.trim() || undefined;
@@ -351,19 +352,46 @@ export default defineAction({
             );
           }
         }
-        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        let notificationContent:
+          | Awaited<ReturnType<NonNullable<typeof reg.getNotificationContent>>>
+          | undefined;
+        if (reg.getNotificationContent) {
+          try {
+            notificationContent = await reg.getNotificationContent(resource, {
+              sender: senderProfile,
+              recipientEmail: principalId,
+              role: args.role,
+              href: notificationUrl,
+            });
+          } catch (err) {
+            console.error(
+              "[share-resource] notification content resolver failed; using default content:",
+              err,
+            );
+          }
+        }
+        const subject =
+          notificationContent?.subject ??
+          `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
           brandName,
           brandLogoUrl,
           preheader: subject,
-          heading: "You've been given access",
-          paragraphs: [
+          heading: notificationContent?.heading ?? "You've been given access",
+          paragraphs: notificationContent?.paragraphs ?? [
             `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
             `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
           ],
           heroHtml,
-          cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
-          footer: `You received this because ${actor} granted you ${args.role} access.`,
+          cta: {
+            label: notificationContent?.ctaLabel ?? `Open ${reg.displayName}`,
+            url: notificationUrl,
+          },
+          afterCtaHtml: notificationContent?.afterCtaHtml,
+          afterCtaText: notificationContent?.afterCtaText,
+          footer:
+            notificationContent?.footer ??
+            `You received this because ${actor} granted you ${args.role} access.`,
         });
         await sendEmail({
           to: principalId,

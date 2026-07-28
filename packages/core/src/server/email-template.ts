@@ -42,6 +42,10 @@ export interface RenderEmailArgs {
    * by app/template code (never raw user input), and escape any dynamic values.
    */
   heroHtml?: string;
+  /** Optional trusted HTML injected directly below the CTA. */
+  afterCtaHtml?: string;
+  /** Plain-text equivalent of afterCtaHtml for text-only email clients. */
+  afterCtaText?: string;
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /** Optional app name shown beside the framework logo. */
@@ -119,6 +123,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   // thumbnail with a play badge). Callers are responsible for escaping any
   // dynamic values they interpolate.
   const heroHtml = args.heroHtml ?? "";
+  const afterCtaHtml = args.afterCtaHtml ?? "";
 
   const paragraphsHtml = args.paragraphs
     .map(
@@ -188,6 +193,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                 ${paragraphsHtml}
                 ${heroHtml}
                 ${ctaHtml}
+                ${afterCtaHtml}
                 ${footerHtml}
               </td>
             </tr>
@@ -207,6 +213,10 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   }
   if (args.cta) {
     textLines.push(`${args.cta.label}: ${args.cta.url}`);
+    textLines.push("");
+  }
+  if (args.afterCtaText) {
+    textLines.push(args.afterCtaText);
     textLines.push("");
   }
   if (args.footer) {

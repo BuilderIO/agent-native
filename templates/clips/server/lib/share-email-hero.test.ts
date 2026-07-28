@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { recordingShareHeroHtml } from "./share-email-hero";
+import {
+  recordingShareEmailContent,
+  recordingShareHeroHtml,
+} from "./share-email-hero";
 
 const CTX = { href: "https://clips.example.com/r/rec-1" };
 
@@ -59,5 +62,35 @@ describe("recordingShareHeroHtml", () => {
         CTX,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("recordingShareEmailContent", () => {
+  it("matches the Clips share layout without an AI button", () => {
+    const content = recordingShareEmailContent(
+      { title: "Recording start countdown sequence" },
+      { sender: { name: "Milos" }, href: CTX.href },
+    );
+
+    expect(content.heading).toBe(
+      'Milos shared "Recording start countdown sequence" with you',
+    );
+    expect(content.ctaLabel).toBe("Open Recording");
+    expect(content.afterCtaHtml).not.toContain("Copy and paste this link");
+    expect(content.afterCtaHtml).not.toContain(CTX.href);
+    expect(content.afterCtaHtml).not.toContain("Summarize with AI");
+  });
+
+  it("escapes sender names in trusted email markup", () => {
+    const content = recordingShareEmailContent(
+      { title: "A clip" },
+      {
+        sender: { name: '<img src=x onerror="alert(1)">' },
+        href: CTX.href,
+      },
+    );
+
+    expect(content.afterCtaHtml).not.toContain("<img");
+    expect(content.afterCtaHtml).toContain("&lt;img");
   });
 });

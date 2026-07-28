@@ -57,6 +57,31 @@ export type ShareHeroRecording = {
   animatedThumbnailUrl?: string | null;
 };
 
+type ShareEmailRecording = ShareHeroRecording & {
+  title?: string | null;
+};
+
+export function recordingShareEmailContent(
+  recording: ShareEmailRecording,
+  ctx: { sender: { name: string }; href: string },
+) {
+  const senderName = ctx.sender.name.trim();
+  const title = recording.title?.trim() || "Untitled recording";
+  const heading = `${senderName} shared "${title}" with you`;
+
+  return {
+    subject: heading,
+    heading,
+    paragraphs: [],
+    ctaLabel: "Open Recording",
+    afterCtaHtml: `
+      <p style="margin:28px 0 18px 0; font-size:16px; line-height:1.6; color:#d4d4d8;">Clips is a 100% free, open-source, Agent-Native app for sharing screen recordings with friends and colleagues. No download required.</p>
+      <p style="margin:0; font-size:16px; line-height:1.6; color:#d4d4d8;">Just reply to this email if you want to get back to ${escapeAttr(senderName)} directly.</p>`,
+    afterCtaText: `Clips is a 100% free, open-source, Agent-Native app for sharing screen recordings with friends and colleagues. No download required.\n\nJust reply to this email if you want to get back to ${senderName} directly.`,
+    footer: "",
+  };
+}
+
 /**
  * Build the share-email preview for a recording: a 16:9 thumbnail with a
  * centered play badge, linking to the clip. Uses the background-image + VML
