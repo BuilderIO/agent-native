@@ -18,6 +18,9 @@ const koKR = {
     searchPlaceholder: "문서 검색...",
     askAssistant: "AI 어시스턴트에게 묻기",
     toggleNavigation: "내비게이션 메뉴 전환",
+    copyLogoSvg: "로고 SVG 복사",
+    copyWordmark: "워드마크 복사",
+    brandAssets: "브랜드 자료",
   },
   footer: {
     download: "다운로드",

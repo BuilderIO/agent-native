@@ -18,6 +18,9 @@ const zhCN = {
     searchPlaceholder: "搜索文档...",
     askAssistant: "询问 AI 助手",
     toggleNavigation: "切换导航菜单",
+    copyLogoSvg: "复制徽标 SVG",
+    copyWordmark: "复制文字标志",
+    brandAssets: "品牌资源",
   },
   footer: {
     download: "下载",

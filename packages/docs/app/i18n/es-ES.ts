@@ -18,6 +18,9 @@ const esES = {
     searchPlaceholder: "Buscar docs...",
     askAssistant: "Preguntar al asistente de IA",
     toggleNavigation: "Abrir o cerrar navegación",
+    copyLogoSvg: "Copiar SVG del logotipo",
+    copyWordmark: "Copiar logotipo textual",
+    brandAssets: "Recursos de marca",
   },
   footer: {
     download: "Descargar",
