@@ -1536,12 +1536,14 @@ describe("settleInterruptedAssistantToolCallsInRepo", () => {
     const tool = settled.repo.messages[0].message.content[0] as {
       result?: unknown;
       isError?: boolean;
+      outcome?: string;
       activity?: boolean;
     };
 
     expect(settled.changed).toBe(true);
     expect(tool.result).toBe("Stopped before this action started.");
-    expect(tool.isError).toBe(true);
+    expect(tool.outcome).toBe("unknown");
+    expect(tool.isError).toBeUndefined();
     expect(tool.activity).toBe(true);
     expect(settled.repo.messages[0].message.status).toEqual({
       type: "incomplete",

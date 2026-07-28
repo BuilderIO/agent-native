@@ -768,7 +768,7 @@ describe("SSE replay render pacing", () => {
       expect.objectContaining({
         toolCallId: "analytics-a",
         result: "Stopped before this action started.",
-        isError: true,
+        outcome: "unknown",
       }),
       expect.objectContaining({
         toolCallId: "analytics-b",
@@ -2023,7 +2023,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
-            isError: true,
+            outcome: "unknown",
             result: "Stopped before this action started.",
           }),
           {
