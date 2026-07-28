@@ -12,11 +12,12 @@ on:
       - "packages/core/src/cli/create.ts"
       - "packages/core/src/cli/template-sync.ts"
       - ".github/workflows/push-starter-template.yml"
-  # Version bumps land the new pinned @agent-native/* only once published, so
-  # re-push after a successful publish.
-  workflow_run:
-    workflows: ["Publish packages"]
-    types: [completed]
+  # Fired by "Publish packages" only on an actual npm publish (published == true)
+  # of a package the template pins — not on every successful release run (a run
+  # that merely opens the Version Packages PR publishes nothing). Carries the
+  # published commit sha in client_payload.
+  repository_dispatch:
+    types: [agent-native-packages-published]
   workflow_dispatch:
 
 permissions:
@@ -29,20 +30,16 @@ concurrency:
 jobs:
   push:
     name: Materialize and push template branch
-    # For the workflow_run trigger, only proceed when the publish succeeded.
-    if: >-
-      ${{ github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          # On workflow_run, GITHUB_SHA is the default branch HEAD, not the
-          # commit that was just published. Pin to the triggering run's commit
-          # so we materialize the exact tree whose packages are now on npm.
+          # On a publish dispatch, materialize the exact commit that was just
+          # published (carried in client_payload) rather than whatever main's
+          # HEAD happens to be — so the pinned version matches what's on npm.
           ref: >-
-            ${{ github.event_name == 'workflow_run'
-            && github.event.workflow_run.head_sha || github.sha }}
+            ${{ github.event_name == 'repository_dispatch'
+            && github.event.client_payload.sha || github.sha }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
