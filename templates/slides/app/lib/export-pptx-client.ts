@@ -313,11 +313,11 @@ function widenNoWrapTextElements(root: HTMLElement) {
   }
 }
 
-export async function exportDeckAsPptx(
+export async function buildDeckPptxBlob(
   deckTitle: string,
   slides: PptxExportSlide[],
   aspectRatio?: AspectRatio,
-): Promise<void> {
+): Promise<{ blob: Blob; filename: string }> {
   const { exportToPptx } = await importExportModule(
     () => import("dom-to-pptx"),
   );
@@ -359,10 +359,23 @@ export async function exportDeckAsPptx(
     );
 
     const blob = await addSpeakerNotesToPptxBlob(initialBlob, slides);
-    triggerBlobDownload(blob, safePptxName(deckTitle));
+    return { blob, filename: safePptxName(deckTitle) };
   } finally {
     for (const clone of exportClones) {
       clone.cleanup();
     }
   }
+}
+
+export async function exportDeckAsPptx(
+  deckTitle: string,
+  slides: PptxExportSlide[],
+  aspectRatio?: AspectRatio,
+): Promise<void> {
+  const { blob, filename } = await buildDeckPptxBlob(
+    deckTitle,
+    slides,
+    aspectRatio,
+  );
+  triggerBlobDownload(blob, filename);
 }

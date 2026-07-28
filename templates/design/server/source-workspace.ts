@@ -361,6 +361,7 @@ export async function writeInlineSourceFile(args: {
       previousContent: current.content,
       nextContent: args.content,
       fileType: currentFile.fileType ?? args.file.fileType ?? "html",
+      filename: currentFile.filename ?? args.file.filename,
     });
 
     if (await hasCollabState(args.file.id)) {

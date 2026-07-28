@@ -18,6 +18,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { GoogleSlidesExportResult } from "@/lib/export-google-slides-client";
+
+/** Google Slides' File → Import dialog, primed to ask for a file. */
+const GOOGLE_SLIDES_IMPORT_URL =
+  "https://docs.google.com/presentation/u/0/?usp=import";
 
 interface ExportMenuProps {
   deckId: string;
@@ -25,6 +30,7 @@ interface ExportMenuProps {
   onDuplicate: () => void;
   onExportPdf: () => void;
   onExportPptx: () => Promise<void> | void;
+  onExportGoogleSlides?: () => Promise<GoogleSlidesExportResult>;
   onShareLink?: () => void;
   onShareTeam?: () => void;
 }
@@ -35,6 +41,7 @@ export function ExportMenu({
   onDuplicate,
   onExportPdf,
   onExportPptx,
+  onExportGoogleSlides,
   onShareLink,
   onShareTeam,
 }: ExportMenuProps) {
@@ -84,12 +91,26 @@ export function ExportMenu({
   };
 
   const handleExportGoogleSlides = async () => {
+    if (!onExportGoogleSlides) return;
+    // Opened up-front: browsers only honour window.open() inside the click
+    // gesture, and building the PPTX is async.
+    const target = window.open("", "_blank");
     try {
-      await onExportPptx();
+      const result = await onExportGoogleSlides();
+      if (result.url !== null) {
+        if (target) target.location.href = result.url;
+        toast.success(t("editorExport.googleSlidesCreated"), {
+          description: t("editorExport.googleSlidesCreatedHint"),
+        });
+        return;
+      }
+      console.warn("Google Slides upload unavailable:", result.reason);
+      if (target) target.location.href = GOOGLE_SLIDES_IMPORT_URL;
       toast.success(t("editorExport.googleSlidesDownloaded"), {
         description: t("editorExport.googleSlidesImportHint"),
       });
     } catch (err) {
+      target?.close();
       console.error("Export failed:", err);
       toast.error(t("editorExport.exportFailed"), {
         description:
@@ -166,13 +187,15 @@ export function ExportMenu({
           <IconDownload className="w-4 h-4 mr-2" />
           {t("editorExport.exportPptx")}
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={handleExportGoogleSlides}
-          className="cursor-pointer"
-        >
-          <IconBrandGoogle className="w-4 h-4 mr-2" />
-          {t("editorExport.downloadGoogleSlides")}
-        </DropdownMenuItem>
+        {onExportGoogleSlides && (
+          <DropdownMenuItem
+            onClick={handleExportGoogleSlides}
+            className="cursor-pointer"
+          >
+            <IconBrandGoogle className="w-4 h-4 mr-2" />
+            {t("editorExport.openInGoogleSlides")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onDuplicate} className="cursor-pointer">
           <IconCopy className="w-4 h-4 mr-2" />

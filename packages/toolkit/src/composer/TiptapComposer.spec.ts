@@ -22,6 +22,7 @@ import {
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldShowModelSelectorSkeleton,
+  shouldShowOnlyConnectPath,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -347,6 +348,19 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
     expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
     expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
+  });
+
+  it("replaces the model list with connect CTAs only when nothing is configured", () => {
+    const unconfigured = [{ configured: false }, { configured: false }];
+    expect(shouldShowOnlyConnectPath(true, unconfigured)).toBe(true);
+    expect(
+      shouldShowOnlyConnectPath(true, [
+        { configured: true },
+        { configured: false },
+      ]),
+    ).toBe(false);
+    // No CTA to fall back on — keep the list rather than empty the popover.
+    expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
   });
 });
 
