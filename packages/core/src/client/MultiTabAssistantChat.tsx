@@ -1672,7 +1672,6 @@ export function MultiTabAssistantChat({
             isReasoningEffort(effort) ? effort : undefined,
           ),
         };
-      } else {
       }
 
       const sendToTab = (threadId: string) => {
