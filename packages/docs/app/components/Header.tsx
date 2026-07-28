@@ -277,8 +277,6 @@ export default function Header() {
             </div>
             <div className="hidden shrink-0 items-center lg:flex">
               <DocsLanguagePicker />
-            </div>
-            <div className="hidden lg:block">
               <DocsLanguageSuggestion />
             </div>
             <div className="hidden lg:block">

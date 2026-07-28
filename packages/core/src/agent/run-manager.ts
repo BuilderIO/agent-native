@@ -15,6 +15,8 @@ import {
   getRunEventsSince,
   getRunById,
   getRunByThread,
+  getRunTurnRef,
+  markTurnAborted,
   cleanupOldRuns,
   updateRunHeartbeat,
   bumpRunProgress,
@@ -2093,6 +2095,41 @@ export async function abortRunDurably(
     );
   }
   return abortedInMemory;
+}
+
+/**
+ * Stop the whole turn `runId` belongs to, not just that run.
+ *
+ * A turn is executed as a chain of runs: every `loop_limit` / `auto_continue`
+ * boundary and every background handoff starts a successor run with a NEW run
+ * id under the same turn id. Aborting one run therefore only ends the current
+ * chunk — the successor claims itself and the turn keeps going, which is what
+ * users see as "Stop didn't stop it". The durable turn-abort marker is the only
+ * thing the successor-claim path (`isTurnAborted`) consults.
+ */
+export async function abortTurnDurably(
+  runId: string,
+  reason: string = "user",
+): Promise<void> {
+  const memRun = activeRuns.get(runId);
+  // In-memory first: a foreground run's SQL insert is async, so the row may not
+  // exist yet when Stop lands moments after send.
+  const ref = memRun
+    ? { threadId: memRun.threadId, turnId: memRun.turnId }
+    : await getRunTurnRef(runId).catch(() => null);
+  if (!ref) return;
+  try {
+    await markTurnAborted(ref.threadId, ref.turnId, reason);
+  } catch (error) {
+    // The current run is already stopped; a failed marker write must not turn
+    // Stop into a 500. Successors will keep running — capture it so that is
+    // visible rather than silent.
+    captureError(error, {
+      route: "/_agent-native/agent-chat/runs/:id/abort",
+      tags: { source: "agent-run-manager", phase: "abort-turn" },
+      extra: { runId, reason, ...ref },
+    });
+  }
 }
 
 // Re-export so callers can avoid importing from run-store directly.

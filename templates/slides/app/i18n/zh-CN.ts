@@ -251,7 +251,9 @@ const messages = {
     downloadHtml: "下载为 HTML",
     exportPdf: "导出为 PDF",
     exportPptx: "导出为 PPTX",
-    downloadGoogleSlides: "下载到 Google Slides",
+    openInGoogleSlides: "在 Google Slides 中打开",
+    googleSlidesCreated: "已在 Google Slides 中打开",
+    googleSlidesCreatedHint: "已在你的 Google 云端硬盘中创建此演示文稿的副本。",
     duplicateDeck: "复制幻灯片",
   },
   share: {
@@ -456,6 +458,12 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    presenterView: "演讲者视图",
+    speakerNotes: "演讲者备注",
+    noNotesForSlide: "此幻灯片没有备注",
+    upNext: "下一张",
+    endOfDeck: "演示文稿结束",
+    closePresenterView: "关闭演讲者视图",
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",
