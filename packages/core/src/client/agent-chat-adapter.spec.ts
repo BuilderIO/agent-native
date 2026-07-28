@@ -383,6 +383,83 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
+  it("prefers a queued turn's snapshotted model over the live picker", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-model",
+      threadId: "thread-queue-model",
+      // The picker has already moved on while the message sat in the queue.
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Queued under the old model" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: {
+          custom: {
+            model: "claude-opus-4-6",
+            engine: "anthropic",
+            effort: "high",
+          },
+        },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      model: "claude-opus-4-6",
+      engine: "anthropic",
+      effort: "high",
+    });
+  });
+
+  it("falls back to the live picker for queue entries without a model snapshot", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-queue-legacy",
+      threadId: "thread-queue-legacy",
+      modelRef: { current: "claude-sonnet-4-6" },
+      engineRef: { current: "builder" },
+      effortRef: { current: "low" as const },
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Queued before snapshots existed" },
+            ],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+        runConfig: { custom: { agentNativeQueuedMessageId: "queued-legacy" } },
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      model: "claude-sonnet-4-6",
+      engine: "builder",
+      effort: "low",
+    });
+  });
+
   it("uses an explicit fallback prompt when the user sends only attachments", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
