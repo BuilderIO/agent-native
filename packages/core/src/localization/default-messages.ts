@@ -206,6 +206,7 @@ const messages = {
       otherAppsDescription: "Open other apps available to you.",
       availableCount: "{{count}} available",
       activeCount: "{{count}} active",
+      pendingCount: "{{count}} pending",
       hiddenCount: "{{count}} hidden",
       createApp: "Create app",
       templates: "Templates",
@@ -215,6 +216,16 @@ const messages = {
       show: "Show",
       hiddenApps: "Hidden apps",
       hiddenAppCount: "{{count}} hidden apps",
+      pendingApps: "Pending apps",
+      pendingAppsDescription:
+        "{{count}} pending apps are hidden by default. Show them only when you need to inspect work in progress.",
+      showPendingApps: "Show pending apps",
+      hidePendingApps: "Hide pending apps",
+      noActiveWorkspaceApps: "No active workspace apps yet",
+      noActiveWorkspaceAppsDescription:
+        "Pending apps are hidden by default. Expand Pending apps below to inspect them.",
+      appMetadataOwner: "Owner",
+      appMetadataTeams: "Teams",
       workspaceAppFallback: "Workspace App",
       workspaceAppDescription:
         "Open a deployed app or check the status of an app being created.",
