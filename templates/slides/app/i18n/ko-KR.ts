@@ -519,6 +519,7 @@ const messages = {
     builderDesignSystemId: "디자인 시스템",
     builderJobId: "Job",
     openInBuilder: "Builder에서 열기",
+    decodeFailed: "디코딩 실패: {{error}}",
     websiteUrl: "웹사이트 URL",
     websitePlaceholder: "example.com 또는 Nike",
     add: "추가",

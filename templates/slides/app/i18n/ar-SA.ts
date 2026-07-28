@@ -543,6 +543,7 @@ const messages = {
     builderDesignSystemId: "نظام التصميم",
     builderJobId: "Job",
     openInBuilder: "فتح في Builder",
+    decodeFailed: "فشل فك الترميز: {{error}}",
     websiteUrl: "رابط الموقع",
     websitePlaceholder: "example.com أو Nike",
     add: "إضافة",

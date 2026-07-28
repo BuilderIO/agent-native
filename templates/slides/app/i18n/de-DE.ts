@@ -537,6 +537,7 @@ const messages = {
     builderDesignSystemId: "Designsystem",
     builderJobId: "Job",
     openInBuilder: "In Builder öffnen",
+    decodeFailed: "Dekodierung fehlgeschlagen: {{error}}",
     websiteUrl: "Website-URL",
     websitePlaceholder: "example.com oder Nike",
     add: "Hinzufügen",

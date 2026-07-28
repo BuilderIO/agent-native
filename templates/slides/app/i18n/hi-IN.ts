@@ -522,6 +522,7 @@ const messages = {
     builderDesignSystemId: "डिज़ाइन सिस्टम",
     builderJobId: "Job",
     openInBuilder: "Builder में खोलें",
+    decodeFailed: "डिकोडिंग विफल: {{error}}",
     websiteUrl: "वेबसाइट URL",
     websitePlaceholder: "example.com या Nike",
     add: "जोड़ें",
