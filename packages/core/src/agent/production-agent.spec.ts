@@ -7218,6 +7218,81 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  it("tells the model the expected signature when raw-schema validation rejects a write", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call",
+              id: "bad-write",
+              name: "update-extension",
+              input: { id: "ext-1", operation: "" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const events: any[] = [];
+    const run = vi.fn(async () => "should not execute");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "update-extension": {
+          tool: {
+            description: "Update extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                operation: {
+                  type: "string",
+                  enum: ["edit", "replace", "metadata"],
+                },
+              },
+              required: ["id", "operation"],
+              additionalProperties: false,
+            },
+          },
+          readOnly: false,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    const toolDone = events.find(
+      (event) =>
+        event.type === "tool_done" && event.tool === "update-extension",
+    );
+    // Without the allowed values in the error, the model re-sends the same
+    // rejected enum until the identical-error breaker ends the turn.
+    expect(toolDone?.result).toContain(
+      'operation*: "edit"|"replace"|"metadata"',
+    );
+    expect(toolDone?.result).toContain("* = required");
+  });
+
   it("returns tool input schema failures to the model instead of ending the run", async () => {
     let streamCalls = 0;
     const seenMessages: any[] = [];
