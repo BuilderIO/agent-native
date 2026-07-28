@@ -2,25 +2,25 @@ Agent Native
 Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.
 Tue, 28 Jul 2026 18:02:08 GMT
 timeRange: 30d · emailFilter: all
-INCOMPLETE REPORT: 5 of 34 panels could not be rendered (wau-over-time, new-vs-recurring-users, pageviews-over-time, top-visited-urls, top-referrer-domains).
+INCOMPLETE REPORT: 8 of 34 panels could not be rendered (wau-over-time, new-vs-recurring-users, seven-day-retention-by-template, recurring-users-by-template, recurring-users-by-template-bar, pageviews-over-time, top-visited-urls, top-referrer-domains).
 
 Signed-In Daily Active Visitors by Template: chart attached (Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, until session telemetry includes account identity.)
 Signed-In Weekly Active Visitors by Template: Query failed — DB query timed out after 45000ms (connection terminated)
-New vs Recurring Signed-In Users Over Time: Query failed — DB query timed out after 45000ms (connection terminated)
+New vs Recurring Signed-In Users Over Time: Query failed — Panel query timed out after 50s
 7d Rolling Signed-In Return Rate: chart attached (Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.)
-7-14d Signed-In Return by Starting Template: chart attached (Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.)
-Recurring Signed-In Users by Template: chart attached (Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.)
-Recurring Signed-In Users by Template (Bar): chart attached (Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.)
+7-14d Signed-In Return by Starting Template: Query failed — Panel query timed out after 50s
+Recurring Signed-In Users by Template: Query failed — Panel query timed out after 50s
+Recurring Signed-In Users by Template (Bar): Query failed — Panel query timed out after 50s
 Signups Over Time: chart attached (Daily signup events stacked by inferred template/app.)
 Signups by Template: chart attached (Signup events grouped by inferred template/app.)
 Try-Demo Clicks Over Time: chart attached
 Template Interest Over Time: chart attached
-Pageviews Over Time: Query failed — DB query timed out after 45000ms (connection terminated)
+Pageviews Over Time: Query failed — Panel query timed out after 50s
 CLI Copies Over Time: chart attached
 Signed-In vs Anonymous Sessions: chart attached (true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users).)
 Sessions Over Time: chart attached
 Sessions by Agent-Native App: chart attached (Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once.)
-Top Visited URLs: Query failed — DB query timed out after 45000ms (connection terminated)
+Top Visited URLs: Query failed — Panel query timed out after 50s
 Top Visited Clips
 Clip URL | Views | Users | Last seen
 3Co5gBqWezvM | 29 | 1 | Jul 20, 2026
@@ -48,7 +48,7 @@ BFO0TeMPT1PE | 7 | 2 | Jul 17, 2026
 K8u8c4mA3kAt | 7 | 5 | Jul 1, 2026
 MQsuskrPPnXz | 7 | 5 | Jul 13, 2026
 gRBL2BjnjJlj | 7 | 4 | Jul 16, 2026
-Top Referrer Domains: Query failed — DB query timed out after 45000ms (connection terminated)
+Top Referrer Domains: Query failed — Panel query timed out after 50s
 
 == Signed-In Retention & Activity ==
 Signed-in app session return-rate and active visitor trends. Docs traffic is excluded; overall return rate uses rolling cohorts, while per-template return rates are selected-range cohort aggregates.
