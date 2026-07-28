@@ -9,6 +9,7 @@ import { ViewerAvatar } from "./viewed-by-popover";
 
 const avatarMocks = vi.hoisted(() => ({
   emails: [] as Array<string | null | undefined>,
+  intersections: [] as IntersectionObserverCallback[],
   url: null as string | null,
 }));
 
@@ -17,7 +18,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: () => ({ data: undefined, isLoading: false }),
   useAvatarUrl: (email: string | null | undefined) => {
     avatarMocks.emails.push(email);
-    return avatarMocks.url;
+    return email ? avatarMocks.url : null;
   },
 }));
 
@@ -26,9 +27,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@/components/ui/avatar", () => ({
-  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
-    <span {...props}>{children}</span>
-  ),
+  Avatar: React.forwardRef<
+    HTMLSpanElement,
+    React.HTMLAttributes<HTMLSpanElement>
+  >(({ children, ...props }, ref) => (
+    <span ref={ref} {...props}>
+      {children}
+    </span>
+  )),
   AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
     <img {...props} />
   ),
@@ -47,7 +53,18 @@ describe("sharing avatar rendering", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     avatarMocks.emails = [];
+    avatarMocks.intersections = [];
     avatarMocks.url = null;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          avatarMocks.intersections.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -63,12 +80,26 @@ describe("sharing avatar rendering", () => {
     act(() => root.render(node));
   }
 
-  it("renders a stored profile image in the share list", () => {
+  function revealAvatar(index = 0) {
+    act(() => {
+      avatarMocks.intersections[index]?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+  }
+
+  it("renders a stored profile image in the share list once visible", () => {
     avatarMocks.url = "data:image/jpeg;base64,share-avatar";
 
     render(<ShareAvatar label="person@example.com" />);
 
-    expect(avatarMocks.emails).toEqual(["person@example.com"]);
+    expect(avatarMocks.emails).toEqual([null]);
+    expect(container.querySelector("img")).toBeNull();
+
+    revealAvatar();
+
+    expect(avatarMocks.emails).toEqual([null, "person@example.com"]);
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       avatarMocks.url,
     );
@@ -82,7 +113,7 @@ describe("sharing avatar rendering", () => {
     expect(container.querySelector("svg")).not.toBeNull();
   });
 
-  it("renders a stored profile image in viewed-by rows", () => {
+  it("renders a stored profile image in viewed-by rows once visible", () => {
     avatarMocks.url = "data:image/jpeg;base64,viewer-avatar";
 
     render(
@@ -93,7 +124,12 @@ describe("sharing avatar rendering", () => {
       />,
     );
 
-    expect(avatarMocks.emails).toEqual(["viewer@example.com"]);
+    expect(avatarMocks.emails).toEqual([null]);
+    expect(container.querySelector("img")).toBeNull();
+
+    revealAvatar();
+
+    expect(avatarMocks.emails).toEqual([null, "viewer@example.com"]);
     const image = container.querySelector("img");
     expect(image?.getAttribute("src")).toBe(avatarMocks.url);
     expect(image?.getAttribute("alt")).toBe("Viewer Name");

@@ -2,7 +2,6 @@ import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
   useActionQuery,
-  useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -32,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ export function CopyField({
 // ---------------------------------------------------------------------------
 
 export function Avatar({ label, org }: { label: string; org?: boolean }) {
-  const avatarUrl = useAvatarUrl(org ? null : label);
+  const { avatarRef, avatarUrl } = useVisibleAvatarUrl(org ? null : label);
 
   if (org) {
     return (
@@ -324,7 +324,7 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
   }
 
   return (
-    <UserAvatar className="h-7 w-7 shrink-0">
+    <UserAvatar ref={avatarRef} className="h-7 w-7 shrink-0">
       {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
       <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
         {(label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()}

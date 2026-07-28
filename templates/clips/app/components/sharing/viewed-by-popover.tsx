@@ -1,4 +1,4 @@
-import { useActionQuery, useAvatarUrl } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 
@@ -8,6 +8,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
 interface ClipViewRecord {
@@ -133,10 +134,10 @@ export function ViewerAvatar({
   name: string | null;
   label: string;
 }) {
-  const avatarUrl = useAvatarUrl(email);
+  const { avatarRef, avatarUrl } = useVisibleAvatarUrl(email);
 
   return (
-    <Avatar className="h-6 w-6 shrink-0">
+    <Avatar ref={avatarRef} className="h-6 w-6 shrink-0">
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
       <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
         {initials(name || email || "?")}
