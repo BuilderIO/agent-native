@@ -5,6 +5,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { responsiveInteractOverrides } from "../i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
@@ -424,6 +425,7 @@ const messages = {
   },
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
+    ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
     nodeRewrite: {
       composerTitle: "詢問或變更所選內容",

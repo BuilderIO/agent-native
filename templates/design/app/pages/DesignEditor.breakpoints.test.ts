@@ -607,13 +607,18 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
-    // previewWidthPx is passed straight from activeBreakpointWidthState, and
+    // previewWidthPx resolves to activeBreakpointWidthState, and
     // BreakpointPreviewRow's activateThisFrame (MultiScreenCanvas.tsx) sets
     // that state BEFORE onEditBreakpoint/enterSingleScreen fires — so no
     // separate wiring is needed here for full view to land at the right
     // width; this just guards against a future refactor silently dropping
-    // the prop.
-    expect(source).toContain("previewWidthPx={activeBreakpointWidthState}");
+    // the prop. Full-screen Interact overrides it with its own device width,
+    // so this asserts the breakpoint width is still the non-interact answer
+    // rather than pinning one exact expression.
+    const propStart = source.indexOf("previewWidthPx={");
+    expect(propStart).toBeGreaterThan(-1);
+    const propExpression = source.slice(propStart, propStart + 240);
+    expect(propExpression).toContain("activeBreakpointWidthState");
   });
 });
 

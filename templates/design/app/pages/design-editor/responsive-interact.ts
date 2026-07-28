@@ -20,11 +20,15 @@ export interface InteractDevicePreset {
 /** Preset name used whenever the user types a width/height directly. */
 export const INTERACT_CUSTOM_DEVICE_NAME = "Custom";
 
+/** Must track ResponsiveInteractBar's `h-12`; the zoom-to-fit math subtracts
+ * it from the viewport to size the device box. */
+export const RESPONSIVE_INTERACT_BAR_HEIGHT = 48;
+
 export const INTERACT_DEVICE_PRESETS: InteractDevicePreset[] = [
-  { name: "iPhone SE", category: "phone", width: 320, height: 568 },
-  { name: "iPhone 17", category: "phone", width: 402, height: 874 },
-  { name: "iPhone 17 Pro Max", category: "phone", width: 440, height: 956 },
-  { name: "Android Compact", category: "phone", width: 412, height: 917 },
+  { name: "iPhone SE", category: "phone", width: 320, height: 568 }, // i18n-ignore: stable device preset name.
+  { name: "iPhone 17", category: "phone", width: 402, height: 874 }, // i18n-ignore: stable device preset name.
+  { name: "iPhone 17 Pro Max", category: "phone", width: 440, height: 956 }, // i18n-ignore: stable device preset name.
+  { name: "Android Compact", category: "phone", width: 412, height: 917 }, // i18n-ignore: stable device preset name.
   {
     name: 'iPad Pro 11" Portrait',
     category: "tablet",

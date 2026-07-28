@@ -314,6 +314,7 @@ import { isWheelCameraGestureActive } from "@/components/design/multi-screen/whe
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
+import { ResponsiveInteractBar } from "@/components/design/ResponsiveInteractBar";
 import {
   ReviewCommentsPanel,
   type ReviewCommentsPanelProps,
@@ -770,6 +771,13 @@ import {
   buildRuntimeReactStructureMoveHandoff,
   resolveRuntimeStructureMoveExecutionMode,
 } from "./design-editor/react-semantic-handoff";
+import {
+  computeInteractZoomToFit,
+  DEFAULT_INTERACT_DEVICE_PRESET,
+  findInteractDevicePreset,
+  INTERACT_CUSTOM_DEVICE_NAME,
+  RESPONSIVE_INTERACT_BAR_HEIGHT,
+} from "./design-editor/responsive-interact";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -2091,6 +2099,16 @@ function DesignEditor() {
     number | null
   >(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
+  // Full-screen Interact device box. Kept separate from `zoom` (the canvas
+  // camera) because this scales a literal device viewport, not the canvas.
+  const [interactDeviceName, setInteractDeviceName] = useState(
+    DEFAULT_INTERACT_DEVICE_PRESET.name,
+  );
+  const [interactDeviceSize, setInteractDeviceSize] = useState({
+    width: DEFAULT_INTERACT_DEVICE_PRESET.width,
+    height: DEFAULT_INTERACT_DEVICE_PRESET.height,
+  });
+  const [interactZoom, setInteractZoom] = useState(100);
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
   // Trusted parent origin captured from the first validated inbound message.
@@ -21134,6 +21152,29 @@ function DesignEditor() {
     [enterSingleScreen],
   );
 
+  // Interact presents the screen full-screen in a device box with its own
+  // chrome bar, so the editor's panels and inspector step aside. Embedded
+  // hosts keep their own chrome and are left alone.
+  const responsiveInteractActive =
+    mode === "interact" && viewMode === "single" && !!activeFile && !embedded;
+  const handleInteractDeviceChange = useCallback((name: string) => {
+    setInteractDeviceName(name);
+    const preset = findInteractDevicePreset(name);
+    if (preset) {
+      setInteractDeviceSize({ width: preset.width, height: preset.height });
+    }
+  }, []);
+  // Typing a dimension is what makes a size "custom" — the preset it no longer
+  // matches would otherwise keep claiming the device dropdown.
+  const handleInteractWidthChange = useCallback((width: number) => {
+    setInteractDeviceSize((size) => ({ ...size, width }));
+    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
+  }, []);
+  const handleInteractHeightChange = useCallback((height: number) => {
+    setInteractDeviceSize((size) => ({ ...size, height }));
+    setInteractDeviceName(INTERACT_CUSTOM_DEVICE_NAME);
+  }, []);
+
   // BP-DEEP v2 item 2 — edge-triggered zoom-out-to-overview. See
   // shouldPopToOverviewOnZoomOut's doc comment: the pop must only fire when
   // the user crosses the threshold from above while already in single view,
@@ -21246,6 +21287,29 @@ function DesignEditor() {
     },
     [enterSingleScreenInteract, handleModeChange, mode],
   );
+  const handleExitResponsiveInteract = useCallback(
+    () => handleModeChange("edit"),
+    [handleModeChange],
+  );
+  // Fit the device box on entry and whenever the device changes, matching
+  // builder-internal: only ever zooms DOWN, so a device smaller than the
+  // viewport still renders at true 1:1.
+  useEffect(() => {
+    if (!responsiveInteractActive) return;
+    setInteractZoom(
+      computeInteractZoomToFit({
+        availableWidth: window.innerWidth - 96,
+        availableHeight:
+          window.innerHeight - RESPONSIVE_INTERACT_BAR_HEIGHT - 96,
+        deviceWidth: interactDeviceSize.width,
+        deviceHeight: interactDeviceSize.height,
+      }),
+    );
+  }, [
+    responsiveInteractActive,
+    interactDeviceSize.width,
+    interactDeviceSize.height,
+  ]);
 
   useEffect(() => {
     if (
@@ -28964,9 +29028,22 @@ function DesignEditor() {
           />
         </div>
       )}
+      {responsiveInteractActive ? (
+        <ResponsiveInteractBar
+          deviceName={interactDeviceName}
+          width={interactDeviceSize.width}
+          height={interactDeviceSize.height}
+          zoom={interactZoom}
+          onDeviceChange={handleInteractDeviceChange}
+          onWidthChange={handleInteractWidthChange}
+          onHeightChange={handleInteractHeightChange}
+          onZoomChange={setInteractZoom}
+          onClose={handleExitResponsiveInteract}
+        />
+      ) : null}
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
-        {!embedded && !uiHidden ? (
+        {!embedded && !uiHidden && !responsiveInteractActive ? (
           <div className="relative flex min-h-0 shrink-0 bg-[var(--design-editor-panel-bg)]">
             <DesignWorkspaceRail
               activePanel={activeLeftPanel}
@@ -29888,8 +29965,10 @@ function DesignEditor() {
                               }
                             : null
                         }
-                        zoom={zoom}
-                        onZoomChange={setZoom}
+                        zoom={responsiveInteractActive ? interactZoom : zoom}
+                        onZoomChange={
+                          responsiveInteractActive ? setInteractZoom : setZoom
+                        }
                         deviceFrame={deviceFrame}
                         sourceType={activeCanvasSourceType}
                         bridgeUrl={activeScreenBridgeUrl}
@@ -29920,7 +29999,11 @@ function DesignEditor() {
                             : undefined
                         }
                         fusionUrl={designFusionUrl}
-                        previewWidthPx={activeBreakpointWidthState}
+                        previewWidthPx={
+                          responsiveInteractActive
+                            ? interactDeviceSize.width
+                            : activeBreakpointWidthState
+                        }
                         shaderFillPreview={shaderFillPreview}
                         onComponentSourceJump={handleComponentSourceJump}
                         motionTracks={motionTracksWire}
@@ -30186,7 +30269,10 @@ function DesignEditor() {
         )}
 
         {/* Right rail */}
-        {!embedded && !uiHidden && !initialGenerationChromeLimited ? (
+        {!embedded &&
+        !uiHidden &&
+        !initialGenerationChromeLimited &&
+        !responsiveInteractActive ? (
           <div
             ref={rightSidebarContentRef}
             className="relative hidden h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] md:flex"
