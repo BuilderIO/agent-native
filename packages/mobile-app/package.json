@@ -16,9 +16,9 @@
     "ios": "expo run:ios",
     "android": "expo run:android",
     "web": "expo start --web",
-    "apk": "cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a",
-    "apk:all": "cd android && ./gradlew assembleRelease",
-    "aab": "cd android && ./gradlew bundleRelease",
+    "apk": "([ -d android ] || expo prebuild -p android) && cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a",
+    "apk:all": "([ -d android ] || expo prebuild -p android) && cd android && ./gradlew assembleRelease",
+    "aab": "([ -d android ] || expo prebuild -p android) && cd android && ./gradlew bundleRelease",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
