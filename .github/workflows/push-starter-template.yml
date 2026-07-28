@@ -7,10 +7,13 @@ name: Push chat template to starter
 on:
   push:
     branches: [main]
+    # Template-only changes mirror promptly on push. Changes that also touch a
+    # template-pinned package (core / creative-context / toolkit) are deferred to
+    # the publish dispatch by the `decide` gate below — mirroring them now would
+    # pin the previously-published version (the bump lands only when the Version
+    # Packages PR merges). Post-processor (CLI) changes go out that way too.
     paths:
       - "templates/chat/**"
-      - "packages/core/src/cli/create.ts"
-      - "packages/core/src/cli/template-sync.ts"
       - ".github/workflows/push-starter-template.yml"
   # Fired by "Publish packages" only on an actual npm publish (published == true)
   # of a package the template pins — not on every successful release run (a run
@@ -28,8 +31,38 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A push that touches a template-pinned package will publish and re-mirror via
+  # repository_dispatch with the correct pin. Mirroring on that push would emit
+  # new template source pinned to the *old* published version, leaving the
+  # starter temporarily inconsistent until the dispatch. Defer those pushes.
+  decide:
+    name: Decide whether to mirror this push
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+    steps:
+      - id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "push" ]; then
+            # Dispatch/manual runs always mirror.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(jq -r '.commits[]? | (.added // [])[], (.modified // [])[], (.removed // [])[]' "$GITHUB_EVENT_PATH")
+          if printf '%s\n' "$files" | grep -qE '^packages/(core|creative-context|toolkit)/'; then
+            echo "Template-pinned package changed; deferring to the post-publish dispatch."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   push:
     name: Materialize and push template branch
+    needs: [decide]
+    if: needs.decide.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
