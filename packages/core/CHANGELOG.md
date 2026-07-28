@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.125.0
+
+### Minor Changes
+
+- c7ed52a: Add an optional `brandLogoUrl` to `renderEmail` and a `getShareEmailLogoUrl` resolver on `registerShareableResource`, so share-notification emails show the sharing org's logo (absolute `https://`) when available and fall back to the embedded Agent Native logo otherwise.
+
 ## 0.124.6
 
 ### Patch Changes
