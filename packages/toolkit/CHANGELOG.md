@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.10.10
+
+### Patch Changes
+
+- 16a9d1a: Keep editor block drag previews aligned with the point where the block was grabbed, then clear incidental selection and focus after a successful drop.
+
 ## 0.10.9
 
 ### Patch Changes
