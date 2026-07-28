@@ -142,6 +142,33 @@ describe("workflow generation cancellation", () => {
   it("preserves the queued request when chat delivery is rejected", async () => {
     await act(async () => root.unmount());
     mocks.callAction.mockClear();
+    mocks.callAction.mockImplementation(
+      async (name: string, payload?: { operation?: string }) => {
+        if (name === "list-ai-requests") {
+          return {
+            requests: [
+              {
+                kind: "generate-workflow",
+                recordingId: "rec_123",
+                requestedAt,
+                message: "Generate an email summary",
+              },
+            ],
+          };
+        }
+        if (payload?.operation === "track") {
+          return { reconciled: false, tracked: true };
+        }
+        if (payload?.operation === "release") {
+          return {
+            reconciled: false,
+            released: false,
+            reason: "different-run",
+          };
+        }
+        return { reconciled: true };
+      },
+    );
     mocks.sendToAgentChatAndConfirm.mockClear();
     mocks.sendToAgentChatAndConfirm.mockResolvedValueOnce({
       tabId: workflowTabId,
@@ -159,6 +186,11 @@ describe("workflow generation cancellation", () => {
         expect.objectContaining({ operation: "release" }),
       ),
     );
+    expect(
+      mocks.callAction.mock.calls.filter(
+        ([, payload]) => payload?.operation === "release",
+      ),
+    ).toHaveLength(1);
     expect(mocks.callAction).not.toHaveBeenCalledWith(
       "reconcile-workflow-generation",
       expect.objectContaining({ operation: "mark-delivered" }),

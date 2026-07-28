@@ -404,14 +404,17 @@ interface WorkflowRunRequest {
 async function retryWorkflowAction(
   request: WorkflowRunRequest & { operation: string },
   successKey: string,
-): Promise<void> {
+): Promise<boolean> {
   for (;;) {
     try {
       const result = (await callAction(
         "reconcile-workflow-generation" as any,
         request as any,
       )) as Record<string, unknown>;
-      if (result[successKey] === true) return;
+      if (result[successKey] === true) return true;
+      if (typeof result.reason === "string" && result.reason !== "stale") {
+        return false;
+      }
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -419,18 +422,18 @@ async function retryWorkflowAction(
 
 async function consumeWorkflowRequest(
   request: WorkflowRunRequest,
-): Promise<void> {
-  await retryWorkflowAction({ ...request, operation: "consume" }, "consumed");
+): Promise<boolean> {
+  return retryWorkflowAction({ ...request, operation: "consume" }, "consumed");
 }
 
 async function persistAndConsumeWorkflowRequest(
   request: WorkflowRunRequest,
 ): Promise<void> {
-  await retryWorkflowAction(
+  const delivered = await retryWorkflowAction(
     { ...request, operation: "mark-delivered" },
     "delivered",
   );
-  await consumeWorkflowRequest(request);
+  if (delivered) await consumeWorkflowRequest(request);
 }
 
 function workflowTabId(recordingId: string, requestedAt: string) {

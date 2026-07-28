@@ -14,6 +14,7 @@ const WorkflowStateSchema = z
     recordingId: z.string().optional(),
     requestedAt: z.string().optional(),
     tabId: z.string().optional(),
+    claimedAt: z.string().optional(),
   })
   .passthrough();
 
@@ -24,6 +25,8 @@ const WorkflowRequestSchema = z
     deliveredTabId: z.string().optional(),
   })
   .passthrough();
+
+const CLAIM_LEASE_MS = 30_000;
 
 export default defineAction({
   description:
@@ -130,11 +133,17 @@ export default defineAction({
         return { reconciled: false, tracked: true };
       }
       if (state.tabId) {
-        return {
-          reconciled: false,
-          tracked: false,
-          reason: "claimed" as const,
-        };
+        const claimedAt = Date.parse(state.claimedAt ?? "");
+        if (
+          Number.isFinite(claimedAt) &&
+          Date.now() - claimedAt < CLAIM_LEASE_MS
+        ) {
+          return {
+            reconciled: false,
+            tracked: false,
+            reason: "claimed" as const,
+          };
+        }
       }
       const rawRequest = await readAppState(requestKey);
       if (rawRequest === null) {
@@ -151,6 +160,7 @@ export default defineAction({
       const tracked = await compareAndSetAppState(stateKey, rawState, {
         ...rawState,
         tabId,
+        claimedAt: new Date().toISOString(),
       });
       return tracked
         ? { reconciled: false, tracked: true }
@@ -168,6 +178,7 @@ export default defineAction({
     if (operation === "release") {
       const untrackedState = { ...rawState };
       delete untrackedState.tabId;
+      delete untrackedState.claimedAt;
       const released = await compareAndSetAppState(
         stateKey,
         rawState,

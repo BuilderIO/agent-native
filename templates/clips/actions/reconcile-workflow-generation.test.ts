@@ -66,6 +66,7 @@ describe("reconcile-workflow-generation", () => {
       recordingId: "rec_123",
       requestedAt,
       tabId: "clips-workflow:rec_123:request:chat-other",
+      claimedAt: new Date().toISOString(),
     });
 
     await expect(
@@ -81,6 +82,33 @@ describe("reconcile-workflow-generation", () => {
       reason: "claimed",
     });
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
+  it("recovers an abandoned claim after its lease expires", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: "clips-workflow:rec_123:request:chat-abandoned",
+      claimedAt: "2026-07-14T11:00:00.000Z",
+    });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({ reconciled: false, tracked: true });
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
+      "clips-workflow-rec_123",
+      expect.objectContaining({
+        tabId: "clips-workflow:rec_123:request:chat-abandoned",
+      }),
+      expect.objectContaining({ tabId, claimedAt: expect.any(String) }),
+    );
   });
 
   it("releases a rejected delivery claim", async () => {
