@@ -50,6 +50,11 @@ const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
   "create-deck",
   "duplicate-deck",
   "add-slide",
+  "update-slide",
+  "patch-deck",
+  "save-deck",
+  "import-pptx",
+  "restore-deck-version",
   "update-dashboard",
   "rename-dashboard",
   "save-analysis",
@@ -513,25 +518,41 @@ function addImageArtifact(
   });
 }
 
-function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
-  const slideCount = numberValue(parsed.slideCount);
-  if (slideCount !== undefined) return slideCount > 0;
-  if (Array.isArray(parsed.slides)) return parsed.slides.length > 0;
-  return true;
-}
-
 function addDeckArtifact(
   decks: Map<string, CreatedDeckArtifact>,
   parsed: Record<string, unknown>,
-  options: { requireReady: boolean },
 ): void {
   const id = deckIdValue(parsed);
   if (!id) return;
-  if (options.requireReady && !isReadyDeckArtifact(parsed)) return;
   decks.set(id, {
     id,
     url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
   });
+}
+
+// Deck writes are spread across a dozen actions (create-deck, add-slide,
+// patch-deck, save-deck, update-slide, import-*, restore-deck-version), so a
+// per-tool allow-list refuses a real deck URL every time an action is added.
+// Trust any successful result that names a deck the way the deck routes do: an
+// explicit deckId, or a canonical /deck/<id> URL the action itself returned.
+function addDeckArtifactFromAnyResult(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const url = stringValue(parsed.url) ?? stringValue(parsed.urlPath);
+  const deckId = stringValue(parsed.deckId);
+  if (deckId) {
+    decks.set(deckId, {
+      id: deckId,
+      url:
+        url && artifactUrlReferencesId(url, "deck", deckId) ? url : undefined,
+    });
+  }
+
+  const reference = url ? parseArtifactReferenceUrl(url) : null;
+  if (reference?.kind === "deck") {
+    decks.set(reference.id, { id: reference.id, url });
+  }
 }
 
 function addListedDeckArtifacts(
@@ -543,7 +564,7 @@ function addListedDeckArtifacts(
   for (const item of items) {
     const deck = asRecord(item);
     if (!deck) continue;
-    addDeckArtifact(decks, deck, { requireReady: false });
+    addDeckArtifact(decks, deck);
   }
 }
 
@@ -616,6 +637,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
+
+    addDeckArtifactFromAnyResult(decks, parsed);
 
     if (toolResult.tool === "save-monitor") {
       const id = stringValue(parsed.id);
@@ -711,31 +734,15 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "create-deck" ||
-      toolResult.tool === "duplicate-deck"
+      toolResult.tool === "duplicate-deck" ||
+      toolResult.tool === "get-deck"
     ) {
-      addDeckArtifact(decks, parsed, { requireReady: true });
-      continue;
-    }
-
-    if (toolResult.tool === "get-deck") {
-      addDeckArtifact(decks, parsed, { requireReady: false });
+      addDeckArtifact(decks, parsed);
       continue;
     }
 
     if (toolResult.tool === "list-decks") {
       addListedDeckArtifacts(decks, parsed);
-      continue;
-    }
-
-    if (toolResult.tool === "add-slide") {
-      const id = stringValue(parsed.deckId);
-      const slideCount = numberValue(parsed.slideCount);
-      if (id && slideCount !== undefined && slideCount > 0) {
-        decks.set(id, {
-          id,
-          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
-        });
-      }
       continue;
     }
 

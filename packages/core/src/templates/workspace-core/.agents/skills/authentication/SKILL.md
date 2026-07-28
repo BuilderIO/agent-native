@@ -71,6 +71,40 @@ The auto-create path skips users with pending invites or a matching
 `AUTO_CREATE_DEFAULT_ORG=0` only for deployments that intentionally want manual
 org creation.
 
+### App-Specific Roles
+
+When a request needs "only some teammates may do this **inside this app**", the
+answer is per-app roles — **not** a second organization. App roles are an
+overlay on the one org membership, never a second roster. Three role systems
+coexist and never imply one another: the org role (`org_members.role`) says what
+a person may do to the *team*, an app role says what they may do inside *one
+app*, and a share role (`sharing` skill) says what they may do to *one row*. An
+app `admin` is not an org admin, and org handlers never read app roles.
+
+Declare the vocabulary once on the server and guard actions with it:
+
+```ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member",
+});
+
+// in an action
+authorize: coachAccess.requireAny("coach-admin"),
+```
+
+Roles are an unordered set, not a ladder — declaration order carries no meaning,
+and every guard names its accepted roles explicitly. `defaultRole` is **display
+only**: `requireAny` matches an explicit assignment row and nothing else, so
+"nobody assigned this person" never reads as "granted", and widening the default
+cannot silently widen a guard. Org membership is a precondition, resolved in the
+same statement as the assignment, so a leftover assignment for a removed member
+can never authorize. Only org owners/admins may assign app roles; render the
+picker with `<TeamPage appRoles={descriptor} />`.
+
 ### Stop And Confirm Before Creating Or Switching Organizations
 
 Vault credentials are scoped per organization and are **not** shared between

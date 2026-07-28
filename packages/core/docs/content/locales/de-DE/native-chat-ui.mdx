@@ -249,6 +249,14 @@ export default defineAction({
 Verwenden Sie dies für die Erstanbieter-App UI. Behalten Sie den hostübergreifenden Iframe UI in `mcpApp` und behalten Sie
 willkürliche Abfrageausführung hinter eingegebenem Lese-actions anstelle von rohem SQL im Chat.
 
+Dimensionieren Sie Renderer in absoluten Einheiten, nicht in Prozent. Das
+Transkript wächst mit seinen Nachrichten, daher hat der Container eines Renderers
+keine definite Höhe, gegen die ein Prozentwert aufgelöst werden könnte — `height: 40%`
+an einem Diagrammbalken kollabiert zu null, statt einen Fehler zu werfen, was wie
+ein Renderer aussieht, der nicht gezeichnet hat. Geben Sie Diagrammen und anderen
+höhenabhängigen Visualisierungen eine Pixel- (oder `rem`-)Basis; Breiten in Prozent
+sind in Ordnung, da die Transkriptspalte eine definite Breite hat.
+
 ## BYO Agentenlaufzeiten {#byo-agent-runtimes}
 
 `AgentChatRuntime` ist der Bring-Your-Own-Agent-Vertrag für die Chat-Shell und

@@ -253,7 +253,7 @@ POST par defaut ; `http: { method: "GET" }` en fait un GET. Les hooks React et `
 - **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — `POST` par défaut. Les `GET` actions sont auto-marqués `readOnly` afin que les appels réussis ne déclenchent pas d'actualisation d'interrogation UI.
 - **`http: { path: "..." }`** — remplace le URL monté sous `/_agent-native/actions/`. La valeur par défaut est le nom du fichier. **Les remplacements de chemin modifient le URL uniquement pour les appelants directs HTTP** — `useActionQuery`, `useActionMutation` et `callAction` appellent toujours `/_agent-native/actions/<name>` quel que soit ce remplacement, donc le remplacement du chemin rend ces hooks 404. Utilisez les remplacements de chemin uniquement pour les appelants externes HTTP. Notez également que les segments de route `:param` dans le chemin de remplacement ne sont **pas** analysés dans les arguments `run()` — seuls les paramètres de chaîne de requête et les champs de corps JSON le sont.
 - **`http: false`** : désactivez entièrement le point de terminaison HTTP. Agent + CLI uniquement.
-- **`readOnly: true`** — ignorez explicitement l'actualisation du sondage, même pour les POST actions qui ne mutent pas.
+- **`readOnly: true`** — ignorez explicitement l'actualisation du sondage, même pour les POST actions qui ne mutent pas. Ce n'est **pas** un contrôle d'accès : cela ne restreint pas qui peut appeler l'action et n'affecte ni `useActionQuery`, ni `useActionMutation`, ni aucun hook client. Ses seuls effets sont de supprimer l'événement de rafraîchissement après l'appel et d'exclure l'action de l'audit des écritures. Pour masquer une action au modèle, utilisez `agentTool: false` ; pour restreindre les appelants, utilisez les options d'auth/accès ci-dessus.
 - **`parallelSafe: true`** — permet à une action de mutation de s'exécuter simultanément avec d'autres appels d'outil au même tour. Ne définissez cette option que lorsque l'action est sécurisée en interne pour la concurrence et indépendante de l'ordre ; la mutation actions est sérialisée par défaut.
 
 ### Gardez la surface d'action petite {#small-surface}
@@ -269,7 +269,7 @@ Un assistant consultatif au niveau du dépôt, `node scripts/audit-template-acti
 
 ### Drapeaux d'exposition {#exposure-flags}
 
-Quatre indicateurs contrôlent _qui_ peut invoquer une action. Tous sont définis par défaut sur la valeur permissive, vous n'en définissez donc qu'un seul pour resserrer une surface spécifique. Ce tableau est le résumé visible ; les sous-sections ajoutent le détail dont chacune a besoin.
+Cinq indicateurs contrôlent _qui_ peut invoquer une action. Tous sont définis par défaut sur la valeur permissive, vous n'en définissez donc qu'un seul pour resserrer une surface spécifique. Ce tableau est le résumé visible ; les sous-sections ajoutent le détail dont chacune a besoin.
 
 | Drapeau         | Par défaut        | Valeur restrictive → qui peut encore appeler                                      | Utilisation typique                                                                                               |
 | --------------- | ----------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |

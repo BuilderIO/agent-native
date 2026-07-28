@@ -2054,6 +2054,11 @@ export default function RecordRoute() {
       // (from Web Speech API) with no API key required.
       const browserTranscript = await liveTranscription.stopAndWait();
       const trimmedTranscript = browserTranscript.trim();
+      // Non-null when Web Speech died before we asked it to stop, so whatever
+      // it captured covers only part of the recording. Send it with the text:
+      // a partial transcript must never be stored as the finished one, or the
+      // cloud fallback is suppressed and the user keeps the first few lines.
+      const incompleteReason = liveTranscription.getIncompleteReason();
       if (trimmedTranscript) {
         const transcriptRes = await fetch(
           agentNativePath("/_agent-native/actions/save-browser-transcript"),
@@ -2064,6 +2069,7 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: trimmedTranscript,
               source: "web-speech",
+              failureReason: incompleteReason ?? undefined,
             }),
           },
         ).catch((err) => {
@@ -2086,9 +2092,11 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: "",
               source: "web-speech",
-              failureReason: liveTranscription.supported
-                ? "Browser native transcription returned no speech before recording stopped."
-                : "Browser Web Speech recognition is unavailable in this browser.",
+              failureReason:
+                incompleteReason ??
+                (liveTranscription.supported
+                  ? "Browser native transcription returned no speech before recording stopped."
+                  : "Browser Web Speech recognition is unavailable in this browser."),
             }),
           },
         ).catch((err) => {
