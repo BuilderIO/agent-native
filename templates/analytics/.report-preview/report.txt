@@ -1,6 +1,6 @@
 Agent Native
 Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.
-Tue, 28 Jul 2026 05:04:05 GMT
+Tue, 28 Jul 2026 16:06:12 GMT
 timeRange: 30d · emailFilter: all
 
 Signed-In Daily Active Visitors by Template: chart attached (Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, until session telemetry includes account identity.)
@@ -21,31 +21,31 @@ Sessions Over Time: chart attached
 Sessions by Agent-Native App: chart attached (Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once.)
 Top Visited URLs
 URL | Views | Users | Last seen
-https://www.agent-native.com/ | 9948 | 7111 | Jul 28, 2026
-https://clips.agent-native.com/library | 7739 | 2315 | Jul 28, 2026
-https://www.agent-native.com/docs/template-plan | 4738 | 3167 | Jul 28, 2026
-https://www.agent-native.com/apps | 4698 | 2880 | Jul 28, 2026
-https://www.agent-native.com/docs | 4034 | 2522 | Jul 28, 2026
-https://plan.agent-native.com/plans | 3548 | 1586 | Jul 28, 2026
-https://plan.agent-native.com/ | 3132 | 1864 | Jul 28, 2026
-https://clips.agent-native.com/record | 2596 | 946 | Jul 28, 2026
-https://plan.agent-native.com/settings | 2225 | 664 | Jul 28, 2026
-https://design.agent-native.com/ | 1575 | 580 | Jul 28, 2026
-https://analytics.agent-native.com/ask | 1463 | 671 | Jul 28, 2026
-https://clips.agent-native.com/settings | 1293 | 374 | Jul 28, 2026
+https://www.agent-native.com/ | 10256 | 7308 | Jul 28, 2026
+https://clips.agent-native.com/library | 7916 | 2344 | Jul 28, 2026
+https://www.agent-native.com/apps | 4875 | 2981 | Jul 28, 2026
+https://www.agent-native.com/docs/template-plan | 4803 | 3212 | Jul 28, 2026
+https://www.agent-native.com/docs | 4199 | 2625 | Jul 28, 2026
+https://plan.agent-native.com/plans | 3610 | 1613 | Jul 28, 2026
+https://plan.agent-native.com/ | 3196 | 1899 | Jul 28, 2026
+https://clips.agent-native.com/record | 2632 | 951 | Jul 28, 2026
+https://plan.agent-native.com/settings | 2269 | 675 | Jul 28, 2026
+https://design.agent-native.com/ | 1639 | 601 | Jul 28, 2026
+https://analytics.agent-native.com/ask | 1481 | 683 | Jul 28, 2026
+https://clips.agent-native.com/settings | 1298 | 377 | Jul 28, 2026
 https://design.agent-native.com/design/6wWOOE5TYVxfM_T5eVadM | 1236 | 4 | Jul 21, 2026
-https://www.agent-native.com/apps/clips | 1071 | 885 | Jul 28, 2026
-https://www.agent-native.com/apps/plan | 1041 | 880 | Jul 28, 2026
-https://www.agent-native.com/docs/what-is-agent-native | 1032 | 762 | Jul 28, 2026
-https://www.agent-native.com/skills | 1007 | 740 | Jul 28, 2026
-https://slides.agent-native.com/ | 928 | 310 | Jul 28, 2026
+https://www.agent-native.com/apps/clips | 1103 | 913 | Jul 28, 2026
+https://www.agent-native.com/docs/what-is-agent-native | 1083 | 797 | Jul 28, 2026
+https://www.agent-native.com/apps/plan | 1078 | 910 | Jul 28, 2026
+https://www.agent-native.com/skills | 1016 | 745 | Jul 28, 2026
+https://slides.agent-native.com/ | 960 | 323 | Jul 28, 2026
 https://www.agent-native.com/templates | 787 | 546 | Jul 14, 2026
 https://design.agent-native.com/design/dS-qH0m3xtypkz65lS6Bh | 753 | 2 | Jul 6, 2026
 https://slides.agent-native.com/deck/deck-1784302911754-vmo8k | 741 | 5 | Jul 21, 2026
-https://www.agent-native.com/docs/template-clips | 711 | 481 | Jul 28, 2026
-https://www.agent-native.com/docs/pr-visual-recap | 697 | 501 | Jul 28, 2026
+https://www.agent-native.com/docs/template-clips | 719 | 486 | Jul 28, 2026
+https://www.agent-native.com/docs/pr-visual-recap | 699 | 503 | Jul 28, 2026
 https://design.agent-native.com/design/kkfRbdVco5Jji2DenjkVF | 638 | 2 | Jul 7, 2026
-https://content.agent-native.com/ | 605 | 343 | Jul 28, 2026
+https://content.agent-native.com/ | 614 | 349 | Jul 28, 2026
 Top Visited Clips
 Clip URL | Views | Users | Last seen
 3Co5gBqWezvM | 29 | 1 | Jul 20, 2026
@@ -54,42 +54,42 @@ Clip URL | Views | Users | Last seen
 QUAHaMyTVlMH | 14 | 2 | Jul 21, 2026
 tGpjIcv87xk5 | 13 | 3 | Jul 16, 2026
 7pVNhO2JHnov | 13 | 5 | Jul 17, 2026
-IfPKERU0mHZS | 11 | 7 | Jul 1, 2026
-zPnrlrcV4wp6 | 11 | 4 | Jul 26, 2026
-1Tw00nSZpPcz | 11 | 4 | Jul 21, 2026
-bo8BpVfBGfkE | 11 | 6 | Jul 22, 2026
-B841x2hgZ22p | 11 | 6 | Jul 20, 2026
+zPnrlrcV4wp6 | 12 | 4 | Jul 28, 2026
 sSctJUogL0KY | 11 | 2 | Jul 20, 2026
+bo8BpVfBGfkE | 11 | 6 | Jul 22, 2026
+IfPKERU0mHZS | 11 | 7 | Jul 1, 2026
+1Tw00nSZpPcz | 11 | 4 | Jul 21, 2026
+B841x2hgZ22p | 11 | 6 | Jul 20, 2026
+4BWBR29w7og1 | 10 | 2 | Jul 28, 2026
 OehCkOX8IX5C | 9 | 3 | Jul 14, 2026
-wkOizclAYE76 | 8 | 2 | Jul 26, 2026
-0aTOKb4ZNnY3 | 8 | 3 | Jul 23, 2026
-pq26l3U20584 | 8 | 6 | Jul 21, 2026
-QOjv2YSBc18a | 8 | 1 | Jul 17, 2026
 PVXkCpAuUo5m | 8 | 2 | Jul 15, 2026
+0aTOKb4ZNnY3 | 8 | 3 | Jul 23, 2026
+QOjv2YSBc18a | 8 | 1 | Jul 17, 2026
+wkOizclAYE76 | 8 | 2 | Jul 26, 2026
 3NZ4fbv1Y76t | 8 | 3 | Jul 26, 2026
 ebDn5sYVlFgs | 8 | 4 | Jul 19, 2026
+pq26l3U20584 | 8 | 6 | Jul 21, 2026
 BFO0TeMPT1PE | 7 | 2 | Jul 17, 2026
-c7PYgKW724VP | 7 | 6 | Jul 9, 2026
 K8u8c4mA3kAt | 7 | 5 | Jul 1, 2026
 MQsuskrPPnXz | 7 | 5 | Jul 13, 2026
 gRBL2BjnjJlj | 7 | 4 | Jul 16, 2026
 Top Referrer Domains
 Referrer domain | Visits | Users
-github.com | 13943 | 5309
-www.google.com | 777 | 385
-www.builder.io | 532 | 243
-www.youtube.com | 498 | 344
-www.agent-native.com | 425 | 160
-t.co | 300 | 162
+github.com | 14372 | 5446
+www.google.com | 789 | 390
+www.builder.io | 550 | 251
+www.youtube.com | 502 | 348
+www.agent-native.com | 437 | 164
+t.co | 301 | 163
 search.brave.com | 148 | 47
+teams.public.onecdn.static.microsoft | 125 | 58
 android-app: | 113 | 68
 chromewebstore.google.com | 110 | 51
-teams.public.onecdn.static.microsoft | 105 | 53
 www.linkedin.com | 98 | 69
 claude.ai | 81 | 42
 www.nocodesupply.co | 71 | 39
+localhost:8080 | 66 | 44
 analytics.agent-native.com | 65 | 11
-localhost:8080 | 64 | 42
 chatgpt.com | 63 | 34
 gemini.google.com | 61 | 26
 statics.teams.cdn.office.net | 49 | 27
@@ -101,27 +101,27 @@ Signed-in app session return-rate and active visitor trends. Docs traffic is exc
 Clip-Share Signups (30d)
 26
 Referred Signups (30d)
-792
+803
 Viral Signup Share (30d)
-20.91%
+20.82%
 Repeat Signed-In Visitors
-1,208
+1,226
 1-7d Signed-In Return by Starting Template: chart attached (Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.)
 Signups by Referral Source (90d): chart attached (Signups grouped by referral_source over the window. Null/empty sources are bucketed as direct.)
 Referred Signups Over Time (90d): chart attached (Daily referred (non-direct) signups over the window.)
 Top Referral Sources
 Referral source | Signups
-direct | 2996
-external | 619
-plan_share | 147
+direct | 3053
+external | 629
+plan_share | 148
 clip_share | 26
 Share Funnel (30d): chart attached (View to click to signup funnel for shared surfaces over the window: share_view, share_cta_click, then clip_share signups.)
 Viral Coefficient K (90d)
 0.17
 Viral Participation Rate (90d)
-3.94%
+3.97%
 Active Sharers (90d)
-212
+215
 LLM Feedback Sentiment by Model: chart attached (Explicit thumbs-up and thumbs-down responses grouped by the model that generated the rated response.)
 Inferred Message Sentiment (30d): chart attached (Optional LLM-inferred positive, neutral, and negative message classifications over the last 30 days. This is separate from explicit thumbs feedback.)
 Agent-Native Growth: Extension panels only render in the live dashboard — https://analytics.agent-native.com/dashboards/agent-native-templates-first-party?f_timeRange=30d&f_emailFilter=all
