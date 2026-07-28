@@ -16,7 +16,6 @@ import {
   IconChevronRight,
   IconPlus,
   IconX,
-  IconKeyboard,
   IconInfoCircle,
   IconCheck,
   IconEye,
@@ -46,7 +45,6 @@ import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -353,7 +351,7 @@ function GoogleConnectSidebarButton() {
   }
 
   return (
-    <div className="border-t border-border p-3">
+    <div className="p-3">
       <div className="rounded-lg bg-primary/10 p-3">
         <p className="mb-1 text-xs font-semibold text-foreground">
           {t("settings.connectGoogleCalendar")}
@@ -502,7 +500,7 @@ function GoogleAccountsSection({
   }
 
   return (
-    <div className="border-t border-border px-1.5 py-1.5">
+    <div className="px-1.5 py-1.5">
       <div className="mb-1 flex min-h-8 items-center justify-between px-3">
         <div className="flex items-center">
           <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -769,14 +767,14 @@ export function Sidebar({
         data-open={open ? "true" : "false"}
         data-collapsed={collapsed ? "true" : "false"}
         className={cn(
-          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
+          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full min-w-0 flex-col overflow-hidden bg-sidebar transition-[width,translate] duration-200 ease-out lg:static",
           collapsed ? "w-12" : "w-56",
         )}
       >
         {/* Logo */}
         <div
           className={cn(
-            "flex h-12 shrink-0 items-center justify-between gap-2.5 border-b border-border",
+            "flex h-12 shrink-0 items-center justify-between gap-2.5",
             collapsed ? "px-1" : "px-4",
           )}
         >
@@ -846,7 +844,7 @@ export function Sidebar({
               />
 
               {/* Nav */}
-              <nav className="space-y-0.5 border-t border-border p-2.5">
+              <nav className="space-y-0.5 p-2.5">
                 {navItems.map((item) => {
                   const isActive =
                     item.path === "/"
@@ -886,7 +884,7 @@ export function Sidebar({
                 )}
 
               {/* Other Calendars — people overlays + external ICS feeds combined */}
-              <div className="border-t border-border px-1.5 py-1.5">
+              <div className="px-1.5 py-1.5">
                 <div className="flex min-h-8 items-center justify-between px-3">
                   <div className="flex items-center gap-1">
                     <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -1135,7 +1133,7 @@ export function Sidebar({
             "shrink-0",
             collapsed
               ? "flex flex-col items-center gap-1 px-1 py-2"
-              : "space-y-0.5 border-t border-border p-2.5",
+              : "space-y-0.5 p-2.5",
           )}
         >
           {bottomNavItems.map((item) => {
@@ -1178,29 +1176,6 @@ export function Sidebar({
 
             <div className="flex items-center gap-1 px-1.5 py-1.5">
               <DevDatabaseLink />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-muted-foreground"
-                    onClick={() =>
-                      window.dispatchEvent(new Event("calendar:open-shortcuts"))
-                    }
-                  >
-                    <IconKeyboard className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>
-                    {t("keyboardShortcuts.title")}{" "}
-                    <kbd className="ms-1 rounded border border-border bg-muted px-1 font-mono text-[10px]">
-                      ?
-                    </kbd>
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-              <ThemeToggle className="h-8 w-8" />
             </div>
           </div>
         ) : null}

@@ -441,6 +441,29 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
+enabled and emits the Worker entry point plus static assets under
+`.output/server` and `.output/public`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+Build and deploy the generated Worker with Wrangler:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+You can also select the preset explicitly with
+`NITRO_PRESET=cloudflare_module`. Configure a durable external SQL database
+before deploying; a Worker filesystem is not a persistent application store.
+
 ## AWS Lambda {#aws-lambda}
 
 ```ts filename="vite.config.ts"

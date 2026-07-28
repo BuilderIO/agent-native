@@ -261,7 +261,10 @@ const messages = {
     downloadHtml: "Als HTML herunterladen",
     exportPdf: "Als PDF exportieren",
     exportPptx: "Als PPTX exportieren",
-    downloadGoogleSlides: "Für Google Slides herunterladen",
+    openInGoogleSlides: "In Google Slides öffnen",
+    googleSlidesCreated: "In Google Slides geöffnet",
+    googleSlidesCreatedHint:
+      "Eine Kopie dieser Präsentation wurde in deinem Google Drive erstellt.",
     duplicateDeck: "Deck duplizieren",
   },
   share: {
@@ -474,6 +477,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "Referentenansicht",
+    speakerNotes: "Sprechernotizen",
+    noNotesForSlide: "Keine Notizen für diese Folie",
+    upNext: "Als Nächstes",
+    endOfDeck: "Ende der Präsentation",
+    closePresenterView: "Referentenansicht schließen",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",

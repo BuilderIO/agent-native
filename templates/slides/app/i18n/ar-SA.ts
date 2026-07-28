@@ -258,7 +258,10 @@ const messages = {
     downloadHtml: "تنزيل بصيغة HTML",
     exportPdf: "تصدير بصيغة PDF",
     exportPptx: "تصدير بصيغة PPTX",
-    downloadGoogleSlides: "تنزيل من أجل Google Slides",
+    openInGoogleSlides: "فتح في Google Slides",
+    googleSlidesCreated: "تم الفتح في Google Slides",
+    googleSlidesCreatedHint:
+      "تم إنشاء نسخة من هذا العرض في Google Drive الخاص بك.",
     duplicateDeck: "تكرار العرض",
   },
   share: {
@@ -479,6 +482,12 @@ const messages = {
     slides: "Diapositivas",
   },
   presentation: {
+    presenterView: "عرض مقدّم العرض",
+    speakerNotes: "ملاحظات المتحدث",
+    noNotesForSlide: "لا توجد ملاحظات لهذه الشريحة",
+    upNext: "التالي",
+    endOfDeck: "نهاية العرض",
+    closePresenterView: "إغلاق عرض مقدّم العرض",
     noSlides: "No hay diapositivas para presentar",
     previousSlide: "Diapositiva anterior",
     nextSlide: "Siguiente diapositiva",

@@ -1,5 +1,5 @@
 import { A2AClient } from "../a2a/client.js";
-import type { AgentSkill } from "../a2a/types.js";
+import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
 
 /** Matches the `<available-apps>` prompt block so both surfaces agree. */
@@ -16,6 +16,12 @@ export interface PeerCapabilities {
   skills: AgentSkill[] | null;
   cardDescription?: string;
   error?: string;
+  /**
+   * The full card from this same fetch, for callers that need more than
+   * skills/description (e.g. the peer-probe route's name/securitySchemes).
+   * Kept optional so existing consumers of this shape are unaffected.
+   */
+  card?: AgentCard;
 }
 
 function truncate(value: string, max: number): string {
@@ -35,6 +41,7 @@ export async function loadCapabilities(
       skills: Array.isArray(card.skills) ? card.skills : [],
       cardDescription:
         typeof card.description === "string" ? card.description : undefined,
+      card,
     };
   } catch (error) {
     return {

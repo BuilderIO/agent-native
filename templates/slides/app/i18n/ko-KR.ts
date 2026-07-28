@@ -255,7 +255,9 @@ const messages = {
     downloadHtml: "HTML로 다운로드",
     exportPdf: "PDF로 내보내기",
     exportPptx: "PPTX로 내보내기",
-    downloadGoogleSlides: "Google Slides용 다운로드",
+    openInGoogleSlides: "Google Slides에서 열기",
+    googleSlidesCreated: "Google Slides에서 열었습니다",
+    googleSlidesCreatedHint: "이 덱의 사본이 Google 드라이브에 생성되었습니다.",
     duplicateDeck: "덱 복제",
   },
   share: {
@@ -461,6 +463,12 @@ const messages = {
     slides: "幻灯片",
   },
   presentation: {
+    presenterView: "발표자 보기",
+    speakerNotes: "발표자 노트",
+    noNotesForSlide: "이 슬라이드에는 노트가 없습니다",
+    upNext: "다음 순서",
+    endOfDeck: "덱의 끝",
+    closePresenterView: "발표자 보기 닫기",
     noSlides: "没有可演示的幻灯片",
     previousSlide: "上一张幻灯片",
     nextSlide: "下一张幻灯片",

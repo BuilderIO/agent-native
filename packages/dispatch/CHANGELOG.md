@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.15.25
+
+### Patch Changes
+
+- c849ba0: Allow Dispatch Thread Debug to resolve copied Agent Native request/run IDs to their owning chat threads.
+
 ## 0.15.24
 
 ### Patch Changes

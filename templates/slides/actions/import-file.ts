@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
+import pLimit from "p-limit";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -127,19 +128,28 @@ export default defineAction({
     if (detectedFormat === "pptx") {
       const { parsePptx } =
         await import("../server/handlers/import/pptx-parser.js");
-      const { convertToSlideHtml } =
-        await import("../server/handlers/import/html-converter.js");
       const presentation = await parsePptx(fileBuffer);
       const title = presentation.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
-        const slides = presentation.slides.map((slide) => ({
-          id: newSlideId(),
-          content: convertToSlideHtml(slide),
-          layout: slide.layoutHint ?? "content",
-          notes: slide.notes,
-        }));
+        await assertAccess("deck", deckId, "editor");
+        const pptxOwnerEmail = getRequestUserEmail();
+        if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        const pptxThemeFont = presentation.theme?.fonts?.[0];
+        const uploadLimit = pLimit(4);
+        const pptxResults = await Promise.all(
+          presentation.slides.map((slide, i) =>
+            uploadLimit(() =>
+              buildPptxSlide(slide, i, pptxOwnerEmail, pptxThemeFont),
+            ),
+          ),
+        );
+        const slides = pptxResults.map((r) => r.slide);
+        const imagesSkipped = pptxResults.reduce(
+          (total, r) => total + r.imageSkippedCount,
+          0,
+        );
         await replaceDeckSlides(deckId, title, slides, "import-file:pptx");
         return {
           format: "pptx",
@@ -148,6 +158,7 @@ export default defineAction({
           theme: presentation.theme,
           deckId,
           imported: true,
+          ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
         };
       }
 
@@ -450,6 +461,68 @@ async function importPdfPagesAsFullBleedSlides(args: {
 
 function newSlideId(): string {
   return `slide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// EMF/WMF (Windows metafiles) and TIFF are valid PPTX embed formats but
+// browsers can't render them in an <img> tag — uploading and linking one
+// would just produce a broken image icon.
+const PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/svg+xml",
+  "image/bmp",
+]);
+
+async function buildPptxSlide(
+  slide: import("../server/handlers/import/pptx-parser.js").ParsedSlide,
+  slideIndex: number,
+  ownerEmail: string,
+  themeFont: string | undefined,
+): Promise<{
+  slide: { id: string; content: string; layout: string; notes?: string };
+  imageSkippedCount: number;
+}> {
+  const { convertToSlideHtml } =
+    await import("../server/handlers/import/html-converter.js");
+  const image = slide.images[0];
+  const uploadable =
+    image && PPTX_BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(image.mimeType)
+      ? image
+      : undefined;
+  const imageUrl = uploadable
+    ? await uploadFile({
+        data: Buffer.from(uploadable.data),
+        filename:
+          "pptx-import-" +
+          Date.now() +
+          "-s" +
+          slideIndex +
+          "-" +
+          uploadable.name,
+        mimeType: uploadable.mimeType,
+        ownerEmail,
+        recordAsset: false,
+      })
+        .then((result) => result?.url)
+        // A single slide's upload failing (network/API/rate-limit)
+        // shouldn't abort the whole deck replacement — fall back to a
+        // placeholder like an unsupported format would.
+        .catch(() => undefined)
+    : undefined;
+  return {
+    slide: {
+      id: newSlideId(),
+      content: convertToSlideHtml(slide, imageUrl, themeFont),
+      layout: slide.layoutHint ?? "content",
+      notes: slide.notes,
+    },
+    // Only the first image on a slide is ever uploaded, so every other
+    // image on that slide is unconditionally dropped too — not just the
+    // first one when it's unsupported.
+    imageSkippedCount: Math.max(0, slide.images.length - (imageUrl ? 1 : 0)),
+  };
 }
 
 function titleFromPath(filePath: string): string {
