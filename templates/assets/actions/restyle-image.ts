@@ -11,6 +11,7 @@ import {
 } from "../shared/api.js";
 import { getAssetOrThrow } from "./_helpers.js";
 import generateImage from "./generate-image.js";
+import { resolveLiveBatchContinuation } from "./variant-slots.js";
 
 export default defineAction({
   description:
@@ -44,12 +45,16 @@ export default defineAction({
     const prompt =
       args.prompt?.trim() ||
       "Apply this library's brand style to the subject image while preserving the subject, pose, composition, and framing.";
+    const continuation = await resolveLiveBatchContinuation({
+      threadId: context?.threadId,
+      libraryId: subject.libraryId,
+    });
     return generateImage.run(
       {
         libraryId: subject.libraryId,
         collectionId: subject.collectionId ?? undefined,
-        presetId: args.presetId,
-        sessionId: args.sessionId,
+        presetId: args.presetId ?? continuation?.presetId ?? undefined,
+        sessionId: args.sessionId ?? continuation?.sessionId ?? undefined,
         prompt,
         aspectRatio: (args.aspectRatio ?? subject.aspectRatio ?? "16:9") as any,
         imageSize: (args.imageSize ?? subject.imageSize ?? "2K") as any,
@@ -61,6 +66,7 @@ export default defineAction({
         groundingMode: "auto",
         subjectAssetId: subject.id,
         slotId: args.slotId,
+        variantBatchId: continuation?.variantBatchId,
         source: args.source,
         callerAppId: args.callerAppId,
         contextModeOverride: args.contextModeOverride,

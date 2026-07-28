@@ -5,6 +5,7 @@ import { z } from "zod";
 import { IMAGE_MODELS, IMAGE_QUALITY_TIERS } from "../shared/api.js";
 import { getAssetOrThrow } from "./_helpers.js";
 import generateImage from "./generate-image.js";
+import { resolveLiveBatchContinuation } from "./variant-slots.js";
 
 export default defineAction({
   description:
@@ -27,10 +28,16 @@ export default defineAction({
   parallelSafe: true,
   run: async (args, context?: ActionRunContext) => {
     const asset = await getAssetOrThrow(args.assetId);
+    const continuation = await resolveLiveBatchContinuation({
+      threadId: context?.threadId,
+      libraryId: asset.libraryId,
+    });
     return generateImage.run(
       {
         libraryId: asset.libraryId,
         collectionId: asset.collectionId ?? undefined,
+        presetId: continuation?.presetId ?? undefined,
+        sessionId: continuation?.sessionId ?? undefined,
         prompt: args.instruction,
         aspectRatio: (asset.aspectRatio ?? "16:9") as any,
         imageSize: (asset.imageSize ?? "2K") as any,
@@ -43,6 +50,7 @@ export default defineAction({
         groundingMode: "off",
         subjectAssetId: asset.id,
         slotId: args.slotId,
+        variantBatchId: continuation?.variantBatchId,
         source: args.source,
         callerAppId: args.callerAppId,
         contextModeOverride: args.contextModeOverride,

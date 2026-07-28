@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAssetOrThrowMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const resolveLiveBatchContinuationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -17,6 +18,10 @@ vi.mock("./generate-image.js", () => ({
   },
 }));
 
+vi.mock("./variant-slots.js", () => ({
+  resolveLiveBatchContinuation: resolveLiveBatchContinuationMock,
+}));
+
 import action from "./edit-image.js";
 
 describe("edit-image", () => {
@@ -30,6 +35,7 @@ describe("edit-image", () => {
       imageSize: "2K",
     });
     generateImageRunMock.mockResolvedValue({ id: "generated-1" });
+    resolveLiveBatchContinuationMock.mockResolvedValue(null);
   });
 
   it("delegates to generate-image as a source-guided full-image edit", async () => {
@@ -56,6 +62,37 @@ describe("edit-image", () => {
         groundingMode: "off",
         includeLogo: false,
         tier: "fast",
+      }),
+      context,
+    );
+  });
+
+  it("continues the caller's live batch so prior candidates stay visible", async () => {
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: null,
+      presetId: "preset-1",
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      {
+        assetId: "asset-target",
+        instruction: "Make the background navy",
+        source: "chat",
+      },
+      context,
+    );
+
+    expect(resolveLiveBatchContinuationMock).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      libraryId: "library-1",
+    });
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        presetId: "preset-1",
+        variantBatchId: "batch-live-1",
       }),
       context,
     );

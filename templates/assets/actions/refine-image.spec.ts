@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getAssetOrThrowMock = vi.hoisted(() => vi.fn());
 const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const resolveLiveBatchContinuationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -17,6 +18,10 @@ vi.mock("./generate-image.js", () => ({
   default: {
     run: generateImageRunMock,
   },
+}));
+
+vi.mock("./variant-slots.js", () => ({
+  resolveLiveBatchContinuation: resolveLiveBatchContinuationMock,
 }));
 
 import action from "./refine-image.js";
@@ -35,6 +40,7 @@ describe("refine-image", () => {
       metadata: "{}",
     });
     generateImageRunMock.mockResolvedValue({ id: "generated-1" });
+    resolveLiveBatchContinuationMock.mockResolvedValue(null);
   });
 
   it("forwards the action run context so the refined candidate lands in the caller's thread tray", async () => {
@@ -52,6 +58,37 @@ describe("refine-image", () => {
       expect.objectContaining({
         libraryId: "library-1",
         sourceAssetId: "asset-source",
+      }),
+      context,
+    );
+  });
+
+  it("continues the caller's live batch so prior candidates stay visible", async () => {
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: null,
+      presetId: "preset-1",
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      {
+        assetId: "asset-source",
+        feedback: "Reduce the text",
+        source: "chat",
+      },
+      context,
+    );
+
+    expect(resolveLiveBatchContinuationMock).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      libraryId: "library-1",
+    });
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        presetId: "preset-1",
+        variantBatchId: "batch-live-1",
       }),
       context,
     );

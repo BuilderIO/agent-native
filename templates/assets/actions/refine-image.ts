@@ -9,6 +9,7 @@ import {
   requireGenerationSessionInLibrary,
 } from "./_helpers.js";
 import generateImage from "./generate-image.js";
+import { resolveLiveBatchContinuation } from "./variant-slots.js";
 
 export default defineAction({
   description:
@@ -61,12 +62,16 @@ export default defineAction({
       "",
       "Preserve the strongest successful parts of the prior candidate unless the feedback contradicts them.",
     ].join("\n");
+    const continuation = await resolveLiveBatchContinuation({
+      threadId: context?.threadId,
+      libraryId: asset.libraryId,
+    });
     return generateImage.run(
       {
         libraryId: asset.libraryId,
         collectionId: asset.collectionId ?? undefined,
-        presetId,
-        sessionId,
+        presetId: presetId ?? continuation?.presetId ?? undefined,
+        sessionId: sessionId ?? continuation?.sessionId ?? undefined,
         prompt,
         aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
         imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,
@@ -76,6 +81,7 @@ export default defineAction({
         groundingMode: "auto",
         sourceAssetId: asset.id,
         slotId,
+        variantBatchId: continuation?.variantBatchId,
         source,
         callerAppId,
         contextModeOverride,

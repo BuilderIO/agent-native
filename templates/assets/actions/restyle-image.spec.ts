@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getAssetOrThrowMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const resolveLiveBatchContinuationMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -17,6 +18,10 @@ vi.mock("./generate-image.js", () => ({
   },
 }));
 
+vi.mock("./variant-slots.js", () => ({
+  resolveLiveBatchContinuation: resolveLiveBatchContinuationMock,
+}));
+
 import action from "./restyle-image.js";
 
 describe("restyle-image", () => {
@@ -30,6 +35,7 @@ describe("restyle-image", () => {
       imageSize: "2K",
     });
     generateImageRunMock.mockResolvedValue({ id: "generated-1" });
+    resolveLiveBatchContinuationMock.mockResolvedValue(null);
   });
 
   it("delegates to generate-image with the subject first and restyle intent", async () => {
@@ -55,6 +61,37 @@ describe("restyle-image", () => {
         styleStrength: "strong",
         tier: "best",
         includeLogo: false,
+      }),
+      context,
+    );
+  });
+
+  it("continues the caller's live batch so prior candidates stay visible", async () => {
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: "collection-1",
+      presetId: null,
+      sessionId: "session-1",
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      {
+        subjectAssetId: "asset-subject",
+        styleStrength: "balanced",
+        source: "chat",
+      },
+      context,
+    );
+
+    expect(resolveLiveBatchContinuationMock).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      libraryId: "library-1",
+    });
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "session-1",
+        variantBatchId: "batch-live-1",
       }),
       context,
     );
