@@ -1384,9 +1384,8 @@ async function createDbExecInternal(
                 const startedAt = Date.now();
                 const remainingMs = () =>
                   Math.max(1, timeoutMs - (Date.now() - startedAt));
-                const statementTimeoutMs = postgresStatementTimeoutMs(
-                  remainingMs(),
-                );
+                const statementTimeoutMs =
+                  postgresStatementTimeoutMs(remainingMs());
                 await queryNeonClient(
                   client,
                   `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
