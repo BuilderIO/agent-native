@@ -532,6 +532,7 @@ const messages = {
     builderDesignSystemId: "デザインシステム",
     builderJobId: "Job",
     openInBuilder: "Builder で開く",
+    decodeFailed: "デコードに失敗しました: {{error}}",
     websiteUrl: "Web サイト URL",
     websitePlaceholder: "example.com または Nike",
     add: "追加",

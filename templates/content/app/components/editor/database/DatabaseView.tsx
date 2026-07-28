@@ -392,7 +392,12 @@ export function previewDraftMissingCasRecovery(args: {
 }
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
-type SidebarMessageKey = keyof (typeof messagesByLocale)["en-US"]["sidebar"];
+type SidebarMessages = (typeof messagesByLocale)["en-US"]["sidebar"];
+type SidebarMessageKey = {
+  [Key in keyof SidebarMessages]: SidebarMessages[Key] extends string
+    ? Key
+    : never;
+}[keyof SidebarMessages];
 
 export function dbText(
   key: DatabaseMessageKey,

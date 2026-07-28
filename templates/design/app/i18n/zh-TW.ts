@@ -1243,6 +1243,7 @@ const messages = {
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
     figmaParsingTitle: "正在啟動 Builder DSI 索引...",
     figmaParsingDescription: "Builder 會擷取權杖、元件、資產和使用指引",
+    figmaDecodeFailed: "解碼失敗：{{error}}",
     uploadFig: "連接 Figma .fig 檔案",
     figmaSaveLocalCopy: "上傳 Figma 本機副本：File -> Save local copy",
     websiteUrl: "網站 URL",
