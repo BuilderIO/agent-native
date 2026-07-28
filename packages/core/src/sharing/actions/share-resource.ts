@@ -298,13 +298,23 @@ export default defineAction({
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         let brandLogoUrl: string | undefined;
-        if (reg.getShareEmailLogoUrl) {
+        if (reg.getLogoUrl) {
           try {
-            brandLogoUrl =
-              (await reg.getShareEmailLogoUrl(resource)) ?? undefined;
+            brandLogoUrl = (await reg.getLogoUrl(resource)) ?? undefined;
           } catch (err) {
             console.error(
               "[share-resource] brand logo resolver failed; using default logo:",
+              err,
+            );
+          }
+        }
+        let brandName = appName;
+        if (reg.getBrandName) {
+          try {
+            brandName = (await reg.getBrandName(resource))?.trim() || appName;
+          } catch (err) {
+            console.error(
+              "[share-resource] brand name resolver failed; using app name:",
               err,
             );
           }
@@ -326,7 +336,7 @@ export default defineAction({
         }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
-          brandName: appName,
+          brandName,
           brandLogoUrl,
           preheader: subject,
           heading: "You've been given access",

@@ -42,7 +42,16 @@ export interface ShareableResourceRegistration {
    * (e.g. the sharing org's own logo), or undefined to fall back. Receives the
    * resource row being shared so the template can scope the logo to its org.
    */
-  getShareEmailLogoUrl?: (
+  getLogoUrl?: (
+    resource: any,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
+   * Optional resolver for the brand name shown beside the logo in the
+   * share-notification email header. Return a display name (e.g. the sharing
+   * org's name) to override the app name, or undefined to keep the default.
+   * Receives the resource row being shared.
+   */
+  getBrandName?: (
     resource: any,
   ) => string | undefined | Promise<string | undefined>;
   /**

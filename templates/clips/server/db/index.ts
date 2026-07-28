@@ -1,4 +1,5 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
+import { organizations } from "@agent-native/core/org";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { registerShareableResource } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -85,6 +86,19 @@ async function orgBrandLogoUrl(
   return absoluteUrl(row?.brandLogoUrl);
 }
 
+/** Show the sharing org's name beside the logo instead of the app name. */
+async function orgBrandName(
+  organizationId: string | undefined,
+): Promise<string | undefined> {
+  if (!organizationId) return undefined;
+  const [row] = await getDb()
+    .select({ name: organizations.name })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  return row?.name?.trim() || undefined;
+}
+
 registerShareableResource({
   type: "recording",
   resourceTable: schema.recordings,
@@ -92,8 +106,8 @@ registerShareableResource({
   displayName: "Recording",
   titleColumn: "title",
   getResourcePath: (recording) => `/r/${recording.id}`,
-  getShareEmailLogoUrl: (recording) =>
-    orgBrandLogoUrl(recording.organizationId),
+  getLogoUrl: (recording) => orgBrandLogoUrl(recording.organizationId),
+  getBrandName: (recording) => orgBrandName(recording.organizationId),
   getShareEmailHeroHtml: (recording, ctx) =>
     recordingShareHeroHtml(recording, ctx),
   getDb,
