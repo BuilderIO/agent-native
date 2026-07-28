@@ -133,9 +133,11 @@ export default defineAction({
         return { reconciled: false, tracked: true };
       }
       if (state.tabId) {
-        const claimedAt = Date.parse(state.claimedAt ?? "");
+        const claimedAt = Date.parse(
+          state.claimedAt ?? state.requestedAt ?? "",
+        );
         if (
-          Number.isFinite(claimedAt) &&
+          !Number.isFinite(claimedAt) ||
           Date.now() - claimedAt < CLAIM_LEASE_MS
         ) {
           return {

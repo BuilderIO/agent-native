@@ -84,6 +84,31 @@ describe("reconcile-workflow-generation", () => {
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
   });
 
+  it("does not replace a claim with a malformed lease timestamp", async () => {
+    mocks.readAppState.mockResolvedValue({
+      kind: "email",
+      status: "generating",
+      recordingId: "rec_123",
+      requestedAt,
+      tabId: "clips-workflow:rec_123:request:chat-other",
+      claimedAt: "not-a-date",
+    });
+
+    await expect(
+      action.run({
+        operation: "track",
+        recordingId: "rec_123",
+        requestedAt,
+        tabId,
+      }),
+    ).resolves.toEqual({
+      reconciled: false,
+      tracked: false,
+      reason: "claimed",
+    });
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+  });
+
   it("recovers an abandoned claim after its lease expires", async () => {
     mocks.readAppState.mockResolvedValue({
       kind: "email",
