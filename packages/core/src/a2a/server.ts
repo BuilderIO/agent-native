@@ -43,8 +43,8 @@ function warnA2AUnauthOnce(): void {
   _warnedUnauthA2A = true;
   // eslint-disable-next-line no-console
   console.warn(
-    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint accepting an unauthenticated loopback request. " +
-      "Non-loopback callers are rejected; set A2A_SECRET (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev) before deploying.",
+    "[a2a] No A2A_SECRET or apiKeyEnv configured — A2A endpoint accepting an unauthenticated loopback request from a NODE_ENV=development/test runtime. " +
+      "Non-loopback callers, unrecognized runtimes, and self-hosted deployments behind a local reverse proxy are rejected; set A2A_SECRET (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev) before deploying.",
   );
 }
 

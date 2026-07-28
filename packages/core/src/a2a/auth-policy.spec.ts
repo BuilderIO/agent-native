@@ -161,8 +161,13 @@ describe("a2a auth-policy", () => {
       expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
     });
 
-    it("is true with no secret, loopback true, dev", () => {
+    it("is true with no secret, loopback true, NODE_ENV=development", () => {
       process.env.NODE_ENV = "development";
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(true);
+    });
+
+    it("is true with no secret, loopback true, NODE_ENV=test", () => {
+      process.env.NODE_ENV = "test";
       expect(isTrustedLocalRuntime({ loopback: true })).toBe(true);
     });
 
@@ -178,6 +183,24 @@ describe("a2a auth-policy", () => {
 
     it("is false on a recognized cloud host regardless of loopback", () => {
       process.env.NETLIFY = "true";
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+    });
+
+    // Regression: a bare self-hosted VPS/Docker/K8s host where the operator
+    // runs the app bound to 127.0.0.1 behind Nginx/Caddy and forgets to set
+    // NODE_ENV. Every public request appears loopback-peered from the app's
+    // point of view. Without a positive dev signal we MUST fail closed so
+    // that anonymous JSON-RPC / _process-task is not silently reachable
+    // through the local reverse proxy.
+    it("is false when loopback is true but NODE_ENV is unset (reverse-proxy relay case)", () => {
+      // NODE_ENV was cleared in beforeEach — this simulates the bare
+      // Docker/VPS runtime that isn't in isA2AProductionRuntime()'s list.
+      expect(process.env.NODE_ENV).toBeUndefined();
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+    });
+
+    it("is false when loopback is true but NODE_ENV is an unrecognized value", () => {
+      process.env.NODE_ENV = "staging";
       expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
     });
   });
