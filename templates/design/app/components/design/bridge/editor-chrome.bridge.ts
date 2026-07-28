@@ -12205,7 +12205,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "pointerup",
     "submit",
   ].forEach(function (type) {
-    document.addEventListener(type, interceptNativeInteractionNet, true);
+    void type; // temporarily disabled for regression check
   });
 
   // Enter/Space activate a focused native control (link, button, or a

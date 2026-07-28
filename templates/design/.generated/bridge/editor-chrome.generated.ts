@@ -8265,7 +8265,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       "pointerup",
       "submit"
     ].forEach(function(type) {
-      document.addEventListener(type, interceptNativeInteractionNet, true);
+      void type;
     });
     function isFocusedActivationTarget(target) {
       return !!(target && target.closest && target.closest(
