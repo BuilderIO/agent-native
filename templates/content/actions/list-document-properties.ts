@@ -14,7 +14,12 @@ export default defineAction({
     "List the Notion-style property definitions and values for one document.",
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
-    databaseId: z.string().describe("Database ID that owns the properties"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the properties; omit only for context-free entry points",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,

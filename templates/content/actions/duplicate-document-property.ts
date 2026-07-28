@@ -25,7 +25,12 @@ export default defineAction({
     "Duplicate a Notion-style property definition and copy its stored values.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
-    databaseId: z.string().describe("Database ID that owns the property"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     propertyId: z.string().describe("Property definition ID to duplicate"),
   }),
   run: async ({ documentId, databaseId, propertyId }) => {

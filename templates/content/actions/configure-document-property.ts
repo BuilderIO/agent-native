@@ -35,7 +35,12 @@ export default defineAction({
     documentId: z
       .string()
       .describe("Document ID used to scope the property workspace"),
-    databaseId: z.string().describe("Database ID that owns the property"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     name: z.string().min(1).describe("Property name"),
     description: z
       .string()

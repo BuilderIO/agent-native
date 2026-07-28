@@ -27,6 +27,10 @@ let getDocumentAction: typeof import("./get-document.js").default;
 let pullDocumentAction: typeof import("./pull-document.js").default;
 let listDocumentPropertiesAction: typeof import("./list-document-properties.js").default;
 let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
+let setDocumentPropertyAction: typeof import("./set-document-property.js").default;
+let duplicateDocumentPropertyAction: typeof import("./duplicate-document-property.js").default;
+let deleteDocumentPropertyAction: typeof import("./delete-document-property.js").default;
+let reorderDocumentPropertyAction: typeof import("./reorder-document-property.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let deleteDocumentAction: typeof import("./delete-document.js").default;
 let restoreDocumentAction: typeof import("./restore-document.js").default;
@@ -59,6 +63,16 @@ beforeAll(async () => {
     .default;
   configureDocumentPropertyAction = (
     await import("./configure-document-property.js")
+  ).default;
+  setDocumentPropertyAction = (await import("./set-document-property.js"))
+    .default;
+  duplicateDocumentPropertyAction = (
+    await import("./duplicate-document-property.js")
+  ).default;
+  deleteDocumentPropertyAction = (await import("./delete-document-property.js"))
+    .default;
+  reorderDocumentPropertyAction = (
+    await import("./reorder-document-property.js")
   ).default;
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   deleteDocumentAction = (await import("./delete-document.js")).default;
@@ -182,6 +196,62 @@ async function databaseRow(databaseId: string) {
 }
 
 describe("database-scoped document properties", () => {
+  it("accepts legacy context-free property action inputs", async () => {
+    const missingDocumentId = nextId("missing_document");
+    const missingPropertyId = nextId("missing_property");
+    const runAsOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+
+    await expect(
+      runAsOwner(() =>
+        listDocumentPropertiesAction.run({ documentId: missingDocumentId }),
+      ),
+    ).rejects.toThrow(`Document "${missingDocumentId}" not found`);
+    await expect(
+      runAsOwner(() =>
+        configureDocumentPropertyAction.run({
+          documentId: missingDocumentId,
+          name: "Legacy property",
+          type: "text",
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${missingDocumentId}`);
+    await expect(
+      runAsOwner(() =>
+        setDocumentPropertyAction.run({
+          documentId: missingDocumentId,
+          propertyId: missingPropertyId,
+          value: "Legacy value",
+        }),
+      ),
+    ).rejects.toThrow(`Property "${missingPropertyId}" not found`);
+    await expect(
+      runAsOwner(() =>
+        duplicateDocumentPropertyAction.run({
+          documentId: missingDocumentId,
+          propertyId: missingPropertyId,
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${missingDocumentId}`);
+    await expect(
+      runAsOwner(() =>
+        deleteDocumentPropertyAction.run({
+          documentId: missingDocumentId,
+          propertyId: missingPropertyId,
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${missingDocumentId}`);
+    await expect(
+      runAsOwner(() =>
+        reorderDocumentPropertyAction.run({
+          documentId: missingDocumentId,
+          propertyId: missingPropertyId,
+          targetPropertyId: nextId("missing_target_property"),
+        }),
+      ),
+    ).rejects.toThrow(`No access to document ${missingDocumentId}`);
+  });
+
   it("keeps reads and Add property mutations on the requested membership", async () => {
     const db = getDb();
     const now = new Date().toISOString();

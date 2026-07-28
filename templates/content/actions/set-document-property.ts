@@ -26,7 +26,12 @@ export default defineAction({
   description: "Set a Notion-style property value on a document.",
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
-    databaseId: z.string().describe("Database ID that owns the property"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     propertyId: z.string().describe("Property definition ID"),
     value: z.unknown().describe("Value for the property type"),
   }),
@@ -40,7 +45,7 @@ export default defineAction({
     if (!definition.databaseId) {
       throw new Error(`Property "${propertyId}" is not attached to a database`);
     }
-    if (definition.databaseId !== databaseId) {
+    if (databaseId && definition.databaseId !== databaseId) {
       throw new Error(`Property "${propertyId}" not found`);
     }
     const database = await getDatabaseById(definition.databaseId);
