@@ -588,7 +588,14 @@ async function materializeCommand(
   const parent = path.dirname(path.resolve(outDir));
   fs.mkdirSync(parent, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
-  const backup = `${tmp}-backup`;
+  // Reserve `backup` with mkdtemp too (not a derived `${tmp}-backup` string) so no
+  // concurrent process can occupy the path first; renaming a directory onto an
+  // existing *empty* dir is a valid replace on POSIX, so `hadOld`'s rename below
+  // still lands cleanly on it.
+  const backup = fs.mkdtempSync(
+    path.join(parent, ".template-materialize-backup-"),
+  );
+  let backupHoldsOriginal = false;
   try {
     const result = await materializeTemplate({
       appName: name ?? template,
@@ -598,11 +605,18 @@ async function materializeCommand(
       destDir: tmp,
     });
     const hadOld = fs.existsSync(outDir);
-    if (hadOld) fs.renameSync(outDir, backup);
+    if (hadOld) {
+      fs.renameSync(outDir, backup);
+      backupHoldsOriginal = true;
+    }
     try {
       fs.renameSync(tmp, outDir);
+      backupHoldsOriginal = false;
     } catch (err) {
-      if (hadOld) fs.renameSync(backup, outDir);
+      if (hadOld) {
+        fs.renameSync(backup, outDir);
+        backupHoldsOriginal = false;
+      }
       throw err;
     }
     io.out(
@@ -611,7 +625,16 @@ async function materializeCommand(
     return 0;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
-    fs.rmSync(backup, { recursive: true, force: true });
+    // If restoring from `backup` above itself threw, `backupHoldsOriginal` is still
+    // true and `backup` is the only remaining copy of the pre-existing output —
+    // leave it on disk instead of deleting the last copy of the user's data.
+    if (!backupHoldsOriginal) {
+      fs.rmSync(backup, { recursive: true, force: true });
+    } else {
+      io.err(
+        `Failed to restore ${outDir}; the previous contents were preserved at ${backup}.`,
+      );
+    }
   }
 }
 
