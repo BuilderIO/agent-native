@@ -105,6 +105,19 @@ describe("sharing avatar rendering", () => {
     );
   });
 
+  it("defers a new email when an avatar instance is reused", () => {
+    avatarMocks.url = "data:image/jpeg;base64,reused-avatar";
+
+    render(<ShareAvatar label="first@example.com" />);
+    revealAvatar();
+    expect(avatarMocks.emails).toEqual([null, "first@example.com"]);
+
+    render(<ShareAvatar label="second@example.com" />);
+
+    expect(avatarMocks.emails).toEqual([null, "first@example.com", null]);
+    expect(container.querySelector("img")).toBeNull();
+  });
+
   it("keeps organization shares on the group fallback", () => {
     render(<ShareAvatar label="organization-id" org />);
 

@@ -3,21 +3,21 @@ import { useEffect, useRef, useState } from "react";
 
 export function useVisibleAvatarUrl(email: string | null | undefined) {
   const avatarRef = useRef<HTMLSpanElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
+  const [visibleEmail, setVisibleEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (!email) return;
 
     const element = avatarRef.current;
     if (!element || typeof IntersectionObserver === "undefined") {
-      setIsVisible(true);
+      setVisibleEmail(email);
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
-        setIsVisible(true);
+        setVisibleEmail(email);
         observer.disconnect();
       },
       { rootMargin: "48px" },
@@ -29,6 +29,6 @@ export function useVisibleAvatarUrl(email: string | null | undefined) {
 
   return {
     avatarRef,
-    avatarUrl: useAvatarUrl(isVisible ? email : null),
+    avatarUrl: useAvatarUrl(visibleEmail === email ? email : null),
   };
 }
