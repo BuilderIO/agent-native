@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
-const MAX_FIG_BYTES = 200 * 1024 * 1024;
+const MAX_FIG_BYTES = 512 * 1024 * 1024;
 
 interface AttachmentInput {
   name?: unknown;
