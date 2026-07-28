@@ -28,8 +28,8 @@ describe("agent chat startup", () => {
 
     expect(mcpSetup).toContain("new McpClientManager(null)");
     expect(mcpSetup).not.toContain("await mcpManager.start()");
-    expect(source.indexOf("void initializeMcpManager()")).toBeGreaterThan(
-      source.indexOf("mcpManager.onChange"),
-    );
+    expect(
+      source.indexOf("mcpInitializationPromise = initializeMcpManager()"),
+    ).toBeGreaterThan(source.lastIndexOf("mcpManager.onChange"));
   });
 });

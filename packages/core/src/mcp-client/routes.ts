@@ -367,6 +367,9 @@ async function reconfigureManager(manager: McpClientManager): Promise<void> {
 export function mountMcpServersRoutes(
   nitroApp: any,
   manager: McpClientManager,
+  options: {
+    waitUntilReady?: () => Promise<void>;
+  } = {},
 ): void {
   const mountedApps: WeakSet<object> = ((
     globalThis as any
@@ -375,13 +378,17 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: () => reconfigureManager(manager),
+    reconfigure: async () => {
+      await options.waitUntilReady?.();
+      await reconfigureManager(manager);
+    },
   });
 
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/servers",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -421,6 +428,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/builtin",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -442,6 +450,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/apps",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")

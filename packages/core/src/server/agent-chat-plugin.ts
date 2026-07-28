@@ -556,6 +556,7 @@ export function createAgentChatPlugin(
       const mcpManager = new McpClientManager(null);
       setGlobalMcpManager(mcpManager);
       const mcpActionEntries: Record<string, ActionEntry> = {};
+      let mcpInitializationPromise: Promise<void> | null = null;
       const initializeMcpManager = async (): Promise<void> => {
         let mcpConfig = await buildMergedConfig().catch((err) => {
           console.warn(
@@ -585,6 +586,8 @@ export function createAgentChatPlugin(
           console.warn(
             `[mcp-client] initialization failed: ${err?.message ?? err}. Continuing without MCP tools.`,
           );
+        } finally {
+          startMcpConfigRefresh(mcpManager);
         }
       };
       const getJobMcpActionEntries = (
@@ -607,8 +610,11 @@ export function createAgentChatPlugin(
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
       mountMcpStatusRoute(nitroApp, mcpManager);
-      mountMcpServersRoutes(nitroApp, mcpManager);
-      startMcpConfigRefresh(mcpManager);
+      mountMcpServersRoutes(nitroApp, mcpManager, {
+        // Serialize an unusually early settings mutation behind the initial
+        // config snapshot so stale startup data cannot overwrite the write.
+        waitUntilReady: () => mcpInitializationPromise ?? Promise.resolve(),
+      });
       // Hub-serve: expose org-scope servers to other agent-native apps in the
       // workspace when `AGENT_NATIVE_MCP_HUB_TOKEN` is set (dispatch, by
       // convention). Gated by the env var so mounting is a no-op otherwise.
@@ -5682,7 +5688,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }
       }
 
-      void initializeMcpManager();
+      mcpInitializationPromise = initializeMcpManager().catch((err) => {
+        console.warn(
+          `[mcp-client] deferred initialization failed: ${err?.message ?? err}`,
+        );
+      });
+      void mcpInitializationPromise;
 
       // ─── Agent Teams orphan sweep ─────────────────────────────────────
       // Re-fires stuck/queued dispatches when the browser is closed and the
