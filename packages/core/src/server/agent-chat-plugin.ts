@@ -763,6 +763,7 @@ export function createAgentChatPlugin(
                 (f: string) =>
                   f.endsWith(".ts") &&
                   !f.startsWith("_") &&
+                  !/\.(test|spec)\.ts$/.test(f) &&
                   !skipFiles.has(f.replace(/\.ts$/, "")),
               );
             for (const file of files) {
