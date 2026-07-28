@@ -554,11 +554,9 @@ async function runForTarget(
 
 /**
  * Write the post-processed template tree to a directory — the pristine,
- * template-derived output `create` would produce (no install/git/skills). This
- * is the monorepo half of the vendor-branch starter mirror: the public monorepo
- * materializes `templates/chat` here and rsyncs it onto the private starter's
- * `template` branch. `--to` defaults to the local template (walked up from the
- * package); pass a ref to fetch from GitHub instead.
+ * template-derived output `create` would produce (no install/git/skills).
+ * `--to` defaults to the local template (walked up from the package); pass a ref
+ * to fetch from GitHub instead.
  */
 async function materializeCommand(
   rest: string[],
@@ -576,22 +574,19 @@ async function materializeCommand(
     io.err("template materialize requires --template <name>.");
     return 1;
   }
-  // Materialize into a UNIQUE staging dir in the destination's parent, then swap
-  // it in with a crash-safe move-old-aside → move-staged-in → restore-on-failure
-  // dance. Directory replacement isn't a single atomic op on POSIX (you can't
-  // rename onto a non-empty dir), so the previous delete-then-rename left a window
-  // where a rename failure — and the finally cleanup — destroyed both the old and
-  // the staged tree. Here the old tree is only ever moved (never deleted before
-  // the new one is in place) and is restored if the swap-in fails; a crash between
-  // the two renames leaves it recoverable under `backup`. All paths are unique
-  // siblings on the same filesystem, so each rename is atomic and can't collide.
+  // Stage into a unique sibling dir, then swap it in crash-safely: move the old
+  // tree aside, move the staged tree in, and restore the old one if that fails.
+  // Directory replacement isn't atomic on POSIX (you can't rename onto a non-empty
+  // dir), so the old tree is only ever moved — never deleted before the new one is
+  // in place — and a crash between the two renames leaves it recoverable under
+  // `backup`. Unique same-filesystem siblings keep each rename atomic and
+  // collision-free.
   const parent = path.dirname(path.resolve(outDir));
   fs.mkdirSync(parent, { recursive: true });
   const tmp = fs.mkdtempSync(path.join(parent, ".template-materialize-"));
-  // Reserve `backup` with mkdtemp too (not a derived `${tmp}-backup` string) so no
-  // concurrent process can occupy the path first; renaming a directory onto an
-  // existing *empty* dir is a valid replace on POSIX, so `hadOld`'s rename below
-  // still lands cleanly on it.
+  // `backup` is a unique dir too, so a concurrent process can't occupy the path;
+  // renaming a directory onto an existing *empty* dir is a valid replace on POSIX,
+  // so the `hadOld` rename below still lands cleanly on it.
   const backup = fs.mkdtempSync(
     path.join(parent, ".template-materialize-backup-"),
   );
