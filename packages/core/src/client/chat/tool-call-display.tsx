@@ -4,6 +4,7 @@
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
 import {
   IconLoader2,
+  IconAlertTriangle,
   IconCircleX,
   IconCheck,
   IconChevronRight,
@@ -710,6 +711,7 @@ function ToolCallDisplayGeneric({
       ? args.agent
       : null;
   const isAgentError = isAgentCall && result === "Error calling agent";
+  const isUnknownOutcome = !isRunning && outcome === "unknown";
   const agentStreamText = isRawCallAgent
     ? (result ?? "")
     : isAgentCall
@@ -871,6 +873,8 @@ function ToolCallDisplayGeneric({
             <IconLoader2 className="size-3.5 animate-spin" />
           ) : isAgentError ? (
             <IconCircleX className="size-3.5 text-destructive" />
+          ) : isUnknownOutcome ? (
+            <IconAlertTriangle className="size-3.5 text-muted-foreground" />
           ) : (
             <>
               <ToolIcon
@@ -935,6 +939,12 @@ function ToolCallDisplayGeneric({
           )}
         </div>
       </AnimatedCollapse>
+      {isUnknownOutcome && (
+        <p role="status" className="ps-5 text-xs text-muted-foreground">
+          Interrupted before this finished reporting — it may or may not have
+          completed. Check before retrying.
+        </p>
+      )}
       {approval && (
         <ApprovalAffordance toolName={toolName} approval={approval} />
       )}
