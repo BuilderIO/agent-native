@@ -306,6 +306,20 @@ describe("workflow generation cancellation", () => {
         detail: { isRunning: false, tabId: workflowTabId },
       }),
     );
+    expect(mocks.callAction).not.toHaveBeenCalledWith(
+      "reconcile-workflow-generation",
+      expect.objectContaining({ operation: "stop" }),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent("agentNative.chatRunning", {
+        detail: {
+          isRunning: false,
+          tabId: workflowTabId,
+          reason: "stopped",
+        },
+      }),
+    );
 
     await vi.waitFor(
       () =>

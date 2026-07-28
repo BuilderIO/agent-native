@@ -115,7 +115,7 @@ export interface FrameOriginMessage {
 
 export interface ChatRunningMessage {
   type: "agentNative.chatRunning";
-  detail: { isRunning: boolean; tabId?: string };
+  detail: { isRunning: boolean; tabId?: string; reason?: "stopped" };
 }
 
 export interface UserInfoMessage {

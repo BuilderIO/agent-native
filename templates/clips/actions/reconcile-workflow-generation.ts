@@ -97,7 +97,24 @@ export default defineAction({
           );
         }
         if (parsedState.data.status !== "generating") {
-          return { reconciled: false, delivered: false, reason: "terminal" };
+          const consumed = await compareAndSetAppState(
+            requestKey,
+            rawRequest,
+            null,
+          );
+          return consumed
+            ? {
+                reconciled: false,
+                delivered: true,
+                consumed: true,
+                reason: "terminal",
+              }
+            : {
+                reconciled: false,
+                delivered: false,
+                consumed: false,
+                reason: "stale",
+              };
         }
         if (
           parsedState.data.requestedAt !== requestedAt ||

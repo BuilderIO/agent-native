@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Preserve application-state database read failures instead of reporting them as missing values.
+Preserve application-state database read failures and distinguish explicit user-stopped chat runs from reconnect handoffs.

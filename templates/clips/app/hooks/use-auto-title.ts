@@ -106,7 +106,11 @@ export function useAutoTitleBridge(): void {
   useEffect(() => {
     const handleChatRunning = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning !== false || typeof detail.tabId !== "string")
+      if (
+        detail?.isRunning !== false ||
+        detail.reason !== "stopped" ||
+        typeof detail.tabId !== "string"
+      )
         return;
 
       const recordingId = recordingIdFromTab(detail.tabId);
