@@ -342,7 +342,11 @@ export default function EditorToolbar({
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.log("[Import] onChange fired with no file, aborting");
+      return;
+    }
+    console.log("[Import] onChange fired, file selected:", file.name);
     setImporting(true);
     toast(t("editorToolbar.importingFile"), {
       description: t("editorToolbar.readingFile", { fileName: file.name }),
@@ -1080,8 +1084,15 @@ graph TD
           <DropdownMenuItem
             disabled={importing}
             onSelect={(e) => {
+              console.log("[Import] menu item onSelect fired");
               e.preventDefault();
-              setTimeout(() => fileInputRef.current?.click(), 0);
+              setTimeout(() => {
+                console.log(
+                  "[Import] deferred click, input ref:",
+                  fileInputRef.current,
+                );
+                fileInputRef.current?.click();
+              }, 0);
             }}
           >
             {importing ? (
