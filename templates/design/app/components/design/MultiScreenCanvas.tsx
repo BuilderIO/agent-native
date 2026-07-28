@@ -300,6 +300,7 @@ import {
 } from "./multi-screen/draft-primitives";
 import {
   angleBetween,
+  BREAKPOINT_FRAME_GAP,
   cloneFrameGeometryById,
   deviceViewportFloorForWidth,
   findTopFrameEntryAtPoint,
@@ -9820,8 +9821,6 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
 
 // ── Breakpoint preview row (§6.4) ────────────────────────────────────────────
 
-/** Gap between adjacent breakpoint frames in canvas pixels. */
-const BREAKPOINT_FRAME_GAP = 24;
 const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
 
 /**
