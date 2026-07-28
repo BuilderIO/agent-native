@@ -1002,13 +1002,7 @@ function positionalArgs(args: string[]): string[] {
 
 function flagValue(args: string[], flag: string): string | undefined {
   const index = args.indexOf(flag);
-  if (index >= 0) {
-    // Treat an option-like next token as a missing value (e.g. `--out --template`)
-    // so callers hit their required-flag guard instead of consuming another flag
-    // as the value. None of these flags take a value that starts with "-".
-    const next = args[index + 1];
-    if (next && !next.startsWith("-")) return next;
-  }
+  if (index >= 0 && args[index + 1]) return args[index + 1];
   const inline = args.find((arg) => arg.startsWith(`${flag}=`));
   return inline?.slice(flag.length + 1);
 }

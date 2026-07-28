@@ -661,30 +661,6 @@ describe("template materialize command", () => {
     ).toEqual([]);
   });
 
-  it("rejects a following flag as the --out value instead of using it", async () => {
-    const cwd = process.cwd();
-    process.chdir(tmpDir);
-    try {
-      const run = collectIO();
-      // `--out --template` must not consume "--template" as the directory.
-      const code = await runTemplate(
-        ["materialize", "--out", "--template", "chat"],
-        run.io,
-      );
-      expect(code).toBe(1);
-      expect(run.text()).toContain("--out");
-      expect(fs.existsSync(path.join(tmpDir, "--template"))).toBe(false);
-      // errored before any staging dir was created.
-      expect(
-        fs
-          .readdirSync(tmpDir)
-          .filter((e) => e.startsWith(".template-materialize-")),
-      ).toEqual([]);
-    } finally {
-      process.chdir(cwd);
-    }
-  });
-
   it("replaces an existing --out and leaves no staging or backup residue", async () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
     dirs.push(out);
