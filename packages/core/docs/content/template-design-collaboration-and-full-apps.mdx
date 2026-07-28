@@ -15,6 +15,8 @@ Design isn't only for prototypes generated from a prompt — a coding agent can 
 
 When your coding app has an inline browser, ask `/visual-edit` to open the returned Design URL there. In Codex Desktop, that means the built-in Browser; in Claude Code Desktop's Code tab, it means the Browser pane. Both can keep the canvas inside the coding app beside the conversation. In VS Code, the Agent Native extension opens the same Design URL in its side-panel webview. Browser panes can be disabled or unavailable in CLI, remote, or restricted sessions, so `/visual-edit` falls back to an **Open design** link instead of claiming the canvas opened.
 
+Once Design is open, `Cmd+\` on Apple devices or `Ctrl+\` elsewhere toggles all editing chrome so only the canvas remains. Claude Code Desktop also reserves `Cmd+\` for closing its focused pane; if the host intercepts the shortcut, right-click empty canvas space and choose **Hide UI** or **Show UI** instead.
+
 These are especially useful canvas sets:
 
 - **A multi-step flow:** `/visual-edit localhost:5173 — cart, shipping, payment, confirmation; open it beside this chat`
