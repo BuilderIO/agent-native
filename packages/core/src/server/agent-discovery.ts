@@ -455,6 +455,7 @@ function isHostedRuntime(): boolean {
     !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
     !!process.env.VERCEL ||
     "__cf_env" in globalThis ||
+    "__env__" in globalThis ||
     hasPublicRuntimeUrl()
   );
 }

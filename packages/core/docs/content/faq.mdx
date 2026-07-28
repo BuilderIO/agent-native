@@ -20,7 +20,7 @@ Agent-native is for people who want a real app and an AI agent to work from the 
 - **Use a hosted app** if you want Mail, Calendar, Forms, Plan, or another finished template with no setup — start at the [template gallery](/templates).
 - **Start with Chat** if you want the default from-scratch path: users can talk to the agent immediately, then you extend with actions, native results, and screens — start with [Getting Started](/docs/getting-started) or [Chat](/docs/template-chat).
 - **Start automation-first** if you are building scheduled jobs, queues, scripts, integration workers, or external-agent workflows with no browser UI yet — start with [Automation-First Apps](/docs/pure-agent-apps).
-- **Fork and customize a template** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
+- **Start from a template and customize it** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
 - **Build from scratch** if you want the framework primitives for a new agent-driven product — start with [Getting Started](/docs/getting-started).
 - **Connect another agent or code tool** if you want Claude, ChatGPT, Codex, Cursor, or GitHub Copilot / VS Code to use an agent-native app — see [External Agents](/docs/external-agents) and [Skills Guide](/docs/skills-guide).
 
@@ -126,13 +126,13 @@ The framework ships with production-ready templates including [Chat](/docs/templ
 
 ### Can I customize templates? {#can-i-customize-templates}
 
-That's the whole point. Fork a template and customize it by asking the agent. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." The agent modifies the code, and your app evolves over time.
+That's the whole point. Start from a template and customize it by asking the agent. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." The agent modifies the code, and your app evolves over time.
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
 Yes. If you want a basic agentic app, run `npx @agent-native/core@latest create my-chat-app --template chat`; you get durable chat threads, actions, auth, SQL-backed runtime state, native inline result rendering, and room to add your own screens. If you are building a no-browser automation, run `npx @agent-native/core@latest create my-agent --headless`. See [Getting Started](/docs/getting-started), [Automation-First Apps](/docs/pure-agent-apps), and [Chat](/docs/template-chat).
 
-### Can I try it without forking a template? {#try-with-a-skill}
+### Can I try it without starting from a template? {#try-with-a-skill}
 
 Yes — install a skill into a coding agent you already use with one command and no scaffold required. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for the walkthrough.
 
@@ -252,6 +252,6 @@ The shared database, live sync, actions system, and application state only work 
 
 - [**Getting Started**](/docs/getting-started) — build your first action and render it inline in chat
 - [**What Is Agent-Native?**](/docs/what-is-agent-native) — the full explanation behind the answers above
-- [**Templates**](/docs/cloneable-saas) — fork a complete SaaS product instead of starting from scratch
+- [**Templates**](/docs/cloneable-saas) — start from a complete SaaS product instead of starting from scratch
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, and portability
 - [**Deployment**](/docs/deployment) — host on your own domain or any Nitro-compatible provider

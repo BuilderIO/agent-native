@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+對於啟用 SSR 的 Cloudflare Worker，請使用 Nitro 原生模組輸出。執行
+`npx @agent-native/core@latest build`，然後使用
+`npx wrangler deploy --config .output/server/wrangler.json` 部署。
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## AWS 拉姆達 {#aws-lambda}
 
 ```ts

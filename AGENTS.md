@@ -159,6 +159,22 @@ instructions, and application state.
 - Do not copy provider tokens into apps when a workspace integration grant can be
   used. Vault/secrets own secret values; apps own app-specific readers and
   interpretation.
+- A credential key gets exactly one resolver, and every runtime path goes
+  through it. Grep the key name before reading it; if a `resolveXConfig` or
+  connector already exists, call it rather than reading `process.env` again
+  elsewhere. A second env-only path does not leak — it splits the app in two,
+  so the settings UI reports the integration as configured while the feature
+  fails claiming the env var is unset, and the error names the wrong cause.
+  Shared helpers take the caller's email as a parameter; only entrypoints
+  decide identity. Run `npx agent-native doctor --only no-env-credentials` from
+  the app directory before finishing a credential change. See the `secrets`
+  skill.
+- `resolveCredential` searches exactly one organization, so it cannot read a
+  shared key for a caller with no org (cron, CLI) or one synced under a
+  different org. Swapping `process.env` for it looks like a fix and changes
+  nothing; the doctor guard does not catch this form. For workspace-wide keys
+  use a resolver that also sweeps the caller's memberships and a designated
+  vault org. See the `secrets` skill.
 - Never create an organization, repoint a user's `active-org-id`, or migrate a
   roster/identity list into a new org on your own initiative. Vault credentials
   are per-organization, so a second org orphans every key synced under the first

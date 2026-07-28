@@ -19408,6 +19408,60 @@ function DesignEditor() {
     ],
   );
 
+  // Hide the in-iframe selection outline during keyboard nudges so it doesn't
+  // chase the element, restoring it once the burst settles. The re-armed
+  // settle timer is the authoritative restore (~800ms, matching the nudge
+  // coalesce window); an arrow keyup restores sooner when the host has focus.
+  const selectionChromeHiddenRef = useRef(false);
+  const selectionChromeSettleTimerRef = useRef<number | undefined>(undefined);
+  const restoreSelectionChrome = useCallback(() => {
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+      selectionChromeSettleTimerRef.current = undefined;
+    }
+    if (!selectionChromeHiddenRef.current) return;
+    selectionChromeHiddenRef.current = false;
+    canvasIframeRef.current?.contentWindow?.postMessage(
+      { type: "set-selection-chrome-hidden", hidden: false },
+      "*",
+    );
+  }, [canvasIframeRef]);
+  const hideSelectionChromeForNudge = useCallback(() => {
+    if (!selectionChromeHiddenRef.current) {
+      selectionChromeHiddenRef.current = true;
+      canvasIframeRef.current?.contentWindow?.postMessage(
+        { type: "set-selection-chrome-hidden", hidden: true },
+        "*",
+      );
+    }
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+    }
+    selectionChromeSettleTimerRef.current = window.setTimeout(() => {
+      selectionChromeSettleTimerRef.current = undefined;
+      restoreSelectionChrome();
+    }, 800);
+  }, [canvasIframeRef, restoreSelectionChrome]);
+  useEffect(() => {
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        restoreSelectionChrome();
+      }
+    };
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp);
+      if (selectionChromeSettleTimerRef.current !== undefined) {
+        window.clearTimeout(selectionChromeSettleTimerRef.current);
+      }
+    };
+  }, [restoreSelectionChrome]);
+
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
       if (!canEditDesign) return;
@@ -19460,6 +19514,7 @@ function DesignEditor() {
       }
 
       if (!selectedElement?.selector) return;
+      hideSelectionChromeForNudge();
       const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
       const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
       commitVisualStyles(selectedElement.selector, {
@@ -19477,6 +19532,7 @@ function DesignEditor() {
       canEditDesign,
       commitVisualStyles,
       handleGeometryCommit,
+      hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,

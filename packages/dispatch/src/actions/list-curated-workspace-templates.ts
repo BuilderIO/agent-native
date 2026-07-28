@@ -5,7 +5,7 @@ import { listCuratedWorkspaceTemplates } from "../server/lib/curated-workspace-t
 
 export default defineAction({
   description:
-    "List the curated first-party workspace templates available for private remixing. Returns stable template metadata, the product/live URL (not a public-demo claim), setup guidance, and whether each source template is already installed in the current workspace.",
+    "List the curated first-party workspace templates available for creating private apps. Returns stable template metadata, the product/live URL (not a public-demo claim), setup guidance, and whether each source template is already installed in the current workspace.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => listCuratedWorkspaceTemplates(),
