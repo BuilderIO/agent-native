@@ -32,6 +32,21 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     values ? `${key}:${JSON.stringify(values)}` : key,
 }));
 
+vi.mock("@/components/ui/avatar", () => ({
+  Avatar: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span {...props}>{children}</span>
+  ),
+  AvatarImage: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <img {...props} />
+  ),
+  AvatarFallback: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLSpanElement>) => (
+    <span {...props}>{children}</span>
+  ),
+}));
+
 describe("RecordingViewsBadge", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -124,5 +139,8 @@ describe("RecordingViewsBadge", () => {
     );
 
     expect(queryMocks.avatarEmails).toEqual(["viewer@example.com"]);
+    const image = container.querySelector("img");
+    expect(image?.getAttribute("src")).toBe(queryMocks.avatarUrl);
+    expect(image?.getAttribute("alt")).toBe("Viewer Name");
   });
 });

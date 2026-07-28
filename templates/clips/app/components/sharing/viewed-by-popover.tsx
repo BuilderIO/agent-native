@@ -124,7 +124,7 @@ export function ViewedByPopover({
   );
 }
 
-function ViewerAvatar({
+export function ViewerAvatar({
   email,
   name,
   label,
