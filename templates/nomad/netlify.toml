@@ -1,0 +1,9 @@
+[build]
+command = "export DATABASE_URL=\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\" && NITRO_PRESET=netlify pnpm build"
+publish = "dist"
+functions = ".netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"

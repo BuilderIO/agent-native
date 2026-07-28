@@ -242,6 +242,19 @@ export const TEMPLATES: TemplateMeta[] = [
     hidden: true,
     defaultMode: "dev",
   },
+  {
+    name: "nomad",
+    label: "Nomad",
+    hint: "Residency and tax compliance cockpit — Schengen windows, tax-day counters, visas, and a clickable world map",
+    icon: "World",
+    color: "#38BDF8",
+    colorRgb: "56 189 248",
+    devPort: 8106,
+    prodUrl: "https://nomad.agent-native.com",
+    defaultMode: "dev",
+    hidden: true,
+    core: false,
+  },
 ];
 
 /** Return templates visible in user-facing pickers (excludes hidden). */

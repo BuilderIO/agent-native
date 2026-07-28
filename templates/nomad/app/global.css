@@ -1,0 +1,175 @@
+/* Self-hosted via @fontsource-variable/inter — no render-blocking Google Fonts request */
+@import "@fontsource-variable/inter";
+
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+/*
+ * Nomad "presence cockpit" palette. Dark theme is the design source of truth
+ * (deep navy + sky/cyan accents from the design handoff tokens); light theme
+ * is a matching daylight counterpart. Traffic-light status tokens
+ * (--safe/--warn/--danger/--info) drive every compliance visual.
+ */
+:root {
+  --background: 210 40% 98%;
+  --foreground: 221 40% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 221 40% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 221 40% 12%;
+  --primary: 200 98% 39%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 214 45% 94%;
+  --secondary-foreground: 221 40% 15%;
+  --muted: 214 45% 94%;
+  --muted-foreground: 216 20% 42%;
+  --accent: 214 45% 94%;
+  --accent-foreground: 221 40% 15%;
+  --destructive: 350 89% 55%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 35% 87%;
+  --input: 214 35% 87%;
+  --ring: 199 89% 48%;
+  --radius: 0.75rem;
+  --safe: 158 74% 33%;
+  --warn: 36 92% 40%;
+  --danger: 350 89% 50%;
+  --info: 200 98% 39%;
+  --sidebar-background: 213 42% 96%;
+  --sidebar-foreground: 216 20% 42%;
+  --sidebar-primary: 200 98% 39%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 213 40% 91%;
+  --sidebar-accent-foreground: 221 40% 15%;
+  --sidebar-border: 214 35% 87%;
+  --sidebar-ring: 199 89% 48%;
+}
+
+.dark {
+  --background: 222 48% 5%;
+  --foreground: 215 52% 94%;
+  --card: 221 49% 10%;
+  --card-foreground: 215 52% 94%;
+  --popover: 221 50% 13%;
+  --popover-foreground: 215 52% 94%;
+  --primary: 198 93% 60%;
+  --primary-foreground: 209 77% 7%;
+  --secondary: 221 50% 13%;
+  --secondary-foreground: 215 52% 94%;
+  --muted: 221 49% 12%;
+  --muted-foreground: 216 25% 61%;
+  --accent: 221 50% 13%;
+  --accent-foreground: 215 52% 94%;
+  --destructive: 350 89% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 221 41% 20%;
+  --input: 221 41% 20%;
+  --ring: 198 93% 60%;
+  --radius: 0.75rem;
+  --safe: 158 64% 52%;
+  --warn: 43 96% 56%;
+  --danger: 350 89% 60%;
+  --info: 198 93% 60%;
+  --sidebar-background: 222 47% 7%;
+  --sidebar-foreground: 216 25% 61%;
+  --sidebar-primary: 198 93% 60%;
+  --sidebar-primary-foreground: 209 77% 7%;
+  --sidebar-accent: 221 49% 12%;
+  --sidebar-accent-foreground: 215 52% 94%;
+  --sidebar-border: 221 41% 16%;
+  --sidebar-ring: 198 93% 60%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter Variable", "Inter", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* ---- Nomad cockpit primitives (from the design handoff) ---- */
+
+.nomad-panel {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+.dark .nomad-panel {
+  background: linear-gradient(180deg, hsl(var(--card)), hsl(221 49% 8%));
+}
+
+.nomad-glow {
+  box-shadow: 0 1px 3px 0 hsl(221 40% 12% / 0.08);
+}
+.dark .nomad-glow {
+  box-shadow:
+    0 0 0 1px hsl(198 93% 60% / 0.15),
+    0 12px 40px -12px hsl(187 86% 53% / 0.25);
+}
+
+.nomad-chip {
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--foreground) / 0.02);
+}
+
+.nomad-map-bg {
+  background:
+    radial-gradient(
+      1200px 600px at 60% 30%,
+      hsl(198 93% 60% / 0.1),
+      transparent 60%
+    ),
+    radial-gradient(
+      800px 500px at 20% 80%,
+      hsl(187 86% 53% / 0.06),
+      transparent 60%
+    ),
+    hsl(var(--card));
+}
+
+.nomad-grid-lines {
+  background-image:
+    linear-gradient(hsl(198 93% 60% / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(198 93% 60% / 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.nomad-track {
+  background: hsl(var(--muted-foreground) / 0.15);
+}
+.dark .nomad-track {
+  background: hsl(222 50% 9%);
+}
+
+@keyframes nomad-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.nomad-pulse {
+  animation: nomad-pulse 2.4s ease-in-out infinite;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
