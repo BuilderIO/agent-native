@@ -361,6 +361,56 @@ describe("Design HTML structural integrity", () => {
     },
   );
 
+  it.each([
+    [
+      "an invalid end-tag prefix",
+      '<script>const s = "</script=template>";</script>',
+    ],
+    ["a longer tag name", '<script>const s = "</scriptfoo>";</script>'],
+  ])("does not treat %s as the raw-text closer", (_label, body) => {
+    // A raw-text end tag closes the element only when the name is followed by
+    // whitespace, `/`, or `>`. Matching a word boundary instead orphaned the
+    // real closer, rejecting a document the browser parses fine.
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        SCREEN.replace(
+          '<div class="rounded-xl p-6"><h1 class="text-3xl">Hi</h1></div>',
+          `${body}<div class="p-6">ok</div>`,
+        ),
+      ),
+    ).toEqual({ valid: true });
+  });
+
+  it.each([
+    ["rtc", "<ruby>漢<rtc><rt>kan</ruby>"],
+    ["rb", "<ruby><rb>漢<rt>kan</ruby>"],
+  ])("accepts ruby markup with an omitted optional </%s>", (_label, body) => {
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        SCREEN.replace(
+          '<div class="rounded-xl p-6"><h1 class="text-3xl">Hi</h1></div>',
+          `<div class="p-6">${body}</div>`,
+        ),
+      ),
+    ).toEqual({ valid: true });
+  });
+
+  it("stays linear across many raw-text blocks", () => {
+    // Slicing the remaining document per raw-text opener was quadratic
+    // allocation on the synchronous save path.
+    const build = (count: number) =>
+      `<!doctype html><html><head><meta charset="UTF-8"></head><body>${"<style>.a{color:red}</style><script>var a=1</script>".repeat(count)}</body></html>`;
+    const time = (html: string) => {
+      const start = performance.now();
+      expect(inspectDesignHtmlDocumentIntegrity(html).valid).toBe(true);
+      return performance.now() - start;
+    };
+    time(build(400));
+    const small = time(build(800));
+    const large = time(build(3200));
+    expect(large).toBeLessThan(Math.max(small, 1) * 10);
+  });
+
   it("stays linear on large valid documents", () => {
     // Locating per close tag made this quadratic: a 117KB valid screen cost
     // ~700ms synchronously on every save.

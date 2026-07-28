@@ -333,7 +333,7 @@ function scanRawTextTags(value: string): RawTextScan {
     if (active) {
       // HTML raw-text elements terminate at the first matching end-tag token,
       // even when that text happens to look like a JavaScript/CSS string.
-      const closer = new RegExp(`<\\s*\\/\\s*${active}\\b[^>]*>`, "gi");
+      const closer = new RegExp(`<\\s*\\/\\s*${active}(?=[\\s/>])[^>]*>`, "gi");
       closer.lastIndex = cursor;
       const match = closer.exec(value);
       if (!match) break;
@@ -426,8 +426,10 @@ const OPTIONAL_CLOSE_TAGS = new Set([
   "optgroup",
   "option",
   "p",
+  "rb",
   "rp",
   "rt",
+  "rtc",
   "tbody",
   "td",
   "tfoot",
@@ -510,6 +512,15 @@ interface TagScan {
   quoteOpen: boolean;
   /** The attribute that quote belonged to, when one was named. */
   unterminatedAttribute?: string;
+}
+
+/**
+ * A raw-text end tag only closes the element when the name is followed by
+ * whitespace, `/`, or `>`. Matching on a word boundary instead treats script
+ * text like `"</script=template>"` as the closer, which orphans the real one.
+ */
+function rawTextCloser(tag: string): RegExp {
+  return new RegExp(`<\\s*/\\s*${tag}(?=[\\s/>])`, "gi");
 }
 
 /** Consume one markup token starting at `start` (the `<`), honoring quotes. */
@@ -665,15 +676,15 @@ function collectStructuralIssues(
       // Resume AT the closing tag so the close branch pops this element,
       // rather than duplicating that logic here. An unterminated body is left
       // to the raw-text-balance check, which names that cause correctly.
-      const closer = new RegExp(`<\\s*/\\s*${tag}\\b`, "i");
-      const rest = value.slice(scan.end);
-      const found = closer.exec(rest);
+      const closer = rawTextCloser(tag);
+      closer.lastIndex = scan.end;
+      const found = closer.exec(value);
       if (!found) {
         cursor = value.length;
         continue;
       }
       stack.push({ tag, start: open });
-      cursor = scan.end + found.index;
+      cursor = found.index;
       continue;
     }
 

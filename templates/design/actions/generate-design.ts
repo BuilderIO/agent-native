@@ -48,6 +48,7 @@ import {
 import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
 } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -778,20 +779,25 @@ const generateDesignAction = defineAction({
     // writeInlineSourceFile, which still allows repairing a malformed screen.
     const integrityWarnings: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
+      if ((file.fileType ?? "html") !== "html") continue;
       const existing = existingByName.get(file.filename);
-      // A file changing type into HTML is new HTML, not an edit: the edit
-      // transition inside writeInlineSourceFile validates against the row's
-      // CURRENT type, so a css→html candidate would skip the HTML checks and
-      // then be stored as HTML by the update below.
+      // A row changing type into HTML is new HTML, not an edit: the edit
+      // transition validates against the row's CURRENT type, so a css→html
+      // candidate would skip the HTML checks and still be stored as HTML below.
       const becomesHtml =
-        (file.fileType ?? "html") === "html" &&
-        (existing?.fileType ?? "html") !== "html";
-      if (existing && !becomesHtml) continue;
-      const advisory = assertDesignHtmlCreateIntegrity({
-        content: file.content,
-        fileType: file.fileType ?? "html",
-        filename: file.filename,
-      });
+        existing !== undefined && (existing.fileType ?? "html") !== "html";
+      // Blocking applies to new files and type transitions. An existing HTML row
+      // takes the lenient edit transition instead, so a legacy-malformed screen
+      // stays repairable — but its advisories are still reported, or the same
+      // content would warn as a new file and save silently as a regeneration.
+      const advisory =
+        !existing || becomesHtml
+          ? assertDesignHtmlCreateIntegrity({
+              content: file.content,
+              fileType: "html",
+              filename: file.filename,
+            })
+          : (inspectDesignHtmlDocumentIntegrity(file.content).advisory ?? []);
       for (const entry of advisory) {
         integrityWarnings.push({
           filename: file.filename,
