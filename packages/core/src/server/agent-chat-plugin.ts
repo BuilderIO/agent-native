@@ -74,6 +74,7 @@ import {
   toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
+  abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
@@ -440,6 +441,19 @@ const generateTitleRateLimit = new Map<string, number[]>();
 /** Only sweep drained rate-limit entries once the map grows past this size,
  * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
+
+/**
+ * Abort reasons that mean a human asked to stop, so `/runs/:id/abort` escalates
+ * to a turn-wide abort. Watchdog reasons (`no_progress`, `auto_stuck_retry`)
+ * stay single-run: they end a chunk the client believes is dead and must not
+ * kill a server-side continuation chain that is still making progress.
+ */
+export const USER_STOP_ABORT_REASONS = new Set([
+  "user",
+  "abort",
+  "user_stuck_cancel",
+  "user_stuck_retry",
+]);
 
 /**
  * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
@@ -4572,6 +4586,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // the cross-isolate abort + terminal event to be durable. Returning
             // early lets Retry collide with the still-running row.
             await abortRunDurably(runId, reason);
+            if (USER_STOP_ABORT_REASONS.has(reason)) {
+              await abortTurnDurably(runId, reason);
+            }
             return { ok: true };
           }
 

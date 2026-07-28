@@ -254,7 +254,9 @@ const messages = {
     downloadHtml: "HTML के रूप में डाउनलोड करें",
     exportPdf: "PDF के रूप में निर्यात करें",
     exportPptx: "PPTX के रूप में निर्यात करें",
-    downloadGoogleSlides: "Google Slides के लिए डाउनलोड करें",
+    openInGoogleSlides: "Google Slides में खोलें",
+    googleSlidesCreated: "Google Slides में खोला गया",
+    googleSlidesCreatedHint: "इस प्रस्तुति की एक प्रति आपके Google Drive में बनाई गई।",
     duplicateDeck: "डेक डुप्लिकेट करें",
   },
   share: {
@@ -463,6 +465,12 @@ const messages = {
     slides: "स्लाइड",
   },
   presentation: {
+    presenterView: "प्रस्तुतकर्ता दृश्य",
+    speakerNotes: "वक्ता नोट्स",
+    noNotesForSlide: "इस स्लाइड के लिए कोई नोट नहीं है",
+    upNext: "आगे",
+    endOfDeck: "प्रस्तुति का अंत",
+    closePresenterView: "प्रस्तुतकर्ता दृश्य बंद करें",
     noSlides: "प्रस्तुत करने के लिए कोई स्लाइड नहीं",
     previousSlide: "पिछली स्लाइड",
     nextSlide: "अगली स्लाइड",

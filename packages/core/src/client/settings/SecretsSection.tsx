@@ -10,6 +10,15 @@ import {
   ButtonBase as ToolkitButtonBase,
 } from "@agent-native/toolkit/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@agent-native/toolkit/ui/command";
+import {
   IconCheck,
   IconChevronRight,
   IconExternalLink,
@@ -23,13 +32,10 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.js";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
@@ -207,11 +213,13 @@ function KeysHeader({
   onSecret?: (key: string) => void;
   onCustomKey: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="flex items-center justify-between gap-3">
       <p className="text-[11px] font-medium text-foreground">Keys</p>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <ToolkitButtonBase
             type="button"
             variant="outline"
@@ -220,34 +228,61 @@ function KeysHeader({
             <IconPlus size={11} />
             New
           </ToolkitButtonBase>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {availableSecrets.length > 0 && (
-            <>
-              <DropdownMenuLabel>Choose a key</DropdownMenuLabel>
-              {availableSecrets.map((secret) => (
-                <DropdownMenuItem
-                  key={secret.key}
-                  onSelect={() => onSecret?.(secret.key)}
-                  className="flex items-center justify-between gap-3"
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-60 p-0">
+          <Command
+            // cmdk's default scorer matches loose subsequences, so "logo"
+            // also surfaces every "G-o-o-g-l-e ... " key.
+            filter={(value, search) =>
+              value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+            }
+          >
+            {availableSecrets.length > 0 && (
+              <CommandInput placeholder="Search keys..." />
+            )}
+            <CommandList>
+              <CommandEmpty>No keys found.</CommandEmpty>
+              {availableSecrets.length > 0 && (
+                <>
+                  <CommandGroup heading="Choose a key">
+                    {availableSecrets.map((secret) => (
+                      <CommandItem
+                        key={secret.key}
+                        value={`${secret.label} ${secret.key}`}
+                        onSelect={() => {
+                          setOpen(false);
+                          onSecret?.(secret.key);
+                        }}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">{secret.label}</span>
+                        {secret.required && (
+                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                            Required
+                          </span>
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <CommandSeparator />
+                </>
+              )}
+              <CommandGroup>
+                <CommandItem
+                  value="custom key"
+                  onSelect={() => {
+                    setOpen(false);
+                    onCustomKey();
+                  }}
                 >
-                  <span className="truncate">{secret.label}</span>
-                  {secret.required && (
-                    <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                      Required
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem onSelect={onCustomKey}>
-            <IconPlus size={14} />
-            Custom
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  <IconPlus size={14} />
+                  Custom
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

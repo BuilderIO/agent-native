@@ -17,6 +17,13 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({
+    formatDate: (value: string) => value,
+  }),
+  useT: () => (key: string) => key,
+}));
+
 describe("WorkspaceAppCard", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -139,5 +146,41 @@ describe("WorkspaceAppCard", () => {
     );
     expect(appLink?.getAttribute("target")).toBe("_blank");
     expect(appLink?.getAttribute("rel")).toBe("noreferrer");
+  });
+
+  it("shows ownership metadata in the more menu", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceAppCard
+            app={{
+              id: "analytics",
+              name: "Analytics",
+              path: "/analytics",
+              createdAt: "2026-07-28T12:00:00.000Z",
+              createdBy: "creator@example.com",
+              owner: "owner@example.com",
+              teams: ["Growth", "Operations"],
+              status: "ready",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const moreButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Analytics"]',
+    );
+    expect(moreButton).not.toBeNull();
+
+    await act(async () => {
+      moreButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    expect(document.body.textContent).toContain("creator@example.com");
+    expect(document.body.textContent).toContain("owner@example.com");
+    expect(document.body.textContent).toContain("Growth, Operations");
   });
 });
