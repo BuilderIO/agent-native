@@ -440,13 +440,7 @@ async function importPdfPagesAsFullBleedSlides(args: {
     }),
   );
 
-  await appendDeckSlides(
-    deckId,
-    title,
-    slides,
-    "import-file:pdf",
-    aspectRatio,
-  );
+  await appendDeckSlides(deckId, title, slides, "import-file:pdf", aspectRatio);
 
   return {
     format: "pdf",
@@ -637,9 +631,7 @@ async function appendDeckSlides(
   // had no slides yet, otherwise resizing the canvas mid-deck would distort
   // every slide already on it.
   const hadExistingSlides = previousSlides.length > 0;
-  const nextTitle = hadExistingSlides
-    ? (existing[0].title ?? title)
-    : title;
+  const nextTitle = hadExistingSlides ? (existing[0].title ?? title) : title;
   const data = {
     ...previousData,
     title: nextTitle,
