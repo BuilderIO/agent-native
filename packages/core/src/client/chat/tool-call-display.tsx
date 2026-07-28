@@ -1165,14 +1165,19 @@ export function ToolCallFallback({
   chatUI?: ActionChatUIConfig;
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
+  outcome?: "unknown";
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
-  const isRunning =
-    result === undefined && (chatRunning || rest.activity === true);
+  // A spinner is a claim that something is running right now, so it needs an
+  // actually-running chat. `chatRunning` already stays true across
+  // auto-continuation gaps and server-active runs (resolveAssistantChatRunningState),
+  // so an activity placeholder alone must never resurrect one on rehydrated
+  // history.
+  const isRunning = result === undefined && chatRunning;
   return (
     <ToolCallDisplay
       toolName={toolName}
@@ -1189,6 +1194,7 @@ export function ToolCallFallback({
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      outcome={rest.outcome}
       isActiveTail={rest.isActiveTail}
       isLatestRunning={rest.isLatestRunning}
       approval={rest.approval}
@@ -1263,6 +1269,7 @@ export function ReconnectStreamMessage({
         mcpApp={part.mcpApp}
         chatUI={part.chatUI}
         structuredMeta={part.structuredMeta}
+        outcome={part.outcome}
         isRunning={
           part.result === undefined && (chatRunning || part.activity === true)
         }
