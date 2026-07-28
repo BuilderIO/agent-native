@@ -18,6 +18,9 @@ const frFR = {
     searchPlaceholder: "Rechercher...",
     askAssistant: "Demander à l'assistant IA",
     toggleNavigation: "Afficher ou masquer la navigation",
+    copyLogoSvg: "Copier le logo SVG",
+    copyWordmark: "Copier le logotype",
+    brandAssets: "Ressources de marque",
   },
   footer: {
     download: "Télécharger",
