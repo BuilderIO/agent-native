@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.124.6
+
+### Patch Changes
+
+- ac8794b: Clarify credential resolver organization scope in generated workspace guidance.
+
 ## 0.124.5
 
 ### Patch Changes
