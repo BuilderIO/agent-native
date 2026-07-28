@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { computeInteractZoomToFit } from "./responsive-interact";
@@ -61,5 +63,38 @@ describe("computeInteractZoomToFit", () => {
         deviceHeight: 874,
       }),
     ).toBe(100);
+  });
+});
+
+// The bar is only worth building if it is actually mounted and the editor
+// chrome steps aside for it — a component that renders nowhere was the
+// original gap here. Source assertions match this file tree's existing
+// wiring-guard convention (see DesignEditor.breakpoints.test.ts).
+describe("full-screen Interact wiring", () => {
+  const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+
+  it("activates only for a focused screen outside embedded hosts", () => {
+    expect(source).toContain("const responsiveInteractActive =");
+    expect(source).toContain(
+      'mode === "interact" && viewMode === "single" && !!activeFile && !embedded',
+    );
+  });
+
+  it("mounts the bar and hides both side rails while active", () => {
+    expect(source).toContain("<ResponsiveInteractBar");
+    expect(source).toContain("onClose={handleExitResponsiveInteract}");
+    // Left rail, then right rail — both gated off while Interact is active.
+    expect(source).toContain(
+      "!embedded && !uiHidden && !responsiveInteractActive",
+    );
+    expect(source).toContain("!responsiveInteractActive ? (");
+  });
+
+  it("drives the canvas from the device box rather than the canvas camera", () => {
+    expect(source).toContain("responsiveInteractActive ? interactZoom : zoom");
+    expect(source).toContain(
+      "responsiveInteractActive ? setInteractZoom : setZoom",
+    );
+    expect(source).toContain("? interactDeviceSize.width");
   });
 });
