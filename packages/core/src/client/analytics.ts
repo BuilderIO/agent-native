@@ -926,12 +926,20 @@ function captureWithSentry(
   });
 }
 
-function ensureSentry(): void {
+function ensureSentry(loadWithoutDsn = false): void {
   if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
-  if (!dsn) return;
+  if (!dsn && !loadWithoutDsn) return;
   _sentryLoadPromise = import("@sentry/browser")
     .then((module) => {
+      _sentryModule = module;
+      if (!dsn) {
+        for (const pending of _pendingSentryCaptures) {
+          captureWithSentry(module, pending.error, pending.context);
+        }
+        _pendingSentryCaptures = [];
+        return module;
+      }
       module.init({
         dsn,
         environment:
@@ -969,7 +977,6 @@ function ensureSentry(): void {
           return event;
         },
       });
-      _sentryModule = module;
       module.setTag("runtime", "browser");
       _sentryInitialized = true;
       // Flush any user/tag that was set before init.
@@ -1082,7 +1089,7 @@ export function captureClientException(
 ): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
-    ensureSentry();
+    ensureSentry(true);
     if (_sentryModule) return captureWithSentry(_sentryModule, error, context);
     if (_pendingSentryCaptures.length < 50) {
       _pendingSentryCaptures.push({ error, context });
