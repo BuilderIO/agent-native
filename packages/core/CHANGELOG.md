@@ -1,5 +1,76 @@
 # @agent-native/core
 
+## 0.127.1
+
+### Patch Changes
+
+- bbd202b: Fix the model picker offering a model the app cannot route, and the chat bridge dropping submitted model overrides.
+  - The picker now defaults only to a configured engine group, and shows nothing when none is configured. `DEFAULT_MODEL` is a builder-gateway id that no group carries unless Builder is connected, so the old `?? DEFAULT_MODEL` / `?? groups[0]` fallbacks produced a selection the server silently replaced with its own default.
+  - A submitted `model`/`engine` pair is now applied regardless of whether the engine list has loaded, travels with cold-start queued sends, keeps the sender's engine, and treats a blank engine as absent. Previously it was honored only when the model already appeared in the (initially empty) engine list, so app-initiated first turns lost it.
+  - `[agent-chat] resolved …` now logs `requestModel` and `turnId`, making a server-side model substitution visible.
+
+## 0.127.0
+
+### Minor Changes
+
+- cbc6936: Make connecting one agent-native app to another a guided flow instead of three
+  blank text fields.
+  - New `GET /_agent-native/agents/probe` reads a peer's agent card and makes one
+    authenticated no-op call, reporting `reachable` and `authorized` as
+    independent fields. A peer that answers but rejects the caller's token is the
+    failure local dev hides — the receiver runs unauthenticated on localhost, so a
+    mismatched secret previously surfaced only after deploy.
+  - Settings → Manage agent → Connected Agents is URL-first: paste a peer URL,
+    press Check, and the name and description come from its card. Unreachable
+    never blocks the save. Rows carry a liveness dot from one batched probe.
+  - The section now shows shared-secret state and a Sync to apps action inline,
+    reusing the existing org hooks. A caller who cannot see the secret is told so
+    rather than being shown "not set".
+  - After an add, the UI states that registration is one-directional and deep
+    links to the peer's own settings with the values prefilled.
+  - The Connected Agents list collapses a remote agent that still has its
+    pre-migration `agents/*.json` row alongside the canonical
+    `remote-agents/*.json` one, instead of listing it twice with the same URL.
+  - `list-connected-agents` keys custom manifests by the normalized agent id, so
+    an agent registered as `images`/`asset` no longer appears once as a discovered
+    agent and again as a custom one.
+  - Export `resolveA2ACallerAuth` from `@agent-native/core/a2a` so app code can
+    authenticate outbound A2A calls without reimplementing org-secret lookup.
+  - The `a2a-protocol` skill documents the real setup path — A2A is auto-mounted,
+    peers are `remote-agents/*.json` resources, and auth is a JWT signed with
+    `A2A_SECRET` or the per-org secret — replacing the `mountA2A` + per-peer
+    `apiKeyEnv` flow the framework no longer wires up.
+
+### Patch Changes
+
+- f8df095: Keep cross-app `ask_app_status` polling attached to the original task route with an encrypted task handle, report the configured app identity in standalone MCP discovery, and reject unknown cross-app targets instead of running them locally.
+- cbc6936: Hide pending workspace apps by default and expose app ownership metadata from each card's overflow menu.
+- cbc6936: Show the provider's brand logo on agent tool rows for catalog-backed MCP tools, instead of a generic code icon.
+- cbc6936: Settings → Connections: the "New" key menu is now a searchable, scrolling combobox instead of a cropped dropdown, so every registered key is reachable.
+- cbc6936: Send `X-Content-Type-Options: nosniff` on CDN-served static assets.
+
+  `/assets/**`, `/favicon.*`, `/manifest.json`, `/icon-*.svg`, and
+  `/library-presets/**` are served straight off the CDN, so the security-headers
+  h3 middleware never runs for them and they shipped without the `nosniff` header
+  that every function-served response already carries.
+
+- cbc6936: Make the chat Stop button actually stop the turn.
+
+  A turn runs as a chain of runs: every `loop_limit` / `auto_continue` boundary
+  and every background handoff starts a successor under a new run id but the same
+  turn id. Stop only aborted the run id the client happened to hold, so the
+  successor claimed itself and the agent kept looping — the turn-abort marker that
+  `isTurnAborted` consults was only ever written on the pre-run path, which is
+  dead as soon as a run id exists.
+
+  `POST /runs/:id/abort` now escalates user-intent reasons (`user`, `abort`,
+  `user_stuck_cancel`, `user_stuck_retry`) to a turn-wide abort. Watchdog reasons
+  (`no_progress`, `auto_stuck_retry`) keep single-run semantics so they cannot
+  kill a server-side continuation chain that is still making progress.
+
+- Updated dependencies [cbc6936]
+  - @agent-native/toolkit@0.10.9
+
 ## 0.126.0
 
 ### Minor Changes

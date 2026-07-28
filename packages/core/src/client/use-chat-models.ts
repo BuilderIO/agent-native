@@ -200,7 +200,14 @@ export function useChatModels({
         .catch(() => null),
     ])
       .then(([enginesData, envKeys, builderStatus]) => {
-        if (!enginesData?.engines) return;
+        if (!enginesData?.engines) {
+          // Without a catalog the picker keeps an unvalidated DEFAULT_MODEL,
+          // which is indistinguishable from a real selection unless we say so.
+          console.warn(
+            "[agent-chat] no engine list; model picker is showing an unvalidated default",
+          );
+          return;
+        }
         const configuredKeys = new Set(
           (envKeys as Array<{ key: string; configured: boolean }>)
             .filter((k) => k.configured)
@@ -223,22 +230,45 @@ export function useChatModels({
         setDefaultModel(nextDefaultModel);
 
         const selection = selectionRef.current;
+
+        // Default only to a CONFIGURED group, and to nothing when there is
+        // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
+        // unless Builder is connected, and unconfigured groups are kept in the
+        // list for their connect affordance — so both `?? DEFAULT_MODEL` and
+        // `?? groups[0]` yield a selection the app cannot route, which the
+        // server silently replaces with its own default. An empty selection
+        // hides the picker instead of showing a model that will not be used.
+        const configuredGroups = groups.filter((g) => g.configured);
+        const resolveRoutableSelection = () => {
+          const group =
+            configuredGroups.find((g) => g.models.includes(nextDefaultModel)) ??
+            configuredGroups[0];
+          if (!group) return null;
+          const model =
+            group.models.find((m) => m === nextDefaultModel) ?? group.models[0];
+          if (!model) return null;
+          return {
+            model,
+            engine: group.engine,
+            effort: resolveReasoningEffortSelection(
+              model,
+              selection.selectedEffort,
+            ),
+          };
+        };
+
+        const applyFallback = (persist: boolean) => {
+          const next = resolveRoutableSelection();
+          setSelectedModel(next?.model ?? "");
+          setSelectedEngine(next?.engine ?? "");
+          if (next) {
+            setSelectedEffort(next.effort);
+            if (persist) writePersisted(storageKey, next);
+          }
+        };
+
         if (!hasExplicitSelectionRef.current) {
-          const defaultGroup =
-            groups.find((group) => group.models.includes(nextDefaultModel)) ??
-            groups[0];
-          const nextModel =
-            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
-            defaultGroup?.models[0] ??
-            nextDefaultModel;
-          const nextEngine = defaultGroup?.engine ?? "";
-          const nextEffort = resolveReasoningEffortSelection(
-            nextModel,
-            selection.selectedEffort,
-          );
-          setSelectedModel(nextModel);
-          setSelectedEngine(nextEngine);
-          setSelectedEffort(nextEffort);
+          applyFallback(false);
           return;
         }
 
@@ -248,28 +278,15 @@ export function useChatModels({
             (!selection.selectedEngine ||
               group.engine === selection.selectedEngine),
         );
-        if (!selectedGroup) {
-          const defaultGroup =
-            groups.find((group) => group.models.includes(nextDefaultModel)) ??
-            groups[0];
-          const nextModel =
-            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
-            defaultGroup?.models[0] ??
-            nextDefaultModel;
-          const nextEngine = defaultGroup?.engine ?? "";
-          const nextEffort = resolveReasoningEffortSelection(
-            nextModel,
-            selection.selectedEffort,
-          );
-          setSelectedModel(nextModel);
-          setSelectedEngine(nextEngine);
-          setSelectedEffort(nextEffort);
-          writePersisted(storageKey, {
-            model: nextModel,
-            engine: nextEngine,
-            effort: nextEffort,
-          });
+        if (selectedGroup) {
+          // Heal a selection stored without an engine (or with a stale one) so
+          // later submits carry the pair the catalog resolved.
+          if (selection.selectedEngine !== selectedGroup.engine) {
+            setSelectedEngine(selectedGroup.engine);
+          }
+          return;
         }
+        applyFallback(true);
       })
       .catch(() => {})
       .finally(() => setIsLoading(false));
