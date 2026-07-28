@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertDesignHtmlCreateIntegrity,
   assertDesignHtmlEditIntegrity,
+  assertDesignHtmlWellFormed,
   DESIGN_HTML_INTEGRITY_ERROR_CODE,
   inspectDesignHtmlDocumentIntegrity,
 } from "./html-integrity";
@@ -395,6 +396,33 @@ describe("Design HTML structural integrity", () => {
     ).toEqual({ valid: true });
   });
 
+  it.each([
+    ["li with an inline descendant", "<ul><li><span>one<li>two</ul>"],
+    ["tr with an inline descendant", "<table><tr><td><b>a<tr><td>b</table>"],
+    ["dt/dd with an inline descendant", "<dl><dt><em>k<dd>v</dl>"],
+  ])("closes intervening elements on an implied close: %s", (_label, body) => {
+    // The browser closes the descendant along with the list item, so popping
+    // only the stack top reported the still-open <span> as unclosed.
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        SCREEN.replace(
+          '<div class="rounded-xl p-6"><h1 class="text-3xl">Hi</h1></div>',
+          `<div class="p-6">${body}</div>`,
+        ),
+      ),
+    ).toEqual({ valid: true });
+  });
+
+  it("still reports a missing runtime when the only script tag is commented out", () => {
+    const commentedOut = SCREEN.replace(
+      '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>',
+      '<!-- <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script> -->',
+    );
+    expect(
+      inspectDesignHtmlDocumentIntegrity(commentedOut).advisory?.[0],
+    ).toMatchObject({ issue: "runtime-missing" });
+  });
+
   it("stays linear across many raw-text blocks", () => {
     // Slicing the remaining document per raw-text opener was quadratic
     // allocation on the synchronous save path.
@@ -443,6 +471,39 @@ describe("Design HTML structural integrity", () => {
     const result = inspectDesignHtmlDocumentIntegrity(nested);
     expect(result.valid).toBe(false);
     expect(result.detail!.length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("assertDesignHtmlWellFormed", () => {
+  it("accepts a sketch with an implied document skeleton", () => {
+    // Variants may omit <html>/<body>; document-shape rules are not its job.
+    expect(() =>
+      assertDesignHtmlWellFormed({
+        content:
+          "<!doctype html><style>.app{max-width:390px}</style><div class='app'>One</div>",
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["script", "<script>const x = 1"],
+    ["style", "<div><style>.a{}"],
+    ["title", "<title>Hi"],
+    ["textarea", "<div><textarea>Hi"],
+  ])("rejects an unclosed raw-text <%s> in a fragment", (_label, content) => {
+    // Fragments never reach the document-only raw-text balance check, so this
+    // has to be caught during the structural scan or it passes entirely.
+    expect(() => assertDesignHtmlWellFormed({ content })).toThrow(
+      DESIGN_HTML_INTEGRITY_ERROR_CODE,
+    );
+  });
+
+  it("rejects an unterminated attribute in a fragment", () => {
+    expect(() =>
+      assertDesignHtmlWellFormed({
+        content: '<section class="grid gap-4><div>Hi</div></section>',
+      }),
+    ).toThrow(DESIGN_HTML_INTEGRITY_ERROR_CODE);
   });
 });
 

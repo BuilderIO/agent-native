@@ -680,8 +680,15 @@ function collectStructuralIssues(
       closer.lastIndex = scan.end;
       const found = closer.exec(value);
       if (!found) {
-        cursor = value.length;
-        continue;
+        // Report here rather than deferring to the document-only raw-text
+        // balance check: fragments never reach that check, so an unclosed
+        // <script> would pass the well-formedness gate entirely.
+        issues.push({
+          issue: "raw-text-balance",
+          ...locate(open),
+          tag,
+        });
+        return issues;
       }
       stack.push({ tag, start: open });
       cursor = found.index;
@@ -693,8 +700,17 @@ function collectStructuralIssues(
       continue;
     }
 
-    const top = stack[stack.length - 1];
-    if (top && IMPLICIT_SIBLING_CLOSE.get(tag)?.has(top.tag)) stack.pop();
+    // An implied close discards the target AND everything opened inside it —
+    // the browser closes those too, so popping only the stack top reports a
+    // still-open inline descendant (`<li><span>one<li>`) as unclosed.
+    const impliedClose = IMPLICIT_SIBLING_CLOSE.get(tag);
+    if (impliedClose) {
+      for (let index = stack.length - 1; index >= 0; index -= 1) {
+        if (!impliedClose.has(stack[index]!.tag)) continue;
+        stack.length = index;
+        break;
+      }
+    }
     stack.push({ tag, start: open });
     cursor = scan.end;
   }
@@ -733,15 +749,17 @@ function collectAdvisoryIssues(
   // missing runtime. A screen styled entirely through its own CSS needs no
   // Tailwind, and flagging it would train authors to ignore this warning.
   if (!USES_TAILWIND_UTILITIES.test(value)) return [];
+  // Comments are not markup: a commented-out runtime tag is not a runtime.
+  const value_ = value.replace(/<!--[\s\S]*?-->/g, "");
   const hasTailwindRuntime =
     /<script\b[^>]*\bsrc\s*=\s*(?:"[^"]*tailwind[^"]*"|'[^']*tailwind[^']*')/i.test(
-      value,
+      value_,
     ) ||
     /<style\b[^>]*\btype\s*=\s*(?:"text\/tailwindcss"|'text\/tailwindcss')/i.test(
-      value,
+      value_,
     ) ||
     /<link\b[^>]*\bhref\s*=\s*(?:"[^"]*tailwind[^"]*"|'[^']*tailwind[^']*')/i.test(
-      value,
+      value_,
     );
   if (hasTailwindRuntime) return [];
   const headIndex = value.search(/<head\b/i);

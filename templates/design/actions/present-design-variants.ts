@@ -827,6 +827,21 @@ export default defineAction({
   run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
 
+    // Before any mutation. These are model-authored screens created by raw
+    // insert, so they need the same well-formedness gate as generate-design —
+    // though not its document-shape rules, since a variant may be a sketch with
+    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
+    // supersession and deletion below are irreversible, so throwing after them
+    // would destroy existing variant sets and create nothing to replace them.
+    for (const variant of variants) {
+      const candidate = variant.content?.trim();
+      if (!candidate) continue;
+      assertDesignHtmlWellFormed({
+        content: annotateScreenHtmlForPersist(candidate, "html"),
+        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
+      });
+    }
+
     // Non-destructive bookkeeping: flag earlier still-complete variant sets
     // as superseded. Files are NEVER deleted automatically — a user's pick
     // exists only as a chat instruction until the agent's delete-file turn
@@ -849,20 +864,6 @@ export default defineAction({
     const usedFilenames = new Set(existingFiles.map((file) => file.filename));
     const variantSetId = nanoid();
     const screens: VariantScreen[] = [];
-
-    // Model-authored screens created by raw insert, so they need the same
-    // well-formedness gate — but not generate-design's document-shape rules: a
-    // variant is allowed to be a sketch with `<html>`/`<body>` implied.
-    // Validated up front so a rejected variant cannot leave earlier ones on the
-    // board.
-    for (const variant of variants) {
-      const candidate = variant.content?.trim();
-      if (!candidate) continue;
-      assertDesignHtmlWellFormed({
-        content: annotateScreenHtmlForPersist(candidate, "html"),
-        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
-      });
-    }
 
     for (let index = 0; index < variants.length; index += 1) {
       const variant = variants[index]!;
