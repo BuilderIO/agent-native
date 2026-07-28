@@ -269,7 +269,7 @@ Un asistente de asesoramiento a nivel de repositorio, `node scripts/audit-templa
 
 ### Indicadores de exposición {#exposure-flags}
 
-Cuatro banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
+Cinco banderas controlan quién puede invocar una acción. Todos tienen por defecto el valor permisivo, por lo que solo configura uno para apretar una superficie específica. Esta tabla es el resumen visible; las subsecciones añaden el detalle que cada una necesita.
 
 | Bandera         | Predeterminado    | Valor restrictivo → quién aún puede llamar                                           | Uso típico                                                                                              |
 | --------------- | ----------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
@@ -277,8 +277,9 @@ Cuatro banderas controlan quién puede invocar una acción. Todos tienen por def
 | `toolCallable`  | `true`            | `false` → todo **excepto** el puente iframe de extensión de espacio aislado (403)    | Operaciones adyacentes a la autenticación (eliminar cuenta, cambiar membresía/roles de la organización) |
 | `publicAgent`   | apagado (privado) | `{ expose: true }` → agrega la acción a las superficies **públicas** MCP/A2A/OpenAPI | Herramientas de lectura/ingesta seguras accesibles sin autenticación                                    |
 | `needsApproval` | `false`           | `true` → el agente **hace una pausa**; un humano debe aprobar la llamada específica  | Efectos secundarios consecuentes (enviar correo electrónico, cargar una tarjeta, eliminar)              |
+| `authorize`     | ninguno           | una función de guarda → solo los llamadores que acepta, en **todas** las superficies | Operaciones restringidas a un rol (RBAC por aplicación, operaciones solo para administradores)          |
 
-Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas) y `needsApproval` controla la ejecución después de realizar la llamada; consulte [Human-in-the-loop approval](#needs-approval) a continuación.
+Estos son independientes: `agentTool` controla la vista del modelo, `toolCallable` controla solo el iframe de extensión, `publicAgent` agrega una superficie pública de participación voluntaria (las rutas web públicas nunca implican exposición de herramientas públicas), `needsApproval` controla la ejecución después de realizar la llamada (consulte [Human-in-the-loop approval](#needs-approval) a continuación) y `authorize` decide si quien llama puede ejecutar la acción, en cada ruta de despacho, antes de entrar en `run`; consulte [Authorization](#authorize).
 
 #### `agentTool` — esconderse del modelo {#agent-tool}
 
@@ -391,6 +392,37 @@ export default defineAction({
 ```
 
 Para enumerar y leer actions, utilice `accessFilter` para limitar la consulta al usuario y la organización actuales. Para actions que actualiza o elimina una fila específica, use `assertAccess` para confirmar que la persona que llama tiene permiso antes de escribir. Consulte [Security](/docs/security#access-guards) y [Sharing](/docs/sharing) para obtener la ayuda completa API.
+
+### Autorización {#authorize}
+
+`accessFilter` / `assertAccess` delimitan _qué filas_ puede tocar quien llama con permiso. `authorize` responde a la pregunta anterior: **¿puede quien llama ejecutar esta operación siquiera?** Dele una función de guarda y se ejecuta antes de `run()` para todos los llamadores: herramienta de agente, HTTP, frontend, MCP, A2A y CLI:
+
+```ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+La guarda envuelve el propio `run` en lugar de colgar de la entrada de la acción, porque `run` es lo único por lo que pasan los seis sitios de despacho: no hay ninguna persona que llame que pueda alcanzar el cuerpo sin superar la comprobación. Una guarda que lanza deniega con su propio mensaje; una que devuelve `false` deniega con un 403 genérico; cualquier otra cosa, incluido `undefined`, permite. Como la barrera necesita una identidad de quien llama, una invocación desatendida desde CLI o cron sin correo electrónico de usuario se deniega en lugar de dejarse pasar.
+
+Los tres mecanismos no son intercambiables:
+
+| Mecanismo                     | Pregunta que responde                                    | Se aplica a                        |
+| ----------------------------- | -------------------------------------------------------- | ---------------------------------- |
+| `authorize`                   | ¿Puede quien llama realizar la operación?                | Los seis sitios de despacho        |
+| `needsApproval`               | ¿Debe un humano aprobar esta llamada permitida concreta? | Solo el bucle del agente           |
+| `accessFilter`/`assertAccess` | ¿Qué filas puede ver o escribir quien llama con permiso? | Dentro de `run`, por consulta/fila |
+
+Una action de escritura restringida suele necesitar tanto `authorize` como `assertAccess`: el primero mantiene fuera de la operación a quienes no son coaches, el segundo impide que un coach toque el plan de otra organización. `needsApproval` es otro eje distinto: nunca restringe _quién_ puede llamar, solo si el agente puede continuar sin supervisión.
+
+`coachAccess` arriba proviene de `defineAppRoles`, la capa de roles por aplicación sobre la membresía de la organización. Consulte [Organizations, Teams & Permissions → App roles](/docs/organizations-teams-permissions#app-roles-per-app-rbac) para conocer el modelo de roles y sus garantías.
 
 ### Aprobación humana en el circuito {#needs-approval}
 
