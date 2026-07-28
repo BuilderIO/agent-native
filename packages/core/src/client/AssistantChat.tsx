@@ -2262,6 +2262,7 @@ const AssistantChatInner = forwardRef<
     planModeDisabledReason,
     selectedModel,
     defaultModel,
+    selectedEngine,
     selectedEffort,
     availableModels,
     modelListLoading,
@@ -4519,6 +4520,26 @@ const AssistantChatInner = forwardRef<
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
+  // Explicit opt-in interrupt from a queued bubble: hoist the entry to the
+  // front and abort the active run, letting auto-dequeue re-send it once the
+  // run clears. Plain Enter still queues — this is the only send-now gesture.
+  const sendQueuedMessageNow = useCallback(
+    (id: string) => {
+      applyLocalQueuedMessages((prev) => {
+        const target = prev.find((message) => message.id === id);
+        if (!target) return prev;
+        return [target, ...prev.filter((message) => message.id !== id)];
+      });
+      stopActiveRunRef.current({ preserveQueuedMessages: true });
+    },
+    [applyLocalQueuedMessages],
+  );
+
+  const visibleQueuedMessages = useMemo(
+    () => queuedMessages.filter((message) => !message.hideUserMessage),
+    [queuedMessages],
+  );
+
   const addToQueue = useCallback(
     async (
       text: string,
@@ -4689,6 +4710,12 @@ const AssistantChatInner = forwardRef<
           : execMode === "build"
             ? "act"
             : undefined);
+      // Same reasoning for the model picker — see `QueuedMessage.model`.
+      const modelSnapshot = {
+        model: selectedModel,
+        engine: selectedEngine,
+        effort: selectedEffort,
+      };
       if (isRunning && intent === "immediate") {
         // Explicit interrupt path: abort the active server run, then let the
         // auto-dequeue path append this message once the run is clear. Normal
@@ -4709,6 +4736,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
         stopActiveRunRef.current({ preserveQueuedMessages: true });
@@ -4729,6 +4757,7 @@ const AssistantChatInner = forwardRef<
             recoveryAction,
             trackInRunsTray,
             hideUserMessage,
+            ...modelSnapshot,
           },
         ]);
       } else {
@@ -4780,6 +4809,9 @@ const AssistantChatInner = forwardRef<
       markOptimisticRunning,
       appendThreadMessage,
       requestMissingKeySetup,
+      selectedEffort,
+      selectedEngine,
+      selectedModel,
       updateComposerContextItems,
     ],
   );
@@ -5565,52 +5597,79 @@ const AssistantChatInner = forwardRef<
                                   />
                                 </MessageScrollerItem>
                               )}
-                              {queuedMessages
-                                .filter((msg) => !msg.hideUserMessage)
-                                .map((msg) => {
-                                  const displayText =
-                                    displayableUserMessageText(msg.text);
-                                  const imageSources =
-                                    queuedMessageImageSources(msg);
-                                  return (
-                                    <MessageScrollerItem
-                                      key={msg.id}
-                                      messageId={msg.id}
-                                    >
-                                      <div className="group flex items-start justify-end gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            applyLocalQueuedMessages((prev) =>
-                                              prev.filter(
-                                                (m) => m.id !== msg.id,
-                                              ),
-                                            )
-                                          }
-                                          aria-label="Remove from queue"
-                                          className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                        >
-                                          <IconX className="h-3 w-3" />
-                                        </button>
-                                        <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                          {displayText}
-                                          {imageSources.length > 0 && (
-                                            <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                              {imageSources.map((img, j) => (
-                                                <img
-                                                  key={j}
-                                                  src={img}
-                                                  alt=""
-                                                  className="h-12 w-12 rounded object-cover border border-border/50"
-                                                />
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
+                              {visibleQueuedMessages.length > 0 && (
+                                <MessageScrollerItem>
+                                  <div className="flex items-center justify-end gap-1.5 pr-0.5 text-xs text-muted-foreground">
+                                    <IconClock className="h-3 w-3" />
+                                    <span>
+                                      {visibleQueuedMessages.length} queued
+                                    </span>
+                                  </div>
+                                </MessageScrollerItem>
+                              )}
+                              {visibleQueuedMessages.map((msg) => {
+                                const displayText = displayableUserMessageText(
+                                  msg.text,
+                                );
+                                const imageSources =
+                                  queuedMessageImageSources(msg);
+                                return (
+                                  <MessageScrollerItem
+                                    key={msg.id}
+                                    messageId={msg.id}
+                                  >
+                                    <div className="group flex items-start justify-end gap-1.5">
+                                      {isRunning && (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                sendQueuedMessageNow(msg.id)
+                                              }
+                                              aria-label="Send now"
+                                              className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                            >
+                                              <IconArrowUp className="h-3 w-3" />
+                                            </button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Send now (stops the current
+                                            response)
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyLocalQueuedMessages((prev) =>
+                                            prev.filter((m) => m.id !== msg.id),
+                                          )
+                                        }
+                                        aria-label="Remove from queue"
+                                        className="mt-1.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                      >
+                                        <IconX className="h-3 w-3" />
+                                      </button>
+                                      <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
+                                        {displayText}
+                                        {imageSources.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {imageSources.map((img, j) => (
+                                              <img
+                                                key={j}
+                                                src={img}
+                                                alt=""
+                                                className="h-12 w-12 rounded object-cover border border-border/50"
+                                              />
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
-                                    </MessageScrollerItem>
-                                  );
-                                })}
+                                    </div>
+                                  </MessageScrollerItem>
+                                );
+                              })}
                               {resolvedThreadFooterSlot ? (
                                 <MessageScrollerItem>
                                   <div className="agent-thread-footer-slot">
