@@ -1246,6 +1246,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
+    recordNew: "नई रिकॉर्डिंग",
   },
   playerSettings: {
     title: "Settings (स्थानीयकृत)",
@@ -1323,6 +1324,25 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+  },
+  importRoute: {
+    pageTitle: "Loom आयात करें — Clips",
+    title: "Loom आयात करें",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "आयात करें",
+    helperText:
+      "यह Loom के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
+    stageFetching: "आपका वीडियो लाया जा रहा है…",
+    stageUploading: "मूल फ़ुटेज अपलोड हो रहा है…",
+    stageTranscript: "बोली और स्क्रीन के दृश्य को एजेंट-पठनीय बनाया जा रहा है…",
+    stageFinalizing: "इसे Agent-Native बनाया जा रहा है…",
+    importingSubtitle:
+      "एक सामान्य रिकॉर्डिंग को Agent-Native प्रिमिटिव में बदला जा रहा है।",
+    doneHeading: "और हो गया! आपका वीडियो अब है:",
+    benefitTranscript: "बोली और स्क्रीन के दृश्य, पूरी तरह खोजने योग्य",
+    benefitQueryable: "आपके एजेंट द्वारा समझा और क्वेरी किया जा सकने योग्य",
+    benefitSummaries: "मांग पर तुरंत सारांश और क्लिप",
+    benefitPrimitive: "प्रथम-श्रेणी का Agent-Native प्रिमिटिव",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (स्थानीयकृत)",

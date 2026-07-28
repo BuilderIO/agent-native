@@ -1278,6 +1278,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",
     import: "Import (Localizado)",
+    recordNew: "Nova gravação",
   },
   playerSettings: {
     title: "Settings (Localizado)",
@@ -1356,6 +1357,25 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
+  },
+  importRoute: {
+    pageTitle: "Importar Loom — Clips",
+    title: "Importar Loom",
+    urlPlaceholder: "https://www.loom.com/share/...",
+    cta: "Importar",
+    helperText:
+      "Funciona muito bem com o Loom. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
+    stageFetching: "Trazendo seu vídeo…",
+    stageUploading: "Enviando o material bruto…",
+    stageTranscript: "Tornando a fala e o visual na tela legíveis pelo agente…",
+    stageFinalizing: "Tornando-o Agent-Native…",
+    importingSubtitle:
+      "Transformando uma gravação comum em uma primitiva Agent-Native.",
+    doneHeading: "E pronto! Seu vídeo agora é:",
+    benefitTranscript: "Fala e visual na tela, totalmente pesquisáveis",
+    benefitQueryable: "Compreendido e consultável pelo seu agente",
+    benefitSummaries: "Resumos e clipes instantâneos sob demanda",
+    benefitPrimitive: "Uma primitiva Agent-Native de primeira classe",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",
