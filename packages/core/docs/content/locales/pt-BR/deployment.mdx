@@ -311,6 +311,18 @@ export default defineConfig({
 });
 ```
 
+## Cloudflare Workers {#cloudflare-workers}
+
+Use a saída nativa de módulos do Nitro para um Cloudflare Worker com SSR
+habilitado. Execute `npx @agent-native/core@latest build` e depois faça o
+deploy com `npx wrangler deploy --config .output/server/wrangler.json`.
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
 ## Lambda AWS {#aws-lambda}
 
 ```ts

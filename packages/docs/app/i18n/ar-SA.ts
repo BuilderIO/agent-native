@@ -18,6 +18,9 @@ const arSA = {
     searchPlaceholder: "ابحث في الوثائق...",
     askAssistant: "اسأل مساعد الذكاء الاصطناعي",
     toggleNavigation: "تبديل قائمة التنقل",
+    copyLogoSvg: "نسخ شعار SVG",
+    copyWordmark: "نسخ الاسم التجاري",
+    brandAssets: "أصول العلامة التجارية",
   },
   footer: {
     download: "تنزيل",
@@ -225,7 +228,7 @@ const arSA = {
     },
     templates: {
       title: "جرّب app من Agent-Native",
-      eyebrow: "مجاني 100% ومفتوح المصدر",
+      eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
       cta: "عرض apps",
     },
     skills: {
@@ -282,7 +285,7 @@ const arSA = {
         polishedButRigid: "مصقولة لكنها جامدة",
         none: "لا شيء",
         mixedQuality: "جودة متفاوتة",
-        fullUi: "UI كاملة، fork وانطلق",
+        fullUi: "UI كاملة، خصّص وانطلق",
         boltedOn: "مضافة لاحقا",
         powerful: "قوية",
         shallowlyConnected: "اتصال سطحي",
@@ -302,7 +305,7 @@ const arSA = {
     },
     finalCta: {
       title: "software مبني لعصر agentic era",
-      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
+      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Cloneable SaaS. لك.",
       primaryCta: "جرّب تطبيقًا",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",
@@ -385,7 +388,7 @@ const arSA = {
       providerApis: "الموفر APIs",
       agentWebSurfaces: "أسطح الويب للوكيل",
       templateSkills: "مهارات التطبيق",
-      oneClickForks: "شوكات بنقرة واحدة",
+      oneClickForks: "إنشاء التطبيقات بنقرة واحدة",
       localFileMode: "وضع الملف المحلي",
       memory: "الذاكرة",
       webhooks: "خطافات الويب",
@@ -415,7 +418,7 @@ const arSA = {
   },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",
-    eyebrow: "انسخ تطبيقًا جاهزًا ودع الوكيل يطوره.",
+    eyebrow: "ابدأ من app جاهز ودع الوكيل يطوره.",
     body: "يمكنك تخصيص كل شيء.",
     community: "تريد تطبيقا فارغا؟ ابدأ من الصفر مع دليل إطار العمل.",
     createYourOwn: "ابدأ من الصفر",

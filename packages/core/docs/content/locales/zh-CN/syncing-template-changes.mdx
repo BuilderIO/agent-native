@@ -5,7 +5,7 @@ description: "agent-native template 使用针对纯净基线的、真正逐文�
 
 # 同步模板更改
 
-`agent-native create` 将第一方模板复制到您的应用中，然后使其成为您自己的——替换应用名称、重命名 `_gitignore`、重写 `package.json`、将 `workspace:*` 和 `catalog:` 依赖固定为具体版本，并且（在工作区中）替换继承的身份验证和聊天插件。从那一刻起，该应用就是一个分支（fork）。上游模板中落地的修复和改进不会到达它。
+`agent-native create` 将第一方模板复制到您的应用中，然后使其成为您自己的——替换应用名称、重命名 `_gitignore`、重写 `package.json`、将 `workspace:*` 和 `catalog:` 依赖固定为具体版本，并且（在工作区中）替换继承的身份验证和聊天插件。从那一刻起，该应用就是一个从模板创建的独立 app。上游模板中落地的修复和改进不会到达它。
 
 `agent-native upgrade` 不会弥合这一差距。它移动包版本、运行导入代码迁移（codemods），并刷新 skill 目录——它从不接触从模板中复制出来的文件。
 

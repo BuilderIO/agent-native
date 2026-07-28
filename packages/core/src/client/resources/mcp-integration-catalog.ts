@@ -803,6 +803,29 @@ export function findMcpIntegrationForText(
   return null;
 }
 
+/**
+ * Matches the server segment of an `mcp__<server>__<tool>` name, not prose, so
+ * ambiguous brand words ("box", "monday", "linear") are safe here in a way they
+ * are not in `findMcpIntegrationForText`.
+ */
+export function findMcpIntegrationForToolName(
+  toolName: string,
+  integrations: readonly DefaultMcpIntegration[] = DEFAULT_MCP_INTEGRATIONS,
+): DefaultMcpIntegration | null {
+  const server = /^mcp__(.+?)__/.exec(toolName.toLowerCase())?.[1];
+  if (!server) return null;
+  return (
+    integrations.find((integration) =>
+      [
+        integration.id,
+        integration.provider,
+        ...(integration.brandAliases ?? []),
+        ...(integration.aliases ?? []),
+      ].some((alias) => textContainsTerm(server, alias)),
+    ) ?? null
+  );
+}
+
 export function isMcpConnectionFailureText(text: string): boolean {
   return /\b(?:can(?:not|'t|’t)|could(?: not|n't|n’t)|unable|failed|don't have access|don’t have access|not connected|not able)\b[\s\S]{0,80}\b(?:read|access|open|see|fetch|connect)\b/i.test(
     text,

@@ -249,6 +249,14 @@ export default defineAction({
 Utilice esto para la aplicación propia UI. Mantenga el iframe entre hosts UI en `mcpApp` y mantenga
 ejecución de consultas arbitrarias detrás de la lectura escrita actions en lugar de SQL sin formato en el chat.
 
+Dimensiona los renderers en unidades absolutas, no en porcentajes. La transcripción
+crece para ajustarse a sus mensajes, así que el contenedor de un renderer no tiene
+una altura definida contra la que resolver un porcentaje: `height: 40%` en la barra
+de un gráfico se colapsa a cero en lugar de dar error, lo que parece un renderer que
+no se dibujó. Da a los gráficos y demás elementos dependientes de la altura una base
+en píxeles (o `rem`); los anchos en porcentaje están bien porque la columna de la
+transcripción sí tiene un ancho definido.
+
 ## Tiempos de ejecución del agente BYO {#byo-agent-runtimes}
 
 `AgentChatRuntime` es el contrato de traiga su propio agente para el shell de chat, y

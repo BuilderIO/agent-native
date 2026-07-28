@@ -84,6 +84,8 @@ function processEnv(name: string): string | undefined {
  * the live per-request value via `getRequestRunContext()`.
  */
 export interface RequestRunContext {
+  /** Request-scoped serverless continuation hook, when the runtime provides one. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   /** Origin of the current request (used by the builder-browser tool). */
   requestOrigin?: string;
   /** Stable browser tab id for tab-scoped app-state reads/writes. */

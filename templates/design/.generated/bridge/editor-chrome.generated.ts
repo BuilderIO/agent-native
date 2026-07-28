@@ -23,6 +23,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         return false;
       }
     })();
+    var selectedLayerDragPriorityEnabled = (function() {
+      try {
+        return !!__SELECTED_LAYER_DRAG_PRIORITY__;
+      } catch (_e) {
+        return false;
+      }
+    })();
     var scaleToolEnabled = false;
     function dndLog(phase, data) {
       if (!window.__DND_DEBUG) return;
@@ -1596,6 +1603,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearComponentTag();
     }
     var selectedEl = null;
+    var selectionChromeHidden = false;
     var hoveredEl = null;
     var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
@@ -2773,7 +2781,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideSelectionOverlay();
         }
       } else if (selectedEl) {
-        positionOverlay(selectionOverlay, selectedEl);
+        if (selectionChromeHidden) {
+          hideSelectionOverlay();
+        } else {
+          positionOverlay(selectionOverlay, selectedEl);
+        }
       } else {
         hideParentAutoLayoutOverlay();
       }
@@ -3165,17 +3177,19 @@ export const editorChromeBridgeScript: string = `"use strict";
           // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
           // onPasteToReplace) — both live under bare primary+r.
           "r",
-          // Cmd/Ctrl+\\ — toggle UI (onToggleUi).
-          "\\\\"
+          // Cmd/Ctrl+K — open the host command menu even while the iframe has
+          // focus. DesignEditor routes this chord to openCommandMenu().
+          "k"
         ].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2" || // Cmd/Ctrl+Shift+H / +L — toggle hidden / toggle locked
         // (onToggleHidden / onToggleLocked). Gated on shiftKey so bare
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
-        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
+        e.shiftKey && (normalized === "h" || normalized === "l") || // Cmd/Ctrl+Shift+\\ — minimize UI (onToggleUi). Keep the Shift gate
+        // here so the iframe never intercepts a desktop host's bare Cmd/Ctrl+\\.
+        e.shiftKey && normalized === "\\\\" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
-        // Cmd+B / Cmd+K are left alone — the host has no bare-primary
-        // binding for either.
+        // Cmd+B is left alone — the host has no bare-primary binding for it.
         e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
         // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
         // on LITERAL Control on every platform (never remapped to Cmd), so
@@ -3507,29 +3521,27 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
     }
-    function openContextMenuAtEvent(e) {
-      stopNativeInteraction(e);
-      blurActiveTextEditor();
+    function collectLayerHitCandidates(clientX, clientY) {
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
       var selectionPointerEvents = selectionOverlay.style.pointerEvents;
       var highlightPointerEvents = highlightOverlay.style.pointerEvents;
       shieldOverlay.style.pointerEvents = "none";
       selectionOverlay.style.pointerEvents = "none";
       highlightOverlay.style.pointerEvents = "none";
-      var pointTargets = document.elementsFromPoint ? document.elementsFromPoint(e.clientX, e.clientY) : [document.elementFromPoint(e.clientX, e.clientY)];
+      var pointTargets = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
       shieldOverlay.style.pointerEvents = shieldPointerEvents;
       selectionOverlay.style.pointerEvents = selectionPointerEvents;
       highlightOverlay.style.pointerEvents = highlightPointerEvents;
-      var candidateElements = [];
+      var elements = [];
       var layerCandidates = [];
       pointTargets.forEach(function(pointTarget) {
         if (!pointTarget || pointTarget.nodeType !== 1) return;
         if (isOverlayElement(pointTarget)) return;
         var candidate = selectionTargetForHit(pointTarget);
-        if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate) || candidateElements.indexOf(candidate) !== -1) {
+        if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate) || elements.indexOf(candidate) !== -1) {
           return;
         }
-        candidateElements.push(candidate);
+        elements.push(candidate);
         var candidateInfo = getElementInfo(candidate);
         var explicitLabel = candidate.getAttribute && candidate.getAttribute("data-agent-native-layer-name") || "";
         var textLabel = (candidate.textContent || "").trim().replace(/\\s+/g, " ");
@@ -3541,6 +3553,30 @@ export const editorChromeBridgeScript: string = `"use strict";
           info: candidateInfo
         });
       });
+      return { elements, layerCandidates };
+    }
+    function stackCycleTarget(clientX, clientY, currentEl) {
+      if (!currentEl) return null;
+      var stack = collectLayerHitCandidates(clientX, clientY);
+      var currentIdx = stack.elements.indexOf(currentEl);
+      if (currentIdx === -1) return null;
+      var keys = stack.layerCandidates.map(function(candidate) {
+        return candidate.key;
+      });
+      var nextKey = nextStackCandidate(
+        keys,
+        stack.layerCandidates[currentIdx].key
+      );
+      if (nextKey === null) return null;
+      var nextEl = stack.elements[keys.indexOf(nextKey)];
+      return nextEl && !isLayerInteractionBlocked(nextEl) ? nextEl : null;
+    }
+    function openContextMenuAtEvent(e) {
+      stopNativeInteraction(e);
+      blurActiveTextEditor();
+      var collected = collectLayerHitCandidates(e.clientX, e.clientY);
+      var candidateElements = collected.elements;
+      var layerCandidates = collected.layerCandidates;
       var target = candidateElements[0] || null;
       var info = null;
       if (target) {
@@ -6238,7 +6274,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             height: dragElStartHeight
           },
           snapCandidateRects,
-          SNAP_THRESHOLD_PX
+          // Convert the screen-space base to content px (1/zoom).
+          SNAP_THRESHOLD_PX * chromeLineScale()
         ) : { dx: 0, dy: 0, guideV: null, guideH: null };
         nextLeft += snapResult.dx;
         nextTop += snapResult.dy;
@@ -6726,6 +6763,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       pendingShieldDrag = null;
     }
+    function dragTargetForPointerDown(args) {
+      var selectedEl2 = args.selectedEl;
+      var hitEl = args.hitEl;
+      var hitRaw = args.hitRaw || hitEl;
+      var selectedAlive = !!args.selectedAlive;
+      if (selectedEl2 && selectedAlive && selectedEl2.contains && selectedEl2.contains(hitRaw)) {
+        return selectedEl2;
+      }
+      if (args.preferSelected && selectedEl2 && selectedAlive) {
+        var r = args.selectedRect;
+        var p = args.point;
+        if (r && p && r.width > 0 && r.height > 0 && p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom) {
+          return selectedEl2;
+        }
+      }
+      return hitEl;
+    }
+    function nextStackCandidate(candidateKeys, currentKey) {
+      if (!candidateKeys || candidateKeys.length === 0) return null;
+      var idx = candidateKeys.indexOf(currentKey);
+      if (idx === -1) return null;
+      return candidateKeys[(idx + 1) % candidateKeys.length];
+    }
     function beginPotentialShieldDrag(e) {
       stopNativeInteraction(e);
       if (e.button !== 0) return;
@@ -6737,7 +6797,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         beginMarqueeSelection(e);
         return;
       }
-      var dragTarget = selectedEl && document.documentElement.contains(selectedEl) && selectedEl.contains(hit) ? selectedEl : hitTarget;
+      var selectedAlive = !!selectedEl && document.documentElement.contains(selectedEl);
+      var selectedRect = selectedAlive && selectedEl.getBoundingClientRect ? selectedEl.getBoundingClientRect() : null;
+      var dragTarget = dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive,
+        selectedRect,
+        hitEl: hitTarget,
+        hitRaw: hit,
+        point: { x: e.clientX, y: e.clientY },
+        preferSelected: selectedLayerDragPriorityEnabled
+      });
       var clickTarget = hitTarget;
       if (!dragTarget || dragTarget === document.body || dragTarget === document.documentElement || isLayerInteractionBlocked(dragTarget)) {
         return;
@@ -6793,7 +6863,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           postCrossScreenDrag("cancel");
         }
         if (ev) stopNativeInteraction(ev);
-        selectTarget(clickTarget || dragTarget, ev);
+        var cycledEl = !readOnly && (e.metaKey || e.ctrlKey) && !e.shiftKey ? stackCycleTarget(e.clientX, e.clientY, selectedEl) : null;
+        if (cycledEl) {
+          selectTarget(cycledEl);
+        } else {
+          selectTarget(clickTarget || dragTarget, ev);
+        }
         suppressNextShieldClickBriefly();
       }
       clearPendingShieldDrag();
@@ -7876,6 +7951,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
+      if (e.data.type === "set-selection-chrome-hidden") {
+        selectionChromeHidden = !!e.data.hidden;
+        if (selectionChromeHidden) {
+          hideSelectionOverlay();
+        } else if (selectedEl) {
+          positionOverlay(selectionOverlay, selectedEl);
+          updateParentAutoLayoutOverlay(selectedEl);
+          refreshOverlays();
+        }
+        return;
+      }
       if (e.data.type === "select-element") {
         var candidates = [];
         if (Array.isArray(e.data.selectorCandidates)) {
@@ -7908,7 +7994,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           hoveredSpacingHandleKey = "";
         }
         selectedEl = target;
-        positionOverlay(selectionOverlay, target);
+        if (selectionChromeHidden) {
+          hideSelectionOverlay();
+        } else {
+          positionOverlay(selectionOverlay, target);
+        }
         if (hoveredEl === selectedEl) highlightOverlay.style.display = "none";
         if (selectionChangedByHost) {
           postElementSelect(target);

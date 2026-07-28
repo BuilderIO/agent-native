@@ -148,7 +148,7 @@ export const meta = () => [
   {
     name: "description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
   },
   ...defaultSocialImageMeta(),
   {
@@ -158,7 +158,7 @@ export const meta = () => [
   {
     property: "og:description",
     content:
-      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with ready-to-fork apps.",
+      "Build agentic apps where AI agents and UI share the same database and state. Open source framework with cloneable SaaS apps.",
   },
   { property: "og:type", content: "website" },
   { property: "og:url", content: SITE_URL },
@@ -499,14 +499,14 @@ function LocalizedError({ error }: { error: unknown }) {
             <Link
               data-an-prefetch="render"
               to={localizedPath("/")}
-              className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+              className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
             >
               {t("errors.goHome")}
             </Link>
             <Link
               data-an-prefetch="render"
               to={localizedPath("/docs")}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
             >
               {t("errors.readDocs")}
             </Link>
@@ -539,7 +539,7 @@ function LocalizedError({ error }: { error: unknown }) {
         <Link
           data-an-prefetch="render"
           to={localizedPath("/")}
-          className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
         >
           {t("errors.goHome")}
         </Link>
