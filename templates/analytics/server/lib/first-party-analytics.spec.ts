@@ -176,11 +176,78 @@ describe("queryFirstPartyAnalytics", () => {
       random.mockRestore();
     }
 
-    expect(execute).toHaveBeenCalledTimes(4);
+    expect(execute).toHaveBeenCalledTimes(3);
     expect(execute.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         sql: expect.stringContaining("first_party_analytics_cache"),
+        maxAttempts: 1,
       }),
     );
+    expect(execute.mock.calls[0][0].timeoutMs).toBeLessThanOrEqual(1_000);
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({
+        timeoutMs: expect.any(Number),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0]).toEqual(
+      expect.objectContaining({
+        sql: expect.stringContaining("ON CONFLICT(key) DO UPDATE"),
+        maxAttempts: 1,
+      }),
+    );
+    expect(execute.mock.calls[2][0].timeoutMs).toBeLessThanOrEqual(1_000);
+  });
+
+  it("shares one deadline between the cache read and panel query", async () => {
+    let now = 1_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        now += 125;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      await queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "deadline@example.com", orgId: null },
+        { cache: true, timeoutMs: 500 },
+      );
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    expect(execute.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 500, maxAttempts: 1 }),
+    );
+    expect(execute.mock.calls[1][0]).toEqual(
+      expect.objectContaining({ timeoutMs: 375, maxAttempts: 1 }),
+    );
+  });
+
+  it("does not hold a successful panel response on the cache write", async () => {
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (sql.includes("ON CONFLICT(key) DO UPDATE")) {
+        return await new Promise(() => {});
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) AS count FROM analytics_events",
+        { userEmail: "nonblocking-cache@example.com", orgId: null },
+        { cache: true },
+      ),
+    ).resolves.toEqual({
+      rows: [{ count: "1" }],
+      schema: [{ name: "count", type: "string" }],
+    });
   });
 });
