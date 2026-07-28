@@ -155,13 +155,14 @@ let _amplitudeInitialized = false;
 let _amplitudeModule: typeof amplitude | null = null;
 let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
 let _amplitudeApiKey: string | null = null;
-let _pendingAmplitudeEvents: Array<[
-  string,
-  Record<string, unknown>,
-]> = [];
+let _pendingAmplitudeEvents: Array<[string, Record<string, unknown>]> = [];
 let _sentryInitialized = false;
 let _sentryModule: typeof Sentry | null = null;
 let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
+let _pendingSentryCaptures: Array<{
+  error: unknown;
+  context: ClientCaptureContext;
+}> = [];
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
@@ -900,6 +901,31 @@ function getClientSentryDsn(): string | undefined {
   );
 }
 
+function captureWithSentry(
+  module: typeof Sentry,
+  error: unknown,
+  context: ClientCaptureContext,
+): string | undefined {
+  return module.withScope((scope) => {
+    if (context.tags) {
+      for (const [k, v] of Object.entries(context.tags)) {
+        if (typeof v === "string") scope.setTag(k, v);
+      }
+    }
+    if (context.extra) {
+      for (const [k, v] of Object.entries(context.extra)) {
+        if (v !== undefined) scope.setExtra(k, v);
+      }
+    }
+    if (context.contexts) {
+      for (const [k, v] of Object.entries(context.contexts)) {
+        scope.setContext(k, v);
+      }
+    }
+    return module.captureException(error);
+  });
+}
+
 function ensureSentry(): void {
   if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
@@ -955,6 +981,10 @@ function ensureSentry(): void {
         module.setTag("orgId", _pendingSentryOrgId);
         _pendingSentryOrgId = undefined;
       }
+      for (const pending of _pendingSentryCaptures) {
+        captureWithSentry(module, pending.error, pending.context);
+      }
+      _pendingSentryCaptures = [];
       return module;
     })
     .catch(() => null)
@@ -1053,25 +1083,11 @@ export function captureClientException(
   if (typeof window === "undefined") return undefined;
   try {
     ensureSentry();
-    if (!_sentryModule) return undefined;
-    return _sentryModule.withScope((scope) => {
-      if (context.tags) {
-        for (const [k, v] of Object.entries(context.tags)) {
-          if (typeof v === "string") scope.setTag(k, v);
-        }
-      }
-      if (context.extra) {
-        for (const [k, v] of Object.entries(context.extra)) {
-          if (v !== undefined) scope.setExtra(k, v);
-        }
-      }
-      if (context.contexts) {
-        for (const [k, v] of Object.entries(context.contexts)) {
-          scope.setContext(k, v);
-        }
-      }
-      return _sentryModule?.captureException(error);
-    });
+    if (_sentryModule) return captureWithSentry(_sentryModule, error, context);
+    if (_pendingSentryCaptures.length < 50) {
+      _pendingSentryCaptures.push({ error, context });
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -1799,7 +1815,9 @@ export function trackEvent(
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, props);
   } else if (_amplitudeApiKey) {
-    _pendingAmplitudeEvents.push([name, props]);
+    if (_pendingAmplitudeEvents.length < 100) {
+      _pendingAmplitudeEvents.push([name, props]);
+    }
   }
   sendAgentNativeAnalytics(name, props);
 }

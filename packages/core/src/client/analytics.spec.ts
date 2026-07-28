@@ -250,10 +250,9 @@ describe("browser analytics pageviews", () => {
       endpoint: "https://analytics.example.test/api/analytics/track",
     });
     setTrackingContentCaptureEnabled(false);
-    expect(captureClientException(new Error("Renderer failed"))).toBe(
-      "event_id",
-    );
+    captureClientException(new Error("Renderer failed"));
     await tick();
+    expect(sentryMock.captureException).toHaveBeenCalledWith(expect.any(Error));
 
     expect(analyticsCalls).toHaveLength(1);
     const body = JSON.parse(String(analyticsCalls[0][1].body));
@@ -599,6 +598,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
 
     expect(sentryMock.init).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -617,6 +617,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
 
     expect(sentryMock.init).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -634,6 +635,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -661,6 +663,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const replayEvent = {
       exception: {
@@ -696,6 +699,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -718,6 +722,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -771,6 +776,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -802,6 +808,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -873,6 +880,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       tags: {
@@ -903,6 +911,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -930,6 +939,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -957,6 +967,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -982,6 +993,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const event = {
       exception: {
@@ -1011,8 +1023,9 @@ describe("browser analytics pageviews", () => {
       tags: { source: "agent-chat-client" },
       extra: { runId: "run_123" },
     });
+    await tick();
 
-    expect(result).toBe("event_id");
+    expect(result).toBeUndefined();
     expect(sentryMock.captureException).toHaveBeenCalledWith(err);
   });
 });
