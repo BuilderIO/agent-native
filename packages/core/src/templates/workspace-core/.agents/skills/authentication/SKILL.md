@@ -105,6 +105,12 @@ same statement as the assignment, so a leftover assignment for a removed member
 can never authorize. Only org owners/admins may assign app roles; render the
 picker with `<TeamPage appRoles={descriptor} />`.
 
+`requireAny` validates at definition time — no roles, or a role outside the
+declared vocabulary, throws when the module loads rather than surfacing as an
+unexplained 403 later. When calling `resolve`/`assertAny` directly, note that an
+explicit `userEmail: null` / `orgId: null` means "this run has no identity" and
+does **not** fall back to the ambient request context; only `undefined` does.
+
 ### Stop And Confirm Before Creating Or Switching Organizations
 
 Vault credentials are scoped per organization and are **not** shared between

@@ -326,6 +326,10 @@ export default defineAction({
 });
 ```
 
+The wrappers compose as `validate input -> authorize -> run -> validate output
+-> audit`: the gate sits inside input validation, so a guard reading `args` gets
+the parsed, coerced value, and auditing is outermost, so denials are recorded.
+
 A guard that throws denies with its own message; returning `false` denies
 generically; anything else (including `undefined`) allows. A guarded action
 needs a user identity, so an unattended CLI/cron caller with no user email is

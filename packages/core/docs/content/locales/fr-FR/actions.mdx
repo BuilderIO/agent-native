@@ -412,6 +412,16 @@ export default defineAction({
 
 La garde enveloppe `run` lui-même au lieu d'être accrochée à l'entrée de l'action, car `run` est la seule chose que traversent les six sites de répartition — aucun appelant ne peut atteindre le corps sans passer le contrôle. Une garde qui lève une exception refuse avec son propre message ; une garde qui renvoie `false` refuse avec un 403 générique ; tout le reste, y compris `undefined`, autorise. Comme la barrière a besoin d'une identité d'appelant, une invocation CLI ou cron sans surveillance et sans e-mail d'utilisateur est refusée plutôt que laissée passer.
 
+Les enveloppes se composent dans cet ordre :
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+L'autorisation se situe _à l'intérieur_ de la validation des entrées : une garde qui inspecte `args` reçoit donc la valeur analysée et convertie que son type promet, et non la forme brute envoyée par l'appelant. L'audit est la couche la plus externe, si bien qu'un refus est tout de même enregistré.
+
+`requireAny` échoue au moment de la définition, pas au moment de la requête : l'appeler sans aucun rôle, ou avec un rôle absent du vocabulaire déclaré, lève une exception au chargement du module. `authorize: coachAccess.requireAny()` est un argument oublié, et cela doit casser là où se trouve l'erreur plutôt que ressortir plus tard sous la forme d'un 403 inexpliqué.
+
 Les trois mécanismes ne sont pas interchangeables :
 
 | Mécanisme                     | Question à laquelle il répond                                 | S'applique à                              |

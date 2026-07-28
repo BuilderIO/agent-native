@@ -412,6 +412,16 @@ export default defineAction({
 
 La guarda envuelve el propio `run` en lugar de colgar de la entrada de la acción, porque `run` es lo único por lo que pasan los seis sitios de despacho: no hay ninguna persona que llame que pueda alcanzar el cuerpo sin superar la comprobación. Una guarda que lanza deniega con su propio mensaje; una que devuelve `false` deniega con un 403 genérico; cualquier otra cosa, incluido `undefined`, permite. Como la barrera necesita una identidad de quien llama, una invocación desatendida desde CLI o cron sin correo electrónico de usuario se deniega en lugar de dejarse pasar.
 
+Las envolturas se componen en este orden:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+La autorización se sitúa _dentro_ de la validación de entrada: así, una guarda que inspecciona `args` recibe el valor ya analizado y convertido que promete su tipo, y no la forma que envió quien llama. La auditoría es la capa más externa, de modo que una denegación también queda registrada.
+
+`requireAny` falla en tiempo de definición, no en tiempo de solicitud: llamarlo sin roles, o con un rol ajeno al vocabulario declarado, lanza al cargar el módulo. `authorize: coachAccess.requireAny()` es un argumento olvidado, y debe romperse donde está el error en lugar de aparecer después como un 403 inexplicable.
+
 Los tres mecanismos no son intercambiables:
 
 | Mecanismo                     | Pregunta que responde                                    | Se aplica a                        |
