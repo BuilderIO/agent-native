@@ -9,7 +9,7 @@ File selections are now attached per source, and the incomplete-response guard o
 requires a `designSystemId`. "Open in Builder" now links into the actual
 project/branch (`branchUrl`) when the service returns one, falling back to the
 design-system-intelligence docs URL. When `/index` returns only a `jobId`, the
-Fusion branch URL is read from `GET /design-systems/v1/decode-jobs/:jobId/status`
+Fusion branch URL is read from `GET /design-systems/v1/decode-jobs/:jobId`
 (exposed as `fetchBuilderDesignSystemDecodeJobStatus`) so "Open in Builder" lands
 on the branch. Large files (notably `.fig`) now stream to
 storage in 16 MiB resumable chunks with retry and offset recovery instead of a
