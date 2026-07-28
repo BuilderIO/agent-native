@@ -29,6 +29,37 @@ const builtinToolMocks = vi.hoisted(() => ({
   })),
 }));
 
+const approvalStoreMocks = vi.hoisted(() => {
+  const grants = new Map<string, any>();
+  return {
+    grants,
+    create: vi.fn(async (grant: any) => {
+      if (grants.has(grant.nonce)) throw new Error("duplicate approval nonce");
+      grants.set(grant.nonce, { ...grant, consumed: false });
+    }),
+    consume: vi.fn(async (grant: any) => {
+      const existing = grants.get(grant.nonce);
+      if (
+        !existing ||
+        existing.consumed ||
+        existing.expiresAt < Date.now() ||
+        existing.callerKey !== grant.callerKey ||
+        existing.actionName !== grant.actionName ||
+        existing.argumentsHash !== grant.argumentsHash
+      ) {
+        return false;
+      }
+      existing.consumed = true;
+      return true;
+    }),
+  };
+});
+
+vi.mock("./approval-store.js", () => ({
+  createMcpApprovalGrant: approvalStoreMocks.create,
+  consumeMcpApprovalGrant: approvalStoreMocks.consume,
+}));
+
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
 // MCP SDK itself is REAL — that's the whole point of these tests.
 vi.mock("./builtin-tools.js", () => ({
@@ -480,6 +511,13 @@ async function callWeb(
 
 async function createModernClient(
   serverConfig: Record<string, unknown> = config,
+  options: {
+    approvalDecision?: "approve" | "deny";
+    declineApproval?: boolean;
+    manualInputRequired?: boolean;
+    supportsElicitation?: boolean;
+    requestHeaders?: Record<string, string>;
+  } = {},
 ): Promise<{
   client: Client;
   wireResponses: Array<Record<string, any>>;
@@ -494,6 +532,7 @@ async function createModernClient(
         headers: {
           authorization: "Bearer test-access-token",
           "x-agent-native-mcp-full-catalog": "1",
+          ...options.requestHeaders,
         },
       },
       fetch: async (input, init) => {
@@ -523,8 +562,30 @@ async function createModernClient(
   );
   const client = new Client(
     { name: "agent-native-server-spec", version: "1.0.0" },
-    { versionNegotiation: { mode: "auto" } },
+    {
+      versionNegotiation: { mode: "auto" },
+      ...(options.manualInputRequired
+        ? { inputRequired: { autoFulfill: false } }
+        : {}),
+    },
   );
+  if (
+    options.supportsElicitation ||
+    options.approvalDecision ||
+    options.declineApproval
+  ) {
+    client.registerCapabilities({ elicitation: { form: {} } } as any);
+  }
+  if (options.approvalDecision || options.declineApproval) {
+    client.setRequestHandler("elicitation/create", async () =>
+      options.declineApproval
+        ? { action: "decline" as const }
+        : {
+            action: "accept" as const,
+            content: { decision: options.approvalDecision },
+          },
+    );
+  }
   await client.connect(transport);
   return { client, wireResponses, wireContentTypes };
 }
@@ -532,13 +593,14 @@ async function createModernClient(
 async function mcpAppsAuthHeaders(
   options: {
     clientId?: string;
+    ownerEmail?: string;
     scope?: string;
   } = {},
 ) {
-  process.env.BETTER_AUTH_SECRET = "oauth-secret";
+  process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
   const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
   const token = await signMcpOAuthAccessToken({
-    ownerEmail: "oauth@example.com",
+    ownerEmail: options.ownerEmail ?? "oauth@example.com",
     clientId: options.clientId ?? "client-123",
     scope: options.scope ?? "mcp:read mcp:write mcp:apps",
     resource: "https://mail.agent-native.com/_agent-native/mcp",
@@ -577,6 +639,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     process.env.AGENT_NATIVE_MCP_APPS_INLINE = "1";
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
+    approvalStoreMocks.grants.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
   });
@@ -674,6 +737,316 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         code: -32602,
         data: { uri: "ui://mail/missing/shell-v64" },
       });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("executes an approval-gated action only after one exact accepted retry", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "publish-draft": {
+          tool: {
+            description: "Publish a draft",
+            parameters: {
+              type: "object" as const,
+              properties: { draftId: { type: "string" } },
+              required: ["draftId"],
+            },
+          },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "publish-draft",
+          arguments: { draftId: "draft-1" },
+          // A caller cannot self-approve the first round by pre-populating
+          // inputResponses without a server-minted requestState.
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any,
+        { allowInputRequired: true } as any,
+      )) as any;
+      expect(first).toMatchObject({
+        resultType: "input_required",
+        inputRequests: {
+          actionApproval: {
+            method: "elicitation/create",
+          },
+        },
+      });
+      expect(first.requestState).toEqual(expect.any(String));
+      expect(run).not.toHaveBeenCalled();
+
+      const approved = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(approved.isError).not.toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+
+      const replay = await client.callTool({
+        name: "publish-draft",
+        arguments: { draftId: "draft-1" },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(replay.isError).toBe(true);
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("consumes denial without running or allowing a later accepted replay", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "delete-draft": {
+          tool: { description: "Delete a draft" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client, wireResponses } = await createModernClient(approvalConfig, {
+      approvalDecision: "deny",
+    });
+    try {
+      const denied = await client.callTool({
+        name: "delete-draft",
+        arguments: {},
+      });
+      expect(denied.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+
+      const requestState = wireResponses.find(
+        (response) => response.result?.resultType === "input_required",
+      )?.result?.requestState;
+      expect(requestState).toEqual(expect.any(String));
+      const replay = await client.callTool({
+        name: "delete-draft",
+        arguments: {},
+        requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(replay.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects tampered arguments and signed state without running", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "send-payment": {
+          tool: { description: "Send a payment" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+    });
+    try {
+      const first = (await client.callTool(
+        {
+          name: "send-payment",
+          arguments: { amount: 10 },
+        },
+        { allowInputRequired: true } as any,
+      )) as any;
+
+      const mismatched = await client.callTool({
+        name: "send-payment",
+        arguments: { amount: 1000 },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(mismatched.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+
+      await expect(
+        client.callTool({
+          name: "send-payment",
+          arguments: { amount: 10 },
+          requestState: `${first.requestState}tampered`,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      ).rejects.toMatchObject({
+        code: -32602,
+        data: { reason: "invalid_request_state" },
+      });
+
+      const stateBody = JSON.parse(
+        Buffer.from(first.requestState.split(".")[1], "base64url").toString(
+          "utf8",
+        ),
+      );
+      approvalStoreMocks.grants.get(stateBody.p.nonce).expiresAt =
+        Date.now() - 1;
+      const expired = await client.callTool({
+        name: "send-payment",
+        arguments: { amount: 10 },
+        requestState: first.requestState,
+        inputResponses: {
+          actionApproval: {
+            action: "accept",
+            content: { decision: "approve" },
+          },
+        },
+      } as any);
+      expect(expired.isError).toBe(true);
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("binds approval state to the authenticated MCP caller", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        "share-record": {
+          tool: { description: "Share a record" },
+          needsApproval: true,
+          run,
+        },
+      },
+    };
+    const callerA = await mcpAppsAuthHeaders({
+      ownerEmail: "caller-a@example.com",
+    });
+    const callerB = await mcpAppsAuthHeaders({
+      ownerEmail: "caller-b@example.com",
+    });
+    const { client: clientA } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: callerA,
+    });
+    const { client: clientB } = await createModernClient(approvalConfig, {
+      manualInputRequired: true,
+      supportsElicitation: true,
+      requestHeaders: callerB,
+    });
+    try {
+      const first = (await clientA.callTool(
+        { name: "share-record", arguments: { id: "record-1" } },
+        { allowInputRequired: true } as any,
+      )) as any;
+      await expect(
+        clientB.callTool({
+          name: "share-record",
+          arguments: { id: "record-1" },
+          requestState: first.requestState,
+          inputResponses: {
+            actionApproval: {
+              action: "accept",
+              content: { decision: "approve" },
+            },
+          },
+        } as any),
+      ).rejects.toMatchObject({
+        code: -32602,
+        data: { reason: "invalid_request_state" },
+      });
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      await clientA.close();
+      await clientB.close();
+    }
+  });
+
+  it("runs a false approval predicate normally and fails closed when it throws", async () => {
+    const ordinaryRun = vi.fn(async () => ({ ok: true }));
+    const throwingRun = vi.fn(async () => ({ ok: true }));
+    const approvalConfig = {
+      ...config,
+      actions: {
+        ordinary: {
+          tool: { description: "Ordinary conditional action" },
+          needsApproval: () => false,
+          run: ordinaryRun,
+        },
+        throwing: {
+          tool: { description: "Throwing conditional action" },
+          needsApproval: () => {
+            throw new Error("predicate failed");
+          },
+          run: throwingRun,
+        },
+      },
+    };
+    const { client } = await createModernClient(approvalConfig);
+    try {
+      const ordinary = await client.callTool({
+        name: "ordinary",
+        arguments: {},
+      });
+      expect(ordinary.isError).not.toBe(true);
+      expect(ordinaryRun).toHaveBeenCalledTimes(1);
+
+      await expect(
+        client.callTool({ name: "throwing", arguments: {} }),
+      ).rejects.toMatchObject({ code: -32021 });
+      expect(throwingRun).not.toHaveBeenCalled();
+      expect(client.getDiscoverResult()?.capabilities).not.toHaveProperty(
+        "elicitation",
+      );
+      expect(
+        (client.getDiscoverResult()?.capabilities.extensions as any)?.[
+          "io.modelcontextprotocol/tasks"
+        ],
+      ).toBeUndefined();
     } finally {
       await client.close();
     }

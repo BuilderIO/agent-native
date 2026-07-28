@@ -18,6 +18,12 @@ import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
 import { getAuthSecret } from "../server/better-auth-instance.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  applicationTypeForRedirectUris,
+  isAllowedOAuthRedirectUri,
+  isUrlBasedOAuthClientId,
+  resolveOAuthClientMetadataDocument,
+} from "./oauth-client-metadata.js";
+import {
   createOAuthCode,
   createOAuthRefreshToken,
   consumeOAuthCode,
@@ -301,75 +307,14 @@ export function handleMcpOAuthAuthorizationServerMetadata(
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: MCP_OAUTH_SCOPES,
     authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
   });
-}
-
-// Schemes that must never be accepted as a redirect target: they can execute
-// script or read local resources if a redirect is ever rendered in a browser
-// or webview context.
-const DISALLOWED_REDIRECT_SCHEMES = new Set([
-  "javascript:",
-  "data:",
-  "vbscript:",
-  "file:",
-  "blob:",
-  "about:",
-]);
-
-// Native/desktop IDE clients (Cursor, VS Code, …) register a private-use URI
-// scheme callback such as `cursor://` or `vscode://` (RFC 8252 §7.1) instead of
-// an https/loopback URL. The authorization code is bound by PKCE (S256), so
-// delivering it through a client-registered app scheme is safe.
-function isPrivateUseRedirectScheme(protocol: string): boolean {
-  if (DISALLOWED_REDIRECT_SCHEMES.has(protocol)) return false;
-  // RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), with a
-  // trailing ":" from URL.protocol. Require a non-http(s) custom scheme here;
-  // http/https are handled explicitly above.
-  return /^[a-z][a-z0-9+.-]*:$/.test(protocol);
-}
-
-function isAllowedRedirectUri(value: unknown): value is string {
-  if (typeof value !== "string" || value.length > 2048) return false;
-  try {
-    const url = new URL(value);
-    if (url.hash) return false;
-    if (url.username || url.password) return false;
-    if (url.protocol === "https:") return true;
-    if (url.protocol === "http:") {
-      return (
-        url.hostname === "localhost" ||
-        url.hostname === "127.0.0.1" ||
-        url.hostname === "::1" ||
-        url.hostname === "[::1]"
-      );
-    }
-    return isPrivateUseRedirectScheme(url.protocol);
-  } catch {
-    return false;
-  }
 }
 
 function parseStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
-}
-
-function applicationTypeForRedirectUris(
-  redirectUris: string[],
-): "native" | "web" {
-  return redirectUris.some((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol !== "https:" ||
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "::1" ||
-      url.hostname === "[::1]"
-    );
-  })
-    ? "native"
-    : "web";
 }
 
 async function handleRegister(event: H3Event): Promise<Response> {
@@ -384,7 +329,7 @@ async function handleRegister(event: H3Event): Promise<Response> {
   if (
     redirectUris.length === 0 ||
     redirectUris.length > 20 ||
-    !redirectUris.every(isAllowedRedirectUri)
+    !redirectUris.every(isAllowedOAuthRedirectUri)
   ) {
     return oauthError(
       "invalid_client_metadata",
@@ -618,6 +563,7 @@ function renderConsentPage(params: {
   appName: string;
   email: string;
   clientName: string;
+  redirectUri: string;
   scopes: string[];
   fields: Record<string, string>;
 }): string {
@@ -646,6 +592,7 @@ function renderConsentPage(params: {
   <h1>Authorize ${escapeHtml(params.clientName)}</h1>
   <p>${escapeHtml(params.appName)} will let this MCP client act as ${escapeHtml(params.email)} for these scopes:</p>
   <ul>${scopes}</ul>
+  <p>After authorization, your browser will return to <code>${escapeHtml(params.redirectUri)}</code>.</p>
   <form method="post">
     ${hidden}
     <div class="actions">
@@ -794,7 +741,9 @@ async function handleAuthorize(
     return oauthError("invalid_request", "PKCE S256 is required");
   }
 
-  const client = await getOAuthClient(clientId);
+  const client = isUrlBasedOAuthClientId(clientId)
+    ? await resolveOAuthClientMetadataDocument(clientId).catch(() => null)
+    : await getOAuthClient(clientId);
   if (!client || !client.redirectUris.includes(redirectUri)) {
     return oauthError("invalid_client", "Unknown client or redirect_uri");
   }
@@ -830,6 +779,7 @@ async function handleAuthorize(
         appName: options.appName || options.appId || "Agent Native",
         email: session.email,
         clientName: client.clientName || client.clientId,
+        redirectUri,
         scopes: scope.split(/\s+/),
         fields: {
           response_type: "code",
@@ -899,7 +849,7 @@ async function handleAuthorize(
     isDeepLinkRedirect =
       protocol !== "http:" &&
       protocol !== "https:" &&
-      isPrivateUseRedirectScheme(protocol);
+      /^[a-z][a-z0-9+.-]*:$/.test(protocol);
   } catch {
     isDeepLinkRedirect = false;
   }

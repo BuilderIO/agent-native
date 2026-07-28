@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../extensions/url-safety.js", () => ({
+  ssrfSafeFetch: ssrfSafeFetchMock,
+}));
+
 vi.mock("h3", () => ({
   getMethod: (event: any) => event.method ?? "GET",
   getHeader: (event: any, name: string) =>
@@ -153,6 +159,7 @@ describe("MCP OAuth route", () => {
     refreshRows.clear();
     counter = 0;
     vi.clearAllMocks();
+    ssrfSafeFetchMock.mockReset();
     process.env.A2A_SECRET = "test-oauth-secret";
     delete process.env.APP_BASE_PATH;
     delete process.env.APP_URL;
@@ -191,6 +198,7 @@ describe("MCP OAuth route", () => {
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       authorization_response_iss_parameter_supported: true,
+      client_id_metadata_document_supported: true,
     });
   });
 
@@ -290,6 +298,146 @@ describe("MCP OAuth route", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "invalid_client_metadata",
     });
+  });
+
+  it("authorizes a Client ID Metadata Document client", async () => {
+    const clientId = "https://claude.example.com/oauth/client.json";
+    const redirectUri = "http://localhost:5555/callback";
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          client_id: clientId,
+          client_name: "Claude",
+          redirect_uris: [redirectUri],
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+          application_type: "native",
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+            "cache-control": "max-age=60",
+          },
+        },
+      ),
+    );
+    const verifier = "v".repeat(50);
+    const consent = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read",
+          state: "state-cimd",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+
+    expect(consent.status).toBe(200);
+    const consentHtml = await consent.text();
+    expect(consentHtml).toContain("Authorize Claude");
+    const consentToken =
+      consentHtml.match(/name="consent_token" value="([^"]+)"/)?.[1] ?? "";
+    const authorize = await handleMcpOAuth(
+      event({
+        method: "POST",
+        body: {
+          decision: "approve",
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          resource: "https://mail.agent-native.com/mcp",
+          scope: "mcp:read",
+          state: "state-cimd",
+          code_challenge: challenge(verifier),
+          code_challenge_method: "S256",
+          consent_token: consentToken,
+        },
+      }),
+      "/authorize",
+      { appName: "Mail" },
+    );
+
+    expect(authorize.status).toBe(302);
+    expect(
+      new URL(authorize.headers.get("location")!).searchParams.get("code"),
+    ).toBeTruthy();
+    expect(ssrfSafeFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a Client ID Metadata Document redirect mismatch", async () => {
+    const clientId = "https://cursor.example.com/oauth/client.json";
+    ssrfSafeFetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          client_id: clientId,
+          client_name: "Cursor",
+          redirect_uris: ["http://localhost:5555/expected"],
+          token_endpoint_auth_method: "none",
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+            "cache-control": "no-store",
+          },
+        },
+      ),
+    );
+
+    const response = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: "http://localhost:5555/different",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_client",
+    });
+  });
+
+  it("never falls back to DCR for a malformed URL client_id", async () => {
+    const malformedUrlClientId = "http://client.example.com/oauth/client.json";
+    clients.set(malformedUrlClientId, {
+      clientId: malformedUrlClientId,
+      clientName: "Unsafe fallback",
+      redirectUris: ["http://localhost:5555/callback"],
+    });
+
+    const response = await handleMcpOAuth(
+      event({
+        query: {
+          response_type: "code",
+          client_id: malformedUrlClientId,
+          redirect_uri: "http://localhost:5555/callback",
+          resource: "https://mail.agent-native.com/mcp",
+          code_challenge: challenge("v".repeat(50)),
+          code_challenge_method: "S256",
+        },
+      }),
+      "/authorize",
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "invalid_client",
+    });
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
   });
 
   it("allows IPv6 loopback redirect URIs during registration", async () => {
