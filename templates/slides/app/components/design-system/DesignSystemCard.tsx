@@ -1,7 +1,21 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+import {
+  IconDots,
+  IconPalette,
+  IconStar,
+  IconStarFilled,
+  IconTrash,
+} from "@tabler/icons-react";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -16,8 +30,10 @@ interface DesignSystemCardProps {
   data: DesignSystemData;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  canManage?: boolean;
   onClick: () => void;
   onSetDefault: () => void;
+  onDelete: () => void;
 }
 
 function firstFontName(stack: string): string {
@@ -30,9 +46,12 @@ export function DesignSystemCard({
   data,
   isDefault,
   visibility,
+  canManage,
   onClick,
   onSetDefault,
+  onDelete,
 }: DesignSystemCardProps) {
+  const t = useT();
   const swatchColors = [
     { label: "Primary", color: data.colors.primary },
     { label: "Secondary", color: data.colors.secondary },
@@ -93,6 +112,29 @@ export function DesignSystemCard({
             resourceId={id}
             resourceTitle={title}
           />
+          {canManage && (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("designSystems.moreActions")}
+                  className="h-9 w-9 rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                >
+                  <IconDots className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={onDelete}
+                  className="text-red-400 focus:text-red-400"
+                >
+                  <IconTrash className="w-3.5 h-3.5 me-2" />
+                  {t("designSystems.delete")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {/* Typography preview */}

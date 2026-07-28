@@ -165,6 +165,13 @@ const messages = {
   designSystems: {
     new: "Nouveau système de design",
     setupBrand: "Configurer votre marque",
+    delete: "Supprimer",
+    cancel: "Annuler",
+    moreActions: "Plus d'actions",
+    deleteDialogTitle: "Supprimer le système de design ?",
+    deleteDialogDescription:
+      "Le système de design est supprimé définitivement. Les présentations qui l'utilisent conservent leur apparence actuelle mais n'y sont plus liées.",
+    deleteError: "Échec de la suppression du système de design",
     emptyTitle: "Configurer votre identité de marque",
     emptyDescription:
       "Créez un système de design avec les couleurs, la typographie et les logos de votre marque. Chaque nouvelle présentation suivra votre identité visuelle.",

@@ -40,6 +40,14 @@ Do not call `create-design-system` locally from `.fig` uploads. Do not call
 `import-document` for `.fig` files; it only handles metadata and will miss the
 Builder indexing flow.
 
+## Deleting a Design System
+
+`delete-design-system` requires owner access and removes the system, its
+shares, and the `designSystemId` link on every deck that used it. Those decks
+keep the tokens already baked into their slides — deletion never rewrites deck
+content — so a deck can look on-brand while no longer being linked to a system.
+Deletion does not remove an upstream Builder-indexed design system.
+
 ## Applying to Slides
 
 Before creating or extending a system, read the `creative-context` skill and
