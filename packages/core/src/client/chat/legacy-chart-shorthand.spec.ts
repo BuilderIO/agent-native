@@ -119,6 +119,36 @@ describe("parseLegacyChartShorthand", () => {
     );
     expect(parsed?.labels).toEqual(["Now"]);
   });
+
+  it("skips a data= embedded inside a label's own quoted text", () => {
+    const parsed = parseLegacyChartShorthand(
+      '/chart labels=["data=[1,2]","B"] data=[5,8]',
+    );
+    expect(parsed?.labels).toEqual(["data=[1,2]", "B"]);
+    expect(parsed?.series[0].data).toEqual([5, 8]);
+  });
+
+  it("rejects rather than truncates when series count exceeds the limit", () => {
+    const series = Array.from({ length: 7 }, (_, i) => ({
+      label: `S${i}`,
+      data: [1],
+    }));
+    const parsed = parseLegacyChartShorthand(
+      `/chart labels=["A"] data=${JSON.stringify(series)}`,
+    );
+    expect(parsed).toBeNull();
+  });
+
+  it("accepts exactly the series limit", () => {
+    const series = Array.from({ length: 6 }, (_, i) => ({
+      label: `S${i}`,
+      data: [1],
+    }));
+    const parsed = parseLegacyChartShorthand(
+      `/chart labels=["A"] data=${JSON.stringify(series)}`,
+    );
+    expect(parsed?.series).toHaveLength(6);
+  });
 });
 
 describe("wrapLegacyChartShorthandLines", () => {
@@ -153,5 +183,21 @@ describe("wrapLegacyChartShorthandLines", () => {
   it("does not touch 4-space indented code", () => {
     const input = '    /chart labels=["a"] data=[1]';
     expect(wrapLegacyChartShorthandLines(input)).toBe(input);
+  });
+
+  it("does not treat a 4-space indented ``` line as a real fence marker", () => {
+    const input =
+      'Example:\n\n    ```\n\n/chart labels=["a"] data=[1]\n\nDone.';
+    const wrapped = wrapLegacyChartShorthandLines(input);
+    expect(wrapped).toContain("```chart-shorthand");
+    expect(wrapped).toContain('/chart labels=["a"] data=[1]');
+  });
+
+  it("preserves list-item indentation on the emitted fence", () => {
+    const input = '1. Intro\n   /chart labels=["a"] data=[1]';
+    const wrapped = wrapLegacyChartShorthandLines(input);
+    expect(wrapped).toContain("   ```chart-shorthand");
+    expect(wrapped).toContain('   /chart labels=["a"] data=[1]');
+    expect(wrapped.trimEnd().endsWith("   ```")).toBe(true);
   });
 });

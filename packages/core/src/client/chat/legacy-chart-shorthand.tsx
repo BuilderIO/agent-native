@@ -22,6 +22,7 @@ const LEGACY_CHART_PALETTE = [
 ];
 
 const SAFE_HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
+const BACKSLASH = String.fromCharCode(92);
 const MAX_LINE_LENGTH = 20_000;
 const MAX_LABELS = 60;
 const MAX_SERIES = 6;
@@ -61,17 +62,45 @@ function extractBalancedArrayAt(
   return null;
 }
 
+// Marks which character indices fall inside a JSON/quoted-string literal so
+// key-token scanning can ignore false matches such as a key= that's part of
+// a title string, or embedded in a label's own text, rather than a real
+// assignment in the line.
+function computeStringMask(text: string): boolean[] {
+  const mask = new Array<boolean>(text.length).fill(false);
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    mask[i] = inString;
+    const ch = text[i];
+    if (inString) {
+      if (ch === BACKSLASH) {
+        i++;
+        if (i < text.length) mask[i] = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    }
+  }
+  return mask;
+}
+
 // Finds the array value immediately following a `key=` token, scanning every
-// occurrence of `key=` (not just the first) so a `key=` that appears inside
-// an unrelated quoted string (e.g. title="data=quality") is skipped in favor
-// of the real one. Only whitespace is allowed between `key=` and the `[`.
+// occurrence of `key=` outside of quoted strings (not just the first) so a
+// `key=` that appears inside an unrelated quoted string (e.g.
+// title="data=quality", or a label literally containing "data=[1,2]") is
+// skipped in favor of the real one. Only whitespace is allowed between
+// `key=` and the `[`.
 function extractArrayForKey(
   text: string,
   key: "labels" | "data",
 ): string | null {
+  const mask = computeStringMask(text);
   const re = new RegExp(`\\b${key}=`, "g");
   let match: RegExpExecArray | null;
   while ((match = re.exec(text))) {
+    if (mask[match.index]) continue; // this key= is inside a string literal
     let idx = match.index + match[0].length;
     while (idx < text.length && /\s/.test(text[idx])) idx++;
     const arr = extractBalancedArrayAt(text, idx);
@@ -156,6 +185,9 @@ export function parseLegacyChartShorthand(
   } else if (
     Array.isArray(parsedData) &&
     parsedData.length > 0 &&
+    // Reject rather than silently truncate an over-limit series count:
+    // presenting a partial chart as complete is worse than plain text.
+    parsedData.length <= MAX_SERIES &&
     parsedData.every(
       (d) =>
         d &&
@@ -165,16 +197,14 @@ export function parseLegacyChartShorthand(
   ) {
     chartSeries = (
       parsedData as { label?: unknown; data: number[]; color?: unknown }[]
-    )
-      .slice(0, MAX_SERIES)
-      .map((d, idx) => ({
-        label: typeof d.label === "string" ? d.label : `Series ${idx + 1}`,
-        data: d.data,
-        color:
-          typeof d.color === "string" && SAFE_HEX_COLOR.test(d.color)
-            ? d.color
-            : undefined,
-      }));
+    ).map((d, idx) => ({
+      label: typeof d.label === "string" ? d.label : `Series ${idx + 1}`,
+      data: d.data,
+      color:
+        typeof d.color === "string" && SAFE_HEX_COLOR.test(d.color)
+          ? d.color
+          : undefined,
+    }));
   } else {
     return null;
   }
@@ -202,6 +232,13 @@ export function wrapLegacyChartShorthandLines(markdown: string): string {
   const lines = markdown.split("\n");
   const out: string[] = [];
   for (const line of lines) {
+    // CommonMark: a line indented 4+ spaces (or a tab) is an indented code
+    // block, not a fence marker. Check this first so a literal four-space
+    // "    ```" example in a message doesn't toggle fence state.
+    if (/^(?: {4}|\t)/.test(line)) {
+      out.push(line);
+      continue;
+    }
     const trimmed = line.trimStart();
     if (fenceMarker) {
       out.push(line);
@@ -221,13 +258,16 @@ export function wrapLegacyChartShorthandLines(markdown: string): string {
       out.push(line);
       continue;
     }
-    // 4-space/tab indented lines are a CommonMark indented code block.
-    if (/^(?: {4}|\t)/.test(line)) {
-      out.push(line);
-      continue;
-    }
     if (looksLikeLegacyChartShorthand(line)) {
-      out.push("```" + LEGACY_CHART_SHORTHAND_LANG, line.trim(), "```");
+      // Preserve the line's own indentation on the emitted fence so
+      // shorthand inside a list item or blockquote continuation stays part
+      // of that container instead of being dedented to a top-level block.
+      const leadingWs = line.match(/^\s*/)?.[0] ?? "";
+      out.push(
+        leadingWs + "```" + LEGACY_CHART_SHORTHAND_LANG,
+        leadingWs + line.trim(),
+        leadingWs + "```",
+      );
       continue;
     }
     out.push(line);
