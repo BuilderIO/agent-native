@@ -1,26 +1,51 @@
 Agent Native
 Template engagement and per-app activity recorded through analytics.agent-native.com/track. Source: first-party analytics_events.
-Tue, 28 Jul 2026 18:02:08 GMT
+Tue, 28 Jul 2026 18:14:46 GMT
 timeRange: 30d · emailFilter: all
-INCOMPLETE REPORT: 8 of 34 panels could not be rendered (wau-over-time, new-vs-recurring-users, seven-day-retention-by-template, recurring-users-by-template, recurring-users-by-template-bar, pageviews-over-time, top-visited-urls, top-referrer-domains).
 
 Signed-In Daily Active Visitors by Template: chart attached (Distinct signed-in browser identities per day, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level DAU, until session telemetry includes account identity.)
-Signed-In Weekly Active Visitors by Template: Query failed — DB query timed out after 45000ms (connection terminated)
-New vs Recurring Signed-In Users Over Time: Query failed — Panel query timed out after 50s
+Signed-In Weekly Active Visitors by Template: chart attached (Trailing 7-day distinct signed-in browser identities for each active date, stacked by inferred template/app. Docs traffic is excluded. This is signed-in activity, not true account-level WAU, until session telemetry includes account identity.)
+New vs Recurring Signed-In Users Over Time: chart attached (Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded.)
 7d Rolling Signed-In Return Rate: chart attached (Trailing 7-day cohorts whose first signed-in app session was observed in the previous 365 days, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.)
-7-14d Signed-In Return by Starting Template: Query failed — Panel query timed out after 50s
-Recurring Signed-In Users by Template: Query failed — Panel query timed out after 50s
-Recurring Signed-In Users by Template (Bar): Query failed — Panel query timed out after 50s
+7-14d Signed-In Return by Starting Template: chart attached (Selected-range signed-in cohorts by the browser identity's first non-docs app/template observed in the previous 365 days. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.)
+Recurring Signed-In Users by Template: chart attached (Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.)
+Recurring Signed-In Users by Template (Bar): chart attached (Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.)
 Signups Over Time: chart attached (Daily signup events stacked by inferred template/app.)
 Signups by Template: chart attached (Signup events grouped by inferred template/app.)
 Try-Demo Clicks Over Time: chart attached
 Template Interest Over Time: chart attached
-Pageviews Over Time: Query failed — Panel query timed out after 50s
+Pageviews Over Time: chart attached (Pageview events per day stacked by inferred template/app.)
 CLI Copies Over Time: chart attached
 Signed-In vs Anonymous Sessions: chart attached (true = signed in, false = anonymous. Best proxy for total signups per period (still includes returning users).)
 Sessions Over Time: chart attached
 Sessions by Agent-Native App: chart attached (Per-template-site session activity (mail, calendar, slides, ...). Each tab fires session status once.)
-Top Visited URLs: Query failed — Panel query timed out after 50s
+Top Visited URLs
+URL | Views | Users | Last seen
+https://www.agent-native.com/ | 10327 | 7351 | Jul 28, 2026
+https://clips.agent-native.com/library | 7964 | 2350 | Jul 28, 2026
+https://www.agent-native.com/apps | 4928 | 3002 | Jul 28, 2026
+https://www.agent-native.com/docs/template-plan | 4811 | 3218 | Jul 28, 2026
+https://www.agent-native.com/docs | 4228 | 2640 | Jul 28, 2026
+https://plan.agent-native.com/plans | 3621 | 1616 | Jul 28, 2026
+https://plan.agent-native.com/ | 3211 | 1908 | Jul 28, 2026
+https://clips.agent-native.com/record | 2637 | 953 | Jul 28, 2026
+https://plan.agent-native.com/settings | 2280 | 678 | Jul 28, 2026
+https://design.agent-native.com/ | 1659 | 603 | Jul 28, 2026
+https://analytics.agent-native.com/ask | 1518 | 689 | Jul 28, 2026
+https://clips.agent-native.com/settings | 1314 | 378 | Jul 28, 2026
+https://design.agent-native.com/design/6wWOOE5TYVxfM_T5eVadM | 1236 | 4 | Jul 21, 2026
+https://www.agent-native.com/apps/clips | 1109 | 918 | Jul 28, 2026
+https://www.agent-native.com/docs/what-is-agent-native | 1094 | 805 | Jul 28, 2026
+https://www.agent-native.com/apps/plan | 1086 | 916 | Jul 28, 2026
+https://www.agent-native.com/skills | 1018 | 745 | Jul 28, 2026
+https://slides.agent-native.com/ | 970 | 327 | Jul 28, 2026
+https://www.agent-native.com/templates | 787 | 546 | Jul 14, 2026
+https://design.agent-native.com/design/dS-qH0m3xtypkz65lS6Bh | 753 | 2 | Jul 6, 2026
+https://slides.agent-native.com/deck/deck-1784302911754-vmo8k | 741 | 5 | Jul 21, 2026
+https://www.agent-native.com/docs/template-clips | 722 | 489 | Jul 28, 2026
+https://www.agent-native.com/docs/pr-visual-recap | 699 | 503 | Jul 28, 2026
+https://design.agent-native.com/design/kkfRbdVco5Jji2DenjkVF | 638 | 2 | Jul 7, 2026
+https://content.agent-native.com/ | 618 | 351 | Jul 28, 2026
 Top Visited Clips
 Clip URL | Views | Users | Last seen
 3Co5gBqWezvM | 29 | 1 | Jul 20, 2026
@@ -48,7 +73,28 @@ BFO0TeMPT1PE | 7 | 2 | Jul 17, 2026
 K8u8c4mA3kAt | 7 | 5 | Jul 1, 2026
 MQsuskrPPnXz | 7 | 5 | Jul 13, 2026
 gRBL2BjnjJlj | 7 | 4 | Jul 16, 2026
-Top Referrer Domains: Query failed — Panel query timed out after 50s
+Top Referrer Domains
+Referrer domain | Visits | Users
+github.com | 14450 | 5467
+www.google.com | 790 | 390
+www.builder.io | 551 | 252
+www.youtube.com | 502 | 348
+www.agent-native.com | 439 | 166
+t.co | 301 | 163
+search.brave.com | 148 | 47
+teams.public.onecdn.static.microsoft | 127 | 59
+android-app: | 113 | 68
+chromewebstore.google.com | 110 | 51
+www.linkedin.com | 98 | 69
+claude.ai | 81 | 42
+www.nocodesupply.co | 71 | 39
+localhost:8080 | 68 | 46
+analytics.agent-native.com | 65 | 11
+chatgpt.com | 64 | 35
+gemini.google.com | 61 | 26
+statics.teams.cdn.office.net | 49 | 27
+duckduckgo.com | 46 | 22
+localhost:8081 | 44 | 7
 
 == Signed-In Retention & Activity ==
 Signed-in app session return-rate and active visitor trends. Docs traffic is excluded; overall return rate uses rolling cohorts, while per-template return rates are selected-range cohort aggregates.
