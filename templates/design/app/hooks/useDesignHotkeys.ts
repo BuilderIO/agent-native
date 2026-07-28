@@ -725,8 +725,15 @@ export function handleDesignHotkey(
     return run(props.onAddAutoLayout);
   }
 
-  // Figma: Cmd+\ — Show/Hide UI (empty-canvas context-menu item).
-  if (primary && key === "\\") {
+  // Figma uses the operating system's primary modifier here: Cmd on Apple
+  // platforms and Ctrl elsewhere. Keep the alternate modifier available to
+  // its native browser/OS behavior instead of taking over the shortcut.
+  if (
+    isPlatformPrimaryModifier(event) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    key === "\\"
+  ) {
     return run(props.onToggleUi);
   }
 

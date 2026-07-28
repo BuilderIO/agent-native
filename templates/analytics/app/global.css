@@ -148,18 +148,18 @@
     hsl(var(--foreground) / 0.025) 56%,
     transparent 72%
   );
-  background-size: 220% 100%;
-  animation: dashboard-panel-skeleton-shimmer 2.4s ease-in-out infinite;
+  background-size: 28rem 100%;
+  background-repeat: repeat;
+  animation: dashboard-panel-skeleton-shimmer 2.6s linear infinite;
 }
 
 @keyframes dashboard-panel-skeleton-shimmer {
-  0%,
-  100% {
-    background-position: 120% 0;
+  0% {
+    background-position: 0 0;
   }
 
-  50% {
-    background-position: -120% 0;
+  100% {
+    background-position: 28rem 0;
   }
 }
 
