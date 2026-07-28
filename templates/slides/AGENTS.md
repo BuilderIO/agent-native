@@ -28,6 +28,9 @@ ladder.
 - Preserve deck structure and visual consistency. Prefer focused slide edits over
   regenerating whole decks unless requested.
 - Follow linked design-system tokens and custom instructions.
+- When a `## Reference Deck` block is in context, reuse that deck's structure
+  and styling and none of its content. `get-deck-reference-context` builds the
+  block; `get-deck` fetches any slide it only summarized.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or `import-file --format fig`.

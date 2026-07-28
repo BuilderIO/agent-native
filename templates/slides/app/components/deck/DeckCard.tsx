@@ -8,6 +8,8 @@ import {
   IconPencil,
   IconPalette,
   IconPlus,
+  IconStar,
+  IconStarFilled,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router";
@@ -28,6 +30,7 @@ interface DeckCardProps {
   onDelete: (id: string) => void;
   onRename: (id: string, newTitle: string) => void;
   onDuplicate: (id: string) => void;
+  onToggleStar: (id: string, starred: boolean) => void;
   isDuplicating?: boolean;
   designSystemTitle?: string | null;
 }
@@ -37,6 +40,7 @@ export default function DeckCard({
   onDelete,
   onRename,
   onDuplicate,
+  onToggleStar,
   isDuplicating = false,
   designSystemTitle,
 }: DeckCardProps) {
@@ -145,8 +149,26 @@ export default function DeckCard({
         </div>
       </Link>
 
-      {/* Menu Button - always visible on touch devices */}
-      <div className="absolute top-2 end-2 sm:opacity-0 sm:group-hover:opacity-100">
+      {/* Star + menu buttons - always visible on touch devices */}
+      <div className="absolute top-2 end-2 flex items-center gap-1">
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleStar(deck.id, !deck.starred);
+          }}
+          className={`rounded-md border border-border bg-black/60 p-2 backdrop-blur-sm hover:bg-black/80 sm:p-1.5 ${
+            deck.starred ? "" : "sm:opacity-0 sm:group-hover:opacity-100"
+          }`}
+          aria-label={deck.starred ? t("home.unstarDeck") : t("home.starDeck")}
+          aria-pressed={Boolean(deck.starred)}
+        >
+          {deck.starred ? (
+            <IconStarFilled className="h-3.5 w-3.5 text-[#F5C451]" />
+          ) : (
+            <IconStar className="h-3.5 w-3.5 text-foreground/70" />
+          )}
+        </button>
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -154,7 +176,7 @@ export default function DeckCard({
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80"
+              className="p-2 sm:p-1.5 rounded-md bg-black/60 backdrop-blur-sm border border-border hover:bg-black/80 sm:opacity-0 sm:group-hover:opacity-100"
               aria-label={t("raw.deckOptions")}
             >
               <IconDots className="w-3.5 h-3.5 text-foreground/70" />

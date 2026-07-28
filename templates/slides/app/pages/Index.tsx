@@ -36,7 +36,9 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -125,6 +127,41 @@ async function loadDesignSystemGenerationContext(
   ].join("\n");
 }
 
+interface ReferenceDeckContextResult {
+  agentContext?: string;
+}
+
+async function loadReferenceDeckGenerationContext(
+  referenceDeckId?: string | null,
+): Promise<string> {
+  if (!referenceDeckId) return "";
+  try {
+    const result = (await callAction(
+      "get-deck-reference-context",
+      { id: referenceDeckId },
+      { method: "GET" },
+    )) as ReferenceDeckContextResult | undefined;
+    if (result?.agentContext?.trim()) {
+      return `\n${result.agentContext.trim()}`;
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown loading error";
+    return [
+      "",
+      "## Reference Deck",
+      `The user picked deck "${referenceDeckId}" as a style reference, but it could not be loaded before generation: ${message}`,
+      "Before adding slides, call `get-deck-reference-context` for this id. If it still fails, tell the user the reference deck is unavailable instead of inventing a style.",
+    ].join("\n");
+  }
+  return [
+    "",
+    "## Reference Deck",
+    `The user picked deck "${referenceDeckId}" as a style reference, but it returned no usable context.`,
+    `Call \`get-deck --id ${referenceDeckId}\` before adding slides. If that deck is empty, tell the user instead of silently generating without a reference.`,
+  ].join("\n");
+}
+
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
@@ -177,6 +214,7 @@ export default function Index() {
   );
   const [signInPromptHadFiles, setSignInPromptHadFiles] = useState(false);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState("");
+  const [selectedReferenceDeckId, setSelectedReferenceDeckId] = useState("");
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [duplicating, setDuplicating] = useState<string | null>(null);
   const duplicatingRef = useRef<string | null>(null);
@@ -188,6 +226,14 @@ export default function Index() {
   const designSystemTitleById = useMemo<Map<string, string>>(
     () => new Map(designSystems.map((ds) => [ds.id, ds.title])),
     [designSystems],
+  );
+  const starredDecks = useMemo(
+    () => decks.filter((deck) => deck.starred),
+    [decks],
+  );
+  const unstarredDecks = useMemo(
+    () => decks.filter((deck) => !deck.starred),
+    [decks],
   );
   const deckFilter = searchParams.get("createdBy") === "me" ? "mine" : "all";
   const visibleDecks = useMemo(
@@ -218,6 +264,7 @@ export default function Index() {
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
       setSelectedDesignSystemId(defaultSystem?.id ?? "");
+      setSelectedReferenceDeckId("none");
       setShowNewDeckPrompt(true);
     },
     [defaultSystem?.id],
@@ -232,6 +279,7 @@ export default function Index() {
           setNewDeckInitialPrompt(null);
           setNewDeckRetryFiles([]);
         }
+        setSelectedReferenceDeckId("none");
       }
     },
     [],
@@ -291,6 +339,7 @@ export default function Index() {
       setNewDeckInitialPrompt({ text: saved, key: Date.now() });
     }
     setSelectedDesignSystemId(defaultSystem?.id ?? "none");
+    setSelectedReferenceDeckId("none");
     setShowNewDeckPrompt(true);
   }, [defaultSystem?.id, session]);
 
@@ -384,6 +433,11 @@ export default function Index() {
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
         : "";
+    const referenceDeckContext = await loadReferenceDeckGenerationContext(
+      selectedReferenceDeckId && selectedReferenceDeckId !== "none"
+        ? selectedReferenceDeckId
+        : null,
+    );
     const hydratedDesignSystemContext = await loadDesignSystemGenerationContext(
       selectedDesignSystem?.id,
     );
@@ -408,6 +462,7 @@ export default function Index() {
       "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
+      referenceDeckContext,
       designSystemContext,
       "",
       deckLengthContext,
@@ -456,6 +511,13 @@ export default function Index() {
   const handleRename = useCallback(
     (id: string, newTitle: string) => {
       updateDeck(id, { title: newTitle });
+    },
+    [updateDeck],
+  );
+
+  const handleToggleStar = useCallback(
+    (id: string, starred: boolean) => {
+      updateDeck(id, { starred });
     },
     [updateDeck],
   );
@@ -605,6 +667,7 @@ export default function Index() {
                   onDelete={(id) => setDeckToDelete(id)}
                   onRename={handleRename}
                   onDuplicate={handleDuplicate}
+                  onToggleStar={handleToggleStar}
                   isDuplicating={duplicating === deck.id}
                   designSystemTitle={
                     deck.designSystemId
@@ -686,6 +749,52 @@ export default function Index() {
                     {ds.isDefault ? t("home.defaultSuffix") : ""}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {decks.length > 0 && (
+          <div className="border-t border-border px-3.5 py-2">
+            <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+              {t("home.referenceDeck")}
+            </label>
+            <Select
+              value={selectedReferenceDeckId || "none"}
+              onValueChange={setSelectedReferenceDeckId}
+            >
+              <SelectTrigger className="h-8 w-full bg-accent/40 text-xs">
+                <SelectValue placeholder={t("home.referenceDeckPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">
+                  {t("home.referenceDeckNone")}
+                </SelectItem>
+                {starredDecks.length > 0 && (
+                  <SelectGroup>
+                    <SelectLabel>
+                      {t("home.referenceDeckStarredGroup")}
+                    </SelectLabel>
+                    {starredDecks.map((deck) => (
+                      <SelectItem key={deck.id} value={deck.id}>
+                        {deck.title}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
+                {unstarredDecks.length > 0 && (
+                  <SelectGroup>
+                    {starredDecks.length > 0 && (
+                      <SelectLabel>
+                        {t("home.referenceDeckOtherGroup")}
+                      </SelectLabel>
+                    )}
+                    {unstarredDecks.map((deck) => (
+                      <SelectItem key={deck.id} value={deck.id}>
+                        {deck.title}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                )}
               </SelectContent>
             </Select>
           </div>

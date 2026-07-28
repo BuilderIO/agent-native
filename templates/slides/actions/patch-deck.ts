@@ -126,6 +126,7 @@ const PatchDeckFieldsOp = z.object({
       aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
+      starred: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -284,6 +285,7 @@ export function applyOperation(deck: any, op: Operation): void {
         deck.aspectRatio = fields.aspectRatio;
       if (fields.shareToken !== undefined) deck.shareToken = fields.shareToken;
       if (fields.visibility !== undefined) deck.visibility = fields.visibility;
+      if (fields.starred !== undefined) deck.starred = fields.starred;
       break;
     }
   }

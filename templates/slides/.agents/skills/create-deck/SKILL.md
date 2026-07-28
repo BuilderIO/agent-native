@@ -37,6 +37,23 @@ sub-agents to write into the same deck at the same time. Sub-agents may research
 or draft slide copy, but one writer should call `add-slide` sequentially so the
 editor stays stable and the user can watch progress.
 
+## Reference Decks
+
+The user can pick an existing deck as a style reference when starting a new one.
+When they do, a `## Reference Deck` block is already in your context with that
+deck's slide progression and exemplar slide HTML. Match its layout choices,
+heading hierarchy, type scale, spacing, and markup idiom — but take the content
+only from the user's request. Call `get-deck --id <reference deck id>` when you
+need the full HTML of a slide the exemplars did not cover.
+
+A reference deck and a design system are independent: the design system wins on
+tokens (color, type, spacing), the reference deck wins on structure and slide
+composition. Apply both when both are present.
+
+Decks the user has starred are their intended reference decks. `list-decks`
+reports `starred` so you can offer them when the user asks for something "like
+our usual deck".
+
 If the user provides a Google Docs URL as source material, call
 `import-google-doc --url <url>` first and build from the returned text. If the
 action cannot read a private document, the user can connect Google Docs and
