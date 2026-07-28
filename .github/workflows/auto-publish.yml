@@ -149,11 +149,10 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
           owner: BuilderIO
-          # List every downstream repo this job dispatches to; workspace and
-          # starter each keep their own consumer workflow in their own repo.
+          # Consumer workflow lives in the workspace repo. The starter mirror is
+          # dispatched to this repo's own workflow (see below), not from here.
           repositories: |
             builder-agent-native-workspace
-            builder-agent-native-starter
 
       - name: Trigger Builder workspace package update
         if: |
