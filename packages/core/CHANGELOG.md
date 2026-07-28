@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.128.2
+
+### Patch Changes
+
+- 363d36f: Add organization logo support to the shared email template, safe sender display-name overrides, and a server-side user profile export for transactional emails.
+
 ## 0.128.1
 
 ### Patch Changes
