@@ -30,5 +30,3 @@ pnpm dev
 ```
 
 Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat).
-
-<!-- vendor-branch mirror end-to-end test — safe to remove -->
