@@ -52,7 +52,8 @@ export default defineAction({
     return generateImage.run(
       {
         libraryId: subject.libraryId,
-        collectionId: subject.collectionId ?? undefined,
+        collectionId:
+          subject.collectionId ?? continuation?.collectionId ?? undefined,
         presetId: args.presetId ?? continuation?.presetId ?? undefined,
         sessionId: args.sessionId ?? continuation?.sessionId ?? undefined,
         prompt,

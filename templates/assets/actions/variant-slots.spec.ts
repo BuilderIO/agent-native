@@ -348,7 +348,10 @@ describe("variant slot state", () => {
 
   it("resolves no continuation when there is no live tray for the thread", async () => {
     await expect(
-      resolveLiveBatchContinuation({ threadId: "thread-1", libraryId: "lib-1" }),
+      resolveLiveBatchContinuation({
+        threadId: "thread-1",
+        libraryId: "lib-1",
+      }),
     ).resolves.toBeNull();
   });
 
@@ -364,7 +367,10 @@ describe("variant slot state", () => {
     });
 
     await expect(
-      resolveLiveBatchContinuation({ threadId: "thread-1", libraryId: "lib-2" }),
+      resolveLiveBatchContinuation({
+        threadId: "thread-1",
+        libraryId: "lib-2",
+      }),
     ).resolves.toBeNull();
   });
 });

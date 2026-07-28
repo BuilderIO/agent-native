@@ -93,7 +93,63 @@ describe("edit-image", () => {
       expect.objectContaining({
         presetId: "preset-1",
         variantBatchId: "batch-live-1",
+        collectionId: undefined,
       }),
+      context,
+    );
+  });
+
+  it("falls back to the live tray's collection only when the asset has none", async () => {
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: "collection-live",
+      presetId: null,
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      {
+        assetId: "asset-target",
+        instruction: "Make the background navy",
+        source: "chat",
+      },
+      context,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: "collection-live" }),
+      context,
+    );
+  });
+
+  it("never overrides the asset's own collection with the live tray's", async () => {
+    getAssetOrThrowMock.mockResolvedValue({
+      id: "asset-target",
+      libraryId: "library-1",
+      collectionId: "collection-asset",
+      aspectRatio: "1:1",
+      imageSize: "2K",
+    });
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: "collection-live",
+      presetId: null,
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      {
+        assetId: "asset-target",
+        instruction: "Make the background navy",
+        source: "chat",
+      },
+      context,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: "collection-asset" }),
       context,
     );
   });

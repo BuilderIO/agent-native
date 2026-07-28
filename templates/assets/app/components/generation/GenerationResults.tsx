@@ -396,7 +396,8 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
               className="assets-library-tray flex gap-3 overflow-x-auto scroll-smooth p-3"
             >
               {slots.map((slot) => {
-                const variantNumber = variantNumberBySlotId.get(slot.slotId) ?? 1;
+                const variantNumber =
+                  variantNumberBySlotId.get(slot.slotId) ?? 1;
                 return (
                   <GenerationDraftCard
                     key={slot.slotId}

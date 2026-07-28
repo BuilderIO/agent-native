@@ -89,7 +89,58 @@ describe("refine-image", () => {
       expect.objectContaining({
         presetId: "preset-1",
         variantBatchId: "batch-live-1",
+        collectionId: undefined,
       }),
+      context,
+    );
+  });
+
+  it("falls back to the live tray's collection only when the source asset has none", async () => {
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: "collection-live",
+      presetId: null,
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      { assetId: "asset-source", feedback: "Reduce the text", source: "chat" },
+      context,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: "collection-live" }),
+      context,
+    );
+  });
+
+  it("never overrides the source asset's own collection with the live tray's", async () => {
+    getAssetOrThrowMock.mockResolvedValue({
+      id: "asset-source",
+      libraryId: "library-1",
+      collectionId: "collection-asset",
+      prompt: "Original prompt",
+      aspectRatio: "16:9",
+      imageSize: "2K",
+      model: "gemini-3.1-flash-image",
+      metadata: "{}",
+    });
+    resolveLiveBatchContinuationMock.mockResolvedValue({
+      variantBatchId: "batch-live-1",
+      collectionId: "collection-live",
+      presetId: null,
+      sessionId: null,
+    });
+    const context = { threadId: "thread-1" };
+
+    await action.run(
+      { assetId: "asset-source", feedback: "Reduce the text", source: "chat" },
+      context,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: "collection-asset" }),
       context,
     );
   });
