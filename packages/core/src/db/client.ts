@@ -638,6 +638,27 @@ function sqlAndArgs(sql: DbExecStatement): {
     : { rawSql: sql.sql, args: sql.args || [] };
 }
 
+const POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS = 250;
+const POSTGRES_MAX_INT = 2_147_483_647;
+
+function hasExplicitDbTimeout(statement: DbExecStatement): boolean {
+  if (typeof statement === "string") return false;
+  const timeoutMs = Number(statement.timeoutMs);
+  return Number.isFinite(timeoutMs) && timeoutMs > 0;
+}
+
+function postgresStatementTimeoutMs(clientTimeoutMs: number): number {
+  const safeTimeoutMs = Math.max(
+    1,
+    Math.min(POSTGRES_MAX_INT, Math.floor(clientTimeoutMs)),
+  );
+  const headroomMs = Math.min(
+    POSTGRES_STATEMENT_TIMEOUT_HEADROOM_MS,
+    Math.max(1, Math.floor(safeTimeoutMs * 0.1)),
+  );
+  return Math.max(1, safeTimeoutMs - headroomMs);
+}
+
 export function dbExecQueryBudget(statement: DbExecStatement): {
   timeoutMs: number;
   maxAttempts: number;
@@ -1229,6 +1250,36 @@ async function createDbExecInternal(
           rowsAffected: result.rowCount ?? 0,
         };
       }
+      async function queryNeonClientWithStatementTimeout(
+        client: any,
+        sql: Parameters<DbExec["execute"]>[0],
+        remainingMs: () => number,
+        markClientForDiscard: () => void,
+      ) {
+        const statementTimeoutMs = postgresStatementTimeoutMs(remainingMs());
+        await queryNeonClient(
+          client,
+          `SET statement_timeout = ${statementTimeoutMs}`,
+          remainingMs(),
+        );
+        try {
+          return await queryNeonClient(client, sql, remainingMs());
+        } finally {
+          try {
+            await queryNeonClient(
+              client,
+              "RESET statement_timeout",
+              remainingMs(),
+            );
+          } catch (err) {
+            markClientForDiscard();
+            console.warn(
+              "[db/neon] statement timeout reset failed; discarding connection:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      }
       return {
         async execute(sql) {
           const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
@@ -1276,17 +1327,25 @@ async function createDbExecInternal(
               released = true;
               client.release(err);
             };
+            let discardClient = false;
 
             try {
-              const result = await queryNeonClient(
-                client,
-                sql,
-                remainingAttemptMs(),
-              );
-              releaseClient();
+              const result = hasExplicitDbTimeout(sql)
+                ? await queryNeonClientWithStatementTimeout(
+                    client,
+                    sql,
+                    remainingAttemptMs,
+                    () => {
+                      discardClient = true;
+                    },
+                  )
+                : await queryNeonClient(client, sql, remainingAttemptMs());
+              releaseClient(discardClient ? true : undefined);
               return result;
             } catch (err) {
-              releaseClient(isConnectionError(err) ? true : undefined);
+              releaseClient(
+                discardClient || isConnectionError(err) ? true : undefined,
+              );
               throw err;
             }
           }, maxAttempts);
@@ -1317,7 +1376,23 @@ async function createDbExecInternal(
               client.release(err);
             };
             const tx: DbExec = {
-              execute: (sql) => queryNeonClient(client, sql),
+              execute: async (sql) => {
+                if (!hasExplicitDbTimeout(sql)) {
+                  return queryNeonClient(client, sql);
+                }
+                const { timeoutMs } = dbExecQueryBudget(sql);
+                const startedAt = Date.now();
+                const remainingMs = () =>
+                  Math.max(1, timeoutMs - (Date.now() - startedAt));
+                const statementTimeoutMs =
+                  postgresStatementTimeoutMs(remainingMs());
+                await queryNeonClient(
+                  client,
+                  `SET LOCAL statement_timeout = ${statementTimeoutMs}`,
+                  remainingMs(),
+                );
+                return queryNeonClient(client, sql, remainingMs());
+              },
             };
             try {
               await queryNeonClient(client, "BEGIN");

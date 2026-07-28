@@ -78,6 +78,35 @@ const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
 const THREADS_PAGE_SIZE = 50;
 
+const sharedThreadListRequests = new Map<
+  string,
+  Promise<ChatThreadSummary[] | undefined>
+>();
+
+async function fetchSharedThreadListPage(
+  apiUrl: string,
+  offset: number,
+): Promise<ChatThreadSummary[] | undefined> {
+  const requestKey = `${apiUrl}\n${offset}`;
+  const pending = sharedThreadListRequests.get(requestKey);
+  if (pending) return pending;
+
+  const request = fetch(
+    offset > 0 ? `${apiUrl}/threads?offset=${offset}` : `${apiUrl}/threads`,
+  )
+    .then(async (res) => {
+      if (!res.ok) return undefined;
+      const data = await res.json();
+      const threads = (data.threads ?? []) as ChatThreadSummary[];
+      return threads;
+    })
+    .finally(() => {
+      sharedThreadListRequests.delete(requestKey);
+    });
+  sharedThreadListRequests.set(requestKey, request);
+  return request;
+}
+
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
@@ -441,20 +470,14 @@ export function useChatThreads(
     async (options?: { append?: boolean }) => {
       try {
         const offset = options?.append ? nextThreadsOffsetRef.current : 0;
-        const res = await fetch(
-          offset > 0
-            ? `${apiUrl}/threads?offset=${offset}`
-            : `${apiUrl}/threads`,
-        );
-        if (!res.ok) {
+        const loaded = await fetchSharedThreadListPage(apiUrl, offset);
+        if (!loaded) {
           if (!options?.append) {
             setThreadsLoadError("Could not load chat history.");
           }
           return;
         }
-        const data = await res.json();
         setThreadsLoadError(null);
-        const loaded = (data.threads ?? []) as ChatThreadSummary[];
         if (!options?.append) {
           nextThreadsOffsetRef.current = loaded.length;
         } else {
@@ -526,7 +549,7 @@ export function useChatThreads(
           }
           return [...optimisticOnly, ...merged];
         });
-        return data.threads as ChatThreadSummary[];
+        return loaded;
       } catch {
         if (!options?.append) {
           setThreadsLoadError("Could not load chat history.");

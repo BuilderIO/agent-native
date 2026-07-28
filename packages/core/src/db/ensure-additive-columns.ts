@@ -154,24 +154,23 @@ async function introspectPostgresColumns(
     args.push(schema, table);
     return `(table_schema = ? AND table_name = ?)`;
   });
-  try {
-    const { rows } = await db.execute({
-      sql: `SELECT table_schema, table_name, column_name
-            FROM information_schema.columns
-            WHERE ${predicates.join(" OR ")}`,
-      args,
-    });
-    const columns = new Map<string, Set<string>>();
-    for (const row of rows) {
-      const key = `${String(row.table_schema)}.${String(row.table_name)}`;
-      const tableColumns = columns.get(key) ?? new Set<string>();
-      tableColumns.add(String(row.column_name));
-      columns.set(key, tableColumns);
-    }
-    return columns;
-  } catch {
-    return null;
+  // Deliberately not caught: this one query now covers every table, so
+  // swallowing a failure here would skip the entire safety net while
+  // reporting a clean result. The caller records it as an error instead.
+  const { rows } = await db.execute({
+    sql: `SELECT table_schema, table_name, column_name
+          FROM information_schema.columns
+          WHERE ${predicates.join(" OR ")}`,
+    args,
+  });
+  const columns = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const key = `${String(row.table_schema)}.${String(row.table_name)}`;
+    const tableColumns = columns.get(key) ?? new Set<string>();
+    tableColumns.add(String(row.column_name));
+    columns.set(key, tableColumns);
   }
+  return columns;
 }
 
 /**
@@ -343,9 +342,21 @@ export async function ensureAdditiveColumns(
     }
   }
 
-  const postgresColumns = isPostgres()
-    ? await introspectPostgresColumns(db, declaredTables)
-    : null;
+  let postgresColumns: Map<string, Set<string>> | null = null;
+  if (isPostgres()) {
+    try {
+      postgresColumns = await introspectPostgresColumns(db, declaredTables);
+    } catch (err) {
+      // One batch probe now covers every table, so its failure means nothing
+      // was checked. Returning an empty-but-clean result here would be
+      // indistinguishable from "schema already correct".
+      result.errors.push({
+        column: "*",
+        error: describeSchemaDriftError(err),
+      });
+      return result;
+    }
+  }
 
   for (const config of declaredTables) {
     const tableName = config.name;

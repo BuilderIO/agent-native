@@ -1371,6 +1371,45 @@ function coerceGatewayStringifiedArgs(
 }
 
 /**
+ * Compact signature of an action's parameters, e.g.
+ * `{ deckId*: string, operation*: "edit"|"replace", slideId?: string }` where
+ * `*` = required and `?` = optional.
+ *
+ * Enum values are spelled out because a rejected call is usually a wrong enum:
+ * gateways that pre-fill optional fields reach for the first allowed value, and
+ * a model that only learns "must be equal to one of the allowed values" re-sends
+ * the same guess until the identical-error breaker kills the turn.
+ *
+ * Shared so the raw-JSON-schema tool path in the agent loop describes a
+ * rejection the same way `wrapWithValidation` does for Zod actions.
+ */
+export function describeToolParameterSignature(
+  parameters: ActionTool["parameters"] | undefined,
+  only?: readonly string[],
+): string | null {
+  const properties = parameters?.properties;
+  if (!properties) return null;
+  const required = new Set(parameters?.required ?? []);
+  const keys = Object.keys(properties).filter(
+    (key) => !only?.length || only.includes(key),
+  );
+  const sig = (keys.length ? keys : Object.keys(properties))
+    .map((key) => {
+      const spec = properties[key];
+      const mark = required.has(key) ? "*" : "?";
+      const type = Array.isArray(spec.enum)
+        ? spec.enum.map((value) => JSON.stringify(value)).join("|")
+        : Array.isArray(spec.type)
+          ? spec.type.join("|")
+          : (spec.type ?? "any");
+      return `${key}${mark}: ${type}`;
+    })
+    .join(", ");
+  if (!sig) return null;
+  return `{ ${sig.length > 600 ? `${sig.slice(0, 600)}…` : sig} }`;
+}
+
+/**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
  * so the agent can see its own mistake and correct it on the next turn.
@@ -1427,22 +1466,10 @@ function wrapWithValidation(
         received = String(args);
       }
 
-      // Also show the EXPECTED signature so the agent doesn't have to guess.
-      // Format: `{ deckId*: string, content*: string, slideId?: string, ... }`
-      // where `*` = required, `?` = optional.
-      let expected = "";
-      if (toolParameters?.properties) {
-        const required = new Set(toolParameters.required ?? []);
-        const sig = Object.entries(toolParameters.properties)
-          .map(([k, v]) => {
-            const mark = required.has(k) ? "*" : "?";
-            const type = (v as { type?: string }).type ?? "any";
-            return `${k}${mark}: ${type}`;
-          })
-          .join(", ");
-        if (sig)
-          expected = ` Expected: { ${sig} } (where * = required, ? = optional).`;
-      }
+      const signature = describeToolParameterSignature(toolParameters);
+      const expected = signature
+        ? ` Expected: ${signature} (where * = required, ? = optional).`
+        : "";
 
       throw new Error(
         `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,

@@ -949,6 +949,50 @@ function latestModelsOnly(models: string[]): string[] {
 }
 
 /**
+ * Coarse relative cost per model, rendered as a quiet `$`…`$$$` suffix.
+ *
+ * Tokens and their order mirror `MODEL_COST_ORDER` in `@agent-native/core`'s
+ * chat-model-groups, which sorts these same rows — the toolkit cannot import
+ * from core, so a new model family has to be added in both places. Tiers are
+ * each provider's own entry/mid/flagship ladder, not a cross-provider price
+ * claim; anything unlisted has no tier rather than a guessed one.
+ */
+const MODEL_COST_TIERS: ReadonlyArray<readonly [string, 1 | 2 | 3]> = [
+  ["luna", 1],
+  ["terra", 2],
+  ["sol", 3],
+  ["haiku", 1],
+  ["sonnet", 2],
+  ["opus", 3],
+  ["fable", 3],
+  ["flash", 1],
+  ["pro", 3],
+];
+
+const COST_TIER_LABELS = { 1: "Lower", 2: "Medium", 3: "Higher" } as const;
+
+export function composerModelCostTier(model: string): 1 | 2 | 3 | undefined {
+  const normalized = model.toLowerCase();
+  return MODEL_COST_TIERS.find(([token]) => normalized.includes(token))?.[1];
+}
+
+function ModelCostTier({ model }: { model: string }) {
+  const tier = composerModelCostTier(model);
+  if (!tier) return null;
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className="shrink-0 text-[11px] tabular-nums text-muted-foreground/60"
+      >
+        {"$".repeat(tier)}
+      </span>
+      <span className="sr-only">{COST_TIER_LABELS[tier]} cost</span>
+    </>
+  );
+}
+
+/**
  * Optional secondary model menu for apps that drive a separate generation model
  * alongside the chat LLM (e.g. the Assets app's image-generation model). When
  * provided, the model picker renders an extra collapsible section so the user
@@ -1357,6 +1401,7 @@ function ModelSelector({
                       <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
                         {friendlyModelName(m)}
                       </span>
+                      <ModelCostTier model={m} />
                       {m === model && group.configured && (
                         <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                       )}

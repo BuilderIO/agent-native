@@ -1,4 +1,3 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
@@ -34,7 +33,14 @@ import {
   IconSun,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Links,
   Meta,
@@ -118,6 +124,11 @@ export function shouldRevalidate({
 
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
+
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
+});
 
 const DEFAULT_LOADER_DATA: RootLoaderData = {
   locale: "en-US",
@@ -509,19 +520,29 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AgentSidebar
-      position="right"
-      defaultOpen={false}
-      defaultSidebarWidth={420}
-      emptyStateText={t("chat.publicEmptyState")}
-      suggestions={[
-        t("chat.publicSuggestionSummary"),
-        t("chat.publicSuggestionTakeaways"),
-        t("chat.publicSuggestionActionPlan"),
-      ]}
+    <Suspense
+      fallback={
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-auto">
+            {content}
+          </div>
+        </div>
+      }
     >
-      {content}
-    </AgentSidebar>
+      <LazyAgentSidebar
+        position="right"
+        defaultOpen={false}
+        defaultSidebarWidth={420}
+        emptyStateText={t("chat.publicEmptyState")}
+        suggestions={[
+          t("chat.publicSuggestionSummary"),
+          t("chat.publicSuggestionTakeaways"),
+          t("chat.publicSuggestionActionPlan"),
+        ]}
+      >
+        {content}
+      </LazyAgentSidebar>
+    </Suspense>
   );
 }
 

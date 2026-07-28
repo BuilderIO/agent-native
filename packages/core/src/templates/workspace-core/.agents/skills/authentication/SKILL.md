@@ -39,8 +39,11 @@ Auth is powered by **Better Auth** with account-first design. Every new user cre
 Every app's `/mcp` endpoint is also a standard protected MCP
 resource. OAuth-capable hosts connect with the remote MCP URL only, receive a
 `WWW-Authenticate` challenge, discover `/.well-known/oauth-protected-resource`
-and `/.well-known/oauth-authorization-server`, dynamically register a public
-client, and complete authorization-code + PKCE at
+and `/.well-known/oauth-authorization-server`, then use a validated Client ID
+Metadata Document when the client id is an HTTPS URL or dynamically register a
+public client otherwise. URL-like client ids never fall back to dynamic
+registration when their metadata is missing or invalid. Clients complete
+authorization-code + PKCE at
 `/mcp/oauth/authorize` / `/mcp/oauth/token`.
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;

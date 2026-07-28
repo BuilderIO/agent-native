@@ -8,6 +8,7 @@ import {
   canRemoveVoicePreview,
   compactComposerModelName,
   compactComposerReasoningEffortLabel,
+  composerModelCostTier,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
   getComposerSubmitIntentForEnterKey,
@@ -361,6 +362,28 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
     // No CTA to fall back on — keep the list rather than empty the popover.
     expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
+  });
+});
+
+describe("composerModelCostTier", () => {
+  it("tiers each provider's entry, mid, and flagship models", () => {
+    expect(composerModelCostTier("gpt-5-6-luna")).toBe(1);
+    expect(composerModelCostTier("gpt-5.6-terra")).toBe(2);
+    expect(composerModelCostTier("openai/gpt-5.6-sol")).toBe(3);
+    expect(composerModelCostTier("claude-haiku-4-5")).toBe(1);
+    expect(composerModelCostTier("claude-sonnet-5")).toBe(2);
+    expect(composerModelCostTier("anthropic/claude-opus-4.8")).toBe(3);
+    expect(composerModelCostTier("claude-fable-5")).toBe(3);
+    expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
+    expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);
+  });
+
+  it("returns undefined for unmapped models so no cost label renders", () => {
+    // A guessed tier is worse than none — these render without a `$` label.
+    expect(composerModelCostTier("auto")).toBeUndefined();
+    expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
+    expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();
+    expect(composerModelCostTier("")).toBeUndefined();
   });
 });
 

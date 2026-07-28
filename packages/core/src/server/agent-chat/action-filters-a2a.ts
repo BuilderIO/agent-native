@@ -119,6 +119,33 @@ export function buildPublicAgentA2ASkills(
   );
 }
 
+/**
+ * Skills for a caller with a verified A2A identity: exactly what
+ * `filterDirectA2AActions` will execute. Kept separate from
+ * `buildPublicAgentA2ASkills` because the public card may only name actions
+ * with `requiresAuth !== true` while direct invocation requires
+ * `requiresAuth === true` — advertising the public set alone tells siblings
+ * an app has nothing callable when it does.
+ */
+export function buildAuthenticatedAgentA2ASkills(
+  actions: Record<string, ActionEntry>,
+  options: Pick<AgentChatPluginOptions, "connectorCatalog" | "externalAgents">,
+): Array<{
+  id: string;
+  name: string;
+  description: string;
+  publicAgent: ActionEntry["publicAgent"];
+}> {
+  return Object.entries(filterDirectA2AActions(actions, options)).map(
+    ([name, entry]) => ({
+      id: name,
+      name,
+      description: entry.tool.description,
+      publicAgent: entry.publicAgent,
+    }),
+  );
+}
+
 export function resolveArtifactBaseUrl(
   event: any | undefined,
 ): string | undefined {

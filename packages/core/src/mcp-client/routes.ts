@@ -1055,10 +1055,8 @@ async function tryConnect(
   | { ok: false; error: string }
 > {
   try {
-    const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
-      import("@modelcontextprotocol/sdk/client/index.js"),
-      import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-    ]);
+    const { Client, StreamableHTTPClientTransport } =
+      await import("@modelcontextprotocol/client");
     const requestInit: Record<string, unknown> = {};
     if (headers && Object.keys(headers).length > 0) {
       requestInit.headers = headers;
@@ -1068,7 +1066,10 @@ async function tryConnect(
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },
-      { capabilities: {} },
+      {
+        capabilities: {},
+        versionNegotiation: { mode: "auto" },
+      },
     );
     try {
       await client.connect(transport);
