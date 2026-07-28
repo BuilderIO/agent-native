@@ -170,7 +170,8 @@ async function streamFileToStorage(
       try {
         offset = await queryCommittedOffset(sessionUri, total);
       } catch {
-        // Keep the current offset and retry from the last known position.
+        // If the offset query also fails, retry from the last local offset —
+        // GCS's resumable PUT safely re-acknowledges bytes it already has.
       }
       onProgress(offset);
     }

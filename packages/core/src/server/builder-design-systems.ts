@@ -433,9 +433,9 @@ async function uploadToResumableUrl(
     return;
   }
 
-  // Stream the file to GCS in resumable chunks so very large `.fig` uploads
-  // never ride on one unbounded request body. On a chunk failure we re-query
-  // the committed offset and resume from GCS's last acknowledged byte.
+  // A failed PUT may have still landed at GCS, so the local offset can't be
+  // trusted after an error — only GCS's committed-offset response is
+  // authoritative.
   let offset = 0;
   let retries = 0;
   while (offset < total) {
@@ -472,7 +472,8 @@ async function uploadToResumableUrl(
       try {
         offset = await queryCommittedOffset(sessionUrl, total);
       } catch {
-        // Keep the current offset and retry from the last known position.
+        // If the offset query also fails, retry from the last local offset —
+        // GCS's resumable PUT safely re-acknowledges bytes it already has.
       }
     }
   }
@@ -795,10 +796,9 @@ export async function indexBuilderDesignSystem(
   }
 
   const jobId = indexed.jobId ?? "";
-  // The `.fig` decode job creates the Fusion branch asynchronously, so its URL
-  // is usually absent on the /index body. Return the jobId immediately and let
-  // the caller poll the decode-job status endpoint for branchUrl; only use an
-  // inline branchUrl if /index already provided one.
+  // The `.fig` decode job creates the Fusion branch asynchronously, so
+  // `/index` usually can't return a branchUrl yet — the caller polls the
+  // decode-job status endpoint for it once the job completes.
   const branchUrl = indexed.branchUrl?.trim() || null;
 
   return {
